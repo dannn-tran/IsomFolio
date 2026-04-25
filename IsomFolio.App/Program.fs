@@ -13,12 +13,12 @@ type MainWindow() as this =
     inherit HostWindow()
     do
         base.Title <- "IsomFolio"
-        base.Icon <- WindowIcon(System.IO.Path.Combine("Assets", "Icons", "icon.ico"))
         base.Width <- 1400.0
         base.Height <- 900.0
         base.MinWidth <- 800.0
         base.MinHeight <- 600.0
 
+        UI.MainView.window <- Some (this :> Window)
         Elmish.Program.mkProgram UI.MainView.init UI.MainView.update UI.MainView.view
         |> Program.withHost this
         |> Program.run
