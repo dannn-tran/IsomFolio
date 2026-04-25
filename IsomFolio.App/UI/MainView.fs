@@ -21,6 +21,7 @@ type State = {
     ActiveQuery : SearchQuery
     Errors      : AppError list
     IsFirstRun  : bool
+    CatalogPath : string option
 }
 
 type Msg =
@@ -38,7 +39,9 @@ type Msg =
     | TagsUpdated     of FileId * string list
     | TagsSaved       of FileId * string list
     | AppError        of AppError
-    | DbInitialised
+    | NewCatalogRequested
+    | OpenCatalogRequested
+    | CatalogOpened   of catalogPath: string
     | NoOp
 
 let private defaultQuery = {
@@ -56,13 +59,21 @@ let init () : State * Cmd<Msg> =
         ActiveQuery  = defaultQuery
         Errors       = []
         IsFirstRun   = true
+        CatalogPath  = None
     }
     let initCmd =
-        Cmd.OfAsync.either
-            (fun () -> Db.openDatabase (IsomFolio.AppPaths.dbPath()))
-            ()
-            (fun () -> DbInitialised)
-            (fun ex -> AppError (DbError ex.Message))
+        match IsomFolio.AppPaths.readLastCatalog() with
+        | None -> Cmd.none
+        | Some path ->
+            Cmd.OfAsync.either
+                (fun () -> async {
+                    IsomFolio.AppPaths.setCatalogRoot path
+                    do! Db.openDatabase (IsomFolio.AppPaths.dbPath())
+                    return path
+                })
+                ()
+                CatalogOpened
+                (fun ex -> AppError (DbError ex.Message))
     state, initCmd
 
 let private runSearch (query: SearchQuery) : Cmd<Msg> =
@@ -74,14 +85,64 @@ let private runSearch (query: SearchQuery) : Cmd<Msg> =
 
 let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     match msg with
-    | SidebarMsg (Sidebar.OpenFolderRequested) ->
+    | NewCatalogRequested ->
         let cmd =
             Cmd.OfAsync.either
                 (fun () -> async {
                     match window with
                     | None -> return NoOp
                     | Some w ->
-                        let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(Title = "Open Folder", AllowMultiple = false)
+                        let opts = Avalonia.Platform.Storage.FilePickerSaveOptions(
+                            Title = "Create New Catalog",
+                            SuggestedFileName = "my-library")
+                        let! file = w.StorageProvider.SaveFilePickerAsync(opts) |> Async.AwaitTask
+                        if isNull file then return NoOp
+                        else
+                            let rawPath = file.Path.LocalPath
+                            let parentDir = System.IO.Path.GetDirectoryName(rawPath)
+                            let baseName  = System.IO.Path.GetFileNameWithoutExtension(rawPath)
+                            let catalogPath = IsomFolio.AppPaths.createCatalog parentDir baseName
+                            IsomFolio.AppPaths.setCatalogRoot catalogPath
+                            do! Db.openDatabase (IsomFolio.AppPaths.dbPath())
+                            IsomFolio.AppPaths.saveLastCatalog catalogPath
+                            return CatalogOpened catalogPath })
+                ()
+                id
+                (fun ex -> AppError (ScanError ex.Message))
+        state, cmd
+
+    | OpenCatalogRequested ->
+        let cmd =
+            Cmd.OfAsync.either
+                (fun () -> async {
+                    match window with
+                    | None -> return NoOp
+                    | Some w ->
+                        let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(Title = "Open Catalog", AllowMultiple = false)
+                        let! folders = w.StorageProvider.OpenFolderPickerAsync(opts) |> Async.AwaitTask
+                        if folders.Count = 0 then return NoOp
+                        else
+                            let catalogPath = folders[0].Path.LocalPath
+                            IsomFolio.AppPaths.setCatalogRoot catalogPath
+                            do! Db.openDatabase (IsomFolio.AppPaths.dbPath())
+                            IsomFolio.AppPaths.saveLastCatalog catalogPath
+                            return CatalogOpened catalogPath })
+                ()
+                id
+                (fun ex -> AppError (DbError ex.Message))
+        state, cmd
+
+    | CatalogOpened path ->
+        { state with CatalogPath = Some path; IsFirstRun = false }, Cmd.none
+
+    | SidebarMsg (Sidebar.AddFolderRequested) ->
+        let cmd =
+            Cmd.OfAsync.either
+                (fun () -> async {
+                    match window with
+                    | None -> return NoOp
+                    | Some w ->
+                        let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(Title = "Add Folder", AllowMultiple = false)
                         let! folders = w.StorageProvider.OpenFolderPickerAsync(opts) |> Async.AwaitTask
                         if folders.Count > 0 then
                             return FolderOpened (folders[0].Path.LocalPath)
@@ -197,7 +258,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | FolderOpened path ->
         let newSidebar = Sidebar.update (Sidebar.FoldersLoaded (state.Sidebar.Folders @ [ path ])) state.Sidebar
-        let newState = { state with Sidebar = newSidebar; IsFirstRun = false; ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName(path) } }
+        let newState = { state with Sidebar = newSidebar; ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName(path) } }
         newState, Cmd.none   // Scanner wired in Phase 7
 
     | ScanBatchCompleted files ->
@@ -228,10 +289,6 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             else state.Detail
         { state with Detail = newDetail }, Cmd.none
 
-    | DbInitialised ->
-        let isFirstRun = state.Sidebar.Folders.IsEmpty
-        { state with IsFirstRun = isFirstRun }, Cmd.none
-
     | AppError err ->
         { state with Errors = err :: state.Errors |> List.truncate 5 }, Cmd.none
 
@@ -258,12 +315,24 @@ let private welcomeView (dispatch: Msg -> unit) =
                         TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
                         TextBlock.horizontalAlignment HorizontalAlignment.Center
                     ]
-                    Button.create [
-                        Button.content "Open Folder…"
-                        Button.fontSize 16.0
-                        Button.padding (Avalonia.Thickness(24.0, 10.0))
-                        Button.horizontalAlignment HorizontalAlignment.Center
-                        Button.onClick (fun _ -> dispatch (SidebarMsg Sidebar.OpenFolderRequested))
+                    StackPanel.create [
+                        StackPanel.orientation Orientation.Horizontal
+                        StackPanel.horizontalAlignment HorizontalAlignment.Center
+                        StackPanel.spacing 8.0
+                        StackPanel.children [
+                            Button.create [
+                                Button.content "New Catalog…"
+                                Button.fontSize 16.0
+                                Button.padding (Avalonia.Thickness(24.0, 10.0))
+                                Button.onClick (fun _ -> dispatch NewCatalogRequested)
+                            ]
+                            Button.create [
+                                Button.content "Open Catalog…"
+                                Button.fontSize 16.0
+                                Button.padding (Avalonia.Thickness(24.0, 10.0))
+                                Button.onClick (fun _ -> dispatch OpenCatalogRequested)
+                            ]
+                        ]
                     ]
                 ]
             ]

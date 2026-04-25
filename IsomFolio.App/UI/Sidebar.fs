@@ -12,7 +12,7 @@ type State = {
 }
 
 type Msg =
-    | OpenFolderRequested
+    | AddFolderRequested
     | FolderRemoved      of string
     | TagToggled         of string
     | FoldersLoaded      of string list
@@ -31,7 +31,7 @@ let update (msg: Msg) (state: State) =
             then state.SelectedTags |> List.filter ((<>) tag)
             else state.SelectedTags @ [ tag ]
         { state with SelectedTags = selected }
-    | OpenFolderRequested -> state
+    | AddFolderRequested -> state
 
 let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -> unit) =
     Border.create [
@@ -66,10 +66,10 @@ let view (state: State) (dispatch: Msg -> unit) =
         DockPanel.children [
             Button.create [
                 Button.dock Dock.Top
-                Button.content "Open Folder…"
+                Button.content "Add Folder…"
                 Button.horizontalAlignment HorizontalAlignment.Stretch
                 Button.margin (Avalonia.Thickness(8.0))
-                Button.onClick (fun _ -> dispatch OpenFolderRequested)
+                Button.onClick (fun _ -> dispatch AddFolderRequested)
             ]
             ScrollViewer.create [
                 ScrollViewer.content (
