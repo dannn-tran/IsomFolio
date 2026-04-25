@@ -13,6 +13,9 @@ let private getConn () =
     | Some c -> c
     | None   -> failwith "Database not opened. Call openDatabase first."
 
+/// Exposes the raw connection for modules that build their own queries (FTS, QueryEngine)
+let connection () = getConn ()
+
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
