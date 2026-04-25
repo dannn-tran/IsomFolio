@@ -35,9 +35,8 @@ let private readAssetFile (r: SqliteDataReader) : AssetFile =
 // ---------------------------------------------------------------------------
 
 /// Execute a SearchQuery — combines FTS5 candidate selection with SQL filtering.
-let executeSearch (query: SearchQuery) : Async<AssetFile list> =
+let executeSearch (c: SqliteConnection) (query: SearchQuery) : Async<AssetFile list> =
     async {
-        let c = Db.connection ()
         use cmd = c.CreateCommand()
 
         let sql = StringBuilder()
@@ -61,7 +60,7 @@ let executeSearch (query: SearchQuery) : Async<AssetFile list> =
             async {
                 match query.Text with
                 | Some txt when txt.Trim() <> "" ->
-                    let! candidateIds = FTS.searchFts5 txt
+                    let! candidateIds = txt |> FTS.searchFts5 c
                     if candidateIds.IsEmpty then
                         return true
                     else

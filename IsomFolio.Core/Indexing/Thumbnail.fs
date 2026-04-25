@@ -3,6 +3,7 @@ module IsomFolio.Indexing.Thumbnail
 open System
 open System.IO
 open System.Collections.Generic
+open Microsoft.Data.Sqlite
 open SkiaSharp
 open IsomFolio.Models
 open IsomFolio.AppPaths
@@ -11,11 +12,11 @@ open IsomFolio.AppPaths
 // Cache helpers
 // ---------------------------------------------------------------------------
 
-let thumbnailCachePath (fileId: FileId) : string =
-    Path.Combine(thumbnailCacheDir (), fileId + ".jpg")
+let thumbnailCachePath (catalogDir: string) (fileId: FileId) : string =
+    Path.Combine(thumbnailCacheDir catalogDir, fileId + ".jpg")
 
-let isCacheValid (fileId: FileId) : bool =
-    File.Exists(thumbnailCachePath fileId)
+let isCacheValid (catalogDir: string) (fileId: FileId) : bool =
+    File.Exists(thumbnailCachePath catalogDir fileId)
 
 // ---------------------------------------------------------------------------
 // Generation
@@ -25,14 +26,14 @@ let private targetSize = 256
 
 /// Decode, resize to 256px longest edge, encode as JPEG 85, atomic write.
 /// Returns Ok(cachePath) or Error(message).
-let generateThumbnail (req: ThumbnailRequest) : Async<Result<string, string>> =
+let generateThumbnail (catalogDir: string) (req: ThumbnailRequest) : Async<Result<string, string>> =
     async {
-        let dest = thumbnailCachePath req.FileId
+        let dest = thumbnailCachePath catalogDir req.FileId
         if File.Exists(dest) then
             return Ok dest
         else
             try
-                ensureDirectories ()
+                ensureDirectories catalogDir
 
                 use bitmap = SKBitmap.Decode(req.FilePath)
                 if isNull bitmap then
@@ -75,6 +76,7 @@ type ThumbnailMsg =
 /// concurrency: number of parallel workers (default 4).
 /// onReady / onFailed: callbacks invoked on the calling context (route through Dispatcher.UIThread.Post in App layer).
 let createWorkerPool
+    (catalogDir   : string)
     (concurrency  : int)
     (onReady  : FileId -> string -> unit)
     (onFailed : FileId -> string -> unit)
@@ -131,13 +133,13 @@ let createWorkerPool
                         do! sem.WaitAsync() |> Async.AwaitTask
                         Async.Start(async {
                             try
-                                let! result = generateThumbnail work
+                                let! result = generateThumbnail catalogDir work
                                 match result with
                                 | Ok path  -> onReady  work.FileId path
                                 | Error msg ->
                                     // Retry once after 5 seconds
                                     do! Async.Sleep 5000
-                                    let! retry = generateThumbnail work
+                                    let! retry = generateThumbnail catalogDir work
                                     match retry with
                                     | Ok path -> onReady  work.FileId path
                                     | Error _ -> onFailed work.FileId msg
@@ -157,15 +159,15 @@ let createWorkerPool
 
 /// Remove thumbnails from the cache dir that have no matching file in the DB.
 /// Called at startup after the initial scan completes.
-let sweepThumbnailCache () : Async<int> =
+let sweepThumbnailCache (c: SqliteConnection) (catalogDir: string) : Async<int> =
     async {
-        let cacheDir = thumbnailCacheDir ()
+        let cacheDir = thumbnailCacheDir catalogDir
         if not (Directory.Exists(cacheDir)) then return 0
         else
             let mutable removed = 0
             for file in Directory.EnumerateFiles(cacheDir, "*.jpg") do
                 let fileId = Path.GetFileNameWithoutExtension(file)
-                let! existing = IsomFolio.Storage.Db.getFileById fileId
+                let! existing = fileId |> IsomFolio.Storage.Db.getFileById c
                 match existing with
                 | None ->
                     try File.Delete(file); removed <- removed + 1

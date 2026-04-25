@@ -5,6 +5,7 @@ open System.IO
 open IsomFolio.Models
 open IsomFolio.FileIndex
 open IsomFolio.Storage
+open Microsoft.Data.Sqlite
 
 /// Recursively scan a folder, batch-insert into the DB, and report progress.
 /// onBatch is called with each batch of 500 files — caller routes to DB upsert.
@@ -52,9 +53,9 @@ let scanFolder
 
 /// Compare filesystem state against DB records for a root folder.
 /// Returns lists of paths that are new-or-modified and FileIds that are orphaned.
-let reconcileFolder (rootPath: string) : Async<string list * string list> =
+let reconcileFolder (c: SqliteConnection) (rootPath: string) : Async<string list * string list> =
     async {
-        let! indexed = Db.getIndexedPathsInFolder rootPath
+        let! indexed = Db.getIndexedPathsInFolder c rootPath
 
         let fsFiles = System.Collections.Generic.Dictionary<string, FileInfo>()
         try
