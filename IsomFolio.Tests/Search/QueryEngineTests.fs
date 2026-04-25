@@ -10,7 +10,7 @@ open IsomFolio.Search
 let private openTestDb () =
     async {
         let dbPath = Path.Combine(Path.GetTempPath(), $"isomfolio_search_{Guid.NewGuid():N}.db")
-        do! Db.openDatabase dbPath
+        return! Db.openDatabase dbPath
     }
 
 let private makeFile (name: string) (folder: string) (ext: string) : AssetFile =
@@ -61,18 +61,18 @@ module ExecuteSearch =
     [<Fact>]
     let ``returns all non-orphaned files when no filters`` () =
         async {
-            do! openTestDb ()
-            let! _ = Db.upsertFiles [ makeFile "alpha" "/photos" "jpg"; makeFile "beta" "/photos" "png" ]
-            let! results = QueryEngine.executeSearch defaultQuery
+            let! c = openTestDb ()
+            let! _ = Db.upsertFiles c [ makeFile "alpha" "/photos" "jpg"; makeFile "beta" "/photos" "png" ]
+            let! results = QueryEngine.executeSearch c defaultQuery
             Assert.Equal(2, results.Length)
         } |> Async.RunSynchronously
 
     [<Fact>]
     let ``filters by extension`` () =
         async {
-            do! openTestDb ()
-            let! _ = Db.upsertFiles [ makeFile "a" "/p" "jpg"; makeFile "b" "/p" "png"; makeFile "c" "/p" "jpg" ]
-            let! results = QueryEngine.executeSearch { defaultQuery with Extensions = [ "jpg" ] }
+            let! c = openTestDb ()
+            let! _ = Db.upsertFiles c [ makeFile "a" "/p" "jpg"; makeFile "b" "/p" "png"; makeFile "c" "/p" "jpg" ]
+            let! results = QueryEngine.executeSearch c { defaultQuery with Extensions = [ "jpg" ] }
             Assert.Equal(2, results.Length)
             Assert.True(results |> List.forall (fun f -> f.Ext = "jpg"))
         } |> Async.RunSynchronously
@@ -80,12 +80,12 @@ module ExecuteSearch =
     [<Fact>]
     let ``filters by tag`` () =
         async {
-            do! openTestDb ()
+            let! c = openTestDb ()
             let f1 = makeFile "tagged"   "/p" "jpg"
             let f2 = makeFile "untagged" "/p" "jpg"
-            let! _ = Db.upsertFiles [ f1; f2 ]
-            do! Db.upsertTags f1.Id [ "vacation" ]
-            let! results = QueryEngine.executeSearch { defaultQuery with Tags = [ "vacation" ] }
+            let! _ = Db.upsertFiles c [ f1; f2 ]
+            do! Db.upsertTags c f1.Id [ "vacation" ]
+            let! results = QueryEngine.executeSearch c { defaultQuery with Tags = [ "vacation" ] }
             Assert.Equal(1, results.Length)
             Assert.Equal(f1.Id, results[0].Id)
         } |> Async.RunSynchronously
@@ -93,11 +93,11 @@ module ExecuteSearch =
     [<Fact>]
     let ``FTS matches by filename`` () =
         async {
-            do! openTestDb ()
+            let! c = openTestDb ()
             let f1 = makeFile "beach_sunset"  "/p" "jpg"
             let f2 = makeFile "mountain_view" "/p" "jpg"
-            let! _ = Db.upsertFiles [ f1; f2 ]
-            let! results = QueryEngine.executeSearch { defaultQuery with Text = Some "beach" }
+            let! _ = Db.upsertFiles c [ f1; f2 ]
+            let! results = QueryEngine.executeSearch c { defaultQuery with Text = Some "beach" }
             Assert.Equal(1, results.Length)
             Assert.Equal(f1.Id, results[0].Id)
         } |> Async.RunSynchronously
@@ -105,21 +105,21 @@ module ExecuteSearch =
     [<Fact>]
     let ``FTS no match returns empty`` () =
         async {
-            do! openTestDb ()
-            let! _ = Db.upsertFiles [ makeFile "sunset" "/p" "jpg" ]
-            let! results = QueryEngine.executeSearch { defaultQuery with Text = Some "xyznotfound" }
+            let! c = openTestDb ()
+            let! _ = Db.upsertFiles c [ makeFile "sunset" "/p" "jpg" ]
+            let! results = QueryEngine.executeSearch c { defaultQuery with Text = Some "xyznotfound" }
             Assert.Empty(results)
         } |> Async.RunSynchronously
 
     [<Fact>]
     let ``excludes orphaned files`` () =
         async {
-            do! openTestDb ()
+            let! c = openTestDb ()
             let f1 = makeFile "visible" "/p" "jpg"
             let f2 = makeFile "orphan"  "/p" "jpg"
-            let! _ = Db.upsertFiles [ f1; f2 ]
-            do! Db.markOrphaned f2.Id
-            let! results = QueryEngine.executeSearch defaultQuery
+            let! _ = Db.upsertFiles c [ f1; f2 ]
+            do! Db.markOrphaned c f2.Id
+            let! results = QueryEngine.executeSearch c defaultQuery
             Assert.Equal(1, results.Length)
             Assert.Equal(f1.Id, results[0].Id)
         } |> Async.RunSynchronously
@@ -127,9 +127,9 @@ module ExecuteSearch =
     [<Fact>]
     let ``sorts ascending by name`` () =
         async {
-            do! openTestDb ()
-            let! _ = Db.upsertFiles [ makeFile "zebra" "/p" "jpg"; makeFile "alpha" "/p" "jpg"; makeFile "mango" "/p" "jpg" ]
-            let! results = QueryEngine.executeSearch { defaultQuery with SortBy = Name; SortAsc = true }
+            let! c = openTestDb ()
+            let! _ = Db.upsertFiles c [ makeFile "zebra" "/p" "jpg"; makeFile "alpha" "/p" "jpg"; makeFile "mango" "/p" "jpg" ]
+            let! results = QueryEngine.executeSearch c { defaultQuery with SortBy = Name; SortAsc = true }
             let names = results |> List.map (fun f -> f.Name)
             Assert.Equal<string list>([ "alpha.jpg"; "mango.jpg"; "zebra.jpg" ], names)
         } |> Async.RunSynchronously

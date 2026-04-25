@@ -6,23 +6,12 @@ open System.IO
 let private appDataRoot () =
     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "IsomFolio")
 
-let mutable private catalogRoot: string option = None
+let dbPath (catalogDir: string)            = Path.Combine(catalogDir, "catalog.db")
+let thumbnailCacheDir (catalogDir: string) = Path.Combine(catalogDir, "thumbnails")
+let sessionFilePath ()                     = Path.Combine(appDataRoot (), "session.json")
 
-let private requireCatalogRoot () =
-    match catalogRoot with
-    | Some p -> p
-    | None   -> failwith "No catalog open. Call setCatalogRoot or createCatalog first."
-
-let dbPath ()            = Path.Combine(requireCatalogRoot (), "catalog.db")
-let thumbnailCacheDir () = Path.Combine(requireCatalogRoot (), "thumbnails")
-let sessionFilePath ()   = Path.Combine(appDataRoot (), "session.json")
-
-let ensureDirectories () =
-    Directory.CreateDirectory(thumbnailCacheDir ()) |> ignore
-
-let setCatalogRoot (path: string) =
-    catalogRoot <- Some path
-    Directory.CreateDirectory(Path.Combine(path, "thumbnails")) |> ignore
+let ensureDirectories (catalogDir: string) =
+    Directory.CreateDirectory(thumbnailCacheDir catalogDir) |> ignore
 
 let createCatalog (parentDir: string) (name: string) : string =
     let catalogPath = Path.Combine(parentDir, name + ".isomfolio")

@@ -5,39 +5,26 @@ open System.IO
 open Microsoft.Data.Sqlite
 open IsomFolio.Models
 
-// Single long-lived connection — WAL mode is safe for a single-process desktop app
-let mutable private conn: SqliteConnection option = None
-
-let private getConn () =
-    match conn with
-    | Some c -> c
-    | None   -> failwith "Database not opened. Call openDatabase first."
-
-/// Exposes the raw connection for modules that build their own queries (FTS, QueryEngine)
-let connection () = getConn ()
-
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
-let openDatabase (dbPath: string) : Async<unit> =
+let openDatabase (dbPath: string) : Async<SqliteConnection> =
     async {
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)) |> ignore
         let c = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate")
         c.Open()
-        // PRAGMAs must be run as separate statements
         for pragma in Schema.pragmas.Split(';', StringSplitOptions.RemoveEmptyEntries) do
             let trimmed = pragma.Trim()
             if trimmed.Length > 0 then
                 use cmd = c.CreateCommand()
                 cmd.CommandText <- trimmed
                 cmd.ExecuteNonQuery() |> ignore
-        // DDL
         for ddl in Schema.allDdl do
             use cmd = c.CreateCommand()
             cmd.CommandText <- ddl
             cmd.ExecuteNonQuery() |> ignore
-        conn <- Some c
+        return c
     }
 
 // ---------------------------------------------------------------------------
@@ -62,9 +49,8 @@ let private readAssetFile (reader: SqliteDataReader) : AssetFile =
 // ---------------------------------------------------------------------------
 
 /// Batch upsert — inserts or replaces in transactions of 500. Returns total rows affected.
-let upsertFiles (files: AssetFile list) : Async<int> =
+let upsertFiles (c: SqliteConnection) (files: AssetFile list) : Async<int> =
     async {
-        let c = getConn ()
         let mutable total = 0
         for batch in files |> List.chunkBySize 500 do
             use tx = c.BeginTransaction()
@@ -92,9 +78,8 @@ let upsertFiles (files: AssetFile list) : Async<int> =
         return total
     }
 
-let getFilesByFolder (folder: string) : Async<AssetFile list> =
+let getFilesByFolder (c: SqliteConnection) (folder: string) : Async<AssetFile list> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
@@ -110,11 +95,9 @@ let getFilesByFolder (folder: string) : Async<AssetFile list> =
         return results |> Seq.toList
     }
 
-let getFilesByFolderRecursive (rootFolder: string) : Async<AssetFile list> =
+let getFilesByFolderRecursive (c: SqliteConnection) (rootFolder: string) : Async<AssetFile list> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
-        // Match root folder and all subfolders via LIKE prefix
         cmd.CommandText <- """
             SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
             FROM files
@@ -130,9 +113,8 @@ let getFilesByFolderRecursive (rootFolder: string) : Async<AssetFile list> =
         return results |> Seq.toList
     }
 
-let getFileById (fileId: FileId) : Async<AssetFile option> =
+let getFileById (c: SqliteConnection) (fileId: FileId) : Async<AssetFile option> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
@@ -144,21 +126,19 @@ let getFileById (fileId: FileId) : Async<AssetFile option> =
         else return None
     }
 
-let markOrphaned (fileId: FileId) : Async<unit> =
+let markOrphaned (c: SqliteConnection) (fileId: FileId) : Async<unit> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             UPDATE files SET is_orphaned = 1, orphaned_at = @now WHERE id = @id
         """
-        cmd.Parameters.AddWithValue("@id",  fileId)                               |> ignore
+        cmd.Parameters.AddWithValue("@id",  fileId)                                   |> ignore
         cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToUnixTimeSeconds()) |> ignore
         cmd.ExecuteNonQuery() |> ignore
     }
 
-let unmarkOrphaned (fileId: FileId) : Async<unit> =
+let unmarkOrphaned (c: SqliteConnection) (fileId: FileId) : Async<unit> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             UPDATE files SET is_orphaned = 0, orphaned_at = NULL WHERE id = @id
@@ -167,9 +147,8 @@ let unmarkOrphaned (fileId: FileId) : Async<unit> =
         cmd.ExecuteNonQuery() |> ignore
     }
 
-let updateFilePath (oldPath: string) (newFile: AssetFile) : Async<unit> =
+let updateFilePath (c: SqliteConnection) (oldPath: string) (newFile: AssetFile) : Async<unit> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             UPDATE files
@@ -188,9 +167,8 @@ let updateFilePath (oldPath: string) (newFile: AssetFile) : Async<unit> =
         cmd.ExecuteNonQuery() |> ignore
     }
 
-let purgeOldOrphans (olderThanDays: int) : Async<int> =
+let purgeOldOrphans (c: SqliteConnection) (olderThanDays: int) : Async<int> =
     async {
-        let c = getConn ()
         let cutoff = DateTimeOffset.UtcNow.AddDays(-float olderThanDays).ToUnixTimeSeconds()
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
@@ -205,17 +183,14 @@ let purgeOldOrphans (olderThanDays: int) : Async<int> =
 // ---------------------------------------------------------------------------
 
 /// Replace all tags for a file atomically (DELETE + INSERT in one transaction)
-let upsertTags (fileId: FileId) (tags: string list) : Async<unit> =
+let upsertTags (c: SqliteConnection) (fileId: FileId) (tags: string list) : Async<unit> =
     async {
-        let c = getConn ()
         use tx = c.BeginTransaction()
-        // Delete existing
         use delCmd = c.CreateCommand()
         delCmd.Transaction <- tx
         delCmd.CommandText <- "DELETE FROM tags WHERE file_id = @fileId"
         delCmd.Parameters.AddWithValue("@fileId", fileId) |> ignore
         delCmd.ExecuteNonQuery() |> ignore
-        // Insert new
         for tag in tags do
             use insCmd = c.CreateCommand()
             insCmd.Transaction <- tx
@@ -226,9 +201,8 @@ let upsertTags (fileId: FileId) (tags: string list) : Async<unit> =
         tx.Commit()
     }
 
-let getTagsForFile (fileId: FileId) : Async<string list> =
+let getTagsForFile (c: SqliteConnection) (fileId: FileId) : Async<string list> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- "SELECT tag FROM tags WHERE file_id = @fileId ORDER BY tag"
         cmd.Parameters.AddWithValue("@fileId", fileId) |> ignore
@@ -240,9 +214,8 @@ let getTagsForFile (fileId: FileId) : Async<string list> =
     }
 
 /// Returns all tags with usage counts, sorted by count descending
-let getAllTags () : Async<(string * int) list> =
+let getAllTags (c: SqliteConnection) : Async<(string * int) list> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             SELECT tag, COUNT(*) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC, tag
@@ -258,18 +231,16 @@ let getAllTags () : Async<(string * int) list> =
 // Misc
 // ---------------------------------------------------------------------------
 
-let executeRaw (sql: string) : Async<unit> =
+let executeRaw (c: SqliteConnection) (sql: string) : Async<unit> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- sql
         cmd.ExecuteNonQuery() |> ignore
     }
 
 /// Returns all file paths currently in the DB for a given root folder (for reconciliation)
-let getIndexedPathsInFolder (rootFolder: string) : Async<Map<string, AssetFile>> =
+let getIndexedPathsInFolder (c: SqliteConnection) (rootFolder: string) : Async<Map<string, AssetFile>> =
     async {
-        let c = getConn ()
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at

@@ -28,12 +28,11 @@ let sanitizeFtsQuery (raw: string) : string =
 // ---------------------------------------------------------------------------
 
 /// Returns FileIds matching the FTS5 query (filename + tags + folder columns)
-let searchFts5 (rawQuery: string) : Async<string list> =
+let searchFts5 (c: SqliteConnection) (rawQuery: string) : Async<string list> =
     async {
         let q = sanitizeFtsQuery rawQuery
         if q = "" then return []
         else
-            let c = Db.connection ()
             use cmd = c.CreateCommand()
             cmd.CommandText <- """
                 SELECT files.id
@@ -57,9 +56,8 @@ let searchFts5 (rawQuery: string) : Async<string list> =
 
 /// Update the tags column in file_index for a file after its tags change.
 /// Space-separated tag string per FTS5 convention.
-let updateFileIndexTags (fileId: FileId) (tags: string list) : Async<unit> =
+let updateFileIndexTags (c: SqliteConnection) (fileId: FileId) (tags: string list) : Async<unit> =
     async {
-        let c = Db.connection ()
         let tagStr = tags |> String.concat " "
         // FTS5 content table update: delete old row then insert new
         use cmd = c.CreateCommand()
