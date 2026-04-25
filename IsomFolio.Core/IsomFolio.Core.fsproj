@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Models.fs" />
+        <Compile Include="AppPaths.fs" />
+        <Compile Include="FileIndex.fs" />
+        <Compile Include="Storage\Schema.fs" />
+        <Compile Include="Storage\Db.fs" />
+        <Compile Include="Indexing\Scanner.fs" />
+        <Compile Include="Indexing\Watcher.fs" />
+        <Compile Include="Indexing\Thumbnail.fs" />
+        <Compile Include="Search\FTS.fs" />
+        <Compile Include="Search\QueryEngine.fs" />
+        <Compile Include="Tagging\Tagging.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+        <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,28 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Core", "IsomFolio.Core\IsomFolio.Core.fsproj", "{A1C305EE-1111-4244-A3AD-62B98377F0F1}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.App", "IsomFolio.App\IsomFolio.App.fsproj", "{D1B305EE-0289-4244-A3AD-62B98377F0FA}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Tests", "IsomFolio.Tests\IsomFolio.Tests.fsproj", "{B2D305EE-2222-4244-A3AD-62B98377F0F2}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1C305EE-1111-4244-A3AD-62B98377F0F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1C305EE-1111-4244-A3AD-62B98377F0F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1C305EE-1111-4244-A3AD-62B98377F0F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1C305EE-1111-4244-A3AD-62B98377F0F1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D1B305EE-0289-4244-A3AD-62B98377F0FA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D1B305EE-0289-4244-A3AD-62B98377F0FA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D1B305EE-0289-4244-A3AD-62B98377F0FA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D1B305EE-0289-4244-A3AD-62B98377F0FA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B2D305EE-2222-4244-A3AD-62B98377F0F2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B2D305EE-2222-4244-A3AD-62B98377F0F2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B2D305EE-2222-4244-A3AD-62B98377F0F2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B2D305EE-2222-4244-A3AD-62B98377F0F2}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
