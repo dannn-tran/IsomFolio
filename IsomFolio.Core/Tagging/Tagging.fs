@@ -1,0 +1,3 @@
+module IsomFolio.Tagging.Tagging
+
+()

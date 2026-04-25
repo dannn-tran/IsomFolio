@@ -1,0 +1,3 @@
+module IsomFolio.Search.FTS
+
+()
