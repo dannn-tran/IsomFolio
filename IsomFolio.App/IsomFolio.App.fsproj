@@ -6,9 +6,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Content Include="Assets\Icons\icon.ico">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </Content>
         <Compile Include="UI\SearchBar.fs" />
         <Compile Include="UI\Sidebar.fs" />
         <Compile Include="UI\GridView.fs" />
