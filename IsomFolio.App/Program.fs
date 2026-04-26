@@ -18,8 +18,7 @@ type MainWindow() as this =
         base.MinWidth <- 800.0
         base.MinHeight <- 600.0
 
-        UI.MainView.window <- Some (this :> Window)
-        Elmish.Program.mkProgram UI.MainView.init UI.MainView.update UI.MainView.view
+        Elmish.Program.mkProgram (UI.MainView.init (this :> Window)) UI.MainView.update UI.MainView.view
         |> Program.withHost this
         |> Program.run
 

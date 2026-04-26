@@ -13,9 +13,6 @@ open IsomFolio.Storage
 open IsomFolio.Search
 open Microsoft.Data.Sqlite
 
-/// Set by MainWindow constructor — required for StorageProvider folder picker
-let mutable window: Window option = None
-
 let mutable private thumbnailWorker: MailboxProcessor<Thumbnail.ThumbnailMsg> option = None
 let mutable private activeWatchers: System.IO.FileSystemWatcher list = []
 
@@ -32,7 +29,8 @@ type State = {
     ActiveQuery  : SearchQuery
     Errors       : AppError list
     IsFirstRun   : bool
-    CatalogState : CatalogState
+    Catalog      : CatalogState
+    Window       : Window
 }
 
 type Msg =
@@ -60,17 +58,18 @@ let private defaultQuery = {
     DateRange = None; SortBy = Date; SortAsc = false
 }
 
-let init () : State * Cmd<Msg> =
+let init (w: Window) () : State * Cmd<Msg> =
     let state = {
-        Sidebar       = Sidebar.init ()
-        Grid          = GridView.init ()
-        Detail        = DetailPanel.init ()
-        SearchBar     = SearchBar.init ()
-        ScanProgress  = None
-        ActiveQuery   = defaultQuery
-        Errors        = []
-        IsFirstRun    = true
-        CatalogState  = Unloaded
+        Sidebar      = Sidebar.init ()
+        Grid         = GridView.init ()
+        Detail       = DetailPanel.init ()
+        SearchBar    = SearchBar.init ()
+        ScanProgress = None
+        ActiveQuery  = defaultQuery
+        Errors       = []
+        IsFirstRun   = true
+        Catalog      = Unloaded
+        Window       = w
     }
     let initCmd =
         match IsomFolio.AppPaths.readLastSession() with
@@ -149,45 +148,39 @@ let private enqueueThumbnails (catalogPath: string) (files: AssetFile list) (pri
     | None -> ()
 
 let update (msg: Msg) (state: State) : State * Cmd<Msg> =
-    match (state.CatalogState, msg) with
-    | _, NewCatalogRequested ->
+    match state, msg with
+    | { Window = w }, NewCatalogRequested ->
         let cmd =
             Cmd.OfAsync.either
                 (fun () -> async {
-                    match window with
-                    | None -> return NoOp
-                    | Some w ->
-                        let opts = Avalonia.Platform.Storage.FilePickerSaveOptions(
-                            Title = "Create New Catalog",
-                            SuggestedFileName = "my-library")
-                        let! file = w.StorageProvider.SaveFilePickerAsync(opts) |> Async.AwaitTask
-                        if isNull file then return NoOp
-                        else
-                            let rawPath = file.Path.LocalPath
-                            let parentDir = System.IO.Path.GetDirectoryName(rawPath)
-                            let baseName  = System.IO.Path.GetFileNameWithoutExtension(rawPath)
-                            let catalogPath = IsomFolio.AppPaths.createCatalog parentDir baseName
-                            let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
-                            return CatalogOpened (catalogPath, conn, []) })
+                    let opts = Avalonia.Platform.Storage.FilePickerSaveOptions(
+                        Title = "Create New Catalog",
+                        SuggestedFileName = "my-library")
+                    let! file = w.StorageProvider.SaveFilePickerAsync(opts) |> Async.AwaitTask
+                    if isNull file then return NoOp
+                    else
+                        let rawPath = file.Path.LocalPath
+                        let parentDir = System.IO.Path.GetDirectoryName(rawPath)
+                        let baseName  = System.IO.Path.GetFileNameWithoutExtension(rawPath)
+                        let catalogPath = IsomFolio.AppPaths.createCatalog parentDir baseName
+                        let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+                        return CatalogOpened (catalogPath, conn, []) })
                 ()
                 id
                 (fun ex -> AppError (ScanError ex.Message))
         state, cmd
 
-    | _, OpenCatalogRequested ->
+    | { Window = w }, OpenCatalogRequested ->
         let cmd =
             Cmd.OfAsync.either
                 (fun () -> async {
-                    match window with
-                    | None -> return NoOp
-                    | Some w ->
-                        let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(Title = "Open Catalog", AllowMultiple = false)
-                        let! picked = w.StorageProvider.OpenFolderPickerAsync(opts) |> Async.AwaitTask
-                        if picked.Count = 0 then return NoOp
-                        else
-                            let catalogPath = picked[0].Path.LocalPath
-                            let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
-                            return CatalogOpened (catalogPath, conn, []) })
+                    let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(Title = "Open Catalog", AllowMultiple = false)
+                    let! picked = w.StorageProvider.OpenFolderPickerAsync(opts) |> Async.AwaitTask
+                    if picked.Count = 0 then return NoOp
+                    else
+                        let catalogPath = picked[0].Path.LocalPath
+                        let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+                        return CatalogOpened (catalogPath, conn, []) })
                 ()
                 id
                 (fun ex -> AppError (DbError ex.Message))
@@ -195,7 +188,6 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | _, CatalogOpened (path, conn, folders) ->
         IsomFolio.AppPaths.saveSession { CatalogPath = path; Folders = folders }
-        let newSidebar = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
         let workerCmd = startThumbnailWorkerCmd path
         let perFolderCmds =
             folders |> List.collect (fun f -> [ reconcileFolderCmd conn f; createWatcherCmd f ])
@@ -203,179 +195,154 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             if folders.IsEmpty then None
             else Some { TotalFound = 0; Inserted = 0; FolderName = "Restoring…" }
         { state with
-            CatalogState = OpenedCatalog(path, conn)
+            Catalog = OpenedCatalog(path, conn)
             IsFirstRun   = false
-            Sidebar      = newSidebar
+            Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
             ScanProgress = scanProgress },
         Cmd.batch (workerCmd :: perFolderCmds)
 
-    | _, SidebarMsg Sidebar.AddFolderRequested ->
+    | { Window = w }, SidebarMsg Sidebar.AddFolderRequested ->
         let cmd =
             Cmd.OfAsync.either
                 (fun () -> async {
-                    match window with
-                    | None -> return NoOp
-                    | Some w ->
-                        let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(Title = "Add Folder", AllowMultiple = false)
-                        let! picked = w.StorageProvider.OpenFolderPickerAsync(opts) |> Async.AwaitTask
-                        if picked.Count > 0 then return FolderOpened picked[0].Path.LocalPath
-                        else return NoOp })
+                    let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(Title = "Add Folder", AllowMultiple = false)
+                    let! picked = w.StorageProvider.OpenFolderPickerAsync(opts) |> Async.AwaitTask
+                    if picked.Count > 0 then return FolderOpened picked[0].Path.LocalPath
+                    else return NoOp })
                 ()
                 id
                 (fun ex -> AppError (ScanError ex.Message))
         state, cmd
 
     | _, SidebarMsg sbMsg ->
-        let newSb = Sidebar.update sbMsg state.Sidebar
-        { state with Sidebar = newSb }, Cmd.none
+        { state with Sidebar = Sidebar.update sbMsg state.Sidebar }, Cmd.none
 
-    | OpenedCatalog(catalogPath, dbConn), FolderOpened path ->
+    | { Catalog = OpenedCatalog(catalogPath, dbConn) }, FolderOpened path ->
         let folders = state.Sidebar.Folders @ [ path ]
-        let newSidebar = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
         IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = folders }
-        let progress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName path }
-        { state with Sidebar = newSidebar; ScanProgress = progress },
+        { state with
+            Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
+            ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName path } },
         Cmd.batch [ startScanCmd catalogPath dbConn path; createWatcherCmd path ]
 
     | _, FolderOpened _ -> state, Cmd.none
 
-    | OpenedCatalog(catalogPath, dbConn), GridMsg (GridView.TileSelected fileId) ->
-        let newGrid = GridView.update (GridView.TileSelected fileId) state.Grid
-        let fileOpt = state.Grid.Tiles |> List.tryFind (fun t -> t.File.Id = fileId) |> Option.map (fun t -> t.File)
+    | { Catalog = OpenedCatalog(_, dbConn) }, GridMsg (GridView.TileSelected fileId) ->
+        let newGrid  = GridView.update (GridView.TileSelected fileId) state.Grid
+        let fileOpt =
+            state.Grid.Tiles
+            |> List.tryFind (fun t -> t.File.Id = fileId)
+            |> Option.map _.File
         let newDetail =
-            match fileOpt with
-            | Some f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail
-            | None   -> state.Detail
-        thumbnailWorker |> Option.iter (fun w -> w.Post(Thumbnail.SetPriority(fileId, 0)))
+            fileOpt
+            |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
+            |> Option.defaultValue state.Detail
+        thumbnailWorker |> Option.iter _.Post(Thumbnail.SetPriority(fileId, 0))
         let loadTagsCmd =
-            match fileOpt with
-            | None   -> Cmd.none
-            | Some f ->
+            fileOpt
+            |> Option.map (fun f ->
                 Cmd.OfAsync.either
-                    (fun () -> f.Id |> Db.getTagsForFile dbConn)
-                    ()
+                    (fun () -> f.Id |> Db.getTagsForFile dbConn) ()
                     (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
-                    (fun ex  -> AppError (DbError ex.Message))
+                    (fun ex  -> AppError (DbError ex.Message)))
+            |> Option.defaultValue Cmd.none
         { state with Grid = newGrid; Detail = newDetail }, loadTagsCmd
 
     | _, GridMsg gMsg ->
-        let newGrid = GridView.update gMsg state.Grid
-        { state with Grid = newGrid }, Cmd.none
+        { state with Grid = GridView.update gMsg state.Grid }, Cmd.none
 
-    | OpenedCatalog(_, dbConn), DetailMsg DetailPanel.AddTagRequested ->
+    | { Catalog = OpenedCatalog(_, dbConn); Detail = { File = Some f } }, DetailMsg DetailPanel.AddTagRequested
+        when state.Detail.TagInput.Trim() <> "" ->
         let tag = state.Detail.TagInput.Trim()
-        if tag = "" then state, Cmd.none
-        else
-            match state.Detail.File with
-            | None -> state, Cmd.none
-            | Some f ->
-                let newDetail = DetailPanel.update (DetailPanel.TagInputChanged "") state.Detail
-                let cmd =
-                    Cmd.OfAsync.either
-                        (fun () -> async {
-                            let! result = IsomFolio.Tagging.Tagging.addTag f.Path tag
-                            match result with
-                            | Ok newTags ->
-                                do! newTags |> Db.upsertTags dbConn f.Id
-                                do! newTags |> FTS.updateFileIndexTags dbConn f.Id
-                                return TagsSaved(f.Id, newTags)
-                            | Error e -> return AppError (XmpWriteError(f.Path, e))
-                        })
-                        ()
-                        id
-                        (fun ex -> AppError (XmpWriteError(f.Path, ex.Message)))
-                { state with Detail = newDetail }, cmd
+        let cmd =
+            Cmd.OfAsync.either
+                (fun () -> async {
+                    let! result = IsomFolio.Tagging.Tagging.addTag f.Path tag
+                    match result with
+                    | Ok newTags ->
+                        do! newTags |> Db.upsertTags dbConn f.Id
+                        do! newTags |> FTS.updateFileIndexTags dbConn f.Id
+                        return TagsSaved(f.Id, newTags)
+                    | Error e -> return AppError (XmpWriteError(f.Path, e))
+                })
+                ()
+                id
+                (fun ex -> AppError (XmpWriteError(f.Path, ex.Message)))
+        { state with Detail = DetailPanel.update (DetailPanel.TagInputChanged "") state.Detail }, cmd
 
-    | OpenedCatalog(_, dbConn), DetailMsg (DetailPanel.RemoveTagRequested tag) ->
-        match state.Detail.File with
-        | None -> state, Cmd.none
-        | Some f ->
-            let cmd =
-                Cmd.OfAsync.either
-                    (fun () -> async {
-                        let! result = IsomFolio.Tagging.Tagging.removeTag f.Path tag
-                        match result with
-                        | Ok newTags ->
-                            do! newTags |> Db.upsertTags dbConn f.Id
-                            do! newTags |> FTS.updateFileIndexTags dbConn f.Id
-                            return TagsSaved(f.Id, newTags)
-                        | Error e -> return AppError (XmpWriteError(f.Path, e))
-                    })
-                    ()
-                    id
-                    (fun ex -> AppError (XmpWriteError(f.Path, ex.Message)))
-            state, cmd
+    | { Catalog = OpenedCatalog(_, dbConn); Detail = { File = Some f } }, DetailMsg (DetailPanel.RemoveTagRequested tag) ->
+        let cmd =
+            Cmd.OfAsync.either
+                (fun () -> async {
+                    let! result = IsomFolio.Tagging.Tagging.removeTag f.Path tag
+                    match result with
+                    | Ok newTags ->
+                        do! newTags |> Db.upsertTags dbConn f.Id
+                        do! newTags |> FTS.updateFileIndexTags dbConn f.Id
+                        return TagsSaved(f.Id, newTags)
+                    | Error e -> return AppError (XmpWriteError(f.Path, e))
+                })
+                ()
+                id
+                (fun ex -> AppError (XmpWriteError(f.Path, ex.Message)))
+        state, cmd
 
-    | _, DetailMsg DetailPanel.OpenExternally ->
-        match state.Detail.File with
-        | None -> state, Cmd.none
-        | Some f ->
-            try System.Diagnostics.Process.Start(
-                    System.Diagnostics.ProcessStartInfo(f.Path, UseShellExecute = true)) |> ignore
-            with _ -> ()
-            state, Cmd.none
+    | { Detail = { File = Some f } }, DetailMsg DetailPanel.OpenExternally ->
+        try System.Diagnostics.Process.Start(
+                System.Diagnostics.ProcessStartInfo(f.Path, UseShellExecute = true)) |> ignore
+        with _ -> ()
+        state, Cmd.none
 
-    | _, DetailMsg DetailPanel.RevealInExplorer ->
-        match state.Detail.File with
-        | None -> state, Cmd.none
-        | Some f ->
-            try
-                if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) then
-                    System.Diagnostics.Process.Start("open", $"-R \"{f.Path}\"") |> ignore
-                elif System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
-                    System.Diagnostics.Process.Start("explorer", $"/select,\"{f.Path}\"") |> ignore
-            with _ -> ()
-            state, Cmd.none
+    | { Detail = { File = Some f } }, DetailMsg DetailPanel.RevealInExplorer ->
+        try
+            if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) then
+                System.Diagnostics.Process.Start("open", $"-R \"{f.Path}\"") |> ignore
+            elif System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
+                System.Diagnostics.Process.Start("explorer", $"/select,\"{f.Path}\"") |> ignore
+        with _ -> ()
+        state, Cmd.none
 
     | _, DetailMsg dMsg ->
-        let newDetail = DetailPanel.update dMsg state.Detail
-        { state with Detail = newDetail }, Cmd.none
+        { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none
 
-    | OpenedCatalog(_, dbConn), SearchBarMsg (SearchBar.QuerySubmitted txt) ->
+    | { Catalog = OpenedCatalog(_, dbConn) }, SearchBarMsg (SearchBar.QuerySubmitted txt) ->
         let query = { state.ActiveQuery with Text = if txt.Trim() = "" then None else Some txt }
         { state with ActiveQuery = query }, query |> runSearch dbConn
 
     | _, SearchBarMsg sbMsg ->
-        let newSb = SearchBar.update sbMsg state.SearchBar
-        { state with SearchBar = newSb }, Cmd.none
+        { state with SearchBar = SearchBar.update sbMsg state.SearchBar }, Cmd.none
 
-    | OpenedCatalog(catalogPath, _), ScanBatchCompleted files ->
+    | { Catalog = OpenedCatalog(catalogPath, _) }, ScanBatchCompleted files ->
         let current = state.ScanProgress |> Option.defaultValue { TotalFound = 0; Inserted = 0; FolderName = "" }
         let progress = { current with TotalFound = current.TotalFound + files.Length; Inserted = current.Inserted + files.Length }
-        let existing = state.Grid.Tiles |> List.map (fun t -> t.File)
-        let newGrid = GridView.update (GridView.TilesLoaded (existing @ files)) state.Grid
+        let newGrid = GridView.update (GridView.TilesLoaded (state.Grid.Tiles |> List.map (fun t -> t.File) |> (@) files)) state.Grid
         enqueueThumbnails catalogPath files 1
         { state with ScanProgress = Some progress; Grid = newGrid }, Cmd.none
 
     | _, ScanBatchCompleted files ->
         let current = state.ScanProgress |> Option.defaultValue { TotalFound = 0; Inserted = 0; FolderName = "" }
         let progress = { current with TotalFound = current.TotalFound + files.Length; Inserted = current.Inserted + files.Length }
-        let existing = state.Grid.Tiles |> List.map (fun t -> t.File)
-        let newGrid = GridView.update (GridView.TilesLoaded (existing @ files)) state.Grid
+        let newGrid = GridView.update (GridView.TilesLoaded (state.Grid.Tiles |> List.map (fun t -> t.File) |> (@) files)) state.Grid
         { state with ScanProgress = Some progress; Grid = newGrid }, Cmd.none
 
-    | OpenedCatalog(_, dbConn), ScanFinished _ ->
+    | { Catalog = OpenedCatalog(_, dbConn) }, ScanFinished _ ->
         { state with ScanProgress = None }, state.ActiveQuery |> runSearch dbConn
 
     | _, ScanFinished _ ->
         { state with ScanProgress = None }, Cmd.none
 
-    | OpenedCatalog(catalogPath, _), SearchCompleted files ->
-        let newGrid = GridView.update (GridView.TilesLoaded files) state.Grid
+    | { Catalog = OpenedCatalog(catalogPath, _) }, SearchCompleted files ->
         enqueueThumbnails catalogPath files 1
-        { state with Grid = newGrid }, Cmd.none
+        { state with Grid = GridView.update (GridView.TilesLoaded files) state.Grid }, Cmd.none
 
     | _, SearchCompleted files ->
-        let newGrid = GridView.update (GridView.TilesLoaded files) state.Grid
-        { state with Grid = newGrid }, Cmd.none
+        { state with Grid = GridView.update (GridView.TilesLoaded files) state.Grid }, Cmd.none
 
     | _, ThumbnailReady(fileId, path) ->
-        let newGrid = GridView.update (GridView.ThumbnailUpdated(fileId, Ready path)) state.Grid
-        { state with Grid = newGrid }, Cmd.none
+        { state with Grid = GridView.update (GridView.ThumbnailUpdated(fileId, Ready path)) state.Grid }, Cmd.none
 
     | _, ThumbnailFailed(fileId, _) ->
-        let newGrid = GridView.update (GridView.ThumbnailUpdated(fileId, Failed 2)) state.Grid
-        { state with Grid = newGrid }, Cmd.none
+        { state with Grid = GridView.update (GridView.ThumbnailUpdated(fileId, Failed 2)) state.Grid }, Cmd.none
 
     | _, TagsUpdated(fileId, tags) | _, TagsSaved(fileId, tags) ->
         let newDetail =
@@ -387,35 +354,58 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | _, AppError err ->
         { state with Errors = err :: state.Errors |> List.truncate 5 }, Cmd.none
 
-    | OpenedCatalog(catalogPath, dbConn), FileEventReceived event ->
-        let processCmd =
-            Cmd.OfAsync.either
-                (fun () -> async {
-                    match event with
-                    | Created path when isSupportedExtension (System.IO.Path.GetExtension path) ->
-                        let f = assetFileFromInfo (System.IO.FileInfo path)
-                        let! _ = Db.upsertFiles dbConn [ f ]
-                        enqueueThumbnails catalogPath [ f ] 1
-                    | Deleted path ->
-                        let folder = System.IO.Path.GetDirectoryName path
-                        let! indexed = Db.getIndexedPathsInFolder dbConn folder
-                        match indexed |> Map.tryFind path with
-                        | Some f -> do! Db.markOrphaned dbConn f.Id
-                        | None   -> ()
-                    | Renamed(oldPath, newPath) when isSupportedExtension (System.IO.Path.GetExtension newPath) ->
-                        let newFile = assetFileFromInfo (System.IO.FileInfo newPath)
-                        do! Db.updateFilePath dbConn oldPath newFile
-                        enqueueThumbnails catalogPath [ newFile ] 1
-                    | Modified path when isSupportedExtension (System.IO.Path.GetExtension path) ->
-                        let f = assetFileFromInfo (System.IO.FileInfo path)
-                        let! _ = Db.upsertFiles dbConn [ f ]
-                        enqueueThumbnails catalogPath [ f ] 0
-                    | _ -> ()
-                })
-                ()
-                (fun () -> ScanFinished 0)
-                (fun ex -> AppError (ScanError ex.Message))
-        state, processCmd
+    | { Catalog = OpenedCatalog(catalogPath, dbConn) }, FileEventReceived (Created path)
+        when isSupportedExtension (System.IO.Path.GetExtension path) ->
+        state,
+        Cmd.OfAsync.either
+            (fun () -> async {
+                let f = assetFileFromInfo (System.IO.FileInfo path)
+                let! _ = Db.upsertFiles dbConn [ f ]
+                enqueueThumbnails catalogPath [ f ] 1
+            })
+            ()
+            (fun () -> ScanFinished 0)
+            (fun ex -> AppError (ScanError ex.Message))
+
+    | { Catalog = OpenedCatalog(_, dbConn) }, FileEventReceived (Deleted path) ->
+        state,
+        Cmd.OfAsync.either
+            (fun () -> async {
+                let folder = System.IO.Path.GetDirectoryName path
+                let! indexed = Db.getIndexedPathsInFolder dbConn folder
+                match indexed |> Map.tryFind path with
+                | Some f -> do! Db.markOrphaned dbConn f.Id
+                | None   -> ()
+            })
+            ()
+            (fun () -> ScanFinished 0)
+            (fun ex -> AppError (ScanError ex.Message))
+
+    | { Catalog = OpenedCatalog(catalogPath, dbConn) }, FileEventReceived (Renamed(oldPath, newPath))
+        when isSupportedExtension (System.IO.Path.GetExtension newPath) ->
+        state,
+        Cmd.OfAsync.either
+            (fun () -> async {
+                let newFile = assetFileFromInfo (System.IO.FileInfo newPath)
+                do! Db.updateFilePath dbConn oldPath newFile
+                enqueueThumbnails catalogPath [ newFile ] 1
+            })
+            ()
+            (fun () -> ScanFinished 0)
+            (fun ex -> AppError (ScanError ex.Message))
+
+    | { Catalog = OpenedCatalog(catalogPath, dbConn) }, FileEventReceived (Modified path)
+        when isSupportedExtension (System.IO.Path.GetExtension path) ->
+        state,
+        Cmd.OfAsync.either
+            (fun () -> async {
+                let f = assetFileFromInfo (System.IO.FileInfo path)
+                let! _ = Db.upsertFiles dbConn [ f ]
+                enqueueThumbnails catalogPath [ f ] 0
+            })
+            ()
+            (fun () -> ScanFinished 0)
+            (fun ex -> AppError (ScanError ex.Message))
 
     | _, FileEventReceived _ | _, NoOp -> state, Cmd.none
 
