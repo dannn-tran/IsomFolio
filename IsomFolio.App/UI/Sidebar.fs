@@ -12,11 +12,10 @@ type State = {
 }
 
 type Msg =
-    | AddFolderRequested
-    | FolderRemoved      of string
-    | TagToggled         of string
-    | FoldersLoaded      of string list
-    | TagsLoaded         of (string * int) list
+    | FolderRemoved of string
+    | TagToggled    of string
+    | FoldersLoaded of string list
+    | TagsLoaded    of (string * int) list
 
 let init () = { Folders = []; Tags = []; SelectedTags = [] }
 
@@ -31,7 +30,6 @@ let update (msg: Msg) (state: State) =
             then state.SelectedTags |> List.filter ((<>) tag)
             else state.SelectedTags @ [ tag ]
         { state with SelectedTags = selected }
-    | AddFolderRequested -> state
 
 let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -> unit) =
     Border.create [
@@ -59,7 +57,7 @@ let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -
             ])
     ]
 
-let view (state: State) (dispatch: Msg -> unit) =
+let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> unit) =
     DockPanel.create [
         DockPanel.width 220.0
         DockPanel.background (SolidColorBrush(Color.Parse("#1E1E1E")))
@@ -69,7 +67,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                 Button.content "Add Folder…"
                 Button.horizontalAlignment HorizontalAlignment.Stretch
                 Button.margin (Avalonia.Thickness(8.0))
-                Button.onClick (fun _ -> dispatch AddFolderRequested)
+                Button.onClick (fun _ -> onAddFolderRequested())
             ]
             ScrollViewer.create [
                 ScrollViewer.content (
