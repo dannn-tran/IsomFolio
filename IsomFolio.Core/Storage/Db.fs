@@ -167,6 +167,13 @@ let updateFilePath (c: SqliteConnection) (oldPath: string) (newFile: AssetFile) 
         cmd.ExecuteNonQuery() |> ignore
     }
 
+let countOrphans (c: SqliteConnection) : Async<int> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "SELECT COUNT(*) FROM files WHERE is_orphaned = 1"
+        return cmd.ExecuteScalar() :?> int64 |> int
+    }
+
 let purgeOldOrphans (c: SqliteConnection) (olderThanDays: int) : Async<int> =
     async {
         let cutoff = DateTimeOffset.UtcNow.AddDays(-float olderThanDays).ToUnixTimeSeconds()

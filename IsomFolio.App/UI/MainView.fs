@@ -21,16 +21,17 @@ type CatalogState =
     | OpenedCatalog of catalogPath: string * dbConn: SqliteConnection
 
 type State = {
-    Sidebar      : Sidebar.State
-    Grid         : GridView.State
-    Detail       : DetailPanel.State
-    SearchBar    : SearchBar.State
-    ScanProgress : ScanProgress option
-    ActiveQuery  : SearchQuery
-    Errors       : AppError list
-    IsFirstRun   : bool
-    Catalog      : CatalogState
-    Window       : Window
+    Sidebar       : Sidebar.State
+    Grid          : GridView.State
+    Detail        : DetailPanel.State
+    SearchBar     : SearchBar.State
+    ScanProgress  : ScanProgress option
+    ActiveQuery   : SearchQuery
+    Notifications : (string * System.DateTime) list
+    OrphanCount   : int
+    IsFirstRun    : bool
+    Catalog       : CatalogState
+    Window        : Window
 }
 
 type Msg =
@@ -48,6 +49,8 @@ type Msg =
     | TagsUpdated         of FileId * string list
     | TagsSaved           of FileId * string list
     | AppError            of AppError
+    | OrphanCountLoaded   of int
+    | DismissNotification of System.DateTime
     | NewCatalogRequested
     | OpenCatalogRequested
     | CatalogOpened       of catalogPath: string * dbConn: SqliteConnection * folders: string list
@@ -60,16 +63,17 @@ let private defaultQuery = {
 
 let init (w: Window) () : State * Cmd<Msg> =
     let state = {
-        Sidebar      = Sidebar.init ()
-        Grid         = GridView.init ()
-        Detail       = DetailPanel.init ()
-        SearchBar    = SearchBar.init ()
-        ScanProgress = None
-        ActiveQuery  = defaultQuery
-        Errors       = []
-        IsFirstRun   = true
-        Catalog      = Unloaded
-        Window       = w
+        Sidebar       = Sidebar.init ()
+        Grid          = GridView.init ()
+        Detail        = DetailPanel.init ()
+        SearchBar     = SearchBar.init ()
+        ScanProgress  = None
+        ActiveQuery   = defaultQuery
+        Notifications = []
+        OrphanCount   = 0
+        IsFirstRun    = true
+        Catalog       = Unloaded
+        Window        = w
     }
     let initCmd =
         match IsomFolio.AppPaths.readLastSession() with
@@ -139,6 +143,31 @@ let private reconcileFolderCmd (dbConn: SqliteConnection) (folderPath: string) :
         (fun () -> ScanFinished 0)
         (fun ex -> AppError (ScanError ex.Message))
 
+let private startupCleanupCmd (catalogPath: string) (conn: SqliteConnection) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () -> async {
+            let! _ = Db.purgeOldOrphans conn 30
+            let! _ = Thumbnail.sweepThumbnailCache conn catalogPath
+            let! n = Db.countOrphans conn
+            return n
+        })
+        ()
+        OrphanCountLoaded
+        (fun _ -> NoOp)
+
+let private countOrphansCmd (conn: SqliteConnection) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () -> Db.countOrphans conn) ()
+        OrphanCountLoaded
+        (fun _ -> NoOp)
+
+let private formatError = function
+    | DbError msg              -> $"Database error: {msg}"
+    | ScanError msg            -> $"Scan error: {msg}"
+    | ThumbnailError(_, msg)   -> $"Thumbnail failed: {msg}"
+    | XmpWriteError(path, msg) -> $"Tag write failed for {System.IO.Path.GetFileName path}: {msg}"
+    | WatcherError msg         -> $"Watcher error: {msg}"
+
 let private enqueueThumbnails (catalogPath: string) (files: AssetFile list) (priority: int) =
     match thumbnailWorker with
     | Some w ->
@@ -188,18 +217,17 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | _, CatalogOpened (path, conn, folders) ->
         IsomFolio.AppPaths.saveSession { CatalogPath = path; Folders = folders }
-        let workerCmd = startThumbnailWorkerCmd path
         let perFolderCmds =
             folders |> List.collect (fun f -> [ reconcileFolderCmd conn f; createWatcherCmd f ])
         let scanProgress =
             if folders.IsEmpty then None
             else Some { TotalFound = 0; Inserted = 0; FolderName = "Restoring…" }
         { state with
-            Catalog = OpenedCatalog(path, conn)
+            Catalog      = OpenedCatalog(path, conn)
             IsFirstRun   = false
             Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
             ScanProgress = scanProgress },
-        Cmd.batch (workerCmd :: perFolderCmds)
+        Cmd.batch (startThumbnailWorkerCmd path :: startupCleanupCmd path conn :: perFolderCmds)
 
     | { Window = w }, SidebarMsg Sidebar.AddFolderRequested ->
         let cmd =
@@ -326,7 +354,8 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         { state with ScanProgress = Some progress; Grid = newGrid }, Cmd.none
 
     | { Catalog = OpenedCatalog(_, dbConn) }, ScanFinished _ ->
-        { state with ScanProgress = None }, state.ActiveQuery |> runSearch dbConn
+        { state with ScanProgress = None },
+        Cmd.batch [ state.ActiveQuery |> runSearch dbConn; countOrphansCmd dbConn ]
 
     | _, ScanFinished _ ->
         { state with ScanProgress = None }, Cmd.none
@@ -352,7 +381,24 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         { state with Detail = newDetail }, Cmd.none
 
     | _, AppError err ->
-        { state with Errors = err :: state.Errors |> List.truncate 5 }, Cmd.none
+        let msg = formatError err
+        let t = System.DateTime.UtcNow
+        let dismissCmd =
+            Cmd.OfAsync.either
+                (fun () -> async {
+                    do! Async.Sleep 5000
+                    return t
+                })
+                ()
+                DismissNotification
+                (fun _ -> NoOp)
+        { state with Notifications = (msg, t) :: state.Notifications |> List.truncate 5 }, dismissCmd
+
+    | _, OrphanCountLoaded n ->
+        { state with OrphanCount = n }, Cmd.none
+
+    | _, DismissNotification t ->
+        { state with Notifications = state.Notifications |> List.filter (fun (_, ts) -> ts <> t) }, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath, dbConn) }, FileEventReceived (Created path)
         when isSupportedExtension (System.IO.Path.GetExtension path) ->
@@ -489,18 +535,44 @@ let view (state: State) (dispatch: Msg -> unit) =
                     SearchBar.view state.SearchBar (SearchBarMsg >> dispatch)
                 ]
             ]
-            if not state.Errors.IsEmpty then
+            if state.OrphanCount > 0 then
+                Border.create [
+                    Border.dock Dock.Top
+                    Border.background (SolidColorBrush(Color.Parse("#9D5100")))
+                    Border.padding (Avalonia.Thickness(8.0, 4.0))
+                    Border.child (
+                        TextBlock.create [
+                            TextBlock.text $"{state.OrphanCount} file(s) missing from disk"
+                            TextBlock.foreground Brushes.White
+                            TextBlock.fontSize 12.0
+                        ])
+                ]
+            for (msg, t) in state.Notifications do
                 Border.create [
                     Border.dock Dock.Top
                     Border.background (SolidColorBrush(Color.Parse("#C42B1C")))
                     Border.padding (Avalonia.Thickness(8.0, 4.0))
                     Border.child (
-                        TextBlock.create [
-                            TextBlock.text (state.Errors |> List.head |> sprintf "%A")
-                            TextBlock.foreground Brushes.White
-                            TextBlock.fontSize 12.0
+                        DockPanel.create [
+                            DockPanel.children [
+                                Button.create [
+                                    Button.dock Dock.Right
+                                    Button.content "✕"
+                                    Button.fontSize 10.0
+                                    Button.padding (Avalonia.Thickness(4.0, 0.0))
+                                    Button.background Brushes.Transparent
+                                    Button.foreground Brushes.White
+                                    Button.onClick (fun _ -> dispatch (DismissNotification t))
+                                ]
+                                TextBlock.create [
+                                    TextBlock.text msg
+                                    TextBlock.foreground Brushes.White
+                                    TextBlock.fontSize 12.0
+                                    TextBlock.verticalAlignment VerticalAlignment.Center
+                                ]
+                            ]
                         ])
-                ]
+                ] :> Avalonia.FuncUI.Types.IView
             Sidebar.view state.Sidebar (SidebarMsg >> dispatch)
             DetailPanel.view state.Detail (DetailMsg >> dispatch)
             match state.IsFirstRun with
