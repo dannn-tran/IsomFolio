@@ -8,7 +8,7 @@ let private appDataRoot () =
 
 let dbPath (catalogDir: string)            = Path.Combine(catalogDir, "catalog.db")
 let thumbnailCacheDir (catalogDir: string) = Path.Combine(catalogDir, "thumbnails")
-let sessionFilePath ()                     = Path.Combine(appDataRoot (), "session.json")
+let private sessionFilePath () = Path.Combine(appDataRoot (), "session.json")
 
 let ensureDirectories (catalogDir: string) =
     Directory.CreateDirectory(thumbnailCacheDir catalogDir) |> ignore
@@ -18,13 +18,23 @@ let createCatalog (parentDir: string) (name: string) : string =
     Directory.CreateDirectory(Path.Combine(catalogPath, "thumbnails")) |> ignore
     catalogPath
 
-let readLastCatalog () : string option =
-    let f = sessionFilePath ()
-    if File.Exists f then
-        try Some(File.ReadAllText(f).Trim())
-        with _ -> None
-    else None
+type Session = { CatalogPath: string; Folders: string list }
 
-let saveLastCatalog (path: string) =
+let readLastSession () : Session option =
+    let f = sessionFilePath ()
+    if not (File.Exists f) then None
+    else
+        try
+            use doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText f)
+            let root = doc.RootElement
+            let catalogPath = root.GetProperty("catalogPath").GetString()
+            let folders =
+                let arr = root.GetProperty("folders")
+                [ for i in 0 .. arr.GetArrayLength() - 1 -> arr.[i].GetString() ]
+            Some { CatalogPath = catalogPath; Folders = folders }
+        with _ -> None
+
+let saveSession (s: Session) =
     Directory.CreateDirectory(appDataRoot ()) |> ignore
-    File.WriteAllText(sessionFilePath (), path)
+    let data = {| catalogPath = s.CatalogPath; folders = s.Folders |}
+    File.WriteAllText(sessionFilePath (), System.Text.Json.JsonSerializer.Serialize(data))
