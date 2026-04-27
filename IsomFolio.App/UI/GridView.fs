@@ -30,7 +30,15 @@ let init () = { Tiles = []; TileSize = Medium; SelectedId = None }
 let update (msg: Msg) (state: State) =
     match msg with
     | TilesLoaded files ->
-        let tiles = files |> List.map (fun f -> { File = f; Thumbnail = NotRequested })
+        let existingStates =
+            state.Tiles
+            |> List.map (fun tile -> tile.File.Id, tile.Thumbnail)
+            |> Map.ofList
+        let tiles =
+            files
+            |> List.map (fun f ->
+                { File = f
+                  Thumbnail = existingStates |> Map.tryFind f.Id |> Option.defaultValue NotRequested })
         { state with Tiles = tiles; SelectedId = None }
     | ThumbnailUpdated(fileId, thumbState) ->
         let tiles =

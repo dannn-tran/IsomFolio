@@ -40,6 +40,7 @@ type Msg =
     | DetailMsg           of DetailPanel.Msg
     | SearchBarMsg        of SearchBar.Msg
     | FolderOpened        of folderPath: string
+    | ScanProgressUpdated of ScanProgress
     | ScanBatchCompleted  of AssetFile list
     | ScanFinished        of totalCount: int
     | SearchCompleted     of AssetFile list
@@ -95,6 +96,13 @@ let private runSearch (c: SqliteConnection) (query: SearchQuery) : Cmd<Msg> =
         SearchCompleted
         (fun ex -> AppError (DbError ex.Message))
 
+let private isFilterActive (query: SearchQuery) =
+    query.Text |> Option.exists (fun txt -> txt.Trim() <> "")
+    || query.FolderPath.IsSome
+    || not query.Tags.IsEmpty
+    || not query.Extensions.IsEmpty
+    || query.DateRange.IsSome
+
 let private startThumbnailWorkerCmd (catalogPath: string) : Cmd<Msg> =
     Cmd.ofEffect (fun dispatch ->
         let worker =
@@ -116,7 +124,8 @@ let private startScanCmd (catalogPath: string) (dbConn: SqliteConnection) (folde
                         let! _ = Db.upsertFiles dbConn batch
                         Dispatcher.UIThread.Post(fun () -> dispatch (ScanBatchCompleted batch))
                     })
-                    ignore
+                    (fun progress ->
+                        Dispatcher.UIThread.Post(fun () -> dispatch (ScanProgressUpdated progress)))
             Dispatcher.UIThread.Post(fun () -> dispatch (ScanFinished result.TotalCount))
         }))
 
@@ -190,6 +199,24 @@ let private enqueueThumbnails (catalogPath: string) (files: AssetFile list) (pri
             if not (Thumbnail.isCacheValid catalogPath f.Id) then
                 w.Post(Thumbnail.Enqueue { FileId = f.Id; FilePath = f.Path; Priority = priority })
     | None -> ()
+
+let private primeGridThumbnails (catalogPath: string) (priority: int) (grid: GridView.State) =
+    let mutable nextGrid = grid
+    let pendingFiles = System.Collections.Generic.List<AssetFile>()
+
+    for tile in grid.Tiles do
+        match tile.Thumbnail with
+        | NotRequested ->
+            let cachePath = Thumbnail.thumbnailCachePath catalogPath tile.File.Id
+            if Thumbnail.isCacheValid catalogPath tile.File.Id then
+                nextGrid <- GridView.update (GridView.ThumbnailUpdated(tile.File.Id, Ready cachePath)) nextGrid
+            else
+                nextGrid <- GridView.update (GridView.ThumbnailUpdated(tile.File.Id, Pending)) nextGrid
+                pendingFiles.Add(tile.File)
+        | _ -> ()
+
+    enqueueThumbnails catalogPath (pendingFiles |> Seq.toList) priority
+    nextGrid
 
 let private uiDispatch (dispatch: Msg -> unit) (msg: Msg) =
     Dispatcher.UIThread.Post(fun () -> dispatch msg)
@@ -446,18 +473,21 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | _, SearchBarMsg sbMsg ->
         { state with SearchBar = SearchBar.update sbMsg state.SearchBar }, Cmd.none
 
-    | { Catalog = OpenedCatalog(catalogPath, _) }, ScanBatchCompleted files ->
-        let current = state.ScanProgress |> Option.defaultValue { TotalFound = 0; Inserted = 0; FolderName = "" }
-        let progress = { current with TotalFound = current.TotalFound + files.Length; Inserted = current.Inserted + files.Length }
-        let newGrid = GridView.update (GridView.TilesLoaded (state.Grid.Tiles |> List.map (fun t -> t.File) |> (@) files)) state.Grid
-        enqueueThumbnails catalogPath files 1
-        { state with ScanProgress = Some progress; Grid = newGrid }, Cmd.none
+    | _, ScanProgressUpdated progress ->
+        { state with ScanProgress = Some progress }, Cmd.none
 
-    | _, ScanBatchCompleted files ->
-        let current = state.ScanProgress |> Option.defaultValue { TotalFound = 0; Inserted = 0; FolderName = "" }
-        let progress = { current with TotalFound = current.TotalFound + files.Length; Inserted = current.Inserted + files.Length }
-        let newGrid = GridView.update (GridView.TilesLoaded (state.Grid.Tiles |> List.map (fun t -> t.File) |> (@) files)) state.Grid
-        { state with ScanProgress = Some progress; Grid = newGrid }, Cmd.none
+    | { Catalog = OpenedCatalog(catalogPath, _) }, ScanBatchCompleted files when not (isFilterActive state.ActiveQuery) ->
+        let newGrid =
+            state.Grid.Tiles
+            |> List.map (fun t -> t.File)
+            |> (@) files
+            |> GridView.TilesLoaded
+            |> fun msg -> GridView.update msg state.Grid
+            |> primeGridThumbnails catalogPath 1
+        { state with Grid = newGrid }, Cmd.none
+
+    | _, ScanBatchCompleted _ ->
+        state, Cmd.none
 
     | { Catalog = OpenedCatalog(_, dbConn) }, ScanFinished _ ->
         { state with ScanProgress = None },
@@ -467,8 +497,11 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         { state with ScanProgress = None }, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath, _) }, SearchCompleted files ->
-        enqueueThumbnails catalogPath files 1
-        { state with Grid = GridView.update (GridView.TilesLoaded files) state.Grid }, Cmd.none
+        let newGrid =
+            state.Grid
+            |> GridView.update (GridView.TilesLoaded files)
+            |> primeGridThumbnails catalogPath 1
+        { state with Grid = newGrid }, Cmd.none
 
     | _, SearchCompleted files ->
         { state with Grid = GridView.update (GridView.TilesLoaded files) state.Grid }, Cmd.none
