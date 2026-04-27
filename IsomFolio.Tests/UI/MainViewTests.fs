@@ -36,17 +36,18 @@ let private openTestCatalog () =
     }
 
 let private makeState catalogPath : MainView.State = {
-    Sidebar = Sidebar.init ()
-    Grid = GridView.init ()
-    Detail = DetailPanel.init ()
-    SearchBar = SearchBar.init ()
-    ScanProgress = None
-    ActiveQuery = defaultQuery
-    Notifications = []
-    OrphanCount = 0
-    IsFirstRun = false
-    Catalog = MainView.OpenedCatalog(catalogPath)
-    Window = Unchecked.defaultof<Window>
+    Sidebar         = Sidebar.init ()
+    Grid            = GridView.init ()
+    Detail          = DetailPanel.init ()
+    SearchBar       = SearchBar.init ()
+    ScanProgress    = None
+    ActiveQuery     = defaultQuery
+    Notifications   = []
+    OrphanCount     = 0
+    IsFirstRun      = false
+    Catalog         = MainView.OpenedCatalog(catalogPath)
+    Window          = Unchecked.defaultof<Window>
+    SearchRequestId = 0
 }
 
 let private makeFile (name: string) (folder: string) : AssetFile =
@@ -133,7 +134,7 @@ module FolderSelection =
             let! messages = execCmd cmd
             let searchCompleted =
                 messages
-                |> List.choose (function MainView.SearchCompleted files -> Some files | _ -> None)
+                |> List.choose (function MainView.SearchCompleted(_, files) -> Some files | _ -> None)
                 |> List.tryHead
 
             Assert.True(searchCompleted.IsSome)
