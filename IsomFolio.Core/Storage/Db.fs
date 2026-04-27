@@ -44,6 +44,11 @@ let private readAssetFile (reader: SqliteDataReader) : AssetFile =
         OrphanedAt = if reader.IsDBNull(8) then None else Some(reader.GetInt64(8))
     }
 
+let private descendantPrefix (rootFolder: string) =
+    rootFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+    + string Path.DirectorySeparatorChar
+    + "%"
+
 // ---------------------------------------------------------------------------
 // Files
 // ---------------------------------------------------------------------------
@@ -105,7 +110,7 @@ let getFilesByFolderRecursive (c: SqliteConnection) (rootFolder: string) : Async
             ORDER BY filename
         """
         cmd.Parameters.AddWithValue("@folder", rootFolder) |> ignore
-        cmd.Parameters.AddWithValue("@prefix", rootFolder.TrimEnd('/','\\') + "%") |> ignore
+        cmd.Parameters.AddWithValue("@prefix", descendantPrefix rootFolder) |> ignore
         use reader = cmd.ExecuteReader()
         let results = System.Collections.Generic.List<AssetFile>()
         while reader.Read() do
@@ -255,7 +260,7 @@ let getIndexedPathsInFolder (c: SqliteConnection) (rootFolder: string) : Async<M
             WHERE folder = @folder OR folder LIKE @prefix
         """
         cmd.Parameters.AddWithValue("@folder", rootFolder) |> ignore
-        cmd.Parameters.AddWithValue("@prefix", rootFolder.TrimEnd('/','\\') + "%") |> ignore
+        cmd.Parameters.AddWithValue("@prefix", descendantPrefix rootFolder) |> ignore
         use reader = cmd.ExecuteReader()
         let results = System.Collections.Generic.Dictionary<string, AssetFile>()
         while reader.Read() do

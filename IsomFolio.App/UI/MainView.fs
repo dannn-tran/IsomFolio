@@ -56,7 +56,7 @@ type Msg =
     | NoOp
 
 let private defaultQuery = {
-    Text = None; Tags = []; Extensions = []
+    Text = None; FolderPath = None; Tags = []; Extensions = []
     DateRange = None; SortBy = Date; SortAsc = false
 }
 
@@ -399,6 +399,11 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | { Window = w }, AddFolderRequested
     | { Window = w }, FolderOpened _ ->
         handleCatalogMsg w state msg |> Option.defaultValue (state, Cmd.none)
+
+    | { Catalog = OpenedCatalog(_, dbConn) }, SidebarMsg (Sidebar.FolderSelected _ as sbMsg) ->
+        let newSidebar = Sidebar.update sbMsg state.Sidebar
+        let query = { state.ActiveQuery with FolderPath = newSidebar.SelectedFolder }
+        { state with Sidebar = newSidebar; ActiveQuery = query }, runSearch dbConn query
 
     | _, SidebarMsg sbMsg ->
         { state with Sidebar = Sidebar.update sbMsg state.Sidebar }, Cmd.none
