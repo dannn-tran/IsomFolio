@@ -114,6 +114,9 @@ let private tileSizeButton (label: string) (ts: TileSize) (current: TileSize) (d
         Button.onClick (fun _ -> dispatch (TileSizeChanged ts))
     ]
 
+let private estimatedTilesPerRow (tileSize: TileSize) =
+    max 1 (900 / (tileSizePx tileSize + 8))
+
 let view (state: State) (dispatch: Msg -> unit) =
     let sizePx = tileSizePx state.TileSize
     DockPanel.create [
@@ -129,6 +132,25 @@ let view (state: State) (dispatch: Msg -> unit) =
                 ]
             ]
             ScrollViewer.create [
+                ScrollViewer.focusable true
+                ScrollViewer.onKeyDown (fun e ->
+                    if not state.Tiles.IsEmpty then
+                        let rowSize = estimatedTilesPerRow state.TileSize
+                        let delta =
+                            match e.Key with
+                            | Avalonia.Input.Key.Left  -> -1
+                            | Avalonia.Input.Key.Right ->  1
+                            | Avalonia.Input.Key.Up    -> -rowSize
+                            | Avalonia.Input.Key.Down  ->  rowSize
+                            | _ -> 0
+                        if delta <> 0 then
+                            e.Handled <- true
+                            let currentIdx =
+                                state.SelectedId
+                                |> Option.bind (fun id -> state.Tiles |> List.tryFindIndex (fun t -> t.File.Id = id))
+                                |> Option.defaultValue 0
+                            let newIdx = max 0 (min (state.Tiles.Length - 1) (currentIdx + delta))
+                            dispatch (TileSelected state.Tiles.[newIdx].File.Id))
                 ScrollViewer.content (
                     WrapPanel.create [
                         WrapPanel.margin (Avalonia.Thickness(4.0))

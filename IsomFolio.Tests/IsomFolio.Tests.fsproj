@@ -9,6 +9,7 @@
     <ItemGroup>
         <Compile Include="AssemblyInfo.fs" />
         <Compile Include="Storage\DbTests.fs" />
+        <Compile Include="Indexing\FolderTreeTests.fs" />
         <Compile Include="Search\QueryEngineTests.fs" />
         <Compile Include="Tagging\TaggingTests.fs" />
     </ItemGroup>
