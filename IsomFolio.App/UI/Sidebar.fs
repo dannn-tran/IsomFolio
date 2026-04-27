@@ -69,26 +69,39 @@ let update (msg: Msg) (state: State) =
         { state with SelectedTags = selected }
 
 let rec private folderNodeView (depth: int) (selectedPath: string option) (dispatch: Msg -> unit) (node: FolderNode) =
+    let isSelected = selectedPath |> Option.exists (samePath node.Path)
     let foreground =
         SolidColorBrush(
-            if depth = 0 then Color.Parse("#FFFFFF")
+            if isSelected then Color.Parse("#FFFFFF")
+            elif depth = 0 then Color.Parse("#FFFFFF")
             else Color.Parse("#CFCFCF"))
-    let pathForeground = SolidColorBrush(Color.Parse("#7F7F7F"))
-    let isSelected = selectedPath |> Option.exists (samePath node.Path)
+    let pathForeground =
+        SolidColorBrush(
+            if isSelected then Color.Parse("#D6ECFF")
+            else Color.Parse("#7F7F7F"))
     let selectionBackground : IBrush =
-        if isSelected then SolidColorBrush(Color.Parse("#0E639C")) :> IBrush
+        if isSelected then SolidColorBrush(Color.Parse("#0B3D62")) :> IBrush
         else Brushes.Transparent :> IBrush
+    let selectionBorder : IBrush =
+        if isSelected then SolidColorBrush(Color.Parse("#8FD3FF")) :> IBrush
+        else Brushes.Transparent :> IBrush
+    let selectionBorderThickness =
+        if isSelected then Avalonia.Thickness(3.0, 1.0, 1.0, 1.0)
+        else Avalonia.Thickness(0.0)
 
     StackPanel.create [
         StackPanel.children [
-            yield Border.create [
-                Border.background selectionBackground
-                Border.cornerRadius 4.0
-                Border.cursor Avalonia.Input.Cursor.Default
-                Border.onPointerPressed (fun _ -> dispatch (FolderSelected node.Path))
-                Border.child (
+            yield Button.create [
+                Button.background selectionBackground
+                Button.borderBrush selectionBorder
+                Button.borderThickness selectionBorderThickness
+                Button.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 4.0))
+                Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
+                Button.horizontalAlignment HorizontalAlignment.Stretch
+                Button.horizontalContentAlignment HorizontalAlignment.Left
+                Button.onClick (fun _ -> dispatch (FolderSelected node.Path))
+                Button.content (
                     StackPanel.create [
-                        StackPanel.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 4.0))
                         StackPanel.children [
                             TextBlock.create [
                                 TextBlock.text node.Name
