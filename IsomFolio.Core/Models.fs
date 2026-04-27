@@ -29,6 +29,7 @@ type SortField = Name | Date | Size | Ext
 
 type SearchQuery = {
     Text        : string option
+    FolderPath  : string option
     Tags        : string list
     Extensions  : string list
     DateRange   : (DateTime * DateTime) option

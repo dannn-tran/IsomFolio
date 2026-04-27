@@ -29,6 +29,7 @@ let private makeFile (name: string) (folder: string) (ext: string) : AssetFile =
 
 let private defaultQuery = {
     Text       = None
+    FolderPath = None
     Tags       = []
     Extensions = []
     DateRange  = None
@@ -88,6 +89,33 @@ module ExecuteSearch =
             let! results = QueryEngine.executeSearch c { defaultQuery with Tags = [ "vacation" ] }
             Assert.Equal(1, results.Length)
             Assert.Equal(f1.Id, results[0].Id)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``filters by folder recursively`` () =
+        async {
+            let! c = openTestDb ()
+            let root = makeFile "root" "/outer" "jpg"
+            let nested = makeFile "nested" "/outer/inner" "jpg"
+            let other = makeFile "other" "/other" "jpg"
+            let! _ = Db.upsertFiles c [ root; nested; other ]
+            let! results = QueryEngine.executeSearch c { defaultQuery with FolderPath = Some "/outer" }
+            let ids = results |> List.map _.Id |> Set.ofList
+            Assert.Equal(2, ids.Count)
+            Assert.Contains(root.Id, ids)
+            Assert.Contains(nested.Id, ids)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``folder filter does not match sibling with shared prefix`` () =
+        async {
+            let! c = openTestDb ()
+            let nested = makeFile "nested" "/outer/inner" "jpg"
+            let sibling = makeFile "sibling" "/outer-2" "jpg"
+            let! _ = Db.upsertFiles c [ nested; sibling ]
+            let! results = QueryEngine.executeSearch c { defaultQuery with FolderPath = Some "/outer" }
+            Assert.Single(results) |> ignore
+            Assert.Equal(nested.Id, results[0].Id)
         } |> Async.RunSynchronously
 
     [<Fact>]

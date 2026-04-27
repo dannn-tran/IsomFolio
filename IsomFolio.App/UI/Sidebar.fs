@@ -11,26 +11,56 @@ type State = {
     FolderTree   : FolderNode list
     Tags         : (string * int) list   // (name, count)
     SelectedTags : string list
+    SelectedFolder : string option
 }
 
 type Msg =
     | FolderRemoved of string
+    | FolderSelected of string
     | TagToggled    of string
     | FoldersLoaded of string list
     | FolderTreeLoaded of FolderNode list
     | TagsLoaded    of (string * int) list
 
-let init () = { Folders = []; FolderTree = []; Tags = []; SelectedTags = [] }
+let init () = { Folders = []; FolderTree = []; Tags = []; SelectedTags = []; SelectedFolder = None }
+
+let private isPathWithinRoot (root: string) (path: string) =
+    samePath root path
+    || path.StartsWith(root + string System.IO.Path.DirectorySeparatorChar, if System.OperatingSystem.IsWindows() then System.StringComparison.OrdinalIgnoreCase else System.StringComparison.Ordinal)
+
+let rec private treeContainsPath (path: string) (nodes: FolderNode list) =
+    nodes |> List.exists (fun node ->
+        samePath node.Path path || treeContainsPath path node.Children)
 
 let update (msg: Msg) (state: State) =
     match msg with
-    | FoldersLoaded fs      -> { state with Folders = fs; FolderTree = [] }
-    | FolderTreeLoaded tree -> { state with FolderTree = tree }
+    | FoldersLoaded fs      ->
+        let selectedFolder =
+            state.SelectedFolder
+            |> Option.filter (fun path -> fs |> List.exists (fun root -> isPathWithinRoot root path))
+        { state with Folders = fs; FolderTree = []; SelectedFolder = selectedFolder }
+    | FolderTreeLoaded tree ->
+        let selectedFolder =
+            state.SelectedFolder
+            |> Option.filter (fun path -> treeContainsPath path tree)
+        { state with FolderTree = tree; SelectedFolder = selectedFolder }
     | TagsLoaded ts         -> { state with Tags = ts }
     | FolderRemoved f       ->
+        let folders = state.Folders |> List.filter ((<>) f)
+        let selectedFolder =
+            state.SelectedFolder
+            |> Option.filter (fun path -> folders |> List.exists (fun root -> isPathWithinRoot root path))
         { state with
-            Folders = state.Folders |> List.filter ((<>) f)
-            FolderTree = state.FolderTree |> List.filter (fun node -> node.Path <> f) }
+            Folders = folders
+            FolderTree = state.FolderTree |> List.filter (fun node -> node.Path <> f)
+            SelectedFolder = selectedFolder }
+    | FolderSelected path   ->
+        let path = normalizePath path
+        let selected =
+            match state.SelectedFolder with
+            | Some current when samePath current path -> None
+            | _ -> Some path
+        { state with SelectedFolder = selected }
     | TagToggled tag    ->
         let selected =
             if state.SelectedTags |> List.contains tag
@@ -38,37 +68,48 @@ let update (msg: Msg) (state: State) =
             else state.SelectedTags @ [ tag ]
         { state with SelectedTags = selected }
 
-let rec private folderNodeView (depth: int) (node: FolderNode) =
+let rec private folderNodeView (depth: int) (selectedPath: string option) (dispatch: Msg -> unit) (node: FolderNode) =
     let foreground =
         SolidColorBrush(
             if depth = 0 then Color.Parse("#FFFFFF")
             else Color.Parse("#CFCFCF"))
     let pathForeground = SolidColorBrush(Color.Parse("#7F7F7F"))
+    let isSelected = selectedPath |> Option.exists (samePath node.Path)
+    let selectionBackground : IBrush =
+        if isSelected then SolidColorBrush(Color.Parse("#0E639C")) :> IBrush
+        else Brushes.Transparent :> IBrush
 
     StackPanel.create [
         StackPanel.children [
-            yield StackPanel.create [
-                StackPanel.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 4.0))
-                StackPanel.children [
-                    TextBlock.create [
-                        TextBlock.text node.Name
-                        TextBlock.foreground foreground
-                        TextBlock.fontSize 13.0
-                        TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
-                        TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
-                        TextBlock.tip node.Path
-                    ]
-                    TextBlock.create [
-                        TextBlock.text node.Path
-                        TextBlock.foreground pathForeground
-                        TextBlock.fontSize 11.0
-                        TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
-                        TextBlock.tip node.Path
-                    ]
-                ]
+            yield Border.create [
+                Border.background selectionBackground
+                Border.cornerRadius 4.0
+                Border.cursor Avalonia.Input.Cursor.Default
+                Border.onPointerPressed (fun _ -> dispatch (FolderSelected node.Path))
+                Border.child (
+                    StackPanel.create [
+                        StackPanel.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 4.0))
+                        StackPanel.children [
+                            TextBlock.create [
+                                TextBlock.text node.Name
+                                TextBlock.foreground foreground
+                                TextBlock.fontSize 13.0
+                                TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
+                                TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
+                                TextBlock.tip node.Path
+                            ]
+                            TextBlock.create [
+                                TextBlock.text node.Path
+                                TextBlock.foreground pathForeground
+                                TextBlock.fontSize 11.0
+                                TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
+                                TextBlock.tip node.Path
+                            ]
+                        ]
+                    ])
             ] :> Avalonia.FuncUI.Types.IView
             for child in node.Children do
-                yield folderNodeView (depth + 1) child :> Avalonia.FuncUI.Types.IView
+                yield folderNodeView (depth + 1) selectedPath dispatch child :> Avalonia.FuncUI.Types.IView
         ]
     ]
 
@@ -124,11 +165,11 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
                             ] :> Avalonia.FuncUI.Types.IView
                             if state.FolderTree.IsEmpty then
                                 for folder in state.Folders do
-                                    yield folderNodeView 0 { Name = displayName folder; Path = folder; Children = [] }
+                                    yield folderNodeView 0 state.SelectedFolder dispatch { Name = displayName folder; Path = folder; Children = [] }
                                           :> Avalonia.FuncUI.Types.IView
                             else
                                 for node in state.FolderTree do
-                                    yield folderNodeView 0 node :> Avalonia.FuncUI.Types.IView
+                                    yield folderNodeView 0 state.SelectedFolder dispatch node :> Avalonia.FuncUI.Types.IView
                             // Tag list
                             if not state.Tags.IsEmpty then
                                 yield TextBlock.create [

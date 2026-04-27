@@ -1,6 +1,7 @@
 module IsomFolio.Search.QueryEngine
 
 open System
+open System.IO
 open System.Text
 open Microsoft.Data.Sqlite
 open IsomFolio.Models
@@ -16,6 +17,11 @@ let private sortColumn (f: SortField) =
     | Date -> "modified_time"
     | Size -> "size"
     | Ext  -> "extension"
+
+let private descendantPrefix (folderPath: string) =
+    folderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+    + string Path.DirectorySeparatorChar
+    + "%"
 
 let private readAssetFile (r: SqliteDataReader) : AssetFile =
     {
@@ -78,6 +84,13 @@ let executeSearch (c: SqliteConnection) (query: SearchQuery) : Async<AssetFile l
 
         if ftsEmpty then return []
         else
+
+        match query.FolderPath with
+        | Some folderPath when folderPath.Trim() <> "" ->
+            cmd.Parameters.AddWithValue("@folder", folderPath) |> ignore
+            cmd.Parameters.AddWithValue("@folderPrefix", descendantPrefix folderPath) |> ignore
+            sql.Append(" AND (f.folder = @folder OR f.folder LIKE @folderPrefix)") |> ignore
+        | _ -> ()
 
         // Extension filter
         if not query.Extensions.IsEmpty then

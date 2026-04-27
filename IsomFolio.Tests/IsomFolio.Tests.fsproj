@@ -12,10 +12,12 @@
         <Compile Include="Indexing\FolderTreeTests.fs" />
         <Compile Include="Search\QueryEngineTests.fs" />
         <Compile Include="Tagging\TaggingTests.fs" />
+        <Compile Include="UI\MainViewTests.fs" />
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\IsomFolio.Core\IsomFolio.Core.fsproj" />
+        <ProjectReference Include="..\IsomFolio.App\IsomFolio.App.fsproj" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
         <PackageReference Include="xunit" Version="2.9.2" />
         <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
