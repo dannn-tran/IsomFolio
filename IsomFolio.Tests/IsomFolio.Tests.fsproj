@@ -12,6 +12,7 @@
         <Compile Include="Indexing\FolderTreeTests.fs" />
         <Compile Include="Search\QueryEngineTests.fs" />
         <Compile Include="Tagging\TaggingTests.fs" />
+        <Compile Include="UI\GridViewTests.fs" />
         <Compile Include="UI\MainViewTests.fs" />
     </ItemGroup>
 

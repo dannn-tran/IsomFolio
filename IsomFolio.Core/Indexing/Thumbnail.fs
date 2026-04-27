@@ -116,12 +116,21 @@ let createWorkerPool
                     queue.Clear()
                     return! loop ()
                 | SetPriority(fileId, priority) ->
-                    // Re-enqueue with new priority — remove from old bucket first
+                    // Re-enqueue with new priority — preserve the original request path
+                    let mutable existingReq = None
                     for kv in queue do
-                        let newQ = Queue(kv.Value |> Seq.filter (fun r -> r.FileId <> fileId))
+                        let newQ =
+                            Queue(
+                                kv.Value
+                                |> Seq.choose (fun r ->
+                                    if r.FileId = fileId then
+                                        existingReq <- Some { r with Priority = priority }
+                                        None
+                                    else
+                                        Some r))
                         kv.Value.Clear()
                         for r in newQ do kv.Value.Enqueue(r)
-                    enqueueItem { FileId = fileId; FilePath = ""; Priority = priority }
+                    existingReq |> Option.iter enqueueItem
                     return! loop ()
                 | Enqueue req ->
                     enqueueItem req
