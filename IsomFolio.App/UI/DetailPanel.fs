@@ -94,9 +94,7 @@ let private tagChip (tag: string) (dispatch: Msg -> unit) =
     ] :> Avalonia.FuncUI.Types.IView
 
 let view (state: State) (dispatch: Msg -> unit) =
-    if not state.IsVisible then
-        Border.create [ Border.width 0.0 ] :> Avalonia.FuncUI.Types.IView
-    else
+    if not state.IsVisible then Border.create [] :> Avalonia.FuncUI.Types.IView else
     DockPanel.create [
         DockPanel.width 280.0
         DockPanel.background (SolidColorBrush(Color.Parse("#1E1E1E")))

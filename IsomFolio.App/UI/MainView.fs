@@ -126,6 +126,20 @@ let private createWatcherCmd (folderPath: string) : Cmd<Msg> =
             Dispatcher.UIThread.Post(fun () -> dispatch (FileEventReceived event)))
         activeWatchers <- w :: activeWatchers)
 
+let private loadFolderTreeCmd (folders: string list) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () -> async { return FolderTree.buildForest folders })
+        ()
+        (Sidebar.FolderTreeLoaded >> SidebarMsg)
+        (fun _ -> NoOp)
+
+let private normalizeFolders (folders: string list) =
+    folders
+    |> List.map FolderTree.normalizePath
+    |> List.fold (fun acc path ->
+        if acc |> List.exists (fun existing -> FolderTree.samePath existing path) then acc
+        else acc @ [ path ]) []
+
 let private reconcileFolderCmd (dbConn: SqliteConnection) (folderPath: string) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () -> async {
@@ -219,12 +233,17 @@ let private handleCatalogMsg (w: Window) (state: State) (msg: Msg) : (State * Cm
                         Async.Start(async {
                             try
                                 let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
-                                uiDispatch dispatch (CatalogOpened (catalogPath, conn, []))
+                                let folders =
+                                    match IsomFolio.AppPaths.readLastSession() with
+                                    | Some s when s.CatalogPath = catalogPath -> s.Folders
+                                    | _ -> []
+                                uiDispatch dispatch (CatalogOpened (catalogPath, conn, folders))
                             with ex ->
                                 uiDispatch dispatch (AppError (DbError ex.Message)) }))
             |> ignore)
         Some(state, cmd)
     | CatalogOpened (path, conn, folders) ->
+        let folders = normalizeFolders folders
         IsomFolio.AppPaths.saveSession { CatalogPath = path; Folders = folders }
         let perFolderCmds =
             folders |> List.collect (fun f -> [ reconcileFolderCmd conn f; createWatcherCmd f ])
@@ -237,7 +256,7 @@ let private handleCatalogMsg (w: Window) (state: State) (msg: Msg) : (State * Cm
                 IsFirstRun   = false
                 Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
                 ScanProgress = scanProgress },
-            Cmd.batch (startThumbnailWorkerCmd path :: startupCleanupCmd path conn :: perFolderCmds))
+            Cmd.batch (startThumbnailWorkerCmd path :: startupCleanupCmd path conn :: loadFolderTreeCmd folders :: perFolderCmds))
     | AddFolderRequested ->
         let cmd = Cmd.ofEffect (fun dispatch ->
             let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(
@@ -252,13 +271,23 @@ let private handleCatalogMsg (w: Window) (state: State) (msg: Msg) : (State * Cm
     | FolderOpened path ->
         match state.Catalog with
         | OpenedCatalog(catalogPath, dbConn) ->
-            let folders = state.Sidebar.Folders @ [ path ]
+            let path = FolderTree.normalizePath path
+            let existingFolders = normalizeFolders state.Sidebar.Folders
+            let alreadyTracked = existingFolders |> List.contains path
+            let folders =
+                if alreadyTracked then existingFolders
+                else existingFolders @ [ path ]
             IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = folders }
-            Some(
-                { state with
-                    Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
-                    ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName path } },
-                Cmd.batch [ startScanCmd catalogPath dbConn path; createWatcherCmd path ])
+            if alreadyTracked then
+                Some(
+                    { state with Sidebar = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar },
+                    loadFolderTreeCmd folders)
+            else
+                Some(
+                    { state with
+                        Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
+                        ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName path } },
+                    Cmd.batch [ loadFolderTreeCmd folders; startScanCmd catalogPath dbConn path; createWatcherCmd path ])
         | Unloaded -> Some(state, Cmd.none)
     | _ -> None
 
@@ -516,25 +545,34 @@ let private welcomeView (dispatch: Msg -> unit) =
         ]
     ] :> Avalonia.FuncUI.Types.IView
 
-let private progressView (progress: ScanProgress) =
-    StackPanel.create [
-        StackPanel.verticalAlignment VerticalAlignment.Center
-        StackPanel.horizontalAlignment HorizontalAlignment.Center
-        StackPanel.spacing 8.0
-        StackPanel.children [
+let private progressBarView (progress: ScanProgress) =
+    DockPanel.create [
+        DockPanel.dock Dock.Top
+        DockPanel.background (SolidColorBrush(Color.Parse("#1E3A5F")))
+        DockPanel.height 28.0
+        DockPanel.children [
+            TextBlock.create [
+                TextBlock.dock Dock.Right
+                TextBlock.text $"{progress.Inserted} indexed"
+                TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                TextBlock.fontSize 11.0
+                TextBlock.verticalAlignment VerticalAlignment.Center
+                TextBlock.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
+            ]
+            ProgressBar.create [
+                ProgressBar.dock Dock.Right
+                ProgressBar.isIndeterminate true
+                ProgressBar.width 80.0
+                ProgressBar.height 4.0
+                ProgressBar.verticalAlignment VerticalAlignment.Center
+                ProgressBar.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
+            ]
             TextBlock.create [
                 TextBlock.text $"Scanning {progress.FolderName}…"
                 TextBlock.foreground Brushes.White
-                TextBlock.horizontalAlignment HorizontalAlignment.Center
-            ]
-            ProgressBar.create [
-                ProgressBar.isIndeterminate true
-                ProgressBar.width 300.0
-            ]
-            TextBlock.create [
-                TextBlock.text $"{progress.Inserted} files indexed"
-                TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
-                TextBlock.horizontalAlignment HorizontalAlignment.Center
+                TextBlock.fontSize 11.0
+                TextBlock.verticalAlignment VerticalAlignment.Center
+                TextBlock.margin (Avalonia.Thickness(8.0, 0.0))
             ]
         ]
     ] :> Avalonia.FuncUI.Types.IView
@@ -589,13 +627,22 @@ let view (state: State) (dispatch: Msg -> unit) =
                             ]
                         ])
                 ] :> Avalonia.FuncUI.Types.IView
-            Sidebar.view state.Sidebar (SidebarMsg >> dispatch) (fun () -> dispatch AddFolderRequested)
-            DetailPanel.view state.Detail (DetailMsg >> dispatch)
-            match state.IsFirstRun with
-            | true  -> welcomeView dispatch
-            | false ->
-                match state.ScanProgress with
-                | Some p -> progressView p
-                | None   -> GridView.view state.Grid (GridMsg >> dispatch)
+            if state.ScanProgress.IsSome then
+                progressBarView state.ScanProgress.Value
+            Border.create [
+                Border.dock Dock.Left
+                Border.width 220.0
+                Border.isVisible (not state.IsFirstRun)
+                Border.child (Sidebar.view state.Sidebar (SidebarMsg >> dispatch) (fun () -> dispatch AddFolderRequested))
+            ]
+            Border.create [
+                Border.dock Dock.Right
+                Border.isVisible (state.Detail.IsVisible && not state.IsFirstRun)
+                Border.child (DetailPanel.view state.Detail (DetailMsg >> dispatch))
+            ]
+            if state.IsFirstRun then
+                welcomeView dispatch
+            else
+                GridView.view state.Grid (GridMsg >> dispatch)
         ]
     ] :> Avalonia.FuncUI.Types.IView
