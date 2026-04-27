@@ -17,6 +17,7 @@ type State = {
     Tiles      : TileModel list
     TileSize   : TileSize
     SelectedId : FileId option
+    GridWidth  : float
 }
 
 type Msg =
@@ -24,8 +25,9 @@ type Msg =
     | ThumbnailUpdated   of FileId * ThumbnailState
     | TileSizeChanged    of TileSize
     | TileSelected       of FileId
+    | GridWidthChanged   of float
 
-let init () = { Tiles = []; TileSize = Medium; SelectedId = None }
+let init () = { Tiles = []; TileSize = Medium; SelectedId = None; GridWidth = 900.0 }
 
 let update (msg: Msg) (state: State) =
     match msg with
@@ -45,12 +47,25 @@ let update (msg: Msg) (state: State) =
             state.Tiles |> List.map (fun t ->
                 if t.File.Id = fileId then { t with Thumbnail = thumbState } else t)
         { state with Tiles = tiles }
-    | TileSizeChanged ts -> { state with TileSize = ts }
-    | TileSelected id    -> { state with SelectedId = Some id }
+    | TileSizeChanged ts  -> { state with TileSize = ts }
+    | TileSelected id     -> { state with SelectedId = Some id }
+    | GridWidthChanged w  -> { state with GridWidth = w }
+
+let private bitmapCache = System.Collections.Generic.Dictionary<string, Bitmap>()
+
+let clearBitmapCache () =
+    for kv in bitmapCache do kv.Value.Dispose()
+    bitmapCache.Clear()
 
 let private tryLoadBitmap (path: string) : Bitmap option =
-    try Some(new Bitmap(path))
-    with _ -> None
+    match bitmapCache.TryGetValue(path) with
+    | true, bmp -> Some bmp
+    | _ ->
+        try
+            let bmp = new Bitmap(path)
+            bitmapCache[path] <- bmp
+            Some bmp
+        with _ -> None
 
 let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Msg -> unit) =
     let px = float sizePx
@@ -122,8 +137,8 @@ let private tileSizeButton (label: string) (ts: TileSize) (current: TileSize) (d
         Button.onClick (fun _ -> dispatch (TileSizeChanged ts))
     ]
 
-let private estimatedTilesPerRow (tileSize: TileSize) =
-    max 1 (900 / (tileSizePx tileSize + 8))
+let private tilesPerRow (state: State) =
+    max 1 (int state.GridWidth / (tileSizePx state.TileSize + 8))
 
 let view (state: State) (dispatch: Msg -> unit) =
     let sizePx = tileSizePx state.TileSize
@@ -141,9 +156,12 @@ let view (state: State) (dispatch: Msg -> unit) =
             ]
             ScrollViewer.create [
                 ScrollViewer.focusable true
+                ScrollViewer.onSizeChanged (fun e ->
+                    if e.NewSize.Width > 0.0 && e.NewSize.Width <> state.GridWidth then
+                        dispatch (GridWidthChanged e.NewSize.Width))
                 ScrollViewer.onKeyDown (fun e ->
                     if not state.Tiles.IsEmpty then
-                        let rowSize = estimatedTilesPerRow state.TileSize
+                        let rowSize = tilesPerRow state
                         let delta =
                             match e.Key with
                             | Avalonia.Input.Key.Left  -> -1

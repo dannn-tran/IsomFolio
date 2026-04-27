@@ -20,17 +20,18 @@ type CatalogState =
     | OpenedCatalog of catalogPath: string
 
 type State = {
-    Sidebar       : Sidebar.State
-    Grid          : GridView.State
-    Detail        : DetailPanel.State
-    SearchBar     : SearchBar.State
-    ScanProgress  : ScanProgress option
-    ActiveQuery   : SearchQuery
-    Notifications : (string * System.DateTime) list
-    OrphanCount   : int
-    IsFirstRun    : bool
-    Catalog       : CatalogState
-    Window        : Window
+    Sidebar         : Sidebar.State
+    Grid            : GridView.State
+    Detail          : DetailPanel.State
+    SearchBar       : SearchBar.State
+    ScanProgress    : ScanProgress option
+    ActiveQuery     : SearchQuery
+    Notifications   : (string * System.DateTime) list
+    OrphanCount     : int
+    IsFirstRun      : bool
+    Catalog         : CatalogState
+    Window          : Window
+    SearchRequestId : int
 }
 
 type Msg =
@@ -42,7 +43,7 @@ type Msg =
     | ScanProgressUpdated of ScanProgress
     | ScanBatchCompleted  of AssetFile list
     | ScanFinished        of totalCount: int
-    | SearchCompleted     of AssetFile list
+    | SearchCompleted     of requestId: int * files: AssetFile list
     | FileEventReceived   of FileEvent
     | TagsUpdated         of FileId * string list
     | TagsSaved           of FileId * string list
@@ -70,9 +71,10 @@ let init (w: Window) () : State * Cmd<Msg> =
         ActiveQuery   = defaultQuery
         Notifications = []
         OrphanCount   = 0
-        IsFirstRun    = true
-        Catalog       = Unloaded
-        Window        = w
+        IsFirstRun      = true
+        Catalog         = Unloaded
+        Window          = w
+        SearchRequestId = 0
     }
     let initCmd =
         match IsomFolio.AppPaths.readLastSession() with
@@ -96,11 +98,11 @@ let private withCatalogDb (catalogPath: string) (work: _ -> Async<'T>) : Async<'
         return! work c
     }
 
-let private runSearch (catalogPath: string) (query: SearchQuery) : Cmd<Msg> =
+let private runSearch (catalogPath: string) (requestId: int) (query: SearchQuery) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () -> withCatalogDb catalogPath (fun c -> query |> QueryEngine.executeSearch c))
         ()
-        SearchCompleted
+        (fun files -> SearchCompleted(requestId, files))
         (fun ex -> AppError (DbError ex.Message))
 
 let private isFilterActive (query: SearchQuery) =
@@ -143,12 +145,20 @@ let private createWatcherCmd (folderPath: string) : Cmd<Msg> =
             Dispatcher.UIThread.Post(fun () -> dispatch (FileEventReceived event)))
         activeWatchers <- w :: activeWatchers)
 
+let private stopAllCmd () : Cmd<Msg> =
+    Cmd.ofEffect (fun _ ->
+        for w in activeWatchers do Watcher.stopWatcher w
+        activeWatchers <- []
+        thumbnailWorker |> Option.iter (fun w -> w.Post(Thumbnail.Shutdown))
+        thumbnailWorker <- None
+        GridView.clearBitmapCache())
+
 let private loadFolderTreeCmd (folders: string list) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () -> async { return FolderTree.buildForest folders })
         ()
         (Sidebar.FolderTreeLoaded >> SidebarMsg)
-        (fun _ -> NoOp)
+        (fun ex -> AppError (ScanError ex.Message))
 
 let private normalizeFolders (folders: string list) =
     folders
@@ -189,13 +199,13 @@ let private startupCleanupCmd (catalogPath: string) : Cmd<Msg> =
                 }))
         ()
         OrphanCountLoaded
-        (fun _ -> NoOp)
+        (fun ex -> AppError (DbError ex.Message))
 
 let private countOrphansCmd (catalogPath: string) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () -> withCatalogDb catalogPath Db.countOrphans) ()
         OrphanCountLoaded
-        (fun _ -> NoOp)
+        (fun ex -> AppError (DbError ex.Message))
 
 let private formatError = function
     | DbError msg              -> $"Database error: {msg}"
@@ -297,7 +307,7 @@ let private handleCatalogMsg (w: Window) (state: State) (msg: Msg) : (State * Cm
                 IsFirstRun   = false
                 Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
                 ScanProgress = scanProgress },
-            Cmd.batch (startThumbnailWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
+            Cmd.batch (stopAllCmd () :: startThumbnailWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
     | AddFolderRequested ->
         let cmd = Cmd.ofEffect (fun dispatch ->
             let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(
@@ -372,18 +382,20 @@ let private handleTagMsg (catalogPath: string) (f: AssetFile) (state: State) (dM
                 (fun ex -> AppError (XmpWriteError(f.Path, ex.Message)))
         Some(state, cmd)
     | DetailPanel.OpenExternally ->
-        try System.Diagnostics.Process.Start(
-                System.Diagnostics.ProcessStartInfo(f.Path, UseShellExecute = true)) |> ignore
-        with _ -> ()
-        Some(state, Cmd.none)
+        let cmd = Cmd.ofEffect (fun _ ->
+            try System.Diagnostics.Process.Start(
+                    System.Diagnostics.ProcessStartInfo(f.Path, UseShellExecute = true)) |> ignore
+            with _ -> ())
+        Some(state, cmd)
     | DetailPanel.RevealInExplorer ->
-        try
-            if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) then
-                System.Diagnostics.Process.Start("open", $"-R \"{f.Path}\"") |> ignore
-            elif System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
-                System.Diagnostics.Process.Start("explorer", $"/select,\"{f.Path}\"") |> ignore
-        with _ -> ()
-        Some(state, Cmd.none)
+        let cmd = Cmd.ofEffect (fun _ ->
+            try
+                if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) then
+                    System.Diagnostics.Process.Start("open", $"-R \"{f.Path}\"") |> ignore
+                elif System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
+                    System.Diagnostics.Process.Start("explorer", $"/select,\"{f.Path}\"") |> ignore
+            with _ -> ())
+        Some(state, cmd)
     | _ -> None
 
 let private handleFileEvent (catalogPath: string) (state: State) (event: FileEvent) : State * Cmd<Msg> =
@@ -456,7 +468,9 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg (Sidebar.FolderSelected _ as sbMsg) ->
         let newSidebar = Sidebar.update sbMsg state.Sidebar
         let query = { state.ActiveQuery with FolderPath = newSidebar.SelectedFolder }
-        { state with Sidebar = newSidebar; ActiveQuery = query }, runSearch catalogPath query
+        let newId = state.SearchRequestId + 1
+        { state with Sidebar = newSidebar; ActiveQuery = query; SearchRequestId = newId },
+        runSearch catalogPath newId query
 
     | _, SidebarMsg sbMsg ->
         { state with Sidebar = Sidebar.update sbMsg state.Sidebar }, Cmd.none
@@ -494,7 +508,8 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | { Catalog = OpenedCatalog(catalogPath) }, SearchBarMsg (SearchBar.QuerySubmitted txt) ->
         let query = { state.ActiveQuery with Text = if txt.Trim() = "" then None else Some txt }
-        { state with ActiveQuery = query }, query |> runSearch catalogPath
+        let newId = state.SearchRequestId + 1
+        { state with ActiveQuery = query; SearchRequestId = newId }, runSearch catalogPath newId query
 
     | _, SearchBarMsg sbMsg ->
         { state with SearchBar = SearchBar.update sbMsg state.SearchBar }, Cmd.none
@@ -516,21 +531,22 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         state, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath) }, ScanFinished _ ->
-        { state with ScanProgress = None },
-        Cmd.batch [ state.ActiveQuery |> runSearch catalogPath; countOrphansCmd catalogPath ]
+        let newId = state.SearchRequestId + 1
+        { state with ScanProgress = None; SearchRequestId = newId },
+        Cmd.batch [ runSearch catalogPath newId state.ActiveQuery; countOrphansCmd catalogPath ]
 
     | _, ScanFinished _ ->
         { state with ScanProgress = None }, Cmd.none
 
-    | { Catalog = OpenedCatalog(catalogPath) }, SearchCompleted files ->
+    | { Catalog = OpenedCatalog(catalogPath) }, SearchCompleted(id, files) when id = state.SearchRequestId ->
         let newGrid =
             state.Grid
             |> GridView.update (GridView.TilesLoaded files)
             |> primeGridThumbnails catalogPath 1
         { state with Grid = newGrid }, Cmd.none
 
-    | _, SearchCompleted files ->
-        { state with Grid = GridView.update (GridView.TilesLoaded files) state.Grid }, Cmd.none
+    | _, SearchCompleted _ ->
+        state, Cmd.none
 
     | _, TagsUpdated(fileId, tags) | _, TagsSaved(fileId, tags) ->
         let newDetail =
@@ -609,42 +625,11 @@ let private welcomeView (dispatch: Msg -> unit) =
         ]
     ] :> Avalonia.FuncUI.Types.IView
 
-let private progressBarView (progress: ScanProgress) =
-    DockPanel.create [
-        DockPanel.dock Dock.Top
-        DockPanel.background (SolidColorBrush(Color.Parse("#1E3A5F")))
-        DockPanel.height 28.0
-        DockPanel.children [
-            TextBlock.create [
-                TextBlock.dock Dock.Right
-                TextBlock.text $"{progress.Inserted} indexed"
-                TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
-                TextBlock.fontSize 11.0
-                TextBlock.verticalAlignment VerticalAlignment.Center
-                TextBlock.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
-            ]
-            ProgressBar.create [
-                ProgressBar.dock Dock.Right
-                ProgressBar.isIndeterminate true
-                ProgressBar.width 80.0
-                ProgressBar.height 4.0
-                ProgressBar.verticalAlignment VerticalAlignment.Center
-                ProgressBar.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
-            ]
-            TextBlock.create [
-                TextBlock.text $"Scanning {progress.FolderName}…"
-                TextBlock.foreground Brushes.White
-                TextBlock.fontSize 11.0
-                TextBlock.verticalAlignment VerticalAlignment.Center
-                TextBlock.margin (Avalonia.Thickness(8.0, 0.0))
-            ]
-        ]
-    ] :> Avalonia.FuncUI.Types.IView
-
 let view (state: State) (dispatch: Msg -> unit) =
     DockPanel.create [
         DockPanel.background (SolidColorBrush(Color.Parse("#252526")))
         DockPanel.children [
+            // Fixed index 0: search bar
             DockPanel.create [
                 DockPanel.dock Dock.Top
                 DockPanel.background (SolidColorBrush(Color.Parse("#1E1E1E")))
@@ -653,60 +638,110 @@ let view (state: State) (dispatch: Msg -> unit) =
                     SearchBar.view state.SearchBar (SearchBarMsg >> dispatch)
                 ]
             ]
-            if state.OrphanCount > 0 then
-                Border.create [
-                    Border.dock Dock.Top
-                    Border.background (SolidColorBrush(Color.Parse("#9D5100")))
-                    Border.padding (Avalonia.Thickness(8.0, 4.0))
-                    Border.child (
-                        TextBlock.create [
-                            TextBlock.text $"{state.OrphanCount} file(s) missing from disk"
-                            TextBlock.foreground Brushes.White
-                            TextBlock.fontSize 12.0
-                        ])
+            // Fixed index 1: status area — orphan banner, notifications, scan progress
+            // Wrapped in a StackPanel so its variable inner content never shifts outer DockPanel indices
+            StackPanel.create [
+                StackPanel.dock Dock.Top
+                StackPanel.children [
+                    Border.create [
+                        Border.isVisible (state.OrphanCount > 0)
+                        Border.background (SolidColorBrush(Color.Parse("#9D5100")))
+                        Border.padding (Avalonia.Thickness(8.0, 4.0))
+                        Border.child (
+                            TextBlock.create [
+                                TextBlock.text $"{state.OrphanCount} file(s) missing from disk"
+                                TextBlock.foreground Brushes.White
+                                TextBlock.fontSize 12.0
+                            ])
+                    ]
+                    for (msg, t) in state.Notifications do
+                        Border.create [
+                            Border.background (SolidColorBrush(Color.Parse("#C42B1C")))
+                            Border.padding (Avalonia.Thickness(8.0, 4.0))
+                            Border.child (
+                                DockPanel.create [
+                                    DockPanel.children [
+                                        Button.create [
+                                            Button.dock Dock.Right
+                                            Button.content "✕"
+                                            Button.fontSize 10.0
+                                            Button.padding (Avalonia.Thickness(4.0, 0.0))
+                                            Button.background Brushes.Transparent
+                                            Button.foreground Brushes.White
+                                            Button.onClick (fun _ -> dispatch (DismissNotification t))
+                                        ]
+                                        TextBlock.create [
+                                            TextBlock.text msg
+                                            TextBlock.foreground Brushes.White
+                                            TextBlock.fontSize 12.0
+                                            TextBlock.verticalAlignment VerticalAlignment.Center
+                                        ]
+                                    ]
+                                ])
+                        ] :> Avalonia.FuncUI.Types.IView
+                    Border.create [
+                        Border.isVisible state.ScanProgress.IsSome
+                        Border.background (SolidColorBrush(Color.Parse("#1E3A5F")))
+                        Border.height 28.0
+                        Border.child (
+                            match state.ScanProgress with
+                            | None -> TextBlock.create [] :> Avalonia.FuncUI.Types.IView
+                            | Some p ->
+                                DockPanel.create [
+                                    DockPanel.children [
+                                        TextBlock.create [
+                                            TextBlock.dock Dock.Right
+                                            TextBlock.text $"{p.Inserted} indexed"
+                                            TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                                            TextBlock.fontSize 11.0
+                                            TextBlock.verticalAlignment VerticalAlignment.Center
+                                            TextBlock.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
+                                        ]
+                                        ProgressBar.create [
+                                            ProgressBar.dock Dock.Right
+                                            ProgressBar.isIndeterminate true
+                                            ProgressBar.width 80.0
+                                            ProgressBar.height 4.0
+                                            ProgressBar.verticalAlignment VerticalAlignment.Center
+                                            ProgressBar.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
+                                        ]
+                                        TextBlock.create [
+                                            TextBlock.text $"Scanning {p.FolderName}…"
+                                            TextBlock.foreground Brushes.White
+                                            TextBlock.fontSize 11.0
+                                            TextBlock.verticalAlignment VerticalAlignment.Center
+                                            TextBlock.margin (Avalonia.Thickness(8.0, 0.0))
+                                        ]
+                                    ]
+                                ] :> Avalonia.FuncUI.Types.IView)
+                    ]
                 ]
-            for (msg, t) in state.Notifications do
-                Border.create [
-                    Border.dock Dock.Top
-                    Border.background (SolidColorBrush(Color.Parse("#C42B1C")))
-                    Border.padding (Avalonia.Thickness(8.0, 4.0))
-                    Border.child (
-                        DockPanel.create [
-                            DockPanel.children [
-                                Button.create [
-                                    Button.dock Dock.Right
-                                    Button.content "✕"
-                                    Button.fontSize 10.0
-                                    Button.padding (Avalonia.Thickness(4.0, 0.0))
-                                    Button.background Brushes.Transparent
-                                    Button.foreground Brushes.White
-                                    Button.onClick (fun _ -> dispatch (DismissNotification t))
-                                ]
-                                TextBlock.create [
-                                    TextBlock.text msg
-                                    TextBlock.foreground Brushes.White
-                                    TextBlock.fontSize 12.0
-                                    TextBlock.verticalAlignment VerticalAlignment.Center
-                                ]
-                            ]
-                        ])
-                ] :> Avalonia.FuncUI.Types.IView
-            if state.ScanProgress.IsSome then
-                progressBarView state.ScanProgress.Value
+            ]
+            // Fixed index 2: sidebar
             Border.create [
                 Border.dock Dock.Left
                 Border.width 220.0
                 Border.isVisible (not state.IsFirstRun)
                 Border.child (Sidebar.view state.Sidebar (SidebarMsg >> dispatch) (fun () -> dispatch AddFolderRequested))
             ]
+            // Fixed index 3: detail panel
             Border.create [
                 Border.dock Dock.Right
                 Border.isVisible (state.Detail.IsVisible && not state.IsFirstRun)
                 Border.child (DetailPanel.view state.Detail (DetailMsg >> dispatch))
             ]
-            if state.IsFirstRun then
-                welcomeView dispatch
-            else
-                GridView.view state.Grid (GridMsg >> dispatch)
+            // Fixed index 4: center — welcome and grid always present, toggled by isVisible
+            Grid.create [
+                Grid.children [
+                    Border.create [
+                        Border.isVisible state.IsFirstRun
+                        Border.child (welcomeView dispatch)
+                    ] :> Avalonia.FuncUI.Types.IView
+                    Border.create [
+                        Border.isVisible (not state.IsFirstRun)
+                        Border.child (GridView.view state.Grid (GridMsg >> dispatch))
+                    ] :> Avalonia.FuncUI.Types.IView
+                ]
+            ]
         ]
     ] :> Avalonia.FuncUI.Types.IView
