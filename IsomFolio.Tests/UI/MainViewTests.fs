@@ -2,8 +2,11 @@ module IsomFolio.Tests.UI.MainViewTests
 
 open System
 open System.IO
+open System.Collections.Concurrent
+open System.Threading.Tasks
 open Xunit
 open Avalonia.Controls
+open Elmish
 open IsomFolio.Models
 open IsomFolio.Storage
 open IsomFolio.UI
@@ -24,7 +27,15 @@ let private openTestDb () =
         return! Db.openDatabase dbPath
     }
 
-let private makeState conn : MainView.State = {
+let private openTestCatalog () =
+    async {
+        let catalogPath = Path.Combine(Path.GetTempPath(), $"isomfolio_mainview_{Guid.NewGuid():N}.isomfolio")
+        Directory.CreateDirectory(catalogPath) |> ignore
+        let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+        return catalogPath, conn
+    }
+
+let private makeState catalogPath : MainView.State = {
     Sidebar = Sidebar.init ()
     Grid = GridView.init ()
     Detail = DetailPanel.init ()
@@ -34,7 +45,7 @@ let private makeState conn : MainView.State = {
     Notifications = []
     OrphanCount = 0
     IsFirstRun = false
-    Catalog = MainView.OpenedCatalog("/catalog", conn)
+    Catalog = MainView.OpenedCatalog(catalogPath)
     Window = Unchecked.defaultof<Window>
 }
 
@@ -52,13 +63,30 @@ let private makeFile (name: string) (folder: string) : AssetFile =
         OrphanedAt = None
     }
 
+let private execCmd (cmd: Cmd<MainView.Msg>) =
+    async {
+        let messages = ConcurrentQueue<MainView.Msg>()
+        let tcs = TaskCompletionSource()
+        let dispatch msg =
+            messages.Enqueue(msg)
+            tcs.TrySetResult() |> ignore
+
+        for sub in cmd do
+            sub dispatch
+
+        let! completed = tcs.Task.WaitAsync(TimeSpan.FromSeconds(2.0)) |> Async.AwaitTask
+        let _ = completed
+        return messages.ToArray() |> Array.toList
+    }
+
 module FolderSelection =
 
     [<Fact>]
     let ``folder click updates active query`` () =
         async {
             let! conn = openTestDb ()
-            let state = makeState conn
+            use c = conn
+            let state = makeState "/catalog"
             let nextState, _ =
                 MainView.update
                     (MainView.SidebarMsg (Sidebar.FolderSelected "/outer/inner"))
@@ -72,8 +100,9 @@ module FolderSelection =
     let ``clicking selected folder clears folder filter`` () =
         async {
             let! conn = openTestDb ()
+            use c = conn
             let state =
-                { makeState conn with
+                { makeState "/catalog" with
                     Sidebar = { Sidebar.init () with SelectedFolder = Some "/outer/inner" }
                     ActiveQuery = { defaultQuery with FolderPath = Some "/outer/inner" } }
             let nextState, _ =
@@ -85,13 +114,43 @@ module FolderSelection =
             Assert.Equal<string option>(None, nextState.Sidebar.SelectedFolder)
         } |> Async.RunSynchronously
 
+    [<Fact>]
+    let ``folder click dispatches filtered search results`` () =
+        async {
+            let! catalogPath, conn = openTestCatalog ()
+            let root = makeFile "root" "/outer"
+            let nested = makeFile "nested" "/outer/inner"
+            let other = makeFile "other" "/other"
+            let! _ = Db.upsertFiles conn [ root; nested; other ]
+
+            conn.Dispose()
+            let state = makeState catalogPath
+            let _, cmd =
+                MainView.update
+                    (MainView.SidebarMsg (Sidebar.FolderSelected "/outer"))
+                    state
+
+            let! messages = execCmd cmd
+            let searchCompleted =
+                messages
+                |> List.choose (function MainView.SearchCompleted files -> Some files | _ -> None)
+                |> List.tryHead
+
+            Assert.True(searchCompleted.IsSome)
+            let ids = searchCompleted.Value |> List.map _.Id |> Set.ofList
+            Assert.Equal(2, ids.Count)
+            Assert.Contains(root.Id, ids)
+            Assert.Contains(nested.Id, ids)
+        } |> Async.RunSynchronously
+
 module ScanState =
 
     [<Fact>]
     let ``scan progress updated stores latest progress state`` () =
         async {
             let! conn = openTestDb ()
-            let state = makeState conn
+            use c = conn
+            let state = makeState "/catalog"
             let progress = { TotalFound = 125; Inserted = 125; FolderName = "Imports" }
             let nextState, _ = MainView.update (MainView.ScanProgressUpdated progress) state
 
@@ -102,10 +161,11 @@ module ScanState =
     let ``scan batch does not bypass active folder filter`` () =
         async {
             let! conn = openTestDb ()
+            use c = conn
             let visible = makeFile "visible" "/outer"
             let unrelated = makeFile "other" "/other"
             let state =
-                { makeState conn with
+                { makeState "/catalog" with
                     ActiveQuery = { defaultQuery with FolderPath = Some "/outer" }
                     Grid = { GridView.init () with Tiles = [ { File = visible; Thumbnail = Ready "/tmp/visible.jpg" } ] } }
 
@@ -122,10 +182,11 @@ module ScanState =
     let ``scan batch appends files when no filter is active`` () =
         async {
             let! conn = openTestDb ()
+            use c = conn
             let existing = makeFile "existing" "/outer"
             let incoming = makeFile "incoming" "/outer"
             let state =
-                { makeState conn with
+                { makeState "/catalog" with
                     Grid = { GridView.init () with Tiles = [ { File = existing; Thumbnail = Ready "/tmp/existing.jpg" } ] } }
 
             let nextState, _ = MainView.update (MainView.ScanBatchCompleted [ incoming ]) state
