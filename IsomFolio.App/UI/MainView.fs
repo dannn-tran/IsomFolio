@@ -112,8 +112,16 @@ let private isFilterActive (query: SearchQuery) =
     || not query.Extensions.IsEmpty
     || query.DateRange.IsSome
 
-let private startThumbnailWorkerCmd (catalogPath: string) : Cmd<Msg> =
+let private manageWorkerCmd (catalogPath: string) : Cmd<Msg> =
     Cmd.ofEffect (fun dispatch ->
+        // 1. Shutdown existing resources
+        for w in activeWatchers do Watcher.stopWatcher w
+        activeWatchers <- []
+        thumbnailWorker |> Option.iter (fun w -> w.Post(Thumbnail.Shutdown))
+        thumbnailWorker <- None
+        GridView.clearBitmapCache()
+
+        // 2. Start new worker pool
         let worker =
             Thumbnail.createWorkerPool catalogPath 4
                 (fun fileId path ->
@@ -145,13 +153,6 @@ let private createWatcherCmd (folderPath: string) : Cmd<Msg> =
             Dispatcher.UIThread.Post(fun () -> dispatch (FileEventReceived event)))
         activeWatchers <- w :: activeWatchers)
 
-let private stopAllCmd () : Cmd<Msg> =
-    Cmd.ofEffect (fun _ ->
-        for w in activeWatchers do Watcher.stopWatcher w
-        activeWatchers <- []
-        thumbnailWorker |> Option.iter (fun w -> w.Post(Thumbnail.Shutdown))
-        thumbnailWorker <- None
-        GridView.clearBitmapCache())
 
 let private loadFolderTreeCmd (folders: string list) : Cmd<Msg> =
     Cmd.OfAsync.either
@@ -218,27 +219,35 @@ let private enqueueThumbnails (catalogPath: string) (files: AssetFile list) (pri
     match thumbnailWorker with
     | Some w ->
         for f in files do
-            if not (Thumbnail.isCacheValid catalogPath f.Id) then
-                w.Post(Thumbnail.Enqueue { FileId = f.Id; FilePath = f.Path; Priority = priority })
+            w.Post(Thumbnail.Enqueue({ FileId = f.Id; FilePath = f.Path; Priority = priority }, 0))
     | None -> ()
 
 let private primeGridThumbnails (catalogPath: string) (priority: int) (grid: GridView.State) =
-    let mutable nextGrid = grid
     let pendingFiles = System.Collections.Generic.List<AssetFile>()
+    let updatedStates = System.Collections.Generic.Dictionary<FileId, ThumbnailState>()
 
     for tile in grid.Tiles do
         match tile.Thumbnail with
         | NotRequested ->
             let cachePath = Thumbnail.thumbnailCachePath catalogPath tile.File.Id
             if Thumbnail.isCacheValid catalogPath tile.File.Id then
-                nextGrid <- GridView.update (GridView.ThumbnailUpdated(tile.File.Id, Ready cachePath)) nextGrid
+                updatedStates[tile.File.Id] <- Ready cachePath
             else
-                nextGrid <- GridView.update (GridView.ThumbnailUpdated(tile.File.Id, Pending)) nextGrid
+                updatedStates[tile.File.Id] <- Pending
                 pendingFiles.Add(tile.File)
         | _ -> ()
 
-    enqueueThumbnails catalogPath (pendingFiles |> Seq.toList) priority
-    nextGrid
+    if pendingFiles.Count > 0 then
+        enqueueThumbnails catalogPath (pendingFiles |> Seq.toList) priority
+
+    if updatedStates.Count = 0 then grid
+    else
+        let newTiles =
+            grid.Tiles |> List.map (fun t ->
+                match updatedStates.TryGetValue(t.File.Id) with
+                | true, state -> { t with Thumbnail = state }
+                | _ -> t)
+        { grid with Tiles = newTiles }
 
 let private uiDispatch (dispatch: Msg -> unit) (msg: Msg) =
     Dispatcher.UIThread.Post(fun () -> dispatch msg)
@@ -308,7 +317,7 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                     IsFirstRun   = false
                     Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
                     ScanProgress = scanProgress },
-                Cmd.batch (stopAllCmd () :: startThumbnailWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
+                Cmd.batch (manageWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
         | AddFolderRequested ->
             let cmd = Cmd.ofEffect (fun dispatch ->
                 let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(

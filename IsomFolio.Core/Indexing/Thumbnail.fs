@@ -24,6 +24,18 @@ let isCacheValid (catalogDir: string) (fileId: FileId) : bool =
 
 let private targetSize = 256
 
+module private Async =
+    let map f a = async.Bind(a, f >> async.Return)
+
+    let withTimeout (timeoutMs: int, computation: Async<'T>) : Async<'T> =
+        async {
+            let! child = Async.StartChild(computation, timeoutMs)
+            try
+                return! child
+            with :? TimeoutException ->
+                return raise (TimeoutException $"Thumbnail generation timed out after {timeoutMs}ms")
+        }
+
 /// Decode, resize to 256px longest edge, encode as JPEG 85, atomic write.
 /// Returns Ok(cachePath) or Error(message).
 let generateThumbnail (catalogDir: string) (req: ThumbnailRequest) : Async<Result<string, string>> =
@@ -35,29 +47,46 @@ let generateThumbnail (catalogDir: string) (req: ThumbnailRequest) : Async<Resul
             try
                 ensureDirectories catalogDir
 
-                use bitmap = SKBitmap.Decode(req.FilePath)
-                if isNull bitmap then
-                    return Error $"SKBitmap.Decode returned null for {req.FilePath}"
-                else
-                    // Scale so longest edge = targetSize, preserve aspect ratio
-                    let w, h = bitmap.Width, bitmap.Height
-                    let scale = float targetSize / float (max w h)
-                    let newW = max 1 (int (float w * scale))
-                    let newH = max 1 (int (float h * scale))
-
-                    use scaled = bitmap.Resize(SKImageInfo(newW, newH), SKFilterQuality.Medium)
-                    if isNull scaled then
-                        return Error $"SKBitmap.Resize failed for {req.FilePath}"
+                // Wrap the decode/resize/save in an async with a timeout to prevent hanging on corrupt files
+                let work = async {
+                    use bitmap = SKBitmap.Decode(req.FilePath)
+                    if isNull bitmap then
+                        return Error $"SKBitmap.Decode returned null for {req.FilePath}"
                     else
-                        use image  = SKImage.FromBitmap(scaled)
-                        use data   = image.Encode(SKEncodedImageFormat.Jpeg, 85)
+                        // Scale so longest edge = targetSize, preserve aspect ratio
+                        let w, h = bitmap.Width, bitmap.Height
+                        let scale = float targetSize / float (max w h)
+                        let newW = max 1 (int (float w * scale))
+                        let newH = max 1 (int (float h * scale))
 
-                        let tmp = dest + ".tmp"
-                        use fs = File.OpenWrite(tmp)
-                        data.SaveTo(fs)
-                        fs.Flush()
-                        File.Move(tmp, dest, overwrite = true)
-                        return Ok dest
+                        use scaled = bitmap.Resize(SKImageInfo(newW, newH), SKFilterQuality.Medium)
+                        if isNull scaled then
+                            return Error $"SKBitmap.Resize failed for {req.FilePath}"
+                        else
+                            use image  = SKImage.FromBitmap(scaled)
+                            use data   = image.Encode(SKEncodedImageFormat.Jpeg, 85)
+
+                            let tmp = dest + ".tmp"
+                            use fs = File.OpenWrite(tmp)
+                            data.SaveTo(fs)
+                            fs.Flush()
+                            File.Move(tmp, dest, overwrite = true)
+                            return Ok dest
+                }
+                
+                let withTimeout = 
+                    async {
+                        try
+                            let! res = Async.withTimeout (30000, work)
+                            return Choice1Of2 res
+                        with ex ->
+                            return Choice2Of2 ex
+                    }
+
+                return! withTimeout |> Async.map (function 
+                            | Choice1Of2 (Ok path) -> Ok path
+                            | Choice1Of2 (Error e) -> Error e
+                            | Choice2Of2 ex -> Error ex.Message)
             with ex ->
                 return Error ex.Message
     }
@@ -67,8 +96,9 @@ let generateThumbnail (catalogDir: string) (req: ThumbnailRequest) : Async<Resul
 // ---------------------------------------------------------------------------
 
 type ThumbnailMsg =
-    | Enqueue   of ThumbnailRequest
+    | Enqueue     of req: ThumbnailRequest * retryCount: int
     | SetPriority of fileId: FileId * priority: int
+    | WorkerDone
     | CancelAll
     | Shutdown
 
@@ -82,80 +112,119 @@ let createWorkerPool
     (onFailed : FileId -> string -> unit)
     : MailboxProcessor<ThumbnailMsg> =
 
-    // Priority queue: SortedDictionary<priority, Queue<ThumbnailRequest>>
-    // Lower priority int = higher urgency (0 = visible tile)
-    let queue   = SortedDictionary<int, Queue<ThumbnailRequest>>()
+    // Priority queue: SortedDictionary<priority, Queue<ThumbnailRequest * int>>
+    let queue    = SortedDictionary<int, Queue<ThumbnailRequest * int>>()
     let inFlight = System.Collections.Concurrent.ConcurrentDictionary<FileId, bool>()
-    let sem     = new System.Threading.SemaphoreSlim(concurrency, concurrency)
+    let queued   = HashSet<FileId>()
+    let mutable activeCount = 0
 
-    let enqueueItem (req: ThumbnailRequest) =
-        if not (inFlight.ContainsKey(req.FileId)) then
+    let enqueueItem (req: ThumbnailRequest) (retryCount: int) =
+        if not (inFlight.ContainsKey(req.FileId)) && not (queued.Contains(req.FileId)) then
             if not (queue.ContainsKey(req.Priority)) then
-                queue[req.Priority] <- Queue<ThumbnailRequest>()
-            queue[req.Priority].Enqueue(req)
+                queue[req.Priority] <- Queue<ThumbnailRequest * int>()
+            queue[req.Priority].Enqueue(req, retryCount)
+            queued.Add(req.FileId) |> ignore
 
     let dequeueItem () =
         let result =
             queue
             |> Seq.tryFind (fun kv -> kv.Value.Count > 0)
             |> Option.map (fun kv -> kv.Value.Dequeue())
+        
+        result |> Option.iter (fun (work, _) -> queued.Remove(work.FileId) |> ignore)
+
         // Prune empty buckets
-        queue |> Seq.filter (fun kv -> kv.Value.Count = 0)
-              |> Seq.map (fun kv -> kv.Key)
-              |> Seq.toList
-              |> List.iter (queue.Remove >> ignore)
+        let emptyKeys = 
+            queue 
+            |> Seq.filter (fun kv -> kv.Value.Count = 0)
+            |> Seq.map (fun kv -> kv.Key)
+            |> Seq.toList
+        emptyKeys |> List.iter (queue.Remove >> ignore)
         result
 
     let agent = MailboxProcessor.Start(fun inbox ->
+        let rec startWorker (work, retryCount) =
+            activeCount <- activeCount + 1
+            inFlight[work.FileId] <- true
+            Async.Start(async {
+                try
+                    try
+                        let! result = generateThumbnail catalogDir work
+                        match result with
+                        | Ok path  -> 
+                            onReady work.FileId path
+                        | Error msg ->
+                            if retryCount < 1 then
+                                // Release worker immediately, schedule retry later
+                                Async.Start(async {
+                                    do! Async.Sleep 5000
+                                    inbox.Post (Enqueue(work, retryCount + 1))
+                                })
+                            else
+                                onFailed work.FileId msg
+                    with ex ->
+                        onFailed work.FileId ex.Message
+                finally
+                    inFlight.TryRemove(work.FileId) |> ignore
+                    inbox.Post WorkerDone
+            })
+        let rec dispatchRemaining () =
+            if activeCount < concurrency then
+                match dequeueItem () with
+                | Some item ->
+                    startWorker item
+                    dispatchRemaining ()
+                | None -> ()
+
         let rec loop () =
             async {
                 let! msg = inbox.Receive()
                 match msg with
                 | Shutdown -> ()
+                | WorkerDone ->
+                    activeCount <- max 0 (activeCount - 1)
+                    dispatchRemaining ()
+                    return! loop ()
                 | CancelAll ->
                     queue.Clear()
+                    queued.Clear()
                     return! loop ()
                 | SetPriority(fileId, priority) ->
-                    // Re-enqueue with new priority — preserve the original request path
-                    let mutable existingReq = None
+                    let mutable existingWork = None
+                    let mutable foundInKey = None
+                    
                     for kv in queue do
-                        let newQ =
-                            Queue(
-                                kv.Value
-                                |> Seq.choose (fun r ->
-                                    if r.FileId = fileId then
-                                        existingReq <- Some { r with Priority = priority }
-                                        None
-                                    else
-                                        Some r))
-                        kv.Value.Clear()
-                        for r in newQ do kv.Value.Enqueue(r)
-                    existingReq |> Option.iter enqueueItem
-                    return! loop ()
-                | Enqueue req ->
-                    enqueueItem req
-                    // Dispatch a worker if semaphore permits
-                    match dequeueItem () with
+                        if foundInKey.IsNone then
+                            let found = kv.Value |> Seq.tryFind (fun (r, _) -> r.FileId = fileId)
+                            if found.IsSome then
+                                foundInKey <- Some kv.Key
+
+                    match foundInKey with
+                    | Some key ->
+                        let oldQ = queue[key]
+                        let items = oldQ |> Seq.toList
+                        oldQ.Clear()
+                        for (r, rc) in items do
+                            if r.FileId = fileId then
+                                existingWork <- Some ({ r with Priority = priority }, rc)
+                            else
+                                oldQ.Enqueue(r, rc)
+                        
+                        // Prune bucket if now empty
+                        if oldQ.Count = 0 then queue.Remove(key) |> ignore
                     | None -> ()
-                    | Some work ->
-                        inFlight[work.FileId] <- true
-                        do! sem.WaitAsync() |> Async.AwaitTask
-                        Async.Start(async {
-                            try
-                                let! result = generateThumbnail catalogDir work
-                                match result with
-                                | Ok path  -> onReady  work.FileId path
-                                | Error msg ->
-                                    // Retry once after 5 seconds
-                                    do! Async.Sleep 5000
-                                    let! retry = generateThumbnail catalogDir work
-                                    match retry with
-                                    | Ok path -> onReady  work.FileId path
-                                    | Error _ -> onFailed work.FileId msg
-                            finally
-                                inFlight.TryRemove(work.FileId) |> ignore
-                                sem.Release() |> ignore
-                        })
+                    
+                    match existingWork with
+                    | Some (req, rc) -> 
+                        queued.Remove(fileId) |> ignore
+                        enqueueItem req rc
+                    | None -> ()
+                    
+                    dispatchRemaining ()
+                    return! loop ()
+                | Enqueue (req, rc) ->
+                    enqueueItem req rc
+                    dispatchRemaining ()
                     return! loop ()
             }
         loop ())
