@@ -4,6 +4,7 @@ open Avalonia.FuncUI.DSL
 open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
+open IsomFolio.PathUtils
 open IsomFolio.Indexing.FolderTree
 
 type State = {

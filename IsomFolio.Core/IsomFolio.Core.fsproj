@@ -7,6 +7,7 @@
 
     <ItemGroup>
         <Compile Include="Models.fs" />
+        <Compile Include="PathUtils.fs" />
         <Compile Include="AppPaths.fs" />
         <Compile Include="FileIndex.fs" />
         <Compile Include="Storage\Schema.fs" />
