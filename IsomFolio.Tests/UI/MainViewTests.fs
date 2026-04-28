@@ -194,3 +194,56 @@ module ScanState =
             Assert.Contains(nextState.Grid.Tiles, fun tile -> tile.File.Id = existing.Id)
             Assert.Contains(nextState.Grid.Tiles, fun tile -> tile.File.Id = incoming.Id)
         } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``scan batch places new files after existing tiles so existing positions are stable`` () =
+        async {
+            let! conn = openTestDb ()
+            use c = conn
+            let existing = makeFile "existing" "/outer"
+            let incoming = makeFile "incoming" "/outer"
+            let state =
+                { makeState "/catalog" with
+                    Grid = { GridView.init () with Tiles = [ { File = existing; Thumbnail = Ready "/tmp/existing.jpg" } ] } }
+
+            let nextState, _ = MainView.update (MainView.ScanBatchCompleted [ incoming ]) state
+
+            Assert.Equal(2, nextState.Grid.Tiles.Length)
+            Assert.Equal(existing.Id, nextState.Grid.Tiles[0].File.Id)
+            Assert.Equal(incoming.Id, nextState.Grid.Tiles[1].File.Id)
+        } |> Async.RunSynchronously
+
+module KeyboardNavigation =
+
+    [<Fact>]
+    let ``keyboard navigation updates detail panel`` () =
+        let f1 = makeFile "f1" "/photos"
+        let f2 = makeFile "f2" "/photos"
+        let state =
+            { makeState "/catalog" with
+                Grid =
+                    { GridView.init () with
+                        Tiles     = [ { File = f1; Thumbnail = NotRequested }; { File = f2; Thumbnail = NotRequested } ]
+                        SelectedId = Some f1.Id } }
+
+        let nextState, _ = MainView.update (MainView.GridMsg (GridView.NavigateTo (GridView.Right, 2))) state
+
+        Assert.Equal(f2.Id, nextState.Grid.SelectedId.Value)
+        Assert.Equal(Some f2.Id, nextState.Detail.File |> Option.map _.Id)
+
+    [<Fact>]
+    let ``keyboard navigation at boundary does not move selection or clear detail`` () =
+        let f1 = makeFile "f1" "/photos"
+        let f2 = makeFile "f2" "/photos"
+        let state =
+            { makeState "/catalog" with
+                Grid =
+                    { GridView.init () with
+                        Tiles     = [ { File = f1; Thumbnail = NotRequested }; { File = f2; Thumbnail = NotRequested } ]
+                        SelectedId = Some f2.Id }
+                Detail = IsomFolio.UI.DetailPanel.update (IsomFolio.UI.DetailPanel.FileSelected f2) (IsomFolio.UI.DetailPanel.init ()) }
+
+        let nextState, _ = MainView.update (MainView.GridMsg (GridView.NavigateTo (GridView.Right, 2))) state
+
+        Assert.Equal(f2.Id, nextState.Grid.SelectedId.Value)
+        Assert.Equal(Some f2.Id, nextState.Detail.File |> Option.map _.Id)

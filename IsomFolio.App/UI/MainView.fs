@@ -509,6 +509,28 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             |> Option.defaultValue Cmd.none
         { state with Grid = newGrid; Detail = newDetail }, loadTagsCmd
 
+    | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.NavigateTo _ as gMsg) ->
+        let newGrid = GridView.update gMsg state.Grid
+        let fileOpt =
+            newGrid.SelectedId
+            |> Option.bind (fun id -> newGrid.Tiles |> List.tryFind (fun t -> t.File.Id = id))
+            |> Option.map _.File
+        let newDetail =
+            fileOpt
+            |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
+            |> Option.defaultValue state.Detail
+        thumbnailWorker |> Option.iter (fun w ->
+            newGrid.SelectedId |> Option.iter (fun id -> w.Post(Thumbnail.SetPriority(id, 0))))
+        let loadTagsCmd =
+            fileOpt
+            |> Option.map (fun f ->
+                Cmd.OfAsync.either
+                    (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
+                    (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
+                    (fun ex  -> AppError (DbError ex.Message)))
+            |> Option.defaultValue Cmd.none
+        { state with Grid = newGrid; Detail = newDetail }, loadTagsCmd
+
     | _, GridMsg gMsg ->
         { state with Grid = GridView.update gMsg state.Grid }, Cmd.none
 
@@ -534,22 +556,12 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         let newGrid =
             state.Grid.Tiles
             |> List.map (fun t -> t.File)
-            |> (@) files
+            |> fun existing -> existing @ files
             |> List.distinctBy (fun f -> f.Id)
             |> GridView.TilesLoaded
             |> fun msg -> GridView.update msg state.Grid
             |> primeGridThumbnails catalogPath 1
-        
-        let newDetail =
-            match newGrid.SelectedId with
-            | Some sid ->
-                newGrid.Tiles
-                |> List.tryFind (fun t -> t.File.Id = sid)
-                |> Option.map (fun t -> DetailPanel.update (DetailPanel.FileSelected t.File) state.Detail)
-                |> Option.defaultValue state.Detail
-            | None -> state.Detail
-
-        { state with Grid = newGrid; Detail = newDetail }, Cmd.none
+        { state with Grid = newGrid }, Cmd.none
 
     | _, ScanBatchCompleted _ ->
         state, Cmd.none
