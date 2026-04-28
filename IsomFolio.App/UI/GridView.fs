@@ -17,17 +17,18 @@ type State = {
     Tiles      : TileModel list
     TileSize   : TileSize
     SelectedId : FileId option
-    GridWidth  : float
 }
+
+type NavDirection = Left | Right | Up | Down
 
 type Msg =
     | TilesLoaded        of AssetFile list
     | ThumbnailUpdated   of FileId * ThumbnailState
     | TileSizeChanged    of TileSize
     | TileSelected       of FileId
-    | GridWidthChanged   of float
+    | NavigateTo         of NavDirection * int
 
-let init () = { Tiles = []; TileSize = Medium; SelectedId = None; GridWidth = 900.0 }
+let init () = { Tiles = []; TileSize = Medium; SelectedId = None }
 
 let update (msg: Msg) (state: State) =
     match msg with
@@ -53,7 +54,24 @@ let update (msg: Msg) (state: State) =
         { state with Tiles = tiles }
     | TileSizeChanged ts  -> { state with TileSize = ts }
     | TileSelected id     -> { state with SelectedId = Some id }
-    | GridWidthChanged w  -> { state with GridWidth = w }
+    | NavigateTo (dir, rowSize) ->
+        if state.Tiles.IsEmpty then state
+        else
+            let currentIdx =
+                state.SelectedId
+                |> Option.bind (fun id -> state.Tiles |> List.tryFindIndex (fun t -> t.File.Id = id))
+                |> Option.defaultValue 0
+            let newIdx =
+                match dir with
+                | Left  -> max 0 (currentIdx - 1)
+                | Right -> min (state.Tiles.Length - 1) (currentIdx + 1)
+                | Up    ->
+                    let i = currentIdx - rowSize
+                    if i < 0 then currentIdx else i
+                | Down  ->
+                    let i = currentIdx + rowSize
+                    if i >= state.Tiles.Length then currentIdx else i
+            { state with SelectedId = Some state.Tiles.[newIdx].File.Id }
 
 let private bitmapCache = System.Collections.Generic.Dictionary<string, Bitmap>()
 
@@ -79,7 +97,13 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
         Border.margin (Avalonia.Thickness(4.0))
         Border.cornerRadius 4.0
         Border.background (if selected then SolidColorBrush(Color.Parse("#0078D4")) else SolidColorBrush(Color.Parse("#2D2D2D")))
-        Border.onTapped (fun _ -> dispatch (TileSelected model.File.Id))
+        Border.onTapped (fun e ->
+            dispatch (TileSelected model.File.Id)
+            match e.Source with
+            | :? Avalonia.Visual as v ->
+                let sv = Avalonia.VisualTree.VisualExtensions.FindAncestorOfType<ScrollViewer>(v, true)
+                if not (isNull sv) then sv.Focus() |> ignore
+            | _ -> ())
         Border.child (
             DockPanel.create [
                 DockPanel.children [
@@ -138,11 +162,9 @@ let private tileSizeButton (label: string) (ts: TileSize) (current: TileSize) (d
         Button.content label
         Button.margin (Avalonia.Thickness(2.0, 0.0))
         Button.background (if ts = current then "#0078D4" else "#3D3D3D")
+        Button.focusable false
         Button.onClick (fun _ -> dispatch (TileSizeChanged ts))
     ]
-
-let private tilesPerRow (state: State) =
-    max 1 (int state.GridWidth / (tileSizePx state.TileSize + 8))
 
 let view (state: State) (dispatch: Msg -> unit) =
     let sizePx = tileSizePx state.TileSize
@@ -160,27 +182,24 @@ let view (state: State) (dispatch: Msg -> unit) =
             ]
             ScrollViewer.create [
                 ScrollViewer.focusable true
-                ScrollViewer.onSizeChanged (fun e ->
-                    if e.NewSize.Width > 0.0 && e.NewSize.Width <> state.GridWidth then
-                        dispatch (GridWidthChanged e.NewSize.Width))
                 ScrollViewer.onKeyDown (fun e ->
-                    if not state.Tiles.IsEmpty then
-                        let rowSize = tilesPerRow state
-                        let delta =
-                            match e.Key with
-                            | Avalonia.Input.Key.Left  -> -1
-                            | Avalonia.Input.Key.Right ->  1
-                            | Avalonia.Input.Key.Up    -> -rowSize
-                            | Avalonia.Input.Key.Down  ->  rowSize
-                            | _ -> 0
-                        if delta <> 0 then
-                            e.Handled <- true
-                            let currentIdx =
-                                state.SelectedId
-                                |> Option.bind (fun id -> state.Tiles |> List.tryFindIndex (fun t -> t.File.Id = id))
-                                |> Option.defaultValue 0
-                            let newIdx = max 0 (min (state.Tiles.Length - 1) (currentIdx + delta))
-                            dispatch (TileSelected state.Tiles.[newIdx].File.Id))
+                    let dir =
+                        match e.Key with
+                        | Avalonia.Input.Key.Left  -> Some Left
+                        | Avalonia.Input.Key.Right -> Some Right
+                        | Avalonia.Input.Key.Up    -> Some Up
+                        | Avalonia.Input.Key.Down  -> Some Down
+                        | _ -> None
+                    match dir with
+                    | Some d ->
+                        e.Handled <- true
+                        let rowSize =
+                            match e.Source with
+                            | :? ScrollViewer as sv ->
+                                max 1 (int sv.Bounds.Width / (tileSizePx state.TileSize + 8))
+                            | _ -> 1
+                        dispatch (NavigateTo (d, rowSize))
+                    | None -> ())
                 ScrollViewer.content (
                     WrapPanel.create [
                         WrapPanel.margin (Avalonia.Thickness(4.0))
