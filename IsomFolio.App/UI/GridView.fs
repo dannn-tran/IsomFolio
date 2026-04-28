@@ -32,6 +32,7 @@ let init () = { Tiles = []; TileSize = Medium; SelectedId = None; GridWidth = 90
 let update (msg: Msg) (state: State) =
     match msg with
     | TilesLoaded files ->
+        let files = files |> List.distinctBy (fun f -> f.Id)
         let existingStates =
             state.Tiles
             |> List.map (fun tile -> tile.File.Id, tile.Thumbnail)
@@ -41,7 +42,10 @@ let update (msg: Msg) (state: State) =
             |> List.map (fun f ->
                 { File = f
                   Thumbnail = existingStates |> Map.tryFind f.Id |> Option.defaultValue NotRequested })
-        { state with Tiles = tiles; SelectedId = None }
+        let newSelectedId =
+            state.SelectedId
+            |> Option.filter (fun id -> files |> List.exists (fun f -> f.Id = id))
+        { state with Tiles = tiles; SelectedId = newSelectedId }
     | ThumbnailUpdated(fileId, thumbState) ->
         let tiles =
             state.Tiles |> List.map (fun t ->
@@ -75,7 +79,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
         Border.margin (Avalonia.Thickness(4.0))
         Border.cornerRadius 4.0
         Border.background (if selected then SolidColorBrush(Color.Parse("#0078D4")) else SolidColorBrush(Color.Parse("#2D2D2D")))
-        Border.onPointerPressed (fun _ -> dispatch (TileSelected model.File.Id))
+        Border.onTapped (fun _ -> dispatch (TileSelected model.File.Id))
         Border.child (
             DockPanel.create [
                 DockPanel.children [

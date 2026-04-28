@@ -11,6 +11,7 @@ open IsomFolio.FileIndex
 open IsomFolio.Indexing
 open IsomFolio.Storage
 open IsomFolio.Search
+open IsomFolio.PathUtils
 
 let mutable private thumbnailWorker: MailboxProcessor<Thumbnail.ThumbnailMsg> option = None
 let mutable private activeWatchers: System.IO.FileSystemWatcher list = []
@@ -163,10 +164,11 @@ let private loadFolderTreeCmd (folders: string list) : Cmd<Msg> =
 
 let private normalizeFolders (folders: string list) =
     folders
-    |> List.map FolderTree.normalizePath
+    |> List.map IsomFolio.PathUtils.normalizePath
     |> List.fold (fun acc path ->
-        if acc |> List.exists (fun existing -> FolderTree.samePath existing path) then acc
+        if acc |> List.exists (fun existing -> IsomFolio.PathUtils.samePath existing path) then acc
         else acc @ [ path ]) []
+
 
 let private reconcileFolderCmd (catalogPath: string) (folderPath: string) : Cmd<Msg> =
     Cmd.OfAsync.either
@@ -332,7 +334,8 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
         | FolderOpened path ->
             match state.Catalog with
             | OpenedCatalog(catalogPath) ->
-                let path = FolderTree.normalizePath path
+                let path = IsomFolio.PathUtils.normalizePath path
+
                 let existingFolders = normalizeFolders state.Sidebar.Folders
                 let alreadyTracked = existingFolders |> List.contains path
                 let folders =
@@ -488,7 +491,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.TileSelected fileId) ->
         let newGrid  = GridView.update (GridView.TileSelected fileId) state.Grid
         let fileOpt =
-            state.Grid.Tiles
+            newGrid.Tiles
             |> List.tryFind (fun t -> t.File.Id = fileId)
             |> Option.map _.File
         let newDetail =
@@ -532,10 +535,21 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             state.Grid.Tiles
             |> List.map (fun t -> t.File)
             |> (@) files
+            |> List.distinctBy (fun f -> f.Id)
             |> GridView.TilesLoaded
             |> fun msg -> GridView.update msg state.Grid
             |> primeGridThumbnails catalogPath 1
-        { state with Grid = newGrid }, Cmd.none
+        
+        let newDetail =
+            match newGrid.SelectedId with
+            | Some sid ->
+                newGrid.Tiles
+                |> List.tryFind (fun t -> t.File.Id = sid)
+                |> Option.map (fun t -> DetailPanel.update (DetailPanel.FileSelected t.File) state.Detail)
+                |> Option.defaultValue state.Detail
+            | None -> state.Detail
+
+        { state with Grid = newGrid; Detail = newDetail }, Cmd.none
 
     | _, ScanBatchCompleted _ ->
         state, Cmd.none
@@ -553,7 +567,17 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             state.Grid
             |> GridView.update (GridView.TilesLoaded files)
             |> primeGridThumbnails catalogPath 1
-        { state with Grid = newGrid }, Cmd.none
+        
+        let newDetail =
+            match newGrid.SelectedId with
+            | Some sid ->
+                newGrid.Tiles
+                |> List.tryFind (fun t -> t.File.Id = sid)
+                |> Option.map (fun t -> DetailPanel.update (DetailPanel.FileSelected t.File) state.Detail)
+                |> Option.defaultValue state.Detail
+            | None -> state.Detail
+
+        { state with Grid = newGrid; Detail = newDetail }, Cmd.none
 
     | _, SearchCompleted _ ->
         state, Cmd.none

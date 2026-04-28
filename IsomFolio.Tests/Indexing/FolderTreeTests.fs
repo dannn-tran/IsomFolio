@@ -3,6 +3,7 @@ module IsomFolio.Tests.Indexing.FolderTreeTests
 open System
 open System.IO
 open Xunit
+open IsomFolio.PathUtils
 open IsomFolio.Indexing.FolderTree
 
 let private createTempFolderTree () =

@@ -5,6 +5,7 @@ open System.IO
 open System.Security.Cryptography
 open System.Text
 open IsomFolio.Models
+open IsomFolio.PathUtils
 
 let private supportedExtensions =
     Set.ofList [ "jpg"; "jpeg"; "png"; "webp"; "gif" ]
@@ -21,12 +22,13 @@ let isSupportedExtension (ext: string) : bool =
 
 /// Build an AssetFile from a FileInfo — does not touch the DB
 let assetFileFromInfo (fi: FileInfo) : AssetFile =
+    let normalizedPath = normalizePath fi.FullName
     let ext = fi.Extension.TrimStart('.').ToLowerInvariant()
     {
-        Id         = computeFileId fi.FullName
-        Path       = fi.FullName
+        Id         = computeFileId normalizedPath
+        Path       = normalizedPath
         Name       = fi.Name
-        Folder     = fi.DirectoryName
+        Folder     = normalizePath fi.DirectoryName
         Ext        = ext
         SizeBytes  = fi.Length
         MTimeUnix  = DateTimeOffset(fi.LastWriteTimeUtc).ToUnixTimeSeconds()

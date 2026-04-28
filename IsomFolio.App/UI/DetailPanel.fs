@@ -28,7 +28,11 @@ let init () = { File = None; Tags = []; TagInput = ""; IsVisible = false }
 
 let update (msg: Msg) (state: State) =
     match msg with
-    | FileSelected f       -> { state with File = Some f; Tags = []; TagInput = ""; IsVisible = true }
+    | FileSelected f       -> 
+        if state.File |> Option.map (fun existing -> existing.Id = f.Id) = Some true then
+            { state with File = Some f; IsVisible = true }
+        else
+            { state with File = Some f; Tags = []; TagInput = ""; IsVisible = true }
     | TagsLoaded ts        -> { state with Tags = ts }
     | TagInputChanged t    -> { state with TagInput = t }
     | Closed               -> { state with IsVisible = false }
