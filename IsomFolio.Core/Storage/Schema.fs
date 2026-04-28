@@ -7,6 +7,7 @@ PRAGMA cache_size=-32000;
 PRAGMA temp_store=MEMORY;
 PRAGMA mmap_size=268435456;
 PRAGMA foreign_keys=ON;
+PRAGMA busy_timeout=5000;
 """
 
 let createFiles = """

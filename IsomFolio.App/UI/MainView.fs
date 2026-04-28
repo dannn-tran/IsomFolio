@@ -14,6 +14,7 @@ open IsomFolio.Search
 
 let mutable private thumbnailWorker: MailboxProcessor<Thumbnail.ThumbnailMsg> option = None
 let mutable private activeWatchers: System.IO.FileSystemWatcher list = []
+let mutable private appWindow: Window option = None
 
 type CatalogState =
     | Unloaded
@@ -30,7 +31,6 @@ type State = {
     OrphanCount     : int
     IsFirstRun      : bool
     Catalog         : CatalogState
-    Window          : Window
     SearchRequestId : int
 }
 
@@ -62,18 +62,18 @@ let private defaultQuery = {
 }
 
 let init (w: Window) () : State * Cmd<Msg> =
+    appWindow <- Some w
     let state = {
-        Sidebar       = Sidebar.init ()
-        Grid          = GridView.init ()
-        Detail        = DetailPanel.init ()
-        SearchBar     = SearchBar.init ()
-        ScanProgress  = None
-        ActiveQuery   = defaultQuery
-        Notifications = []
-        OrphanCount   = 0
+        Sidebar         = Sidebar.init ()
+        Grid            = GridView.init ()
+        Detail          = DetailPanel.init ()
+        SearchBar       = SearchBar.init ()
+        ScanProgress    = None
+        ActiveQuery     = defaultQuery
+        Notifications   = []
+        OrphanCount     = 0
         IsFirstRun      = true
         Catalog         = Unloaded
-        Window          = w
         SearchRequestId = 0
     }
     let initCmd =
@@ -243,104 +243,105 @@ let private primeGridThumbnails (catalogPath: string) (priority: int) (grid: Gri
 let private uiDispatch (dispatch: Msg -> unit) (msg: Msg) =
     Dispatcher.UIThread.Post(fun () -> dispatch msg)
 
-let private handleCatalogMsg (w: Window) (state: State) (msg: Msg) : (State * Cmd<Msg>) option =
-    match msg with
-    | NewCatalogRequested ->
-        let cmd = Cmd.ofEffect (fun dispatch ->
-            let opts = Avalonia.Platform.Storage.FilePickerSaveOptions(
-                Title = "New Catalog",
-                SuggestedFileName = "my-library",
-                DefaultExtension = "isomfolio")
-            w.StorageProvider.SaveFilePickerAsync(opts)
-                .ContinueWith(fun (t: System.Threading.Tasks.Task<Avalonia.Platform.Storage.IStorageFile>) ->
-                    if t.IsFaulted then
-                        uiDispatch dispatch (AppError (ScanError (t.Exception.GetBaseException().Message)))
-                    elif not t.IsCanceled && not (isNull t.Result) then
-                        let rawPath = t.Result.Path.LocalPath
-                        let parentDir = System.IO.Path.GetDirectoryName(rawPath)
-                        let baseName  = System.IO.Path.GetFileNameWithoutExtension(rawPath)
-                        Async.Start(async {
-                            try
-                                let catalogPath = IsomFolio.AppPaths.createCatalog parentDir baseName
-                                let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
-                                use c = conn
-                                uiDispatch dispatch (CatalogOpened (catalogPath, []))
-                            with ex ->
-                                uiDispatch dispatch (AppError (ScanError ex.Message)) }))
-            |> ignore)
-        Some(state, cmd)
-    | OpenCatalogRequested ->
-        let cmd = Cmd.ofEffect (fun dispatch ->
-            let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(
-                Title = "Open Catalog",
-                AllowMultiple = false)
-            w.StorageProvider.OpenFolderPickerAsync(opts)
-                .ContinueWith(fun (t: System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Avalonia.Platform.Storage.IStorageFolder>>) ->
-                    if t.IsFaulted then
-                        uiDispatch dispatch (AppError (DbError (t.Exception.GetBaseException().Message)))
-                    elif not t.IsCanceled && t.Result.Count > 0 then
-                        let catalogPath = t.Result[0].Path.LocalPath
-                        Async.Start(async {
-                            try
-                                let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
-                                use c = conn
-                                let folders =
-                                    match IsomFolio.AppPaths.readLastSession() with
-                                    | Some s when s.CatalogPath = catalogPath -> s.Folders
-                                    | _ -> []
-                                uiDispatch dispatch (CatalogOpened (catalogPath, folders))
-                            with ex ->
-                                uiDispatch dispatch (AppError (DbError ex.Message)) }))
-            |> ignore)
-        Some(state, cmd)
-    | CatalogOpened (path, folders) ->
-        let folders = normalizeFolders folders
-        IsomFolio.AppPaths.saveSession { CatalogPath = path; Folders = folders }
-        let perFolderCmds =
-            folders |> List.collect (fun f -> [ reconcileFolderCmd path f; createWatcherCmd f ])
-        let scanProgress =
-            if folders.IsEmpty then None
-            else Some { TotalFound = 0; Inserted = 0; FolderName = "Restoring…" }
-        Some(
-            { state with
-                Catalog      = OpenedCatalog(path)
-                IsFirstRun   = false
-                Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
-                ScanProgress = scanProgress },
-            Cmd.batch (stopAllCmd () :: startThumbnailWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
-    | AddFolderRequested ->
-        let cmd = Cmd.ofEffect (fun dispatch ->
-            let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(
-                Title = "Add Folder",
-                AllowMultiple = false)
-            w.StorageProvider.OpenFolderPickerAsync(opts)
-                .ContinueWith(fun (t: System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Avalonia.Platform.Storage.IStorageFolder>>) ->
-                    if not t.IsFaulted && not t.IsCanceled && t.Result.Count > 0 then
-                        uiDispatch dispatch (FolderOpened t.Result[0].Path.LocalPath))
-            |> ignore)
-        Some(state, cmd)
-    | FolderOpened path ->
-        match state.Catalog with
-        | OpenedCatalog(catalogPath) ->
-            let path = FolderTree.normalizePath path
-            let existingFolders = normalizeFolders state.Sidebar.Folders
-            let alreadyTracked = existingFolders |> List.contains path
-            let folders =
-                if alreadyTracked then existingFolders
-                else existingFolders @ [ path ]
-            IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = folders }
-            if alreadyTracked then
-                Some(
-                    { state with Sidebar = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar },
-                    loadFolderTreeCmd folders)
-            else
-                Some(
-                    { state with
-                        Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
-                        ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName path } },
-                    Cmd.batch [ loadFolderTreeCmd folders; startScanCmd catalogPath path; createWatcherCmd path ])
-        | Unloaded -> Some(state, Cmd.none)
-    | _ -> None
+let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) option =
+    appWindow |> Option.bind (fun w ->
+        match msg with
+        | NewCatalogRequested ->
+            let cmd = Cmd.ofEffect (fun dispatch ->
+                let opts = Avalonia.Platform.Storage.FilePickerSaveOptions(
+                    Title = "New Catalog",
+                    SuggestedFileName = "my-library",
+                    DefaultExtension = "isomfolio")
+                w.StorageProvider.SaveFilePickerAsync(opts)
+                    .ContinueWith(fun (t: System.Threading.Tasks.Task<Avalonia.Platform.Storage.IStorageFile>) ->
+                        if t.IsFaulted then
+                            uiDispatch dispatch (AppError (ScanError (t.Exception.GetBaseException().Message)))
+                        elif not t.IsCanceled && not (isNull t.Result) then
+                            let rawPath = t.Result.Path.LocalPath
+                            let parentDir = System.IO.Path.GetDirectoryName(rawPath)
+                            let baseName  = System.IO.Path.GetFileNameWithoutExtension(rawPath)
+                            Async.Start(async {
+                                try
+                                    let catalogPath = IsomFolio.AppPaths.createCatalog parentDir baseName
+                                    let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+                                    use c = conn
+                                    uiDispatch dispatch (CatalogOpened (catalogPath, []))
+                                with ex ->
+                                    uiDispatch dispatch (AppError (ScanError ex.Message)) }))
+                |> ignore)
+            Some(state, cmd)
+        | OpenCatalogRequested ->
+            let cmd = Cmd.ofEffect (fun dispatch ->
+                let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(
+                    Title = "Open Catalog",
+                    AllowMultiple = false)
+                w.StorageProvider.OpenFolderPickerAsync(opts)
+                    .ContinueWith(fun (t: System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Avalonia.Platform.Storage.IStorageFolder>>) ->
+                        if t.IsFaulted then
+                            uiDispatch dispatch (AppError (DbError (t.Exception.GetBaseException().Message)))
+                        elif not t.IsCanceled && t.Result.Count > 0 then
+                            let catalogPath = t.Result[0].Path.LocalPath
+                            Async.Start(async {
+                                try
+                                    let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+                                    use c = conn
+                                    let folders =
+                                        match IsomFolio.AppPaths.readLastSession() with
+                                        | Some s when s.CatalogPath = catalogPath -> s.Folders
+                                        | _ -> []
+                                    uiDispatch dispatch (CatalogOpened (catalogPath, folders))
+                                with ex ->
+                                    uiDispatch dispatch (AppError (DbError ex.Message)) }))
+                |> ignore)
+            Some(state, cmd)
+        | CatalogOpened (path, folders) ->
+            let folders = normalizeFolders folders
+            IsomFolio.AppPaths.saveSession { CatalogPath = path; Folders = folders }
+            let perFolderCmds =
+                folders |> List.collect (fun f -> [ reconcileFolderCmd path f; createWatcherCmd f ])
+            let scanProgress =
+                if folders.IsEmpty then None
+                else Some { TotalFound = 0; Inserted = 0; FolderName = "Restoring…" }
+            Some(
+                { state with
+                    Catalog      = OpenedCatalog(path)
+                    IsFirstRun   = false
+                    Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
+                    ScanProgress = scanProgress },
+                Cmd.batch (stopAllCmd () :: startThumbnailWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
+        | AddFolderRequested ->
+            let cmd = Cmd.ofEffect (fun dispatch ->
+                let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(
+                    Title = "Add Folder",
+                    AllowMultiple = false)
+                w.StorageProvider.OpenFolderPickerAsync(opts)
+                    .ContinueWith(fun (t: System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Avalonia.Platform.Storage.IStorageFolder>>) ->
+                        if not t.IsFaulted && not t.IsCanceled && t.Result.Count > 0 then
+                            uiDispatch dispatch (FolderOpened t.Result[0].Path.LocalPath))
+                |> ignore)
+            Some(state, cmd)
+        | FolderOpened path ->
+            match state.Catalog with
+            | OpenedCatalog(catalogPath) ->
+                let path = FolderTree.normalizePath path
+                let existingFolders = normalizeFolders state.Sidebar.Folders
+                let alreadyTracked = existingFolders |> List.contains path
+                let folders =
+                    if alreadyTracked then existingFolders
+                    else existingFolders @ [ path ]
+                IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = folders }
+                if alreadyTracked then
+                    Some(
+                        { state with Sidebar = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar },
+                        loadFolderTreeCmd folders)
+                else
+                    Some(
+                        { state with
+                            Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
+                            ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName path } },
+                        Cmd.batch [ loadFolderTreeCmd folders; startScanCmd catalogPath path; createWatcherCmd path ])
+            | Unloaded -> Some(state, Cmd.none)
+        | _ -> None)
 
 let private handleTagMsg (catalogPath: string) (f: AssetFile) (state: State) (dMsg: DetailPanel.Msg) : (State * Cmd<Msg>) option =
     match dMsg with
@@ -458,12 +459,12 @@ let private handleFileEvent (catalogPath: string) (state: State) (event: FileEve
 
 let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     match state, msg with
-    | { Window = w }, NewCatalogRequested
-    | { Window = w }, OpenCatalogRequested
-    | { Window = w }, CatalogOpened _
-    | { Window = w }, AddFolderRequested
-    | { Window = w }, FolderOpened _ ->
-        handleCatalogMsg w state msg |> Option.defaultValue (state, Cmd.none)
+    | _, NewCatalogRequested
+    | _, OpenCatalogRequested
+    | _, CatalogOpened _
+    | _, AddFolderRequested
+    | _, FolderOpened _ ->
+        handleCatalogMsg state msg |> Option.defaultValue (state, Cmd.none)
 
     | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg (Sidebar.FolderSelected _ as sbMsg) ->
         let newSidebar = Sidebar.update sbMsg state.Sidebar

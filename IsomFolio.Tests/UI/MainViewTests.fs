@@ -5,7 +5,6 @@ open System.IO
 open System.Collections.Concurrent
 open System.Threading.Tasks
 open Xunit
-open Avalonia.Controls
 open Elmish
 open IsomFolio.Models
 open IsomFolio.Storage
@@ -46,7 +45,6 @@ let private makeState catalogPath : MainView.State = {
     OrphanCount     = 0
     IsFirstRun      = false
     Catalog         = MainView.OpenedCatalog(catalogPath)
-    Window          = Unchecked.defaultof<Window>
     SearchRequestId = 0
 }
 
