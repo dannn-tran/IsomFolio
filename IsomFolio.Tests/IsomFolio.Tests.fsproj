@@ -10,6 +10,7 @@
         <Compile Include="AssemblyInfo.fs" />
         <Compile Include="Storage\DbTests.fs" />
         <Compile Include="Indexing\FolderTreeTests.fs" />
+        <Compile Include="Indexing\ThumbnailTests.fs" />
         <Compile Include="Search\QueryEngineTests.fs" />
         <Compile Include="Tagging\TaggingTests.fs" />
         <Compile Include="UI\GridViewTests.fs" />
