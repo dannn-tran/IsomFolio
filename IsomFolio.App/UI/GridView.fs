@@ -97,13 +97,15 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
         Border.margin (Avalonia.Thickness(4.0))
         Border.cornerRadius 4.0
         Border.background (if selected then SolidColorBrush(Color.Parse("#0078D4")) else SolidColorBrush(Color.Parse("#2D2D2D")))
-        Border.onTapped (fun e ->
-            dispatch (TileSelected model.File.Id)
-            match e.Source with
-            | :? Avalonia.Visual as v ->
-                let sv = Avalonia.VisualTree.VisualExtensions.FindAncestorOfType<ScrollViewer>(v, true)
-                if not (isNull sv) then sv.Focus() |> ignore
-            | _ -> ())
+        Border.onTapped(
+            (fun e ->
+                dispatch (TileSelected model.File.Id)
+                match e.Source with
+                | :? Avalonia.Visual as v ->
+                    let sv = Avalonia.VisualTree.VisualExtensions.FindAncestorOfType<ScrollViewer>(v, true)
+                    if not (isNull sv) then sv.Focus() |> ignore
+                | _ -> ()),
+            SubPatchOptions.OnChangeOf model.File.Id)
         Border.child (
             DockPanel.create [
                 DockPanel.children [
@@ -182,24 +184,26 @@ let view (state: State) (dispatch: Msg -> unit) =
             ]
             ScrollViewer.create [
                 ScrollViewer.focusable true
-                ScrollViewer.onKeyDown (fun e ->
-                    let dir =
-                        match e.Key with
-                        | Avalonia.Input.Key.Left  -> Some Left
-                        | Avalonia.Input.Key.Right -> Some Right
-                        | Avalonia.Input.Key.Up    -> Some Up
-                        | Avalonia.Input.Key.Down  -> Some Down
-                        | _ -> None
-                    match dir with
-                    | Some d ->
-                        e.Handled <- true
-                        let rowSize =
-                            match e.Source with
-                            | :? ScrollViewer as sv ->
-                                max 1 (int sv.Bounds.Width / (tileSizePx state.TileSize + 8))
-                            | _ -> 1
-                        dispatch (NavigateTo (d, rowSize))
-                    | None -> ())
+                ScrollViewer.onKeyDown(
+                    (fun e ->
+                        let dir =
+                            match e.Key with
+                            | Avalonia.Input.Key.Left  -> Some Left
+                            | Avalonia.Input.Key.Right -> Some Right
+                            | Avalonia.Input.Key.Up    -> Some Up
+                            | Avalonia.Input.Key.Down  -> Some Down
+                            | _ -> None
+                        match dir with
+                        | Some d ->
+                            e.Handled <- true
+                            let rowSize =
+                                match e.Source with
+                                | :? ScrollViewer as sv ->
+                                    max 1 (int sv.Bounds.Width / (tileSizePx state.TileSize + 8))
+                                | _ -> 1
+                            dispatch (NavigateTo (d, rowSize))
+                        | None -> ()),
+                    SubPatchOptions.OnChangeOf state.TileSize)
                 ScrollViewer.content (
                     WrapPanel.create [
                         WrapPanel.margin (Avalonia.Thickness(4.0))

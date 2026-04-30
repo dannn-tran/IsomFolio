@@ -15,11 +15,15 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\IsomFolio.Core\IsomFolio.Core.fsproj" />
+        <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="*" />
         <PackageReference Include="Avalonia.Desktop" Version="11.3.14" />
         <PackageReference Include="Avalonia.FuncUI" Version="1.5.2" />
         <PackageReference Include="Avalonia.FuncUI.Elmish" Version="1.5.2" />
         <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.14" />
+    </ItemGroup>
+    
+    <ItemGroup>
+        <ProjectReference Include="..\IsomFolio.Core\IsomFolio.Core.fsproj" />
     </ItemGroup>
 
 </Project>
