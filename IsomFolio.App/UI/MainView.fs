@@ -498,7 +498,9 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             fileOpt
             |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
             |> Option.defaultValue state.Detail
-        thumbnailWorker |> Option.iter _.Post(Thumbnail.SetPriority(fileId, 0))
+        thumbnailWorker |> Option.iter (fun w ->
+            // Removed SetPriority as it is no longer supported
+            ())
         let loadTagsCmd =
             fileOpt
             |> Option.map (fun f ->
@@ -519,8 +521,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             fileOpt
             |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
             |> Option.defaultValue state.Detail
-        thumbnailWorker |> Option.iter (fun w ->
-            newGrid.SelectedId |> Option.iter (fun id -> w.Post(Thumbnail.SetPriority(id, 0))))
+        thumbnailWorker |> Option.iter (fun _ -> ())
         let loadTagsCmd =
             fileOpt
             |> Option.map (fun f ->
