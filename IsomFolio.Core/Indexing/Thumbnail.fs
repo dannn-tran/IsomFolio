@@ -97,12 +97,11 @@ let generateThumbnail (catalogDir: string) (req: ThumbnailRequest) : Async<Resul
 
 type ThumbnailMsg =
     | Enqueue     of req: ThumbnailRequest * retryCount: int
-    | SetPriority of fileId: FileId * priority: int
     | WorkerDone
     | CancelAll
     | Shutdown
 
-/// Creates a background worker pool backed by a MailboxProcessor priority queue.
+/// Creates a background worker pool backed by a MailboxProcessor queue.
 /// concurrency: number of parallel workers (default 4).
 /// onReady / onFailed: callbacks invoked on the calling context (route through Dispatcher.UIThread.Post in App layer).
 let createWorkerPool
@@ -112,35 +111,24 @@ let createWorkerPool
     (onFailed : FileId -> string -> unit)
     : MailboxProcessor<ThumbnailMsg> =
 
-    // Priority queue: SortedDictionary<priority, Queue<ThumbnailRequest * int>>
-    let queue    = SortedDictionary<int, Queue<ThumbnailRequest * int>>()
+    // Simple queue
+    let queue    = Queue<ThumbnailRequest * int>()
     let inFlight = System.Collections.Concurrent.ConcurrentDictionary<FileId, bool>()
     let queued   = HashSet<FileId>()
     let mutable activeCount = 0
 
     let enqueueItem (req: ThumbnailRequest) (retryCount: int) =
         if not (inFlight.ContainsKey(req.FileId)) && not (queued.Contains(req.FileId)) then
-            if not (queue.ContainsKey(req.Priority)) then
-                queue[req.Priority] <- Queue<ThumbnailRequest * int>()
-            queue[req.Priority].Enqueue(req, retryCount)
+            queue.Enqueue(req, retryCount)
             queued.Add(req.FileId) |> ignore
 
     let dequeueItem () =
-        let result =
-            queue
-            |> Seq.tryFind (fun kv -> kv.Value.Count > 0)
-            |> Option.map (fun kv -> kv.Value.Dequeue())
-        
-        result |> Option.iter (fun (work, _) -> queued.Remove(work.FileId) |> ignore)
-
-        // Prune empty buckets
-        let emptyKeys = 
-            queue 
-            |> Seq.filter (fun kv -> kv.Value.Count = 0)
-            |> Seq.map (fun kv -> kv.Key)
-            |> Seq.toList
-        emptyKeys |> List.iter (queue.Remove >> ignore)
-        result
+        if queue.Count > 0 then
+            let (work, rc) = queue.Dequeue()
+            queued.Remove(work.FileId) |> ignore
+            Some (work, rc)
+        else
+            None
 
     let agent = MailboxProcessor.Start(fun inbox ->
         let rec startWorker (work, retryCount) =
@@ -156,6 +144,7 @@ let createWorkerPool
                         | Error msg ->
                             if retryCount < 1 then
                                 // Release worker immediately, schedule retry later
+                                inFlight.TryRemove(work.FileId) |> ignore
                                 Async.Start(async {
                                     do! Async.Sleep 5000
                                     inbox.Post (Enqueue(work, retryCount + 1))
@@ -188,39 +177,6 @@ let createWorkerPool
                 | CancelAll ->
                     queue.Clear()
                     queued.Clear()
-                    return! loop ()
-                | SetPriority(fileId, priority) ->
-                    let mutable existingWork = None
-                    let mutable foundInKey = None
-                    
-                    for kv in queue do
-                        if foundInKey.IsNone then
-                            let found = kv.Value |> Seq.tryFind (fun (r, _) -> r.FileId = fileId)
-                            if found.IsSome then
-                                foundInKey <- Some kv.Key
-
-                    match foundInKey with
-                    | Some key ->
-                        let oldQ = queue[key]
-                        let items = oldQ |> Seq.toList
-                        oldQ.Clear()
-                        for (r, rc) in items do
-                            if r.FileId = fileId then
-                                existingWork <- Some ({ r with Priority = priority }, rc)
-                            else
-                                oldQ.Enqueue(r, rc)
-                        
-                        // Prune bucket if now empty
-                        if oldQ.Count = 0 then queue.Remove(key) |> ignore
-                    | None -> ()
-                    
-                    match existingWork with
-                    | Some (req, rc) -> 
-                        queued.Remove(fileId) |> ignore
-                        enqueueItem req rc
-                    | None -> ()
-                    
-                    dispatchRemaining ()
                     return! loop ()
                 | Enqueue (req, rc) ->
                     enqueueItem req rc
