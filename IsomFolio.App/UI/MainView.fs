@@ -11,7 +11,6 @@ open IsomFolio.FileIndex
 open IsomFolio.Indexing
 open IsomFolio.Storage
 open IsomFolio.Search
-open IsomFolio.PathUtils
 
 let mutable private thumbnailWorker: MailboxProcessor<Thumbnail.ThumbnailMsg> option = None
 let mutable private activeWatchers: System.IO.FileSystemWatcher list = []
@@ -560,7 +559,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             |> fun existing -> existing @ files
             |> List.distinctBy (fun f -> f.Id)
             |> GridView.TilesLoaded
-            |> fun msg -> GridView.update msg state.Grid
+            |> GridView.update <| state.Grid
             |> primeGridThumbnails catalogPath 1
         { state with Grid = newGrid }, Cmd.none
 
