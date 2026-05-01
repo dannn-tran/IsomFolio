@@ -48,7 +48,7 @@ let scanFolder
 
         do! flush ()
 
-        return { Files = []; TotalCount = totalInserted }
+        return { TotalCount = totalInserted }
     }
 
 /// Compare filesystem state against DB records for a root folder.

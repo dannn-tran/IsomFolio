@@ -56,7 +56,7 @@ let private metaRow (label: string) (value: string) =
             TextBlock.create [
                 TextBlock.dock Dock.Left
                 TextBlock.text label
-                TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                 TextBlock.fontSize 12.0
                 TextBlock.width 72.0
             ]
@@ -72,7 +72,7 @@ let private metaRow (label: string) (value: string) =
 let private tagChip (tag: string) (dispatch: Msg -> unit) =
     Border.create [
         Border.cornerRadius 4.0
-        Border.background (SolidColorBrush(Color.Parse("#333333")))
+        Border.background (SolidColorBrush(Theme.tagChipBg))
         Border.margin (Avalonia.Thickness(0.0, 2.0, 4.0, 2.0))
         Border.child (
             StackPanel.create [
@@ -90,7 +90,7 @@ let private tagChip (tag: string) (dispatch: Msg -> unit) =
                         Button.fontSize 12.0
                         Button.padding (Avalonia.Thickness(4.0, 0.0))
                         Button.background Brushes.Transparent
-                        Button.foreground (SolidColorBrush(Color.Parse("#AAAAAA")))
+                        Button.foreground (SolidColorBrush(Theme.textDim))
                         Button.onClick (fun _ -> dispatch (RemoveTagRequested tag))
                     ]
                 ]
@@ -101,7 +101,7 @@ let view (state: State) (dispatch: Msg -> unit) =
     if not state.IsVisible then Border.create [] :> Avalonia.FuncUI.Types.IView else
     DockPanel.create [
         DockPanel.width 280.0
-        DockPanel.background (SolidColorBrush(Color.Parse("#1E1E1E")))
+        DockPanel.background (SolidColorBrush(Theme.panelBg))
         DockPanel.children [
             DockPanel.create [
                 DockPanel.dock Dock.Top
@@ -111,7 +111,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                         Button.dock Dock.Right
                         Button.content "×"
                         Button.background Brushes.Transparent
-                        Button.foreground (SolidColorBrush(Color.Parse("#AAAAAA")))
+                        Button.foreground (SolidColorBrush(Theme.textDim))
                         Button.onClick (fun _ -> dispatch Closed)
                     ]
                     TextBlock.create [
@@ -127,7 +127,7 @@ let view (state: State) (dispatch: Msg -> unit) =
             | None ->
                 TextBlock.create [
                     TextBlock.text "No file selected"
-                    TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                    TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                     TextBlock.horizontalAlignment HorizontalAlignment.Center
                     TextBlock.verticalAlignment VerticalAlignment.Center
                 ]
@@ -143,7 +143,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                                 yield metaRow "Path"     f.Folder
                                 yield TextBlock.create [
                                     TextBlock.text "TAGS"
-                                    TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                                    TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                                     TextBlock.fontSize 11.0
                                     TextBlock.margin (Avalonia.Thickness(0.0, 12.0, 0.0, 4.0))
                                 ] :> Avalonia.FuncUI.Types.IView

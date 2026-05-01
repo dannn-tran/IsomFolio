@@ -73,18 +73,18 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (dispa
     let isSelected = selectedPath |> Option.exists (samePath node.Path)
     let foreground =
         SolidColorBrush(
-            if isSelected then Color.Parse("#FFFFFF")
-            elif depth = 0 then Color.Parse("#FFFFFF")
-            else Color.Parse("#CFCFCF"))
+            if isSelected then Theme.folderSelectedText
+            elif depth = 0 then Theme.folderSelectedText
+            else Theme.folderUnselectedText)
     let pathForeground =
         SolidColorBrush(
-            if isSelected then Color.Parse("#D6ECFF")
-            else Color.Parse("#7F7F7F"))
+            if isSelected then Theme.folderSelectedPath
+            else Theme.folderUnselectedPath)
     let selectionBackground : IBrush =
-        if isSelected then SolidColorBrush(Color.Parse("#0B3D62")) :> IBrush
+        if isSelected then SolidColorBrush(Theme.folderSelectedBg) :> IBrush
         else Brushes.Transparent :> IBrush
     let selectionBorder : IBrush =
-        if isSelected then SolidColorBrush(Color.Parse("#8FD3FF")) :> IBrush
+        if isSelected then SolidColorBrush(Theme.folderSelectedBorder) :> IBrush
         else Brushes.Transparent :> IBrush
     let selectionBorderThickness =
         if isSelected then Avalonia.Thickness(3.0, 1.0, 1.0, 1.0)
@@ -130,10 +130,12 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (dispa
 let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -> unit) =
     Border.create [
         Border.cornerRadius 4.0
-        Border.background (if selected then "#0078D4" else "#333333")
+        Border.background (SolidColorBrush(if selected then Theme.accent else Theme.tagChipBg))
         Border.margin (Avalonia.Thickness(0.0, 2.0))
         Border.cursor Avalonia.Input.Cursor.Default
-        Border.onPointerPressed (fun _ -> dispatch (TagToggled tag))
+        Border.onPointerPressed(
+            (fun _ -> dispatch (TagToggled tag)),
+            SubPatchOptions.OnChangeOf tag)
         Border.child (
             StackPanel.create [
                 StackPanel.orientation Orientation.Horizontal
@@ -146,7 +148,7 @@ let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -
                     ]
                     TextBlock.create [
                         TextBlock.text $" ({count})"
-                        TextBlock.foreground (SolidColorBrush(Color.Parse("#AAAAAA")))
+                        TextBlock.foreground (SolidColorBrush(Theme.textDim))
                         TextBlock.fontSize 11.0
                     ]
                 ]
@@ -156,7 +158,7 @@ let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -
 let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> unit) =
     DockPanel.create [
         DockPanel.width 220.0
-        DockPanel.background (SolidColorBrush(Color.Parse("#1E1E1E")))
+        DockPanel.background (SolidColorBrush(Theme.panelBg))
         DockPanel.children [
             Button.create [
                 Button.dock Dock.Top
@@ -173,7 +175,7 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
                             // Folder list
                             yield TextBlock.create [
                                 TextBlock.text "FOLDERS"
-                                TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                                TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                                 TextBlock.fontSize 11.0
                                 TextBlock.margin (Avalonia.Thickness(0.0, 8.0, 0.0, 4.0))
                             ] :> Avalonia.FuncUI.Types.IView
@@ -188,7 +190,7 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
                             if not state.Tags.IsEmpty then
                                 yield TextBlock.create [
                                     TextBlock.text "TAGS"
-                                    TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                                    TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                                     TextBlock.fontSize 11.0
                                     TextBlock.margin (Avalonia.Thickness(0.0, 16.0, 0.0, 4.0))
                                 ] :> Avalonia.FuncUI.Types.IView

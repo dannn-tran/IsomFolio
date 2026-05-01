@@ -67,7 +67,7 @@ module WriteTagsToXmp =
         async {
             let path = tempAssetPath ()
             try
-                do! writeTagsToXmp path [ "alpha"; "beta"; "gamma" ] |> Async.Ignore
+                let! _ = writeTagsToXmp path [ "alpha"; "beta"; "gamma" ]
                 let! tags = readTagsFromXmp path
                 Assert.Equal<string list>([ "alpha"; "beta"; "gamma" ], tags)
             finally cleanup path
@@ -78,8 +78,8 @@ module WriteTagsToXmp =
         async {
             let path = tempAssetPath ()
             try
-                do! writeTagsToXmp path [ "old" ] |> Async.Ignore
-                do! writeTagsToXmp path [ "new1"; "new2" ] |> Async.Ignore
+                let! _ = writeTagsToXmp path [ "old" ]
+                let! _ = writeTagsToXmp path [ "new1"; "new2" ]
                 let! tags = readTagsFromXmp path
                 Assert.Equal<string list>([ "new1"; "new2" ], tags)
             finally cleanup path
@@ -90,7 +90,7 @@ module WriteTagsToXmp =
         async {
             let path = tempAssetPath ()
             try
-                do! writeTagsToXmp path [ "tag" ] |> Async.Ignore
+                let! _ = writeTagsToXmp path [ "tag" ]
                 Assert.False(File.Exists(sidecarPath path + ".tmp"))
             finally cleanup path
         } |> Async.RunSynchronously
@@ -113,7 +113,7 @@ module AddTag =
         async {
             let path = tempAssetPath ()
             try
-                do! addTag path "Vacation" |> Async.Ignore
+                let! _ = addTag path "Vacation"
                 let! result = addTag path "vacation"
                 Assert.Equal(Ok [ "Vacation" ], result)
             finally cleanup path
@@ -124,7 +124,7 @@ module AddTag =
         async {
             let path = tempAssetPath ()
             try
-                do! writeTagsToXmp path [ "existing" ] |> Async.Ignore
+                let! _ = writeTagsToXmp path [ "existing" ]
                 let! result = addTag path "new"
                 Assert.Equal(Ok [ "existing"; "new" ], result)
             finally cleanup path
@@ -138,7 +138,7 @@ module RemoveTag =
         async {
             let path = tempAssetPath ()
             try
-                do! writeTagsToXmp path [ "keep"; "remove" ] |> Async.Ignore
+                let! _ = writeTagsToXmp path [ "keep"; "remove" ]
                 let! result = removeTag path "remove"
                 Assert.Equal(Ok [ "keep" ], result)
             finally cleanup path
@@ -149,7 +149,7 @@ module RemoveTag =
         async {
             let path = tempAssetPath ()
             try
-                do! writeTagsToXmp path [ "Vacation" ] |> Async.Ignore
+                let! _ = writeTagsToXmp path [ "Vacation" ]
                 let! result = removeTag path "vacation"
                 Assert.Equal(Ok [], result)
             finally cleanup path
@@ -160,7 +160,7 @@ module RemoveTag =
         async {
             let path = tempAssetPath ()
             try
-                do! writeTagsToXmp path [ "keep" ] |> Async.Ignore
+                let! _ = writeTagsToXmp path [ "keep" ]
                 let! result = removeTag path "nothere"
                 Assert.Equal(Ok [ "keep" ], result)
             finally cleanup path

@@ -96,7 +96,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
         Border.height (px + 24.0)
         Border.margin (Avalonia.Thickness(4.0))
         Border.cornerRadius 4.0
-        Border.background (if selected then SolidColorBrush(Color.Parse("#0078D4")) else SolidColorBrush(Color.Parse("#2D2D2D")))
+        Border.background (if selected then SolidColorBrush(Theme.accent) else SolidColorBrush(Theme.tileBg))
         Border.onTapped(
             (fun e ->
                 dispatch (TileSelected model.File.Id)
@@ -145,13 +145,13 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
                         TextBlock.create [
                             TextBlock.text "⚠"
                             TextBlock.fontSize 24.0
-                            TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                            TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                             TextBlock.horizontalAlignment HorizontalAlignment.Center
                             TextBlock.verticalAlignment VerticalAlignment.Center
                         ]
                     | NotRequested ->
                         Border.create [
-                            Border.background (SolidColorBrush(Color.Parse("#3D3D3D")))
+                            Border.background (SolidColorBrush(Theme.surfaceBg))
                             Border.horizontalAlignment HorizontalAlignment.Stretch
                             Border.verticalAlignment VerticalAlignment.Stretch
                         ]
@@ -163,7 +163,7 @@ let private tileSizeButton (label: string) (ts: TileSize) (current: TileSize) (d
     Button.create [
         Button.content label
         Button.margin (Avalonia.Thickness(2.0, 0.0))
-        Button.background (if ts = current then "#0078D4" else "#3D3D3D")
+        Button.background (SolidColorBrush(if ts = current then Theme.accent else Theme.surfaceBg))
         Button.focusable false
         Button.onClick (fun _ -> dispatch (TileSizeChanged ts))
     ]

@@ -56,7 +56,6 @@ type ScanProgress = {
 }
 
 type ScanResult = {
-    Files       : AssetFile list
     TotalCount  : int
 }
 
