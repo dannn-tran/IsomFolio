@@ -213,6 +213,59 @@ module ScanState =
             Assert.Equal(incoming.Id, nextState.Grid.Tiles[1].File.Id)
         } |> Async.RunSynchronously
 
+module ThumbnailLifecycle =
+
+    // Repro for "stuck progress bar" bug — adding a 2nd folder leaves new tiles Pending
+    [<Fact>]
+    let ``thumbnail update after second batch transitions tile to Ready`` () =
+        async {
+            let! conn = openTestDb ()
+            use c = conn
+
+            // Folder 1 already finished — tiles are Ready
+            let f1a = makeFile "f1a" "/folder1"
+            let f1b = makeFile "f1b" "/folder1"
+            let folder1Tiles =
+                [ ({ File = f1a; Thumbnail = Ready "/cache/f1a.jpg" } : GridView.TileModel)
+                  { File = f1b; Thumbnail = Ready "/cache/f1b.jpg" } ]
+            let state =
+                { makeState "/catalog" with
+                    Grid = { GridView.init () with Tiles = folder1Tiles } }
+
+            // 2nd folder batch arrives
+            let f2a = makeFile "f2a" "/folder2"
+            let f2b = makeFile "f2b" "/folder2"
+            let stateAfterScan, _ = MainView.update (MainView.ScanBatchCompleted [ f2a; f2b ]) state
+
+            // Sanity: folder 1 tiles still Ready, folder 2 tiles Pending
+            Assert.Equal(4, stateAfterScan.Grid.Tiles.Length)
+            let pendingIds =
+                stateAfterScan.Grid.Tiles
+                |> List.filter (fun t -> t.Thumbnail = Pending)
+                |> List.map _.File.Id
+                |> Set.ofList
+            Assert.Equal<Set<string>>(Set.ofList [ f2a.Id; f2b.Id ], pendingIds)
+
+            // Worker callback: simulate ThumbnailUpdated for the new files
+            let stateAfterReady1, _ =
+                MainView.update
+                    (MainView.GridMsg (GridView.ThumbnailUpdated(f2a.Id, Ready "/cache/f2a.jpg")))
+                    stateAfterScan
+            let stateAfterReady2, _ =
+                MainView.update
+                    (MainView.GridMsg (GridView.ThumbnailUpdated(f2b.Id, Ready "/cache/f2b.jpg")))
+                    stateAfterReady1
+
+            let f2aTile = stateAfterReady2.Grid.Tiles |> List.find (fun t -> t.File.Id = f2a.Id)
+            let f2bTile = stateAfterReady2.Grid.Tiles |> List.find (fun t -> t.File.Id = f2b.Id)
+            match f2aTile.Thumbnail with
+            | Ready _ -> ()
+            | other -> Assert.Fail $"expected f2a to be Ready, got %A{other}"
+            match f2bTile.Thumbnail with
+            | Ready _ -> ()
+            | other -> Assert.Fail $"expected f2b to be Ready, got %A{other}"
+        } |> Async.RunSynchronously
+
 module KeyboardNavigation =
 
     [<Fact>]

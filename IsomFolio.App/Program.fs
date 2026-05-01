@@ -3,7 +3,6 @@ namespace IsomFolio
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Themes.Fluent
-open Elmish
 open Avalonia.FuncUI.Hosts
 open Avalonia.FuncUI.Elmish
 open Avalonia.Controls.ApplicationLifetimes
@@ -20,7 +19,7 @@ type MainWindow() as this =
 
         Elmish.Program.mkProgram (UI.MainView.init (this :> Window)) UI.MainView.update UI.MainView.view
         |> Program.withHost this
-        |> Program.run
+        |> Program.runWithAvaloniaSyncDispatch ()  // ensures that when Cmd.OfAsync or Cmd.OfTask finishes and tries to send a message back to the application, that message is executed on the main UI thread, ensuring the view refreshes properly.
 
 type App() =
     inherit Application()
@@ -43,5 +42,4 @@ module Program =
             .Configure<App>()
             .UsePlatformDetect()
             .UseSkia()
-            .WithDeveloperTools()
             .StartWithClassicDesktopLifetime(args)
