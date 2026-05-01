@@ -3,7 +3,6 @@ module IsomFolio.Search.FTS
 open System
 open Microsoft.Data.Sqlite
 open IsomFolio.Models
-open IsomFolio.Storage
 
 // ---------------------------------------------------------------------------
 // Query sanitisation
