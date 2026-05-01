@@ -109,14 +109,14 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (dispa
                                 TextBlock.foreground foreground
                                 TextBlock.fontSize 13.0
                                 TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
-                                TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
+                                TextBlock.textTrimming TextTrimming.CharacterEllipsis
                                 TextBlock.tip node.Path
                             ]
                             TextBlock.create [
                                 TextBlock.text node.Path
                                 TextBlock.foreground pathForeground
                                 TextBlock.fontSize 11.0
-                                TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
+                                TextBlock.textTrimming TextTrimming.CharacterEllipsis
                                 TextBlock.tip node.Path
                             ]
                         ]

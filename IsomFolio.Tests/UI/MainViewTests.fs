@@ -294,7 +294,7 @@ module KeyboardNavigation =
                     { GridView.init () with
                         Tiles     = [ { File = f1; Thumbnail = NotRequested }; { File = f2; Thumbnail = NotRequested } ]
                         SelectedId = Some f2.Id }
-                Detail = IsomFolio.UI.DetailPanel.update (IsomFolio.UI.DetailPanel.FileSelected f2) (IsomFolio.UI.DetailPanel.init ()) }
+                Detail = DetailPanel.update (DetailPanel.FileSelected f2) (DetailPanel.init ()) }
 
         let nextState, _ = MainView.update (MainView.GridMsg (GridView.NavigateTo (GridView.Right, 2))) state
 

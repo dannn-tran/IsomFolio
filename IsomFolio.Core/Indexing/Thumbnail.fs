@@ -124,7 +124,7 @@ let createWorkerPool
 
     let dequeueItem () =
         if queue.Count > 0 then
-            let (work, rc) = queue.Dequeue()
+            let work, rc = queue.Dequeue()
             queued.Remove(work.FileId) |> ignore
             Some (work, rc)
         else
@@ -199,7 +199,7 @@ let sweepThumbnailCache (c: SqliteConnection) (catalogDir: string) : Async<int> 
         if not (Directory.Exists(cacheDir)) then return 0
         else
             let! allIds = IsomFolio.Storage.Db.getAllFileIds c
-            let known = System.Collections.Generic.HashSet<string>(allIds)
+            let known = HashSet<string>(allIds)
             let mutable removed = 0
             for file in Directory.EnumerateFiles(cacheDir, "*.jpg") do
                 let fileId = Path.GetFileNameWithoutExtension(file)
