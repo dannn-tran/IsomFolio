@@ -497,9 +497,6 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             fileOpt
             |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
             |> Option.defaultValue state.Detail
-        thumbnailWorker |> Option.iter (fun w ->
-            // Removed SetPriority as it is no longer supported
-            ())
         let loadTagsCmd =
             fileOpt
             |> Option.map (fun f ->
@@ -520,7 +517,6 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             fileOpt
             |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
             |> Option.defaultValue state.Detail
-        thumbnailWorker |> Option.iter (fun _ -> ())
         let loadTagsCmd =
             fileOpt
             |> Option.map (fun f ->
@@ -644,7 +640,7 @@ let private welcomeView (dispatch: Msg -> unit) =
                     TextBlock.create [
                         TextBlock.text "Your files stay on disk. Tags travel with them."
                         TextBlock.fontSize 14.0
-                        TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                        TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                         TextBlock.horizontalAlignment HorizontalAlignment.Center
                     ]
                     StackPanel.create [
@@ -673,12 +669,12 @@ let private welcomeView (dispatch: Msg -> unit) =
 
 let view (state: State) (dispatch: Msg -> unit) =
     DockPanel.create [
-        DockPanel.background (SolidColorBrush(Color.Parse("#252526")))
+        DockPanel.background (SolidColorBrush(Theme.mainBg))
         DockPanel.children [
             // Fixed index 0: search bar
             DockPanel.create [
                 DockPanel.dock Dock.Top
-                DockPanel.background (SolidColorBrush(Color.Parse("#1E1E1E")))
+                DockPanel.background (SolidColorBrush(Theme.panelBg))
                 DockPanel.height 40.0
                 DockPanel.children [
                     SearchBar.view state.SearchBar (SearchBarMsg >> dispatch)
@@ -691,7 +687,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                 StackPanel.children [
                     Border.create [
                         Border.isVisible (state.OrphanCount > 0)
-                        Border.background (SolidColorBrush(Color.Parse("#9D5100")))
+                        Border.background (SolidColorBrush(Theme.warningBg))
                         Border.padding (Avalonia.Thickness(8.0, 4.0))
                         Border.child (
                             TextBlock.create [
@@ -702,7 +698,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                     ]
                     for (msg, t) in state.Notifications do
                         Border.create [
-                            Border.background (SolidColorBrush(Color.Parse("#C42B1C")))
+                            Border.background (SolidColorBrush(Theme.errorBg))
                             Border.padding (Avalonia.Thickness(8.0, 4.0))
                             Border.child (
                                 DockPanel.create [
@@ -727,7 +723,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                         ] :> Avalonia.FuncUI.Types.IView
                     Border.create [
                         Border.isVisible state.ScanProgress.IsSome
-                        Border.background (SolidColorBrush(Color.Parse("#1E3A5F")))
+                        Border.background (SolidColorBrush(Theme.scanBarBg))
                         Border.height 28.0
                         Border.child (
                             match state.ScanProgress with
@@ -738,7 +734,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                                         TextBlock.create [
                                             TextBlock.dock Dock.Right
                                             TextBlock.text $"{p.Inserted} indexed"
-                                            TextBlock.foreground (SolidColorBrush(Color.Parse("#888888")))
+                                            TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                                             TextBlock.fontSize 11.0
                                             TextBlock.verticalAlignment VerticalAlignment.Center
                                             TextBlock.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))

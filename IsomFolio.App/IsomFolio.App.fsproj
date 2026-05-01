@@ -6,6 +6,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="UI\Theme.fs" />
         <Compile Include="UI\SearchBar.fs" />
         <Compile Include="UI\Sidebar.fs" />
         <Compile Include="UI\GridView.fs" />

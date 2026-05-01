@@ -19,6 +19,30 @@ let private makeFile (name: string) : AssetFile =
         OrphanedAt = None
     }
 
+module SelectionStability =
+
+    [<Fact>]
+    let ``selection preserved when tiles reloaded in different order`` () =
+        let fileA = makeFile "alpha"
+        let fileB = makeFile "beta"
+        let state =
+            { GridView.init () with
+                Tiles = [ { File = fileA; Thumbnail = NotRequested }; { File = fileB; Thumbnail = NotRequested } ]
+                SelectedId = Some fileA.Id }
+        let nextState = GridView.update (GridView.TilesLoaded [ fileB; fileA ]) state
+        Assert.Equal(Some fileA.Id, nextState.SelectedId)
+
+    [<Fact>]
+    let ``selection cleared when selected tile absent from new result`` () =
+        let fileA = makeFile "alpha"
+        let fileB = makeFile "beta"
+        let state =
+            { GridView.init () with
+                Tiles = [ { File = fileA; Thumbnail = NotRequested } ]
+                SelectedId = Some fileA.Id }
+        let nextState = GridView.update (GridView.TilesLoaded [ fileB ]) state
+        Assert.Equal(None, nextState.SelectedId)
+
 module TileLoading =
 
     [<Fact>]

@@ -198,14 +198,13 @@ let sweepThumbnailCache (c: SqliteConnection) (catalogDir: string) : Async<int> 
         let cacheDir = thumbnailCacheDir catalogDir
         if not (Directory.Exists(cacheDir)) then return 0
         else
+            let! allIds = IsomFolio.Storage.Db.getAllFileIds c
+            let known = System.Collections.Generic.HashSet<string>(allIds)
             let mutable removed = 0
             for file in Directory.EnumerateFiles(cacheDir, "*.jpg") do
                 let fileId = Path.GetFileNameWithoutExtension(file)
-                let! existing = fileId |> IsomFolio.Storage.Db.getFileById c
-                match existing with
-                | None ->
+                if not (known.Contains(fileId)) then
                     try File.Delete(file); removed <- removed + 1
                     with _ -> ()
-                | Some _ -> ()
             return removed
     }

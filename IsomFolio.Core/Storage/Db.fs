@@ -250,6 +250,18 @@ let executeRaw (c: SqliteConnection) (sql: string) : Async<unit> =
         cmd.ExecuteNonQuery() |> ignore
     }
 
+/// Returns all FileIds currently in the DB (for thumbnail cache sweep)
+let getAllFileIds (c: SqliteConnection) : Async<string list> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "SELECT id FROM files"
+        use reader = cmd.ExecuteReader()
+        let results = System.Collections.Generic.List<string>()
+        while reader.Read() do
+            results.Add(reader.GetString(0))
+        return results |> Seq.toList
+    }
+
 /// Returns all file paths currently in the DB for a given root folder (for reconciliation)
 let getIndexedPathsInFolder (c: SqliteConnection) (rootFolder: string) : Async<Map<string, AssetFile>> =
     async {
