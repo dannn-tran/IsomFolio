@@ -100,7 +100,9 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (dispa
                 Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
                 Button.horizontalAlignment HorizontalAlignment.Stretch
                 Button.horizontalContentAlignment HorizontalAlignment.Left
-                Button.onClick (fun _ -> dispatch (FolderSelected node.Path))
+                Button.onClick(
+                    (fun _ -> dispatch (FolderSelected node.Path)),
+                    SubPatchOptions.OnChangeOf node.Path)
                 Button.content (
                     StackPanel.create [
                         StackPanel.children [
