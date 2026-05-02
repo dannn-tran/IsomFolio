@@ -131,6 +131,17 @@ let getFileById (c: SqliteConnection) (fileId: FileId) : Async<AssetFile option>
         else return None
     }
 
+let deleteFilesByRootFolder (c: SqliteConnection) (rootFolder: string) : Async<unit> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- """
+            DELETE FROM files WHERE folder = @folder OR folder LIKE @prefix
+        """
+        cmd.Parameters.AddWithValue("@folder", rootFolder) |> ignore
+        cmd.Parameters.AddWithValue("@prefix", descendantPrefix rootFolder) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    }
+
 let markOrphaned (c: SqliteConnection) (fileId: FileId) : Async<unit> =
     async {
         use cmd = c.CreateCommand()
