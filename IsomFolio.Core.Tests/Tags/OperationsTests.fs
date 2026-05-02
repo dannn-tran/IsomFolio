@@ -3,7 +3,7 @@ module IsomFolio.Tests.Tags.OperationsTests
 open System
 open System.IO
 open Xunit
-open IsomFolio.Tags.Operations
+open IsomFolio.Core.Tags.Operations
 
 let private tempAssetPath () =
     let dir = Path.Combine(Path.GetTempPath(), $"isomfolio_tag_{Guid.NewGuid():N}")

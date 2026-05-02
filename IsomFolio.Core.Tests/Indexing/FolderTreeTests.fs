@@ -3,8 +3,8 @@ module IsomFolio.Tests.Indexing.FolderTreeTests
 open System
 open System.IO
 open Xunit
-open IsomFolio.PathUtils
-open IsomFolio.Indexing.FolderTree
+open IsomFolio.Core.PathUtils
+open IsomFolio.Core.Indexing.FolderTree
 
 let private createTempFolderTree () =
     let root = Path.Combine(Path.GetTempPath(), $"isomfolio_tree_{Guid.NewGuid():N}")

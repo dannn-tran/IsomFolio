@@ -1,12 +1,13 @@
-module IsomFolio.Indexing.Thumbnail
+module IsomFolio.Core.Indexing.Thumbnail
 
 open System
 open System.IO
 open System.Collections.Generic
+open IsomFolio.Core.Indexing.Types
 open Microsoft.Data.Sqlite
 open SkiaSharp
-open IsomFolio.Models
-open IsomFolio.AppPaths
+open IsomFolio.Core.Models
+open IsomFolio.Core.AppPaths
 
 // ---------------------------------------------------------------------------
 // Cache helpers
@@ -198,7 +199,7 @@ let sweepThumbnailCache (c: SqliteConnection) (catalogDir: string) : Async<int> 
         let cacheDir = thumbnailCacheDir catalogDir
         if not (Directory.Exists(cacheDir)) then return 0
         else
-            let! allIds = IsomFolio.Storage.Db.getAllFileIds c
+            let! allIds = IsomFolio.Core.Storage.Db.getAllFileIds c
             let known = HashSet<string>(allIds)
             let mutable removed = 0
             for file in Directory.EnumerateFiles(cacheDir, "*.jpg") do

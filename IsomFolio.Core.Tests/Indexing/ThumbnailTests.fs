@@ -6,8 +6,9 @@ open System.IO
 open System.Threading
 open System.Collections.Generic
 open SkiaSharp
-open IsomFolio.Models
-open IsomFolio.Indexing.Thumbnail
+open IsomFolio.Core.Models
+open IsomFolio.Core.Indexing.Types
+open IsomFolio.Core.Indexing.Thumbnail
 
 let private writePng (path: string) =
     use bmp = new SKBitmap(8, 8)

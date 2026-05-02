@@ -1,4 +1,4 @@
-module IsomFolio.Storage.Schema
+module IsomFolio.Core.Storage.Schema
 
 let pragmas = """
 PRAGMA journal_mode=WAL;

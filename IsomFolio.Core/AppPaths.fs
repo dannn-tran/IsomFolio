@@ -1,4 +1,4 @@
-module IsomFolio.AppPaths
+module IsomFolio.Core.AppPaths
 
 open System
 open System.IO

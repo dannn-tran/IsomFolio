@@ -1,8 +1,8 @@
-module IsomFolio.Indexing.FolderTree
+module IsomFolio.Core.Indexing.FolderTree
 
 open System
 open System.IO
-open IsomFolio.PathUtils
+open IsomFolio.Core.PathUtils
 
 type FolderNode = {
     Name: string

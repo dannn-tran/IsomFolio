@@ -1,9 +1,9 @@
-module IsomFolio.Indexing.Watcher
+module IsomFolio.Core.Indexing.Watcher
 
 open System
 open System.IO
 open System.Collections.Generic
-open IsomFolio.Models
+open IsomFolio.Core.Indexing.Types
 
 // Track when IsomFolio last wrote an XMP sidecar so we can suppress self-triggered events
 let private selfWrites = Dictionary<string, DateTime>()

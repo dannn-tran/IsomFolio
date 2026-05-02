@@ -1,8 +1,8 @@
-module IsomFolio.Search.FTS
+module IsomFolio.Core.Search.FTS
 
 open System
 open Microsoft.Data.Sqlite
-open IsomFolio.Models
+open IsomFolio.Core.Models
 
 // ---------------------------------------------------------------------------
 // Query sanitisation

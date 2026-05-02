@@ -1,11 +1,12 @@
-module IsomFolio.Indexing.Scanner
+module IsomFolio.Core.Indexing.Scanner
 
 open System
 open System.IO
-open IsomFolio.Models
-open IsomFolio.FileIndex
-open IsomFolio.PathUtils
-open IsomFolio.Storage
+open IsomFolio.Core.Indexing.Types
+open IsomFolio.Core.Models
+open IsomFolio.Core.FileIndex
+open IsomFolio.Core.PathUtils
+open IsomFolio.Core.Storage
 open Microsoft.Data.Sqlite
 
 /// Recursively scan a folder, batch-insert into the DB, and report progress.
