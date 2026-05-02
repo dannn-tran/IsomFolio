@@ -2,13 +2,13 @@ module IsomFolio.Tests.UI.GridViewTests
 
 open System
 open Xunit
-open IsomFolio.Models
+open IsomFolio.Core.Models
 open IsomFolio.UI
 
 let private makeFile (name: string) : AssetFile =
     let path = $"/photos/{name}.jpg"
     {
-        Id = IsomFolio.FileIndex.computeFileId path
+        Id = IsomFolio.Core.FileIndex.computeFileId path
         Path = path
         Name = $"{name}.jpg"
         Folder = "/photos"

@@ -1,10 +1,10 @@
-module IsomFolio.Search.QueryEngine
+module IsomFolio.Core.Search.QueryEngine
 
 open System
 open System.IO
 open System.Text
 open Microsoft.Data.Sqlite
-open IsomFolio.Models
+open IsomFolio.Core.Models
 
 // ---------------------------------------------------------------------------
 // Helpers

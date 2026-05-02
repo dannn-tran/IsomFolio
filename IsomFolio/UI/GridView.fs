@@ -5,8 +5,8 @@ open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Media.Imaging
-open IsomFolio.Models
-open IsomFolio.FileIndex
+open IsomFolio.Core.Models
+open IsomFolio.Core.FileIndex
 open IsomFolio.UI.ContextMenuExt
 
 type TileModel = {

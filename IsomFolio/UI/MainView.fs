@@ -6,12 +6,13 @@ open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Threading
-open IsomFolio.Models
-open IsomFolio.FileIndex
-open IsomFolio.Indexing
-open IsomFolio.Storage
-open IsomFolio.Search
-open IsomFolio.PathUtils
+open IsomFolio.Core.Indexing.Types
+open IsomFolio.Core.Models
+open IsomFolio.Core.FileIndex
+open IsomFolio.Core.Indexing
+open IsomFolio.Core.Storage
+open IsomFolio.Core.Search
+open IsomFolio.Core.PathUtils
 
 let mutable private thumbnailWorker: MailboxProcessor<Thumbnail.ThumbnailMsg> option = None
 let mutable private activeWatchers: System.IO.FileSystemWatcher list = []
@@ -83,12 +84,12 @@ let init (w: Window) () : State * Cmd<Msg> =
         PendingFolders  = Set.empty
     }
     let initCmd =
-        match IsomFolio.AppPaths.readLastSession() with
+        match IsomFolio.Core.AppPaths.readLastSession() with
         | None -> Cmd.none
         | Some session ->
             Cmd.OfAsync.either
                 (fun () -> async {
-                    let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath session.CatalogPath)
+                    let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath session.CatalogPath)
                     use c = conn
                     return session.CatalogPath, session.Folders
                 })
@@ -99,7 +100,7 @@ let init (w: Window) () : State * Cmd<Msg> =
 
 let private withCatalogDb (catalogPath: string) (work: _ -> Async<'T>) : Async<'T> =
     async {
-        let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+        let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath catalogPath)
         use c = conn
         return! work c
     }
@@ -122,7 +123,7 @@ let private stopFolderWatcherCmd (folderPath: string) : Cmd<Msg> =
     Cmd.ofEffect (fun _ ->
         let toStop, remaining =
             activeWatchers
-            |> List.partition (fun w -> IsomFolio.PathUtils.samePath w.Path folderPath)
+            |> List.partition (fun w -> IsomFolio.Core.PathUtils.samePath w.Path folderPath)
         for w in toStop do Watcher.stopWatcher w
         activeWatchers <- remaining)
 
@@ -152,19 +153,20 @@ let private confirmFolderRemovalCmd (folderPath: string) : Cmd<Msg> =
                 CanResize = false,
                 ShowInTaskbar = false)
 
-            let panel = new StackPanel(Margin = Avalonia.Thickness(20.0), Spacing = 16.0)
+            let panel = StackPanel(Margin = Avalonia.Thickness(20.0), Spacing = 16.0)
 
-            let label = new TextBlock(
-                Text = $"Remove \"{folderName}\" from the library?\n\nFiles on disk are not affected. Images from this folder will no longer appear in the grid.",
-                TextWrapping = Avalonia.Media.TextWrapping.Wrap)
+            let label =
+                TextBlock(
+                    Text = $"Remove \"{folderName}\" from the library?\n\nFiles on disk are not affected. Images from this folder will no longer appear in the grid.",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap)
 
             let btnRow = new StackPanel(
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Spacing = 8.0)
 
-            let cancelBtn = new Button(Content = "Cancel", IsCancel = true)
-            let removeBtn = new Button(Content = "Remove", IsDefault = true)
+            let cancelBtn = Button(Content = "Cancel", IsCancel = true)
+            let removeBtn = Button(Content = "Remove", IsDefault = true)
 
             cancelBtn.Click.Add(fun _ -> dialog.Close(false))
             removeBtn.Click.Add(fun _ -> dialog.Close(true))
@@ -233,9 +235,9 @@ let private loadFolderTreeCmd (folders: string list) : Cmd<Msg> =
 
 let private normalizeFolders (folders: string list) =
     folders
-    |> List.map IsomFolio.PathUtils.normalizePath
+    |> List.map IsomFolio.Core.PathUtils.normalizePath
     |> List.fold (fun acc path ->
-        if acc |> List.exists (fun existing -> IsomFolio.PathUtils.samePath existing path) then acc
+        if acc |> List.exists (fun existing -> IsomFolio.Core.PathUtils.samePath existing path) then acc
         else acc @ [ path ]) []
 
 
@@ -362,8 +364,8 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                             let baseName  = System.IO.Path.GetFileNameWithoutExtension(rawPath)
                             Async.Start(async {
                                 try
-                                    let catalogPath = IsomFolio.AppPaths.createCatalog parentDir baseName
-                                    let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+                                    let catalogPath = IsomFolio.Core.AppPaths.createCatalog parentDir baseName
+                                    let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath catalogPath)
                                     use c = conn
                                     uiDispatch dispatch (CatalogOpened (catalogPath, []))
                                 with ex ->
@@ -383,10 +385,10 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                             let catalogPath = t.Result[0].Path.LocalPath
                             Async.Start(async {
                                 try
-                                    let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+                                    let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath catalogPath)
                                     use c = conn
                                     let folders =
-                                        match IsomFolio.AppPaths.readLastSession() with
+                                        match IsomFolio.Core.AppPaths.readLastSession() with
                                         | Some s when s.CatalogPath = catalogPath -> s.Folders
                                         | _ -> []
                                     uiDispatch dispatch (CatalogOpened (catalogPath, folders))
@@ -396,7 +398,7 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
             Some(state, cmd)
         | CatalogOpened (path, folders) ->
             let folders = normalizeFolders folders
-            IsomFolio.AppPaths.saveSession { CatalogPath = path; Folders = folders }
+            IsomFolio.Core.AppPaths.saveSession { CatalogPath = path; Folders = folders }
             let perFolderCmds =
                 folders |> List.collect (fun f -> [ reconcileFolderCmd path f; createWatcherCmd f ])
             let scanProgress =
@@ -424,14 +426,14 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
         | FolderOpened path ->
             match state.Catalog with
             | OpenedCatalog(catalogPath) ->
-                let path = IsomFolio.PathUtils.normalizePath path
+                let path = IsomFolio.Core.PathUtils.normalizePath path
 
                 let existingFolders = normalizeFolders state.Sidebar.Folders
                 let alreadyTracked = existingFolders |> List.contains path
                 let folders =
                     if alreadyTracked then existingFolders
                     else existingFolders @ [ path ]
-                IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = folders }
+                IsomFolio.Core.AppPaths.saveSession { CatalogPath = catalogPath; Folders = folders }
                 if alreadyTracked then
                     Some(
                         { state with Sidebar = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar },
@@ -454,7 +456,7 @@ let private handleTagMsg (catalogPath: string) (f: AssetFile) (state: State) (dM
                 (fun () ->
                     withCatalogDb catalogPath (fun dbConn ->
                         async {
-                            let! result = IsomFolio.Tagging.Tagging.addTag f.Path tag
+                            let! result = IsomFolio.Core.Tags.Operations.addTag f.Path tag
                             match result with
                             | Ok newTags ->
                                 do! newTags |> Db.upsertTags dbConn f.Id
@@ -472,7 +474,7 @@ let private handleTagMsg (catalogPath: string) (f: AssetFile) (state: State) (dM
                 (fun () ->
                     withCatalogDb catalogPath (fun dbConn ->
                         async {
-                            let! result = IsomFolio.Tagging.Tagging.removeTag f.Path tag
+                            let! result = IsomFolio.Core.Tags.Operations.removeTag f.Path tag
                             match result with
                             | Ok newTags ->
                                 do! newTags |> Db.upsertTags dbConn f.Id
@@ -564,7 +566,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg (Sidebar.FolderRemoved path) ->
         let newSidebar = Sidebar.update (Sidebar.FolderRemoved path) state.Sidebar
         let remainingFolders = newSidebar.Folders
-        IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = remainingFolders }
+        IsomFolio.Core.AppPaths.saveSession { CatalogPath = catalogPath; Folders = remainingFolders }
         let query = { state.ActiveQuery with FolderPath = newSidebar.SelectedFolder }
         let newId = state.SearchRequestId + 1
         let newPending =
@@ -697,7 +699,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | _, TagsUpdated(fileId, tags) | _, TagsSaved(fileId, tags) ->
         let newDetail =
-            if state.Detail.File |> Option.map (fun f -> f.Id) = Some fileId
+            if state.Detail.File |> Option.map _.Id = Some fileId
             then DetailPanel.update (DetailPanel.TagsLoaded tags) state.Detail
             else state.Detail
         { state with Detail = newDetail }, Cmd.none

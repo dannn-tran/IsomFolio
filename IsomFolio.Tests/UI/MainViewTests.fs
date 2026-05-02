@@ -1,14 +1,15 @@
-module IsomFolio.Tests.UI.MainViewTests
+module IsomFolio.App.Tests.UI.MainViewTests
 
 open System
 open System.IO
 open System.Collections.Concurrent
 open System.Threading.Tasks
+open IsomFolio.Core.Indexing.Types
+open IsomFolio.UI
 open Xunit
 open Elmish
-open IsomFolio.Models
-open IsomFolio.Storage
-open IsomFolio.UI
+open IsomFolio.Core.Models
+open IsomFolio.Core.Storage
 
 let private defaultQuery = {
     Text = None
@@ -30,7 +31,7 @@ let private openTestCatalog () =
     async {
         let catalogPath = Path.Combine(Path.GetTempPath(), $"isomfolio_mainview_{Guid.NewGuid():N}.isomfolio")
         Directory.CreateDirectory(catalogPath) |> ignore
-        let! conn = Db.openDatabase (IsomFolio.AppPaths.dbPath catalogPath)
+        let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath catalogPath)
         return catalogPath, conn
     }
 
@@ -52,7 +53,7 @@ let private makeState catalogPath : MainView.State = {
 let private makeFile (name: string) (folder: string) : AssetFile =
     let path = $"{folder}/{name}.jpg"
     {
-        Id = IsomFolio.FileIndex.computeFileId path
+        Id = IsomFolio.Core.FileIndex.computeFileId path
         Path = path
         Name = $"{name}.jpg"
         Folder = folder

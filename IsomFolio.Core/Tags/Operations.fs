@@ -1,9 +1,9 @@
-module IsomFolio.Tags.Operations
+module IsomFolio.Core.Tags.Operations
 
 open System
 open System.IO
 open System.Xml.Linq
-open IsomFolio.Indexing
+open IsomFolio.Core.Indexing
 
 let private xmpNs = XNamespace.Get "adobe:ns:meta/"
 let private rdfNs = XNamespace.Get "http://www.w3.org/1999/02/22-rdf-syntax-ns#"

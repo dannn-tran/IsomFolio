@@ -1,10 +1,10 @@
-module IsomFolio.Storage.Db
+module IsomFolio.Core.Storage.Db
 
 open System
 open System.IO
 open Microsoft.Data.Sqlite
-open IsomFolio.Models
-open IsomFolio.PathUtils
+open IsomFolio.Core.Models
+open IsomFolio.Core.PathUtils
 
 // ---------------------------------------------------------------------------
 // Init

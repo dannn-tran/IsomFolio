@@ -4,8 +4,8 @@ open Avalonia.FuncUI.DSL
 open Avalonia.Controls
 open Avalonia.Layout
 open Avalonia.Media
-open IsomFolio.PathUtils
-open IsomFolio.Indexing.FolderTree
+open IsomFolio.Core.PathUtils
+open IsomFolio.Core.Indexing.FolderTree
 open IsomFolio.UI.ContextMenuExt
 
 type State = {

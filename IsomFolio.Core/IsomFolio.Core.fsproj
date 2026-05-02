@@ -12,6 +12,7 @@
         <Compile Include="FileIndex.fs" />
         <Compile Include="Storage\Schema.fs" />
         <Compile Include="Storage\Db.fs" />
+        <Compile Include="Indexing\Types.fs" />
         <Compile Include="Indexing\FolderTree.fs" />
         <Compile Include="Indexing\Scanner.fs" />
         <Compile Include="Indexing\Watcher.fs" />

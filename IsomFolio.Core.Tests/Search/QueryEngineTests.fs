@@ -3,9 +3,9 @@ module IsomFolio.Tests.Search.QueryEngineTests
 open System
 open System.IO
 open Xunit
-open IsomFolio.Models
-open IsomFolio.Storage
-open IsomFolio.Search
+open IsomFolio.Core.Models
+open IsomFolio.Core.Storage
+open IsomFolio.Core.Search
 
 let private openTestDb () =
     async {
@@ -16,7 +16,7 @@ let private openTestDb () =
 let private makeFile (name: string) (folder: string) (ext: string) : AssetFile =
     let path = $"{folder}/{name}.{ext}"
     {
-        Id         = IsomFolio.FileIndex.computeFileId path
+        Id         = IsomFolio.Core.FileIndex.computeFileId path
         Path       = path
         Name       = $"{name}.{ext}"
         Folder     = folder

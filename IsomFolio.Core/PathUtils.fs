@@ -1,4 +1,4 @@
-module IsomFolio.PathUtils
+module IsomFolio.Core.PathUtils
 
 open System
 open System.IO

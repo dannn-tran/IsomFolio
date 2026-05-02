@@ -2,15 +2,15 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Core", "IsomFolio.Core\IsomFolio.Core.fsproj", "{A1C305EE-1111-4244-A3AD-62B98377F0F1}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.App", "IsomFolio.App\IsomFolio.App.fsproj", "{D1B305EE-0289-4244-A3AD-62B98377F0FA}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio", "IsomFolio\IsomFolio.fsproj", "{D1B305EE-0289-4244-A3AD-62B98377F0FA}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.App.Tests", "IsomFolio.App.Tests\IsomFolio.App.Tests.fsproj", "{B2D305EE-2222-4244-A3AD-62B98377F0F2}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Tests", "IsomFolio.Tests\IsomFolio.Tests.fsproj", "{B2D305EE-2222-4244-A3AD-62B98377F0F2}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Core.Tests", "IsomFolio.Core.Tests\IsomFolio.Core.Tests.fsproj", "{28559897-5DF1-45ED-A967-83FA2FA8660B}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Platform.Mac", "IsomFolio.Platform.Mac\IsomFolio.Platform.Mac.fsproj", "{61A84FFB-6C65-464F-8BCA-FB5B6C4A7D86}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Mac", "IsomFolio.Mac\IsomFolio.Mac.fsproj", "{61A84FFB-6C65-464F-8BCA-FB5B6C4A7D86}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Platform.Mac.Tests", "IsomFolio.Platform.Mac.Tests\IsomFolio.Platform.Mac.Tests.fsproj", "{4B87EEF4-4647-4406-9886-4F01EAE111B2}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IsomFolio.Mac.Tests", "IsomFolio.Mac.Tests\IsomFolio.Mac.Tests.fsproj", "{4B87EEF4-4647-4406-9886-4F01EAE111B2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

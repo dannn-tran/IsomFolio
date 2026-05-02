@@ -1,11 +1,11 @@
-module IsomFolio.FileIndex
+module IsomFolio.Core.FileIndex
 
 open System
 open System.IO
 open System.Security.Cryptography
 open System.Text
-open IsomFolio.Models
-open IsomFolio.PathUtils
+open IsomFolio.Core.Models
+open IsomFolio.Core.PathUtils
 
 let private supportedExtensions =
     Set.ofList [ "jpg"; "jpeg"; "png"; "webp"; "gif" ]

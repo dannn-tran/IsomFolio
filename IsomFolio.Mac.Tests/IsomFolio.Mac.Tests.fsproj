@@ -17,7 +17,7 @@
     </ItemGroup>
     
     <ItemGroup>
-        <ProjectReference Include="..\IsomFolio.Platform.Mac\IsomFolio.Platform.Mac.fsproj" />
+        <ProjectReference Include="..\IsomFolio.Mac\IsomFolio.Mac.fsproj" />
     </ItemGroup>
     
     <ItemGroup>

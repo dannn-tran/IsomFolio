@@ -3,9 +3,9 @@ module IsomFolio.Tests.Storage.DbTests
 open System
 open System.IO
 open Xunit
-open IsomFolio.Models
-open IsomFolio.Storage
-open IsomFolio.Indexing
+open IsomFolio.Core.Models
+open IsomFolio.Core.Storage
+open IsomFolio.Core.Indexing
 
 let private openTestDb () =
     async {
@@ -16,7 +16,7 @@ let private openTestDb () =
 let private sampleFile (n: int) : AssetFile =
     let path = $"/photos/test{n}.jpg"
     {
-        Id         = IsomFolio.FileIndex.computeFileId path
+        Id         = IsomFolio.Core.FileIndex.computeFileId path
         Path       = path
         Name       = $"test{n}.jpg"
         Folder     = "/photos"
