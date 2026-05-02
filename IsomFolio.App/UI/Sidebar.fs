@@ -103,58 +103,37 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (dispa
                 ]
             ])
         StackPanel.children [
-            yield Grid.create [
-                Grid.columnDefinitions "*, Auto"
-                Grid.children [
-                    Button.create [
-                        Grid.column 0
-                        Button.background selectionBackground
-                        Button.borderBrush selectionBorder
-                        Button.borderThickness selectionBorderThickness
-                        Button.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 4.0))
-                        Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
-                        Button.horizontalAlignment HorizontalAlignment.Stretch
-                        Button.horizontalContentAlignment HorizontalAlignment.Left
-                        Button.onClick(
-                            (fun _ -> dispatch (FolderSelected node.Path)),
-                            SubPatchOptions.OnChangeOf node.Path)
-                        Button.content (
-                            StackPanel.create [
-                                StackPanel.children [
-                                    TextBlock.create [
-                                        TextBlock.text node.Name
-                                        TextBlock.foreground foreground
-                                        TextBlock.fontSize 13.0
-                                        TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
-                                        TextBlock.textTrimming TextTrimming.CharacterEllipsis
-                                        TextBlock.tip node.Path
-                                    ]
-                                    TextBlock.create [
-                                        TextBlock.text node.Path
-                                        TextBlock.foreground pathForeground
-                                        TextBlock.fontSize 11.0
-                                        TextBlock.textTrimming TextTrimming.CharacterEllipsis
-                                        TextBlock.tip node.Path
-                                    ]
-                                ]
-                            ])
-                    ]
-                    Button.create [
-                        Grid.column 1
-                        Button.content "×"
-                        Button.foreground (SolidColorBrush(Theme.textMuted))
-                        Button.background Brushes.Transparent
-                        Button.borderThickness (Avalonia.Thickness(0.0))
-                        Button.padding (Avalonia.Thickness(6.0, 2.0))
-                        Button.margin (Avalonia.Thickness(0.0, 2.0, 0.0, 4.0))
-                        Button.fontSize 14.0
-                        Button.verticalAlignment VerticalAlignment.Center
-                        Button.tip "Remove Folder"
-                        Button.onClick(
-                            (fun _ -> onRemoveRequested node.Path),
-                            SubPatchOptions.OnChangeOf node.Path)
-                    ]
-                ]
+            yield Button.create [
+                Button.background selectionBackground
+                Button.borderBrush selectionBorder
+                Button.borderThickness selectionBorderThickness
+                Button.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 4.0))
+                Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
+                Button.horizontalAlignment HorizontalAlignment.Stretch
+                Button.horizontalContentAlignment HorizontalAlignment.Left
+                Button.onClick(
+                    (fun _ -> dispatch (FolderSelected node.Path)),
+                    SubPatchOptions.OnChangeOf node.Path)
+                Button.content (
+                    StackPanel.create [
+                        StackPanel.children [
+                            TextBlock.create [
+                                TextBlock.text node.Name
+                                TextBlock.foreground foreground
+                                TextBlock.fontSize 13.0
+                                TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
+                                TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                TextBlock.tip node.Path
+                            ]
+                            TextBlock.create [
+                                TextBlock.text node.Path
+                                TextBlock.foreground pathForeground
+                                TextBlock.fontSize 11.0
+                                TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                TextBlock.tip node.Path
+                            ]
+                        ]
+                    ])
             ] :> Avalonia.FuncUI.Types.IView
             for child in node.Children do
                 yield folderNodeView (depth + 1) selectedPath dispatch onRemoveRequested child :> Avalonia.FuncUI.Types.IView
@@ -194,24 +173,51 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
         DockPanel.width 220.0
         DockPanel.background (SolidColorBrush(Theme.panelBg))
         DockPanel.children [
-            Button.create [
-                Button.dock Dock.Top
-                Button.content "Add Folder…"
-                Button.horizontalAlignment HorizontalAlignment.Stretch
-                Button.margin (Avalonia.Thickness(8.0))
-                Button.onClick (fun _ -> onAddFolderRequested())
-            ]
             ScrollViewer.create [
                 ScrollViewer.content (
                     StackPanel.create [
                         StackPanel.margin (Avalonia.Thickness(8.0, 0.0))
                         StackPanel.children [
                             // Folder list
-                            yield TextBlock.create [
-                                TextBlock.text "FOLDERS"
-                                TextBlock.foreground (SolidColorBrush(Theme.textMuted))
-                                TextBlock.fontSize 11.0
-                                TextBlock.margin (Avalonia.Thickness(0.0, 8.0, 0.0, 4.0))
+                            yield Grid.create [
+                                Grid.columnDefinitions "*, Auto, Auto"
+                                Grid.margin (Avalonia.Thickness(0.0, 8.0, 0.0, 4.0))
+                                Grid.children [
+                                    TextBlock.create [
+                                        Grid.column 0
+                                        TextBlock.text "Folders"
+                                        TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                                        TextBlock.fontSize 11.0
+                                        TextBlock.verticalAlignment Avalonia.Layout.VerticalAlignment.Center
+                                    ]
+                                    Button.create [
+                                        Grid.column 1
+                                        Button.content "-"
+                                        Button.fontSize 14.0
+                                        Button.padding (Avalonia.Thickness(6.0, 0.0))
+                                        Button.background Brushes.Transparent
+                                        Button.borderThickness (Avalonia.Thickness(0.0))
+                                        Button.foreground (SolidColorBrush(if state.SelectedFolder.IsSome then Theme.textMuted else Theme.textMuted |> fun c -> Avalonia.Media.Color.FromArgb(80uy, c.R, c.G, c.B)))
+                                        Button.tip "Remove Selected Folder"
+                                        Button.onClick(
+                                            (fun _ ->
+                                                match state.SelectedFolder with
+                                                | Some path -> onFolderRemoveRequested path
+                                                | None -> ()),
+                                            SubPatchOptions.OnChangeOf state.SelectedFolder)
+                                    ]
+                                    Button.create [
+                                        Grid.column 2
+                                        Button.content "+"
+                                        Button.fontSize 14.0
+                                        Button.padding (Avalonia.Thickness(6.0, 0.0))
+                                        Button.background Brushes.Transparent
+                                        Button.borderThickness (Avalonia.Thickness(0.0))
+                                        Button.foreground (SolidColorBrush(Theme.textMuted))
+                                        Button.tip "Add Folder"
+                                        Button.onClick (fun _ -> onAddFolderRequested())
+                                    ]
+                                ]
                             ] :> Avalonia.FuncUI.Types.IView
                             if state.FolderTree.IsEmpty then
                                 for folder in state.Folders do
@@ -228,7 +234,7 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
                                     TextBlock.fontSize 11.0
                                     TextBlock.margin (Avalonia.Thickness(0.0, 16.0, 0.0, 4.0))
                                 ] :> Avalonia.FuncUI.Types.IView
-                            for (tag, count) in state.Tags do
+                            for tag, count in state.Tags do
                                 yield tagChip tag count (state.SelectedTags |> List.contains tag) dispatch
                                       :> Avalonia.FuncUI.Types.IView
                         ]
