@@ -4,6 +4,7 @@ open System
 open System.IO
 open IsomFolio.Models
 open IsomFolio.FileIndex
+open IsomFolio.PathUtils
 open IsomFolio.Storage
 open Microsoft.Data.Sqlite
 
@@ -63,7 +64,7 @@ let reconcileFolder (c: SqliteConnection) (rootPath: string) : Async<string list
                 try
                     let fi = FileInfo(filePath)
                     if isSupportedExtension fi.Extension then
-                        fsFiles[filePath] <- fi
+                        fsFiles[normalizePath fi.FullName] <- fi
                 with _ -> ()
         with ex ->
             eprintfn "Reconcile: cannot enumerate %s — %s" rootPath ex.Message
@@ -74,11 +75,11 @@ let reconcileFolder (c: SqliteConnection) (rootPath: string) : Async<string list
             |> Seq.choose (fun kv ->
                 let fi = kv.Value
                 match indexed |> Map.tryFind kv.Key with
-                | None -> Some fi.FullName
+                | None -> Some kv.Key
                 | Some existing ->
                     let mtime = DateTimeOffset(fi.LastWriteTimeUtc).ToUnixTimeSeconds()
                     if existing.MTimeUnix <> mtime || existing.SizeBytes <> fi.Length
-                    then Some fi.FullName
+                    then Some kv.Key
                     else None)
             |> Seq.toList
 
