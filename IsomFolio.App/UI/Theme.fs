@@ -26,6 +26,9 @@ module FontSize =
     let lg = 15.0
     let xl = 17.0
 
+// Pending-changes indicator
+let pendingAmber    = Color.Parse("#E8A020")
+
 // Status
 let warningBg       = Color.Parse("#9D5100")
 let errorBg         = Color.Parse("#C42B1C")

@@ -11,6 +11,7 @@ open IsomFolio.FileIndex
 open IsomFolio.Indexing
 open IsomFolio.Storage
 open IsomFolio.Search
+open IsomFolio.PathUtils
 
 let mutable private thumbnailWorker: MailboxProcessor<Thumbnail.ThumbnailMsg> option = None
 let mutable private activeWatchers: System.IO.FileSystemWatcher list = []
@@ -32,6 +33,7 @@ type State = {
     IsFirstRun      : bool
     Catalog         : CatalogState
     SearchRequestId : int
+    PendingFolders  : Set<string>
 }
 
 type Msg =
@@ -44,8 +46,10 @@ type Msg =
     | ScanBatchCompleted  of AssetFile list
     | ScanFinished        of totalCount: int
     | SearchCompleted     of requestId: int * files: AssetFile list
-    | FileEventReceived   of FileEvent
-    | TagsUpdated         of FileId * string list
+    | FileEventReceived        of FileEvent
+    | ResyncFolderRequested    of folderPath: string
+    | FolderResynced           of folderPath: string
+    | TagsUpdated              of FileId * string list
     | TagsSaved           of FileId * string list
     | AppError            of AppError
     | OrphanCountLoaded   of int
@@ -76,6 +80,7 @@ let init (w: Window) () : State * Cmd<Msg> =
         IsFirstRun      = true
         Catalog         = Unloaded
         SearchRequestId = 0
+        PendingFolders  = Set.empty
     }
     let initCmd =
         match IsomFolio.AppPaths.readLastSession() with
@@ -254,6 +259,26 @@ let private reconcileFolderCmd (catalogPath: string) (folderPath: string) : Cmd<
         (fun () -> ScanFinished 0)
         (fun ex -> AppError (ScanError ex.Message))
 
+let private resyncFolderCmd (catalogPath: string) (folderPath: string) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () ->
+            withCatalogDb catalogPath (fun dbConn ->
+                async {
+                    let! newPaths, orphanedIds = Scanner.reconcileFolder dbConn folderPath
+                    for oid in orphanedIds do
+                        do! Db.markOrphaned dbConn oid
+                    let newFiles =
+                        newPaths |> List.choose (fun p ->
+                            try Some(assetFileFromInfo (System.IO.FileInfo p))
+                            with _ -> None)
+                    if not newFiles.IsEmpty then
+                        let! _ = Db.upsertFiles dbConn newFiles
+                        ()
+                }))
+        ()
+        (fun () -> FolderResynced folderPath)
+        (fun ex -> AppError (ScanError ex.Message))
+
 let private startupCleanupCmd (catalogPath: string) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () ->
@@ -379,10 +404,11 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                 else Some { TotalFound = 0; Inserted = 0; FolderName = "Restoring…" }
             Some(
                 { state with
-                    Catalog      = OpenedCatalog(path)
-                    IsFirstRun   = false
-                    Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
-                    ScanProgress = scanProgress },
+                    Catalog        = OpenedCatalog(path)
+                    IsFirstRun     = false
+                    Sidebar        = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
+                    ScanProgress   = scanProgress
+                    PendingFolders = Set.empty },
                 Cmd.batch (manageWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
         | AddFolderRequested ->
             let cmd = Cmd.ofEffect (fun dispatch ->
@@ -478,18 +504,8 @@ let private handleTagMsg (catalogPath: string) (f: AssetFile) (state: State) (dM
 let private handleFileEvent (catalogPath: string) (state: State) (event: FileEvent) : State * Cmd<Msg> =
     match event with
     | Created path when isSupportedExtension (System.IO.Path.GetExtension path) ->
-        state,
-        Cmd.OfAsync.either
-            (fun () ->
-                withCatalogDb catalogPath (fun dbConn ->
-                    async {
-                        let f = assetFileFromInfo (System.IO.FileInfo path)
-                        let! _ = Db.upsertFiles dbConn [ f ]
-                        enqueueThumbnails catalogPath [ f ] 1
-                    }))
-            ()
-            (fun () -> ScanFinished 0)
-            (fun ex -> AppError (ScanError ex.Message))
+        let folder = System.IO.Path.GetDirectoryName path |> normalizePath
+        { state with PendingFolders = state.PendingFolders |> Set.add folder }, Cmd.none
     | Deleted path ->
         state,
         Cmd.OfAsync.either
@@ -498,7 +514,7 @@ let private handleFileEvent (catalogPath: string) (state: State) (event: FileEve
                     async {
                         let folder = System.IO.Path.GetDirectoryName path
                         let! indexed = Db.getIndexedPathsInFolder dbConn folder
-                        match indexed |> Map.tryFind path with
+                        match indexed |> Map.tryFind (normalizePath path) with
                         | Some f -> do! Db.markOrphaned dbConn f.Id
                         | None   -> ()
                     }))
@@ -512,25 +528,15 @@ let private handleFileEvent (catalogPath: string) (state: State) (event: FileEve
                 withCatalogDb catalogPath (fun dbConn ->
                     async {
                         let newFile = assetFileFromInfo (System.IO.FileInfo newPath)
-                        do! Db.updateFilePath dbConn oldPath newFile
+                        do! Db.updateFilePath dbConn (normalizePath oldPath) newFile
                         enqueueThumbnails catalogPath [ newFile ] 1
                     }))
             ()
             (fun () -> ScanFinished 0)
             (fun ex -> AppError (ScanError ex.Message))
     | Modified path when isSupportedExtension (System.IO.Path.GetExtension path) ->
-        state,
-        Cmd.OfAsync.either
-            (fun () ->
-                withCatalogDb catalogPath (fun dbConn ->
-                    async {
-                        let f = assetFileFromInfo (System.IO.FileInfo path)
-                        let! _ = Db.upsertFiles dbConn [ f ]
-                        enqueueThumbnails catalogPath [ f ] 0
-                    }))
-            ()
-            (fun () -> ScanFinished 0)
-            (fun ex -> AppError (ScanError ex.Message))
+        let folder = System.IO.Path.GetDirectoryName path |> normalizePath
+        { state with PendingFolders = state.PendingFolders |> Set.add folder }, Cmd.none
     | _ -> state, Cmd.none
 
 let update (msg: Msg) (state: State) : State * Cmd<Msg> =
@@ -561,7 +567,11 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = remainingFolders }
         let query = { state.ActiveQuery with FolderPath = newSidebar.SelectedFolder }
         let newId = state.SearchRequestId + 1
-        { state with Sidebar = newSidebar; ActiveQuery = query; SearchRequestId = newId },
+        let sep = string System.IO.Path.DirectorySeparatorChar
+        let newPending =
+            state.PendingFolders
+            |> Set.filter (fun p -> not (samePath p path || p.StartsWith(path + sep, System.StringComparison.Ordinal)))
+        { state with Sidebar = newSidebar; ActiveQuery = query; SearchRequestId = newId; PendingFolders = newPending },
         Cmd.batch [
             stopFolderWatcherCmd path
             loadFolderTreeCmd remainingFolders
@@ -701,10 +711,22 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | _, DismissNotification t ->
         { state with Notifications = state.Notifications |> List.filter (fun (_, ts) -> ts <> t) }, Cmd.none
 
+    | { Catalog = OpenedCatalog(catalogPath) }, ResyncFolderRequested path ->
+        state, resyncFolderCmd catalogPath path
+
+    | { Catalog = OpenedCatalog(catalogPath) }, FolderResynced path ->
+        let sep = string System.IO.Path.DirectorySeparatorChar
+        let newPending =
+            state.PendingFolders
+            |> Set.filter (fun p -> not (samePath p path || p.StartsWith(path + sep, System.StringComparison.Ordinal)))
+        let newId = state.SearchRequestId + 1
+        { state with PendingFolders = newPending; SearchRequestId = newId },
+        Cmd.batch [ runSearch catalogPath newId state.ActiveQuery; countOrphansCmd catalogPath ]
+
     | { Catalog = OpenedCatalog(catalogPath) }, FileEventReceived event ->
         handleFileEvent catalogPath state event
 
-    | _, FileEventReceived _ | _, NoOp -> state, Cmd.none
+    | _, FileEventReceived _ | _, ResyncFolderRequested _ | _, FolderResynced _ | _, NoOp -> state, Cmd.none
 
 let private welcomeView (dispatch: Msg -> unit) =
     DockPanel.create [
@@ -770,15 +792,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                 StackPanel.dock Dock.Top
                 StackPanel.children [
                     Border.create [
-                        Border.isVisible (state.OrphanCount > 0)
-                        Border.background (SolidColorBrush(Theme.warningBg))
-                        Border.padding (Avalonia.Thickness(8.0, 4.0))
-                        Border.child (
-                            TextBlock.create [
-                                TextBlock.text $"{state.OrphanCount} file(s) missing from disk"
-                                TextBlock.foreground Brushes.White
-                                TextBlock.fontSize Theme.FontSize.sm
-                            ])
+                        Border.isVisible false
                     ]
                     for (msg, t) in state.Notifications do
                         Border.create [
@@ -848,7 +862,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                 Border.dock Dock.Left
                 Border.width 220.0
                 Border.isVisible (not state.IsFirstRun)
-                Border.child (Sidebar.view state.Sidebar (SidebarMsg >> dispatch) (fun () -> dispatch AddFolderRequested) (fun path -> dispatch (FolderRemoveRequested path)))
+                Border.child (Sidebar.view state.Sidebar (SidebarMsg >> dispatch) state.PendingFolders (fun () -> dispatch AddFolderRequested) (fun path -> dispatch (FolderRemoveRequested path)) (fun path -> dispatch (ResyncFolderRequested path)))
             ]
             // Fixed index 3: detail panel
             Border.create [
