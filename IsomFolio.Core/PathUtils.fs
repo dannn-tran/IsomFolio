@@ -25,3 +25,6 @@ let isDescendantPath (ancestor: string) (candidate: string) =
     else
         let prefix = ancestor + string Path.DirectorySeparatorChar
         candidate.StartsWith(prefix, StringComparison.Ordinal)
+
+let isWithinSubtree (root: string) (path: string) =
+    samePath root path || isDescendantPath root path

@@ -323,6 +323,20 @@ module PendingFolders =
         Assert.DoesNotContain("/photos/summer", nextState.PendingFolders)
         Assert.Contains("/other", nextState.PendingFolders)
 
+module SidebarFolderRemoval =
+
+    [<Fact>]
+    let ``removing a virtual parent removes all child folders`` () =
+        let state = { Sidebar.init () with Folders = [ "/a/b"; "/a/c" ] }
+        let nextState = Sidebar.update (Sidebar.FolderRemoved "/a") state
+        Assert.Empty(nextState.Folders)
+
+    [<Fact>]
+    let ``removing an exact folder does not touch siblings`` () =
+        let state = { Sidebar.init () with Folders = [ "/a/b"; "/a/c" ] }
+        let nextState = Sidebar.update (Sidebar.FolderRemoved "/a/b") state
+        Assert.Equal<string list>([ "/a/c" ], nextState.Folders)
+
 module KeyboardNavigation =
 
     [<Fact>]

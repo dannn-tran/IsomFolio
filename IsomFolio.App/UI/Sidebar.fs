@@ -25,9 +25,7 @@ type Msg =
 
 let init () = { Folders = []; FolderTree = []; Tags = []; SelectedTags = []; SelectedFolder = None }
 
-let private isPathWithinRoot (root: string) (path: string) =
-    samePath root path
-    || path.StartsWith(root + string System.IO.Path.DirectorySeparatorChar, if System.OperatingSystem.IsWindows() then System.StringComparison.OrdinalIgnoreCase else System.StringComparison.Ordinal)
+let private isPathWithinRoot (root: string) (path: string) = isWithinSubtree root path
 
 let rec private treeContainsPath (path: string) (nodes: FolderNode list) =
     nodes |> List.exists (fun node ->
@@ -47,7 +45,7 @@ let update (msg: Msg) (state: State) =
         { state with FolderTree = tree; SelectedFolder = selectedFolder }
     | TagsLoaded ts         -> { state with Tags = ts }
     | FolderRemoved f       ->
-        let folders = state.Folders |> List.filter ((<>) f)
+        let folders = state.Folders |> List.filter (fun p -> not (isWithinSubtree f p))
         let selectedFolder =
             state.SelectedFolder
             |> Option.filter (fun path -> folders |> List.exists (fun root -> isPathWithinRoot root path))
@@ -66,9 +64,7 @@ let update (msg: Msg) (state: State) =
 
 let private hasPendingIn (nodePath: string) (pendingFolders: Set<string>) =
     let normalizedPath = normalizePath nodePath
-    let sep = string System.IO.Path.DirectorySeparatorChar
-    pendingFolders |> Set.exists (fun p ->
-        samePath p normalizedPath || p.StartsWith(normalizedPath + sep, System.StringComparison.Ordinal))
+    pendingFolders |> Set.exists (fun p -> isWithinSubtree normalizedPath p)
 
 let rec private folderNodeView (depth: int) (selectedPath: string option) (pendingFolders: Set<string>) (dispatch: Msg -> unit) (onRemoveRequested: string -> unit) (onResyncRequested: string -> unit) (node: FolderNode) =
     let isSelected = selectedPath |> Option.exists (samePath node.Path)

@@ -567,10 +567,9 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = remainingFolders }
         let query = { state.ActiveQuery with FolderPath = newSidebar.SelectedFolder }
         let newId = state.SearchRequestId + 1
-        let sep = string System.IO.Path.DirectorySeparatorChar
         let newPending =
             state.PendingFolders
-            |> Set.filter (fun p -> not (samePath p path || p.StartsWith(path + sep, System.StringComparison.Ordinal)))
+            |> Set.filter (fun p -> not (isWithinSubtree path p))
         { state with Sidebar = newSidebar; ActiveQuery = query; SearchRequestId = newId; PendingFolders = newPending },
         Cmd.batch [
             stopFolderWatcherCmd path
@@ -715,10 +714,9 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         state, resyncFolderCmd catalogPath path
 
     | { Catalog = OpenedCatalog(catalogPath) }, FolderResynced path ->
-        let sep = string System.IO.Path.DirectorySeparatorChar
         let newPending =
             state.PendingFolders
-            |> Set.filter (fun p -> not (samePath p path || p.StartsWith(path + sep, System.StringComparison.Ordinal)))
+            |> Set.filter (fun p -> not (isWithinSubtree path p))
         let newId = state.SearchRequestId + 1
         { state with PendingFolders = newPending; SearchRequestId = newId },
         Cmd.batch [ runSearch catalogPath newId state.ActiveQuery; countOrphansCmd catalogPath ]
