@@ -620,6 +620,18 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             |> Option.defaultValue Cmd.none
         { state with Grid = newGrid; Detail = newDetail }, loadTagsCmd
 
+    | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.RemoveOrphanedFileRequested fileId) ->
+        let newDetail =
+            if state.Detail.File |> Option.map _.Id = Some fileId
+            then DetailPanel.update DetailPanel.Closed state.Detail
+            else state.Detail
+        { state with Detail = newDetail },
+        Cmd.OfAsync.either
+            (fun () -> withCatalogDb catalogPath (fun c -> Db.deleteFile c fileId))
+            ()
+            (fun () -> ScanFinished 0)
+            (fun ex -> AppError (DbError ex.Message))
+
     | _, GridMsg gMsg ->
         { state with Grid = GridView.update gMsg state.Grid }, Cmd.none
 

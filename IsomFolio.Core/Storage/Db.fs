@@ -186,6 +186,14 @@ let updateFilePath (c: SqliteConnection) (oldPath: string) (newFile: AssetFile) 
         cmd.ExecuteNonQuery() |> ignore
     }
 
+let deleteFile (c: SqliteConnection) (fileId: FileId) : Async<unit> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "DELETE FROM files WHERE id = @id"
+        cmd.Parameters.AddWithValue("@id", fileId) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    }
+
 let countOrphans (c: SqliteConnection) : Async<int> =
     async {
         use cmd = c.CreateCommand()
