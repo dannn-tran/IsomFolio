@@ -107,54 +107,73 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
                 | _ -> ()),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.child (
-            DockPanel.create [
-                DockPanel.children [
-                    TextBlock.create [
-                        TextBlock.dock Dock.Bottom
-                        TextBlock.text model.File.Name
-                        TextBlock.fontSize Theme.FontSize.xs
-                        TextBlock.foreground Brushes.White
-                        TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
-                        TextBlock.margin (Avalonia.Thickness(4.0, 2.0))
-                        TextBlock.horizontalAlignment HorizontalAlignment.Center
-                    ]
-                    match model.Thumbnail with
-                    | Ready path ->
-                        match tryLoadBitmap path with
-                        | Some bmp ->
-                            Image.create [
-                                Image.source bmp
-                                Image.stretch Stretch.Uniform
-                                Image.horizontalAlignment HorizontalAlignment.Center
-                                Image.verticalAlignment VerticalAlignment.Center
-                            ]
-                        | None ->
+            Grid.create [
+                Grid.children [
+                    DockPanel.create [
+                        DockPanel.children [
                             TextBlock.create [
-                                TextBlock.text "⚠"
+                                TextBlock.dock Dock.Bottom
+                                TextBlock.text model.File.Name
+                                TextBlock.fontSize Theme.FontSize.xs
+                                TextBlock.foreground Brushes.White
+                                TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
+                                TextBlock.margin (Avalonia.Thickness(4.0, 2.0))
                                 TextBlock.horizontalAlignment HorizontalAlignment.Center
-                                TextBlock.verticalAlignment VerticalAlignment.Center
                             ]
-                    | Pending ->
-                        ProgressBar.create [
-                            ProgressBar.isIndeterminate true
-                            ProgressBar.height 4.0
-                            ProgressBar.verticalAlignment VerticalAlignment.Center
-                            ProgressBar.margin (Avalonia.Thickness(8.0))
+                            match model.Thumbnail with
+                            | Ready path ->
+                                match tryLoadBitmap path with
+                                | Some bmp ->
+                                    Image.create [
+                                        Image.source bmp
+                                        Image.stretch Stretch.Uniform
+                                        Image.horizontalAlignment HorizontalAlignment.Center
+                                        Image.verticalAlignment VerticalAlignment.Center
+                                    ]
+                                | None ->
+                                    TextBlock.create [
+                                        TextBlock.text "⚠"
+                                        TextBlock.horizontalAlignment HorizontalAlignment.Center
+                                        TextBlock.verticalAlignment VerticalAlignment.Center
+                                    ]
+                            | Pending ->
+                                ProgressBar.create [
+                                    ProgressBar.isIndeterminate true
+                                    ProgressBar.height 4.0
+                                    ProgressBar.verticalAlignment VerticalAlignment.Center
+                                    ProgressBar.margin (Avalonia.Thickness(8.0))
+                                ]
+                            | Failed _ ->
+                                TextBlock.create [
+                                    TextBlock.text "⚠"
+                                    TextBlock.fontSize 24.0
+                                    TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                                    TextBlock.horizontalAlignment HorizontalAlignment.Center
+                                    TextBlock.verticalAlignment VerticalAlignment.Center
+                                ]
+                            | NotRequested ->
+                                Border.create [
+                                    Border.background (SolidColorBrush(Theme.surfaceBg))
+                                    Border.horizontalAlignment HorizontalAlignment.Stretch
+                                    Border.verticalAlignment VerticalAlignment.Stretch
+                                ]
                         ]
-                    | Failed _ ->
-                        TextBlock.create [
-                            TextBlock.text "⚠"
-                            TextBlock.fontSize 24.0
-                            TextBlock.foreground (SolidColorBrush(Theme.textMuted))
-                            TextBlock.horizontalAlignment HorizontalAlignment.Center
-                            TextBlock.verticalAlignment VerticalAlignment.Center
-                        ]
-                    | NotRequested ->
+                    ] :> Avalonia.FuncUI.Types.IView
+                    if model.File.IsOrphaned then
                         Border.create [
-                            Border.background (SolidColorBrush(Theme.surfaceBg))
-                            Border.horizontalAlignment HorizontalAlignment.Stretch
-                            Border.verticalAlignment VerticalAlignment.Stretch
-                        ]
+                            Border.background (SolidColorBrush(Color.FromArgb(200uy, 30uy, 30uy, 30uy)))
+                            Border.cornerRadius 3.0
+                            Border.padding (Avalonia.Thickness(4.0, 2.0))
+                            Border.margin (Avalonia.Thickness(4.0))
+                            Border.horizontalAlignment HorizontalAlignment.Right
+                            Border.verticalAlignment VerticalAlignment.Top
+                            Border.child (
+                                TextBlock.create [
+                                    TextBlock.text "?"
+                                    TextBlock.foreground (SolidColorBrush(Theme.textDim))
+                                    TextBlock.fontSize Theme.FontSize.xs
+                                ])
+                        ] :> Avalonia.FuncUI.Types.IView
                 ]
             ])
     ]

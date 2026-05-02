@@ -96,7 +96,7 @@ module FolderSelection =
         } |> Async.RunSynchronously
 
     [<Fact>]
-    let ``clicking selected folder clears folder filter`` () =
+    let ``clicking selected folder keeps selection`` () =
         async {
             let! conn = openTestDb ()
             use c = conn
@@ -109,8 +109,8 @@ module FolderSelection =
                     (MainView.SidebarMsg (Sidebar.FolderSelected "/outer/inner"))
                     state
 
-            Assert.Equal<string option>(None, nextState.ActiveQuery.FolderPath)
-            Assert.Equal<string option>(None, nextState.Sidebar.SelectedFolder)
+            Assert.Equal<string option>(Some "/outer/inner", nextState.ActiveQuery.FolderPath)
+            Assert.Equal<string option>(Some "/outer/inner", nextState.Sidebar.SelectedFolder)
         } |> Async.RunSynchronously
 
     [<Fact>]

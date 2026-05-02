@@ -60,7 +60,7 @@ module SanitizeFtsQuery =
 module ExecuteSearch =
 
     [<Fact>]
-    let ``returns all non-orphaned files when no filters`` () =
+    let ``returns all files when no filters`` () =
         async {
             let! c = openTestDb ()
             let! _ = Db.upsertFiles c [ makeFile "alpha" "/photos" "jpg"; makeFile "beta" "/photos" "png" ]
@@ -140,7 +140,7 @@ module ExecuteSearch =
         } |> Async.RunSynchronously
 
     [<Fact>]
-    let ``excludes orphaned files`` () =
+    let ``includes orphaned files with IsOrphaned flag set`` () =
         async {
             let! c = openTestDb ()
             let f1 = makeFile "visible" "/p" "jpg"
@@ -148,8 +148,11 @@ module ExecuteSearch =
             let! _ = Db.upsertFiles c [ f1; f2 ]
             do! Db.markOrphaned c f2.Id
             let! results = QueryEngine.executeSearch c defaultQuery
-            Assert.Equal(1, results.Length)
-            Assert.Equal(f1.Id, results[0].Id)
+            Assert.Equal(2, results.Length)
+            let orphan = results |> List.find (fun f -> f.Id = f2.Id)
+            Assert.True(orphan.IsOrphaned)
+            let live = results |> List.find (fun f -> f.Id = f1.Id)
+            Assert.False(live.IsOrphaned)
         } |> Async.RunSynchronously
 
     [<Fact>]
