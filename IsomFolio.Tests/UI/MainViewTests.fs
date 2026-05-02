@@ -46,6 +46,7 @@ let private makeState catalogPath : MainView.State = {
     IsFirstRun      = false
     Catalog         = MainView.OpenedCatalog(catalogPath)
     SearchRequestId = 0
+    PendingFolders  = Set.empty
 }
 
 let private makeFile (name: string) (folder: string) : AssetFile =
@@ -265,6 +266,62 @@ module ThumbnailLifecycle =
             | Ready _ -> ()
             | other -> Assert.Fail $"expected f2b to be Ready, got %A{other}"
         } |> Async.RunSynchronously
+
+module PendingFolders =
+
+    [<Fact>]
+    let ``Created event adds parent folder to PendingFolders`` () =
+        let state = makeState "/catalog"
+        let nextState, _ =
+            MainView.update (MainView.FileEventReceived (Created "/photos/summer/beach.jpg")) state
+        Assert.Contains("/photos/summer", nextState.PendingFolders)
+
+    [<Fact>]
+    let ``Modified event adds parent folder to PendingFolders`` () =
+        let state = makeState "/catalog"
+        let nextState, _ =
+            MainView.update (MainView.FileEventReceived (Modified "/photos/summer/beach.jpg")) state
+        Assert.Contains("/photos/summer", nextState.PendingFolders)
+
+    [<Fact>]
+    let ``Renamed event does not add to PendingFolders`` () =
+        let state = makeState "/catalog"
+        let nextState, _ =
+            MainView.update (MainView.FileEventReceived (Renamed("/photos/old.jpg", "/photos/archive/new.jpg"))) state
+        Assert.Empty(nextState.PendingFolders)
+
+    [<Fact>]
+    let ``Deleted event does not add to PendingFolders`` () =
+        let state = makeState "/catalog"
+        let nextState, _ =
+            MainView.update (MainView.FileEventReceived (Deleted "/photos/summer/beach.jpg")) state
+        Assert.Empty(nextState.PendingFolders)
+
+    [<Fact>]
+    let ``unsupported extension Created event does not add to PendingFolders`` () =
+        let state = makeState "/catalog"
+        let nextState, _ =
+            MainView.update (MainView.FileEventReceived (Created "/photos/document.pdf")) state
+        Assert.Empty(nextState.PendingFolders)
+
+    [<Fact>]
+    let ``FolderResynced removes exact folder and all descendants`` () =
+        let state =
+            { makeState "/catalog" with
+                PendingFolders = Set.ofList [ "/photos/summer"; "/photos/winter/raw"; "/other" ] }
+        let nextState, _ = MainView.update (MainView.FolderResynced "/photos") state
+        Assert.DoesNotContain("/photos/summer", nextState.PendingFolders)
+        Assert.DoesNotContain("/photos/winter/raw", nextState.PendingFolders)
+        Assert.Contains("/other", nextState.PendingFolders)
+
+    [<Fact>]
+    let ``FolderResynced removes exact folder match`` () =
+        let state =
+            { makeState "/catalog" with
+                PendingFolders = Set.ofList [ "/photos/summer"; "/other" ] }
+        let nextState, _ = MainView.update (MainView.FolderResynced "/photos/summer") state
+        Assert.DoesNotContain("/photos/summer", nextState.PendingFolders)
+        Assert.Contains("/other", nextState.PendingFolders)
 
 module KeyboardNavigation =
 

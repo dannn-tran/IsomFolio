@@ -75,11 +75,11 @@ let reconcileFolder (c: SqliteConnection) (rootPath: string) : Async<string list
             |> Seq.choose (fun kv ->
                 let fi = kv.Value
                 match indexed |> Map.tryFind kv.Key with
-                | None -> Some kv.Key
+                | None -> Some fi.FullName
                 | Some existing ->
                     let mtime = DateTimeOffset(fi.LastWriteTimeUtc).ToUnixTimeSeconds()
                     if existing.MTimeUnix <> mtime || existing.SizeBytes <> fi.Length
-                    then Some kv.Key
+                    then Some fi.FullName
                     else None)
             |> Seq.toList
 

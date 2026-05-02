@@ -64,7 +64,13 @@ let update (msg: Msg) (state: State) =
             else state.SelectedTags @ [ tag ]
         { state with SelectedTags = selected }
 
-let rec private folderNodeView (depth: int) (selectedPath: string option) (dispatch: Msg -> unit) (onRemoveRequested: string -> unit) (node: FolderNode) =
+let private hasPendingIn (nodePath: string) (pendingFolders: Set<string>) =
+    let normalizedPath = normalizePath nodePath
+    let sep = string System.IO.Path.DirectorySeparatorChar
+    pendingFolders |> Set.exists (fun p ->
+        samePath p normalizedPath || p.StartsWith(normalizedPath + sep, System.StringComparison.Ordinal))
+
+let rec private folderNodeView (depth: int) (selectedPath: string option) (pendingFolders: Set<string>) (dispatch: Msg -> unit) (onRemoveRequested: string -> unit) (onResyncRequested: string -> unit) (node: FolderNode) =
     let isSelected = selectedPath |> Option.exists (samePath node.Path)
     let foreground =
         SolidColorBrush(
@@ -98,40 +104,58 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (dispa
                 ]
             ])
         StackPanel.children [
-            yield Button.create [
-                Button.background selectionBackground
-                Button.borderBrush selectionBorder
-                Button.borderThickness selectionBorderThickness
-                Button.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 4.0))
-                Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
-                Button.horizontalAlignment HorizontalAlignment.Stretch
-                Button.horizontalContentAlignment HorizontalAlignment.Left
-                Button.onClick(
-                    (fun _ -> dispatch (FolderSelected node.Path)),
-                    SubPatchOptions.OnChangeOf node.Path)
-                Button.content (
-                    StackPanel.create [
-                        StackPanel.children [
-                            TextBlock.create [
-                                TextBlock.text node.Name
-                                TextBlock.foreground foreground
-                                TextBlock.fontSize Theme.FontSize.md
-                                TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
-                                TextBlock.textTrimming TextTrimming.CharacterEllipsis
-                                TextBlock.tip node.Path
-                            ]
-                            TextBlock.create [
-                                TextBlock.text node.Path
-                                TextBlock.foreground pathForeground
-                                TextBlock.fontSize Theme.FontSize.xs
-                                TextBlock.textTrimming TextTrimming.CharacterEllipsis
-                                TextBlock.tip node.Path
-                            ]
-                        ]
-                    ])
+            yield DockPanel.create [
+                DockPanel.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 4.0))
+                DockPanel.children [
+                    if hasPendingIn node.Path pendingFolders then
+                        yield Button.create [
+                            Button.dock Dock.Right
+                            Button.content "↻"
+                            Button.fontSize Theme.FontSize.lg
+                            Button.foreground (SolidColorBrush(Theme.pendingAmber))
+                            Button.background Brushes.Transparent
+                            Button.borderThickness (Avalonia.Thickness(0.0))
+                            Button.padding (Avalonia.Thickness(6.0, 0.0))
+                            Button.tip "Changes detected — click to resync"
+                            Button.onClick(
+                                (fun _ -> onResyncRequested node.Path),
+                                SubPatchOptions.OnChangeOf node.Path)
+                        ] :> Avalonia.FuncUI.Types.IView
+                    yield Button.create [
+                        Button.background selectionBackground
+                        Button.borderBrush selectionBorder
+                        Button.borderThickness selectionBorderThickness
+                        Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
+                        Button.horizontalAlignment HorizontalAlignment.Stretch
+                        Button.horizontalContentAlignment HorizontalAlignment.Left
+                        Button.onClick(
+                            (fun _ -> dispatch (FolderSelected node.Path)),
+                            SubPatchOptions.OnChangeOf node.Path)
+                        Button.content (
+                            StackPanel.create [
+                                StackPanel.children [
+                                    TextBlock.create [
+                                        TextBlock.text node.Name
+                                        TextBlock.foreground foreground
+                                        TextBlock.fontSize Theme.FontSize.md
+                                        TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
+                                        TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                        TextBlock.tip node.Path
+                                    ]
+                                    TextBlock.create [
+                                        TextBlock.text node.Path
+                                        TextBlock.foreground pathForeground
+                                        TextBlock.fontSize Theme.FontSize.xs
+                                        TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                        TextBlock.tip node.Path
+                                    ]
+                                ]
+                            ])
+                    ] :> Avalonia.FuncUI.Types.IView
+                ]
             ] :> Avalonia.FuncUI.Types.IView
             for child in node.Children do
-                yield folderNodeView (depth + 1) selectedPath dispatch onRemoveRequested child :> Avalonia.FuncUI.Types.IView
+                yield folderNodeView (depth + 1) selectedPath pendingFolders dispatch onRemoveRequested onResyncRequested child :> Avalonia.FuncUI.Types.IView
         ]
     ]
 
@@ -163,7 +187,7 @@ let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -
             ])
     ]
 
-let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> unit) (onFolderRemoveRequested: string -> unit) =
+let view (state: State) (dispatch: Msg -> unit) (pendingFolders: Set<string>) (onAddFolderRequested: unit -> unit) (onFolderRemoveRequested: string -> unit) (onResyncRequested: string -> unit) =
     DockPanel.create [
         DockPanel.width 220.0
         DockPanel.background (SolidColorBrush(Theme.panelBg))
@@ -216,11 +240,11 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
                             ] :> Avalonia.FuncUI.Types.IView
                             if state.FolderTree.IsEmpty then
                                 for folder in state.Folders do
-                                    yield folderNodeView 0 state.SelectedFolder dispatch onFolderRemoveRequested { Name = displayName folder; Path = folder; Children = [] }
+                                    yield folderNodeView 0 state.SelectedFolder pendingFolders dispatch onFolderRemoveRequested onResyncRequested { Name = displayName folder; Path = folder; Children = [] }
                                           :> Avalonia.FuncUI.Types.IView
                             else
                                 for node in state.FolderTree do
-                                    yield folderNodeView 0 state.SelectedFolder dispatch onFolderRemoveRequested node :> Avalonia.FuncUI.Types.IView
+                                    yield folderNodeView 0 state.SelectedFolder pendingFolders dispatch onFolderRemoveRequested onResyncRequested node :> Avalonia.FuncUI.Types.IView
                             // Tag list
                             if not state.Tags.IsEmpty then
                                 yield TextBlock.create [
