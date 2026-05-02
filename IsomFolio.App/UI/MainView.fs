@@ -723,7 +723,7 @@ let private welcomeView (dispatch: Msg -> unit) =
                     ]
                     TextBlock.create [
                         TextBlock.text "Your files stay on disk. Tags travel with them."
-                        TextBlock.fontSize 14.0
+                        TextBlock.fontSize Theme.FontSize.lg
                         TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                         TextBlock.horizontalAlignment HorizontalAlignment.Center
                     ]
@@ -734,13 +734,13 @@ let private welcomeView (dispatch: Msg -> unit) =
                         StackPanel.children [
                             Button.create [
                                 Button.content "New Catalog…"
-                                Button.fontSize 16.0
+                                Button.fontSize Theme.FontSize.xl
                                 Button.padding (Avalonia.Thickness(24.0, 10.0))
                                 Button.onClick (fun _ -> dispatch NewCatalogRequested)
                             ]
                             Button.create [
                                 Button.content "Open Catalog…"
-                                Button.fontSize 16.0
+                                Button.fontSize Theme.FontSize.xl
                                 Button.padding (Avalonia.Thickness(24.0, 10.0))
                                 Button.onClick (fun _ -> dispatch OpenCatalogRequested)
                             ]
@@ -777,7 +777,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                             TextBlock.create [
                                 TextBlock.text $"{state.OrphanCount} file(s) missing from disk"
                                 TextBlock.foreground Brushes.White
-                                TextBlock.fontSize 12.0
+                                TextBlock.fontSize Theme.FontSize.sm
                             ])
                     ]
                     for (msg, t) in state.Notifications do
@@ -799,7 +799,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                                         TextBlock.create [
                                             TextBlock.text msg
                                             TextBlock.foreground Brushes.White
-                                            TextBlock.fontSize 12.0
+                                            TextBlock.fontSize Theme.FontSize.sm
                                             TextBlock.verticalAlignment VerticalAlignment.Center
                                         ]
                                     ]
@@ -819,7 +819,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                                             TextBlock.dock Dock.Right
                                             TextBlock.text $"{p.Inserted} indexed"
                                             TextBlock.foreground (SolidColorBrush(Theme.textMuted))
-                                            TextBlock.fontSize 11.0
+                                            TextBlock.fontSize Theme.FontSize.xs
                                             TextBlock.verticalAlignment VerticalAlignment.Center
                                             TextBlock.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
                                         ]
@@ -834,7 +834,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                                         TextBlock.create [
                                             TextBlock.text $"Scanning {p.FolderName}…"
                                             TextBlock.foreground Brushes.White
-                                            TextBlock.fontSize 11.0
+                                            TextBlock.fontSize Theme.FontSize.xs
                                             TextBlock.verticalAlignment VerticalAlignment.Center
                                             TextBlock.margin (Avalonia.Thickness(8.0, 0.0))
                                         ]
