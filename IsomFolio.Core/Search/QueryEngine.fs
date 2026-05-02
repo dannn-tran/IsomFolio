@@ -58,7 +58,7 @@ let executeSearch (c: SqliteConnection) (query: SearchQuery) : Async<AssetFile l
             cmd.Parameters.AddWithValue($"@tag{tagIdx}", tag) |> ignore
             tagIdx <- tagIdx + 1
 
-        sql.Append(" WHERE f.is_orphaned = 0") |> ignore
+        sql.Append(" WHERE 1=1") |> ignore
 
         // FTS candidate set (if text query present)
         let! ftsEmpty =
