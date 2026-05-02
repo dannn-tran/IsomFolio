@@ -19,6 +19,13 @@ let accent          = Color.Parse("#0078D4")
 let textMuted       = Color.Parse("#888888")
 let textDim         = Color.Parse("#AAAAAA")
 
+module FontSize =
+    let xs = 12.0
+    let sm = 13.0
+    let md = 14.0
+    let lg = 15.0
+    let xl = 17.0
+
 // Status
 let warningBg       = Color.Parse("#9D5100")
 let errorBg         = Color.Parse("#C42B1C")

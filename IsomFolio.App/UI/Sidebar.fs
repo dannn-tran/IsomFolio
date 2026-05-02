@@ -120,7 +120,7 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (dispa
                             TextBlock.create [
                                 TextBlock.text node.Name
                                 TextBlock.foreground foreground
-                                TextBlock.fontSize 13.0
+                                TextBlock.fontSize Theme.FontSize.md
                                 TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
                                 TextBlock.textTrimming TextTrimming.CharacterEllipsis
                                 TextBlock.tip node.Path
@@ -128,7 +128,7 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (dispa
                             TextBlock.create [
                                 TextBlock.text node.Path
                                 TextBlock.foreground pathForeground
-                                TextBlock.fontSize 11.0
+                                TextBlock.fontSize Theme.FontSize.xs
                                 TextBlock.textTrimming TextTrimming.CharacterEllipsis
                                 TextBlock.tip node.Path
                             ]
@@ -157,12 +157,12 @@ let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -
                     TextBlock.create [
                         TextBlock.text tag
                         TextBlock.foreground Brushes.White
-                        TextBlock.fontSize 12.0
+                        TextBlock.fontSize Theme.FontSize.sm
                     ]
                     TextBlock.create [
                         TextBlock.text $" ({count})"
                         TextBlock.foreground (SolidColorBrush(Theme.textDim))
-                        TextBlock.fontSize 11.0
+                        TextBlock.fontSize Theme.FontSize.xs
                     ]
                 ]
             ])
@@ -187,13 +187,13 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
                                         Grid.column 0
                                         TextBlock.text "Folders"
                                         TextBlock.foreground (SolidColorBrush(Theme.textMuted))
-                                        TextBlock.fontSize 11.0
+                                        TextBlock.fontSize Theme.FontSize.xs
                                         TextBlock.verticalAlignment Avalonia.Layout.VerticalAlignment.Center
                                     ]
                                     Button.create [
                                         Grid.column 1
                                         Button.content "-"
-                                        Button.fontSize 14.0
+                                        Button.fontSize Theme.FontSize.lg
                                         Button.padding (Avalonia.Thickness(6.0, 0.0))
                                         Button.background Brushes.Transparent
                                         Button.borderThickness (Avalonia.Thickness(0.0))
@@ -209,7 +209,7 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
                                     Button.create [
                                         Grid.column 2
                                         Button.content "+"
-                                        Button.fontSize 14.0
+                                        Button.fontSize Theme.FontSize.lg
                                         Button.padding (Avalonia.Thickness(6.0, 0.0))
                                         Button.background Brushes.Transparent
                                         Button.borderThickness (Avalonia.Thickness(0.0))
@@ -231,7 +231,7 @@ let view (state: State) (dispatch: Msg -> unit) (onAddFolderRequested: unit -> u
                                 yield TextBlock.create [
                                     TextBlock.text "TAGS"
                                     TextBlock.foreground (SolidColorBrush(Theme.textMuted))
-                                    TextBlock.fontSize 11.0
+                                    TextBlock.fontSize Theme.FontSize.xs
                                     TextBlock.margin (Avalonia.Thickness(0.0, 16.0, 0.0, 4.0))
                                 ] :> Avalonia.FuncUI.Types.IView
                             for tag, count in state.Tags do

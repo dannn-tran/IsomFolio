@@ -57,13 +57,13 @@ let private metaRow (label: string) (value: string) =
                 TextBlock.dock Dock.Left
                 TextBlock.text label
                 TextBlock.foreground (SolidColorBrush(Theme.textMuted))
-                TextBlock.fontSize 12.0
+                TextBlock.fontSize Theme.FontSize.sm
                 TextBlock.width 72.0
             ]
             TextBlock.create [
                 TextBlock.text value
                 TextBlock.foreground Brushes.White
-                TextBlock.fontSize 12.0
+                TextBlock.fontSize Theme.FontSize.sm
                 TextBlock.textWrapping TextWrapping.Wrap
             ]
         ]
@@ -82,12 +82,12 @@ let private tagChip (tag: string) (dispatch: Msg -> unit) =
                     TextBlock.create [
                         TextBlock.text tag
                         TextBlock.foreground Brushes.White
-                        TextBlock.fontSize 12.0
+                        TextBlock.fontSize Theme.FontSize.sm
                         TextBlock.verticalAlignment VerticalAlignment.Center
                     ]
                     Button.create [
                         Button.content "×"
-                        Button.fontSize 12.0
+                        Button.fontSize Theme.FontSize.sm
                         Button.padding (Avalonia.Thickness(4.0, 0.0))
                         Button.background Brushes.Transparent
                         Button.foreground (SolidColorBrush(Theme.textDim))
@@ -117,7 +117,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                     TextBlock.create [
                         TextBlock.text "Details"
                         TextBlock.foreground Brushes.White
-                        TextBlock.fontSize 14.0
+                        TextBlock.fontSize Theme.FontSize.lg
                         TextBlock.fontWeight FontWeight.SemiBold
                         TextBlock.verticalAlignment VerticalAlignment.Center
                     ]
@@ -144,7 +144,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                                 yield TextBlock.create [
                                     TextBlock.text "TAGS"
                                     TextBlock.foreground (SolidColorBrush(Theme.textMuted))
-                                    TextBlock.fontSize 11.0
+                                    TextBlock.fontSize Theme.FontSize.xs
                                     TextBlock.margin (Avalonia.Thickness(0.0, 12.0, 0.0, 4.0))
                                 ] :> Avalonia.FuncUI.Types.IView
                                 yield WrapPanel.create [

@@ -112,7 +112,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
                     TextBlock.create [
                         TextBlock.dock Dock.Bottom
                         TextBlock.text model.File.Name
-                        TextBlock.fontSize 11.0
+                        TextBlock.fontSize Theme.FontSize.xs
                         TextBlock.foreground Brushes.White
                         TextBlock.textTrimming Avalonia.Media.TextTrimming.CharacterEllipsis
                         TextBlock.margin (Avalonia.Thickness(4.0, 2.0))
