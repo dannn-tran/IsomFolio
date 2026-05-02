@@ -6,6 +6,7 @@ open Avalonia.Layout
 open Avalonia.Media
 open IsomFolio.PathUtils
 open IsomFolio.Indexing.FolderTree
+open IsomFolio.UI.ContextMenuExt
 
 type State = {
     Folders      : string list
@@ -88,14 +89,12 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (pendi
         else Avalonia.Thickness(0.0)
 
     StackPanel.create [
-        StackPanel.contextMenu (
-            ContextMenu.create [
-                ContextMenu.viewItems [
-                    MenuItem.create [
-                        MenuItem.header "Remove Folder"
-                        MenuItem.onClick(
-                            (fun _ -> onRemoveRequested node.Path),
-                            SubPatchOptions.OnChangeOf node.Path)
+        XStackPanel.contextMenu (
+            XContextMenu.create [
+                XContextMenu.viewItems [
+                    XMenuItem.create [
+                        XMenuItem.header "Remove Folder"
+                        XMenuItem.onClick (fun _ -> onRemoveRequested node.Path)
                     ]
                 ]
             ])

@@ -7,7 +7,6 @@ open Avalonia.FuncUI.Hosts
 open Avalonia.FuncUI.Elmish
 open Avalonia.Controls.ApplicationLifetimes
 
-
 type MainWindow() as this =
     inherit HostWindow()
     do

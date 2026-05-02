@@ -7,6 +7,7 @@ open Avalonia.Media
 open Avalonia.Media.Imaging
 open IsomFolio.Models
 open IsomFolio.FileIndex
+open IsomFolio.UI.ContextMenuExt
 
 type TileModel = {
     File      : AssetFile
@@ -22,11 +23,12 @@ type State = {
 type NavDirection = Left | Right | Up | Down
 
 type Msg =
-    | TilesLoaded        of AssetFile list
-    | ThumbnailUpdated   of FileId * ThumbnailState
-    | TileSizeChanged    of TileSize
-    | TileSelected       of FileId
-    | NavigateTo         of NavDirection * int
+    | TilesLoaded                  of AssetFile list
+    | ThumbnailUpdated             of FileId * ThumbnailState
+    | TileSizeChanged              of TileSize
+    | TileSelected                 of FileId
+    | NavigateTo                   of NavDirection * int
+    | RemoveOrphanedFileRequested  of FileId
 
 let init () = { Tiles = []; TileSize = Medium; SelectedId = None }
 
@@ -53,7 +55,8 @@ let update (msg: Msg) (state: State) =
                 if t.File.Id = fileId then { t with Thumbnail = thumbState } else t)
         { state with Tiles = tiles }
     | TileSizeChanged ts  -> { state with TileSize = ts }
-    | TileSelected id     -> { state with SelectedId = Some id }
+    | TileSelected id                    -> { state with SelectedId = Some id }
+    | RemoveOrphanedFileRequested _      -> state
     | NavigateTo (dir, rowSize) ->
         if state.Tiles.IsEmpty then state
         else
@@ -97,6 +100,16 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
         Border.margin (Avalonia.Thickness(4.0))
         Border.cornerRadius 4.0
         Border.background (if selected then SolidColorBrush(Theme.accent) else SolidColorBrush(Theme.tileBg))
+        if model.File.IsOrphaned then
+            XBorder.contextMenu (
+                XContextMenu.create [
+                    XContextMenu.viewItems [
+                        XMenuItem.create [
+                            XMenuItem.header "Remove from catalog"
+                            XMenuItem.onClick (fun _ -> dispatch (RemoveOrphanedFileRequested model.File.Id))
+                        ]
+                    ]
+                ])
         Border.onTapped(
             (fun e ->
                 dispatch (TileSelected model.File.Id)
@@ -205,24 +218,35 @@ let view (state: State) (dispatch: Msg -> unit) =
                 ScrollViewer.focusable true
                 ScrollViewer.onKeyDown(
                     (fun e ->
-                        let dir =
-                            match e.Key with
-                            | Avalonia.Input.Key.Left  -> Some Left
-                            | Avalonia.Input.Key.Right -> Some Right
-                            | Avalonia.Input.Key.Up    -> Some Up
-                            | Avalonia.Input.Key.Down  -> Some Down
-                            | _ -> None
-                        match dir with
-                        | Some d ->
+                        match e.Key with
+                        | Avalonia.Input.Key.Left
+                        | Avalonia.Input.Key.Right
+                        | Avalonia.Input.Key.Up
+                        | Avalonia.Input.Key.Down ->
+                            let dir =
+                                match e.Key with
+                                | Avalonia.Input.Key.Left  -> Left
+                                | Avalonia.Input.Key.Right -> Right
+                                | Avalonia.Input.Key.Up    -> Up
+                                | _                        -> Down
                             e.Handled <- true
                             let rowSize =
                                 match e.Source with
                                 | :? ScrollViewer as sv ->
                                     max 1 (int sv.Bounds.Width / (tileSizePx state.TileSize + 8))
                                 | _ -> 1
-                            dispatch (NavigateTo (d, rowSize))
-                        | None -> ()),
-                    SubPatchOptions.OnChangeOf state.TileSize)
+                            dispatch (NavigateTo (dir, rowSize))
+                        | Avalonia.Input.Key.Delete ->
+                            state.SelectedId
+                            |> Option.iter (fun id ->
+                                state.Tiles
+                                |> List.tryFind (fun t -> t.File.Id = id)
+                                |> Option.iter (fun tile ->
+                                    if tile.File.IsOrphaned then
+                                        e.Handled <- true
+                                        dispatch (RemoveOrphanedFileRequested id)))
+                        | _ -> ()),
+                    SubPatchOptions.OnChangeOf (state.TileSize, state.SelectedId))
                 ScrollViewer.content (
                     WrapPanel.create [
                         WrapPanel.margin (Avalonia.Thickness(4.0))
