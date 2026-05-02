@@ -1,4 +1,4 @@
-module IsomFolio.Tagging.Tagging
+module IsomFolio.Tags.Operations
 
 open System
 open System.IO
