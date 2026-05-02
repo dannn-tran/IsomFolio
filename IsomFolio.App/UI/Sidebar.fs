@@ -56,12 +56,7 @@ let update (msg: Msg) (state: State) =
             FolderTree = state.FolderTree |> List.filter (fun node -> node.Path <> f)
             SelectedFolder = selectedFolder }
     | FolderSelected path   ->
-        let path = normalizePath path
-        let selected =
-            match state.SelectedFolder with
-            | Some current when samePath current path -> None
-            | _ -> Some path
-        { state with SelectedFolder = selected }
+        { state with SelectedFolder = Some (normalizePath path) }
     | TagToggled tag    ->
         let selected =
             if state.SelectedTags |> List.contains tag
