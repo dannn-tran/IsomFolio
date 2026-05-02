@@ -4,6 +4,7 @@ open System
 open System.IO
 open Microsoft.Data.Sqlite
 open IsomFolio.Models
+open IsomFolio.PathUtils
 
 // ---------------------------------------------------------------------------
 // Init
@@ -92,7 +93,7 @@ let getFilesByFolder (c: SqliteConnection) (folder: string) : Async<AssetFile li
             WHERE folder = @folder AND is_orphaned = 0
             ORDER BY filename
         """
-        cmd.Parameters.AddWithValue("@folder", folder) |> ignore
+        cmd.Parameters.AddWithValue("@folder", normalizePath folder) |> ignore
         use reader = cmd.ExecuteReader()
         let results = System.Collections.Generic.List<AssetFile>()
         while reader.Read() do
@@ -102,6 +103,7 @@ let getFilesByFolder (c: SqliteConnection) (folder: string) : Async<AssetFile li
 
 let getFilesByFolderRecursive (c: SqliteConnection) (rootFolder: string) : Async<AssetFile list> =
     async {
+        let rootFolder = normalizePath rootFolder
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
@@ -133,6 +135,7 @@ let getFileById (c: SqliteConnection) (fileId: FileId) : Async<AssetFile option>
 
 let deleteFilesByRootFolder (c: SqliteConnection) (rootFolder: string) : Async<unit> =
     async {
+        let rootFolder = normalizePath rootFolder
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             DELETE FROM files WHERE folder = @folder OR folder LIKE @prefix
@@ -276,6 +279,7 @@ let getAllFileIds (c: SqliteConnection) : Async<string list> =
 /// Returns all file paths currently in the DB for a given root folder (for reconciliation)
 let getIndexedPathsInFolder (c: SqliteConnection) (rootFolder: string) : Async<Map<string, AssetFile>> =
     async {
+        let rootFolder = normalizePath rootFolder
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
             SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
