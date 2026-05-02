@@ -51,6 +51,7 @@ type Msg =
     | OrphanCountLoaded   of int
     | DismissNotification of System.DateTime
     | AddFolderRequested
+    | FolderRemoveRequested of folderPath: string
     | NewCatalogRequested
     | OpenCatalogRequested
     | CatalogOpened       of catalogPath: string * folders: string list
@@ -111,6 +112,70 @@ let private isFilterActive (query: SearchQuery) =
     || not query.Tags.IsEmpty
     || not query.Extensions.IsEmpty
     || query.DateRange.IsSome
+
+let private stopFolderWatcherCmd (folderPath: string) : Cmd<Msg> =
+    Cmd.ofEffect (fun _ ->
+        let toStop, remaining =
+            activeWatchers
+            |> List.partition (fun w -> IsomFolio.PathUtils.samePath w.Path folderPath)
+        for w in toStop do Watcher.stopWatcher w
+        activeWatchers <- remaining)
+
+let private removeFolderFilesAndSearchCmd (catalogPath: string) (folderPath: string) (requestId: int) (query: SearchQuery) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () ->
+            withCatalogDb catalogPath (fun c ->
+                async {
+                    do! Db.deleteFilesByRootFolder c folderPath
+                    return! QueryEngine.executeSearch c query
+                }))
+        ()
+        (fun files -> SearchCompleted(requestId, files))
+        (fun ex -> AppError (DbError ex.Message))
+
+let private confirmFolderRemovalCmd (folderPath: string) : Cmd<Msg> =
+    Cmd.ofEffect (fun dispatch ->
+        match appWindow with
+        | None -> ()
+        | Some owner ->
+            let folderName = System.IO.Path.GetFileName(folderPath)
+            let dialog = new Window(
+                Title = "Remove Folder",
+                Width = 380.0,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false,
+                ShowInTaskbar = false)
+
+            let panel = new StackPanel(Margin = Avalonia.Thickness(20.0), Spacing = 16.0)
+
+            let label = new TextBlock(
+                Text = $"Remove \"{folderName}\" from the library?\n\nFiles on disk are not affected. Images from this folder will no longer appear in the grid.",
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap)
+
+            let btnRow = new StackPanel(
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Spacing = 8.0)
+
+            let cancelBtn = new Button(Content = "Cancel", IsCancel = true)
+            let removeBtn = new Button(Content = "Remove", IsDefault = true)
+
+            cancelBtn.Click.Add(fun _ -> dialog.Close(false))
+            removeBtn.Click.Add(fun _ -> dialog.Close(true))
+
+            btnRow.Children.Add(cancelBtn)
+            btnRow.Children.Add(removeBtn)
+            panel.Children.Add(label)
+            panel.Children.Add(btnRow)
+            dialog.Content <- panel
+
+            dialog.ShowDialog<bool>(owner)
+                .ContinueWith(fun (t: System.Threading.Tasks.Task<bool>) ->
+                    if not t.IsFaulted && not t.IsCanceled && t.Result then
+                        Dispatcher.UIThread.Post(fun () ->
+                            dispatch (SidebarMsg (Sidebar.FolderRemoved folderPath))))
+            |> ignore)
 
 let private manageWorkerCmd (catalogPath: string) : Cmd<Msg> =
     Cmd.ofEffect (fun dispatch ->
@@ -484,6 +549,25 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         { state with Sidebar = newSidebar; ActiveQuery = query; SearchRequestId = newId },
         runSearch catalogPath newId query
 
+    | { Catalog = OpenedCatalog _ }, FolderRemoveRequested path ->
+        state, confirmFolderRemovalCmd path
+
+    | _, FolderRemoveRequested _ ->
+        state, Cmd.none
+
+    | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg (Sidebar.FolderRemoved path) ->
+        let newSidebar = Sidebar.update (Sidebar.FolderRemoved path) state.Sidebar
+        let remainingFolders = newSidebar.Folders
+        IsomFolio.AppPaths.saveSession { CatalogPath = catalogPath; Folders = remainingFolders }
+        let query = { state.ActiveQuery with FolderPath = newSidebar.SelectedFolder }
+        let newId = state.SearchRequestId + 1
+        { state with Sidebar = newSidebar; ActiveQuery = query; SearchRequestId = newId },
+        Cmd.batch [
+            stopFolderWatcherCmd path
+            loadFolderTreeCmd remainingFolders
+            removeFolderFilesAndSearchCmd catalogPath path newId query
+        ]
+
     | _, SidebarMsg sbMsg ->
         { state with Sidebar = Sidebar.update sbMsg state.Sidebar }, Cmd.none
 
@@ -764,7 +848,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                 Border.dock Dock.Left
                 Border.width 220.0
                 Border.isVisible (not state.IsFirstRun)
-                Border.child (Sidebar.view state.Sidebar (SidebarMsg >> dispatch) (fun () -> dispatch AddFolderRequested))
+                Border.child (Sidebar.view state.Sidebar (SidebarMsg >> dispatch) (fun () -> dispatch AddFolderRequested) (fun path -> dispatch (FolderRemoveRequested path)))
             ]
             // Fixed index 3: detail panel
             Border.create [
