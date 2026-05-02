@@ -2,7 +2,7 @@
 
 open System.Diagnostics
 open System.IO
-open IsomFolio.Platform.Mac
+open IsomFolio.Mac
 open Xunit
 
 module GetMacTagsTests =
@@ -21,6 +21,6 @@ module GetMacTagsTests =
     let ``Read macOS tags from a real file`` () =
         unpackTarPreservingXattrs "Resources/white16_test_tag.tar.gz" "Resources/temp"
         
-        match Tags.getMacTags "Resources/temp/white16.png" with 
+        match Tags.extractTags "Resources/temp/white16.png" with 
         | Ok tags -> Assert.Equivalent(["test_tag"], tags)
-        | Error _ -> Assert.Fail()
+        | Error e -> Assert.Fail(e.ToString())
