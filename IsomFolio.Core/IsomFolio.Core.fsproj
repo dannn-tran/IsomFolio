@@ -18,7 +18,8 @@
         <Compile Include="Indexing\Thumbnail.fs" />
         <Compile Include="Search\FTS.fs" />
         <Compile Include="Search\QueryEngine.fs" />
-        <Compile Include="Tagging\Tagging.fs" />
+        <Compile Include="Tags\Operations.fs" />
+        <Compile Include="Tags\Types.fs" />
     </ItemGroup>
 
     <ItemGroup>
