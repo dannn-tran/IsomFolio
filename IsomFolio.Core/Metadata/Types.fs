@@ -1,4 +1,4 @@
-namespace IsomFolio.Core.Tagging
+namespace IsomFolio.Core.Metadata
 
 type TagSource =
     | MacOSNative           // com.apple.metadata:kMDItemUserTags (extended attrs)
@@ -10,5 +10,3 @@ type Tag = {
     Value: string
     Source: TagSource
 }
-
-type TagCollection = Tag list

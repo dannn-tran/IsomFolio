@@ -18,8 +18,6 @@ type Msg =
     | FileSelected       of AssetFile
     | TagsLoaded         of string list
     | TagInputChanged    of string
-    | AddTagRequested
-    | RemoveTagRequested of string
     | OpenExternally
     | RevealInExplorer
     | Closed
@@ -36,8 +34,6 @@ let update (msg: Msg) (state: State) =
     | TagsLoaded ts        -> { state with Tags = ts }
     | TagInputChanged t    -> { state with TagInput = t }
     | Closed               -> { state with IsVisible = false }
-    | AddTagRequested
-    | RemoveTagRequested _
     | OpenExternally
     | RevealInExplorer     -> state   // handled by MainView
 
@@ -84,14 +80,6 @@ let private tagChip (tag: string) (dispatch: Msg -> unit) =
                         TextBlock.foreground Brushes.White
                         TextBlock.fontSize Theme.FontSize.sm
                         TextBlock.verticalAlignment VerticalAlignment.Center
-                    ]
-                    Button.create [
-                        Button.content "×"
-                        Button.fontSize Theme.FontSize.sm
-                        Button.padding (Avalonia.Thickness(4.0, 0.0))
-                        Button.background Brushes.Transparent
-                        Button.foreground (SolidColorBrush(Theme.textDim))
-                        Button.onClick (fun _ -> dispatch (RemoveTagRequested tag))
                     ]
                 ]
             ])
@@ -155,22 +143,6 @@ let view (state: State) (dispatch: Msg -> unit) =
                                 ] :> Avalonia.FuncUI.Types.IView
                                 yield DockPanel.create [
                                     DockPanel.margin (Avalonia.Thickness(0.0, 4.0))
-                                    DockPanel.children [
-                                        Button.create [
-                                            Button.dock Dock.Right
-                                            Button.content "Add"
-                                            Button.isEnabled (state.TagInput.Trim() <> "")
-                                            Button.onClick (fun _ -> dispatch AddTagRequested)
-                                        ]
-                                        TextBox.create [
-                                            TextBox.text state.TagInput
-                                            TextBox.watermark "Add tag…"
-                                            TextBox.onTextChanged (fun t -> dispatch (TagInputChanged t))
-                                            TextBox.onKeyDown (fun e ->
-                                                if e.Key = Avalonia.Input.Key.Enter then
-                                                    dispatch AddTagRequested)
-                                        ]
-                                    ]
                                 ] :> Avalonia.FuncUI.Types.IView
                                 yield StackPanel.create [
                                     StackPanel.orientation Orientation.Horizontal

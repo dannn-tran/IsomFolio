@@ -24,7 +24,7 @@
       <Compile Include="Indexing\FolderTreeTests.fs" />
       <Compile Include="Indexing\ThumbnailTests.fs" />
       <Compile Include="Search\QueryEngineTests.fs" />
-      <Compile Include="Tags\OperationsTests.fs" />
+      <Compile Include="XmpSidecar.fs\XmpTests.fs" />
     </ItemGroup>
 
 </Project>
