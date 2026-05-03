@@ -28,23 +28,23 @@ module SidecarPath =
 module ReadTagsFromXmp =
 
     [<Fact>]
-    let ``returns empty list when no sidecar exists`` () =
+    let ``returns error when no sidecar exists`` () =
         async {
             let path = tempAssetPath ()
             try
-                let! tags = readTagsFromXmp path
-                Assert.Empty(tags)
+                let! result = readTagsFromXmpSidecar path
+                Assert.Equal(Error XmpSidecarAbsent, result)
             finally cleanup path
         } |> Async.RunSynchronously
 
     [<Fact>]
-    let ``returns empty list for corrupt sidecar`` () =
+    let ``returns error for corrupt sidecar`` () =
         async {
             let path = tempAssetPath ()
             try
                 File.WriteAllText(sidecarPath path, "not xml at all")
-                let! tags = readTagsFromXmp path
-                Assert.Empty(tags)
+                let! result = readTagsFromXmpSidecar path
+                Assert.True(result.IsError)
             finally cleanup path
         } |> Async.RunSynchronously
 
@@ -68,8 +68,8 @@ module WriteTagsToXmp =
             let path = tempAssetPath ()
             try
                 let! _ = writeTagsToXmp path [ "alpha"; "beta"; "gamma" ]
-                let! tags = readTagsFromXmp path
-                Assert.Equal<string list>([ "alpha"; "beta"; "gamma" ], tags)
+                let! result = readTagsFromXmpSidecar path
+                Assert.Equal(Ok [ "alpha"; "beta"; "gamma" ], result)
             finally cleanup path
         } |> Async.RunSynchronously
 
@@ -80,8 +80,8 @@ module WriteTagsToXmp =
             try
                 let! _ = writeTagsToXmp path [ "old" ]
                 let! _ = writeTagsToXmp path [ "new1"; "new2" ]
-                let! tags = readTagsFromXmp path
-                Assert.Equal<string list>([ "new1"; "new2" ], tags)
+                let! result = readTagsFromXmpSidecar path
+                Assert.Equal(Ok [ "new1"; "new2" ], result)
             finally cleanup path
         } |> Async.RunSynchronously
 
