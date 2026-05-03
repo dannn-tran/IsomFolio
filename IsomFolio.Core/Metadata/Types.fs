@@ -1,12 +1,10 @@
 namespace IsomFolio.Core.Metadata
 
-type TagSource =
-    | MacOSNative           // com.apple.metadata:kMDItemUserTags (extended attrs)
-    | XmpSidecar of path: string   // .xmp sidecar file
-    | EmbeddedXmp           // XMP embedded in JPEG/PDF/etc
-    | ExifMetadata          // EXIF subject/keywords
+open IsomFolio.Core.Metadata.Mac.Types
+open IsomFolio.Core.Metadata.Xmp.Types
 
-type Tag = {
-    Value: string
-    Source: TagSource
+type FileMetadata = {
+    XmpSidecar: XmpMetadata option
+    XmpEmbedded: XmpMetadata option
+    AppleMetadata: AppleMetadata option
 }
