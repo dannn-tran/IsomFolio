@@ -19,7 +19,11 @@
         <Compile Include="Indexing\Thumbnail.fs" />
         <Compile Include="Search\FTS.fs" />
         <Compile Include="Search\QueryEngine.fs" />
-        <Compile Include="Metadata\Xmp.fs" />
+        <Compile Include="Metadata\Xmp\Types.fs" />
+        <Compile Include="Metadata\Xmp\Parser.fs" />
+        <Compile Include="Metadata\Mac\Constants.fs" />
+        <Compile Include="Metadata\Mac\Types.fs" />
+        <Compile Include="Metadata\Mac\Parser.fs" />
         <Compile Include="Metadata\Types.fs" />
     </ItemGroup>
 
