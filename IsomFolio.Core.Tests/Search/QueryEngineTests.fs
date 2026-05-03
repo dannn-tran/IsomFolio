@@ -1,4 +1,4 @@
-module IsomFolio.Tests.Search.QueryEngineTests
+module IsomFolio.Core.Tests.Search.QueryEngineTests
 
 open System
 open System.IO

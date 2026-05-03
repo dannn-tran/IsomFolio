@@ -1,53 +1,36 @@
-module IsomFolio.Mac.Tags
+module IsomFolio.Core.Metadata.Mac.XAttrReader
 
 open System
-open System.IO
 open System.Runtime.InteropServices
 open System.Runtime.Versioning
-
-    
-type ExtractionError =
-    | FileNotFound      of path: string
-    | XAttrAbsent
-    | PlistParseFailed  of reason: string
-    | ProcessFailed     of exitCode: int * stderr: string
-
-[<Literal>]
-let private TagXattr = "com.apple.metadata:_kMDItemUserTags"
-
-[<Literal>]
-let private ENOATTR = 93  // implies extended attribute does not exist on this file
 
 [<DllImport("libc", SetLastError = true)>]
 extern int getxattr(string path, string name, byte[] value, unativeint size, uint32 position, int options)
 
+[<Literal>]
+let private ENOATTR = 93  // implies extended attribute does not exist on this file
 
 [<SupportedOSPlatform("macos")>]
-let private readXattrBytes (filePath: string) : Result<byte[], ExtractionError> =
-    if not (File.Exists filePath) then
-        Error (FileNotFound filePath)
+let private readBytes attrName (filePath: string) : Result<byte[] option, string> =
+    // Probe for the byte length of the xattr value.
+    let size = getxattr(filePath, attrName, null, 0un, 0u, 0)
+    if size < 0 then
+        match Marshal.GetLastWin32Error() with
+        | e when e = ENOATTR -> Ok None
+        | e                  -> Error $"getxattr size probe errno %d{e}"
     else
-        // Probe for the byte length of the xattr value.
-        let size = getxattr(filePath, TagXattr, null, 0un, 0u, 0)
-        if size < 0 then
-            match Marshal.GetLastWin32Error() with
-            | e when e = ENOATTR -> Error XAttrAbsent
-            | e                  -> Error (ProcessFailed (e, $"getxattr size probe errno %d{e}"))
+        // Over-allocate slightly to handle the race where the xattr grows
+        // between the size probe and the read (TOCTOU mitigation).
+        let bufSize = size + 16
+        let buf     = Array.zeroCreate<byte> bufSize
+        let read    = getxattr(filePath, attrName, buf, unativeint bufSize, 0u, 0)
+        if read < 0 then
+            let errno = Marshal.GetLastWin32Error()
+            Error $"getxattr read errno %d{errno}"
         else
-            // Over-allocate slightly to handle the race where the xattr grows
-            // between the size probe and the read (TOCTOU mitigation).
-            let bufSize = size + 16
-            let buf     = Array.zeroCreate<byte> bufSize
-            let read    = getxattr(filePath, TagXattr, buf, unativeint bufSize, 0u, 0)
-            if read < 0 then
-                let errno = Marshal.GetLastWin32Error()
-                Error (ProcessFailed (errno, $"getxattr read errno %d{errno}"))
-            else
-                Ok buf.[0 .. read - 1]
+            Ok (buf.[0 .. read - 1] |> Some)
 
-
-// macOS stores tags as a binary plist array of strings.
-// Binary plist spec: https://opensource.apple.com/source/CF/CF-744/CFBinaryPList.c
+// Binary plist spec: https://github.com/opensource-apple/CF/blob/master/CFBinaryPList.cc
 /// Minimal bplist00 parser — handles only the subset used for tag arrays:
 /// a top-level array of UTF-8/UTF-16BE strings (which is all macOS ever writes here).
 let private parseBinaryPlist (data: byte[]) : Result<string list, string> =
@@ -111,7 +94,7 @@ let private parseBinaryPlist (data: byte[]) : Result<string list, string> =
                 |> Result.map (fun (charCount, dataStart) ->
                     let s = Text.Encoding.ASCII.GetString(data, dataStart, charCount)
                     // Strip macOS colour suffix e.g. "Work\n6"
-                    Some (s.Split('\n').[0]))
+                    Some s)
 
             | 0x60uy ->  // Unicode string (UTF-16BE)
                 readCountAt (offset + 1) nibble
@@ -121,11 +104,9 @@ let private parseBinaryPlist (data: byte[]) : Result<string list, string> =
                         chars.[i] <- char ((int data.[dataStart + i * 2] <<< 8)
                                            ||| int data.[dataStart + i * 2 + 1])
                     // Strip colour suffix
-                    Some (String(chars).Split('\n').[0]))
+                    Some (String(chars)))
 
-            | unexpected ->
-                // Unexpected type inside a tag array — skip rather than fail, but
-                // surface a warning via a non-fatal Ok None so callers can log if desired.
+            | _ -> // skip
                 Ok None
 
         // --- Locate and decode the top-level array ---
@@ -142,7 +123,7 @@ let private parseBinaryPlist (data: byte[]) : Result<string list, string> =
 
         // Accumulate tags, collecting any inner errors
         let mutable innerError : string option = None
-        let tags =
+        let values =
             [ for i in 0 .. arrayCount - 1 do
                 if innerError.IsNone then
                     let refPos   = refsStart + i * objectRefSize
@@ -153,28 +134,19 @@ let private parseBinaryPlist (data: byte[]) : Result<string list, string> =
                     match readStringObject (readOffsetTableEntry objIdx) with
                     | Error e         -> innerError <- Some e
                     | Ok None         -> ()          // Unknown type — skip silently
-                    | Ok (Some s)     -> if s <> "" then yield s ]
+                    | Ok (Some s)     -> yield s ]
 
         match innerError with
         | Some e -> Error e
-        | None   -> Ok tags
+        | None   -> Ok values
 
-    with ex ->
-        Error ex.Message
-
-
+    with ex -> Error ex.Message
+    
 [<SupportedOSPlatform("macos")>]
-let extractTags (filePath: string) : Result<string list, ExtractionError> =
-    filePath
-    |> readXattrBytes
-    |> Result.bind (fun bytes ->
+let getStringList attrName filePath =
+    match filePath |> readBytes attrName  with
+    | Ok(Some bytes) ->
         bytes
         |> parseBinaryPlist
-        |> Result.mapError PlistParseFailed)
-
-[<SupportedOSPlatform("macos")>]
-let extractTagsBatch (filePaths: string list) : (string * Result<string list, ExtractionError>) list =
-    filePaths
-    |> List.toArray
-    |> Array.Parallel.map (fun path -> path, extractTags path)
-    |> Array.toList
+        |> Result.defaultValue []
+    | _ -> []

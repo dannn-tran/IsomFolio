@@ -1,4 +1,4 @@
-module IsomFolio.Tests.Indexing.ThumbnailTests
+module IsomFolio.Core.Tests.Indexing.ThumbnailTests
 
 open Xunit
 open System

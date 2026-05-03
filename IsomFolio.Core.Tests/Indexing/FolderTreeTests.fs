@@ -1,4 +1,4 @@
-module IsomFolio.Tests.Indexing.FolderTreeTests
+module IsomFolio.Core.Tests.Indexing.FolderTreeTests
 
 open System
 open System.IO
