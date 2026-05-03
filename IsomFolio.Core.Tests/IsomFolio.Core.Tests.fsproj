@@ -17,14 +17,17 @@
     </ItemGroup>
     
     <ItemGroup>
-      <Compile Include="Storage\DbTests.fs" />
+        <Compile Include="Storage\DbTests.fs" />
+        <Compile Include="Indexing\FolderTreeTests.fs" />
+        <Compile Include="Indexing\ThumbnailTests.fs" />
+        <Compile Include="Search\QueryEngineTests.fs" />
+        <Compile Include="Metadata\Mac\LibTests.fs" />
     </ItemGroup>
     
     <ItemGroup>
-      <Compile Include="Indexing\FolderTreeTests.fs" />
-      <Compile Include="Indexing\ThumbnailTests.fs" />
-      <Compile Include="Search\QueryEngineTests.fs" />
-      <Compile Include="XmpSidecar.fs\XmpTests.fs" />
+        <Content Include="Resources\white16_test_tag.tar.gz">
+          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
     </ItemGroup>
 
 </Project>

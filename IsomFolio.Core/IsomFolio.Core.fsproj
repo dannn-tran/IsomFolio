@@ -6,6 +6,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Platform.fs" />
         <Compile Include="Models.fs" />
         <Compile Include="PathUtils.fs" />
         <Compile Include="AppPaths.fs" />
@@ -19,12 +20,12 @@
         <Compile Include="Indexing\Thumbnail.fs" />
         <Compile Include="Search\FTS.fs" />
         <Compile Include="Search\QueryEngine.fs" />
-        <Compile Include="Metadata\Xmp\Types.fs" />
-        <Compile Include="Metadata\Xmp\Parser.fs" />
+        <Compile Include="Metadata\Xmp\PropReader.fs" />
+        <Compile Include="Metadata\Xmp\Lib.fs" />
         <Compile Include="Metadata\Mac\Constants.fs" />
-        <Compile Include="Metadata\Mac\Types.fs" />
-        <Compile Include="Metadata\Mac\Parser.fs" />
-        <Compile Include="Metadata\Types.fs" />
+        <Compile Include="Metadata\Mac\XAttrReader.fs" />
+        <Compile Include="Metadata\Mac\Lib.fs" />
+        <Compile Include="Metadata\Lib.fs" />
     </ItemGroup>
 
     <ItemGroup>

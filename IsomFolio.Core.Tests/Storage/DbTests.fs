@@ -1,4 +1,4 @@
-module IsomFolio.Tests.Storage.DbTests
+module IsomFolio.Core.Tests.Storage.DbTests
 
 open System
 open System.IO
