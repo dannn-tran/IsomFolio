@@ -19,11 +19,12 @@
         <Compile Include="Indexing\Thumbnail.fs" />
         <Compile Include="Search\FTS.fs" />
         <Compile Include="Search\QueryEngine.fs" />
-        <Compile Include="Tags\Operations.fs" />
-        <Compile Include="Tags\Types.fs" />
+        <Compile Include="Metadata\Xmp.fs" />
+        <Compile Include="Metadata\Types.fs" />
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="MetadataExtractor" Version="2.9.3" />
         <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
         <PackageReference Include="SkiaSharp" Version="2.88.9" />
         <PackageReference Include="XmpCore" Version="6.1.10.1" />

@@ -41,5 +41,4 @@ type AppError =
     | DbError           of message: string
     | ScanError         of message: string
     | ThumbnailError    of fileId: FileId * message: string
-    | XmpWriteError     of path: string * message: string
     | WatcherError      of message: string

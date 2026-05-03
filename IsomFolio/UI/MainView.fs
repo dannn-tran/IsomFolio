@@ -305,7 +305,6 @@ let private formatError = function
     | DbError msg              -> $"Database error: {msg}"
     | ScanError msg            -> $"Scan error: {msg}"
     | ThumbnailError(_, msg)   -> $"Thumbnail failed: {msg}"
-    | XmpWriteError(path, msg) -> $"Tag write failed for {System.IO.Path.GetFileName path}: {msg}"
     | WatcherError msg         -> $"Watcher error: {msg}"
 
 let private enqueueThumbnails (catalogPath: string) (files: AssetFile list) (priority: int) =
@@ -449,43 +448,6 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
 
 let private handleTagMsg (catalogPath: string) (f: AssetFile) (state: State) (dMsg: DetailPanel.Msg) : (State * Cmd<Msg>) option =
     match dMsg with
-    | DetailPanel.AddTagRequested when state.Detail.TagInput.Trim() <> "" ->
-        let tag = state.Detail.TagInput.Trim()
-        let cmd =
-            Cmd.OfAsync.either
-                (fun () ->
-                    withCatalogDb catalogPath (fun dbConn ->
-                        async {
-                            let! result = IsomFolio.Core.Tags.Operations.addTag f.Path tag
-                            match result with
-                            | Ok newTags ->
-                                do! newTags |> Db.upsertTags dbConn f.Id
-                                do! newTags |> FTS.updateFileIndexTags dbConn f.Id
-                                return TagsSaved(f.Id, newTags)
-                            | Error e -> return AppError (XmpWriteError(f.Path, e))
-                        }))
-                ()
-                id
-                (fun ex -> AppError (XmpWriteError(f.Path, ex.Message)))
-        Some({ state with Detail = DetailPanel.update (DetailPanel.TagInputChanged "") state.Detail }, cmd)
-    | DetailPanel.RemoveTagRequested tag ->
-        let cmd =
-            Cmd.OfAsync.either
-                (fun () ->
-                    withCatalogDb catalogPath (fun dbConn ->
-                        async {
-                            let! result = IsomFolio.Core.Tags.Operations.removeTag f.Path tag
-                            match result with
-                            | Ok newTags ->
-                                do! newTags |> Db.upsertTags dbConn f.Id
-                                do! newTags |> FTS.updateFileIndexTags dbConn f.Id
-                                return TagsSaved(f.Id, newTags)
-                            | Error e -> return AppError (XmpWriteError(f.Path, e))
-                        }))
-                ()
-                id
-                (fun ex -> AppError (XmpWriteError(f.Path, ex.Message)))
-        Some(state, cmd)
     | DetailPanel.OpenExternally ->
         let cmd = Cmd.ofEffect (fun _ ->
             try System.Diagnostics.Process.Start(
