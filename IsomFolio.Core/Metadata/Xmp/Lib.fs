@@ -76,7 +76,7 @@ module XmpMetadata =
             DublinCore = xmp |> DublinCore.fromXmp
         }
 
-    let parseEmbedded (assetPath: string): Result<XmpMetadata option, exn> =
+    let getEmbedded (assetPath: string): Result<XmpMetadata option, exn> =
         if not (File.Exists(assetPath)) then
             Error (FileNotFoundException assetPath)
         else
@@ -91,7 +91,7 @@ module XmpMetadata =
                     | _ -> None)
                 |> Option.map (fun xmpDir -> xmpDir.XmpMeta |> fromXmp))
 
-    let parseSidecar (assetPath: string): Result<XmpMetadata option, exn> =
+    let getSidecar (assetPath: string): Result<XmpMetadata option, exn> =
         let xmpPath = Path.ChangeExtension(assetPath, ".xmp")
         if not (File.Exists(xmpPath)) then
             Ok None
