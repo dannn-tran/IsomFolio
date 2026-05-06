@@ -109,18 +109,16 @@ let enumerateFiles (loadFiles: BulkFileLoader) (batchSize: int) (rootPath: strin
     |> loadFiles
     |> chunked batchSize
 
-/// Convenience wrapper matching the original signature.
-/// Metadata is read but not yet persisted; schema support pending.
 let scanFolder
     (rootPath   : string)
-    (onBatch    : AssetFile list -> Async<unit>)
+    (onBatch    : ScannedFile list -> Async<unit>)
     (onProgress : ScanProgress -> unit)
     : Async<ScanResult> =
     async {
         let mutable total = 0
 
         for batch in enumerateFiles (runSequential defaultJob) 500 rootPath do
-            do! onBatch (batch |> List.map _.Asset)
+            do! onBatch batch
             total <- total + batch.Length
             onProgress {
                 TotalFound = total
@@ -131,16 +129,41 @@ let scanFolder
         return { TotalCount = total }
     }
 
-let reconcileFolder (c: SqliteConnection) (rootPath: string) : Async<string list * string list> =
+/// Re-read EmbeddedMetadata for each path in parallel.
+let refreshMetadata (paths: string seq) : Async<(string * EmbeddedMetadata) list> =
+    paths
+    |> Seq.map (fun p -> async {
+        let! meta = EmbeddedMetadata.read p
+        return p, meta })
+    |> Async.Parallel
+    |> Async.map Array.toList
+
+let reconcileFolder (c: SqliteConnection) (rootPath: string) : Async<ReconcileResult> =
     async {
         let! indexed = Db.getIndexedPathsInFolder c rootPath
 
-        let fsFiles = System.Collections.Generic.Dictionary<string, FileInfo>()
+        let fsFiles = Dictionary<string, FileInfo>()
+        let sidecarFiles = Dictionary<string, FileInfo>()  // normalized image path → sidecar FileInfo
         try
             for filePath in Directory.EnumerateFiles(rootPath, "*.*", SearchOption.AllDirectories) do
                 try
                     let fi = FileInfo(filePath)
-                    if isSupportedExtension fi.Extension then
+                    if fi.Extension.ToLowerInvariant() = ".xmp" then
+                        // Resolve sidecar to image path: try each supported extension
+                        let basePath = Path.ChangeExtension(fi.FullName, null)
+                        let resolved =
+                            [ "jpg"; "jpeg"; "png"; "webp"; "gif" ]
+                            |> List.tryPick (fun ext ->
+                                let candidate = normalizePath (basePath + "." + ext)
+                                if indexed |> Map.containsKey candidate then Some candidate
+                                else None)
+                        match resolved with
+                        | Some imgPath ->
+                            match sidecarFiles.TryGetValue(imgPath) with
+                            | true, existing when existing.LastWriteTimeUtc >= fi.LastWriteTimeUtc -> ()
+                            | _ -> sidecarFiles[imgPath] <- fi
+                        | None -> ()
+                    elif isSupportedExtension fi.Extension then
                         fsFiles[normalizePath fi.FullName] <- fi
                 with _ -> ()
         with ex ->
@@ -168,5 +191,26 @@ let reconcileFolder (c: SqliteConnection) (rootPath: string) : Async<string list
                 else None)
             |> Seq.toList
 
-        return newOrModified, orphaned
+        // Sidecars newer than the image's indexed mtime → metadata-only refresh
+        let newOrModifiedSet = newOrModified |> List.map normalizePath |> Set.ofList
+        let sidecarChanged =
+            sidecarFiles
+            |> Seq.choose (fun kv ->
+                let imgPath = kv.Key
+                if newOrModifiedSet.Contains(imgPath) then None  // already in full re-index
+                else
+                    match indexed |> Map.tryFind imgPath with
+                    | None -> None
+                    | Some existing ->
+                        let sidecarMtime = DateTimeOffset(kv.Value.LastWriteTimeUtc).ToUnixTimeSeconds()
+                        if sidecarMtime > existing.MTimeUnix
+                        then Some (indexed[imgPath].Path)
+                        else None)
+            |> Seq.toList
+
+        return {
+            NewOrModified  = newOrModified
+            Orphaned       = orphaned
+            SidecarChanged = sidecarChanged
+        }
     }

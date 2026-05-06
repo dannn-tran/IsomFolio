@@ -164,7 +164,11 @@ module ScanFolder =
                 let! result =
                     Scanner.scanFolder
                         dir
-                        (fun batch -> async { let! _ = Db.upsertFiles c batch in () })
+                        (fun batch -> async {
+                            let assets = batch |> List.map (fun sf -> sf.Asset)
+                            let! _ = Db.upsertFiles c assets
+                            ()
+                        })
                         (fun _ -> progressCalls <- progressCalls + 1)
                 Assert.Equal(5, result.TotalCount)
                 Assert.True(progressCalls >= 1)
@@ -185,14 +189,17 @@ module ReconcileFolder =
             try
                 let! _ =
                     Scanner.scanFolder dir
-                        (fun batch -> async { let! _ = Db.upsertFiles c batch in () })
+                        (fun batch -> async {
+                            let! _ = Db.upsertFiles c (batch |> List.map (fun sf -> sf.Asset))
+                            ()
+                        })
                         ignore
                 File.WriteAllBytes(Path.Combine(dir, "new.png"), [| 0x89uy; 0x50uy |])
                 File.Delete(Directory.GetFiles(dir, "*.jpg")[0])
 
-                let! newOrModified, orphaned = Scanner.reconcileFolder c dir
-                Assert.Equal(1, newOrModified.Length)
-                Assert.Equal(1, orphaned.Length)
+                let! result = Scanner.reconcileFolder c dir
+                Assert.Equal(1, result.NewOrModified.Length)
+                Assert.Equal(1, result.Orphaned.Length)
             finally
                 Directory.Delete(dir, true)
         } |> Async.RunSynchronously
