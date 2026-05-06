@@ -1,57 +1,41 @@
 namespace IsomFolio.Core.Metadata
 
-open System.Threading.Tasks
 open IsomFolio.Core.Metadata.Mac
 open IsomFolio.Core.Metadata.Xmp
 open IsomFolio.Core.Platform
 
 type FileMetadata = {
-    XmpSidecar: XmpMetadata option
-    XmpEmbedded: XmpMetadata option
+    Xmp          : XmpMetadata option
     AppleMetadata: AppleMetadata option
 }
 
 module FileMetadata =
-    let private getXmpSidecar filePath =
-        filePath
-        |> XmpMetadata.getSidecar
-        |> Result.defaultValue None
-    let private getXmpEmbedded filePath =
-        filePath
-        |> XmpMetadata.getEmbedded
-        |> Result.defaultValue None
-    
-    let getFileMetadata (filePath: string): FileMetadata =
-        {
-            XmpSidecar = getXmpSidecar filePath
-            XmpEmbedded = getXmpEmbedded filePath
-            AppleMetadata =
-                if currentOS = MacOS then
-                    filePath
-                    |> AppleMetadata.fromFilePath
-                    |> Some
+    let private xmpSidecar filePath =
+        async { return filePath |> XmpMetadata.getSidecar |> Result.defaultValue None }
+
+    let private xmpEmbedded filePath =
+        async { return filePath |> XmpMetadata.getEmbedded |> Result.defaultValue None }
+
+    let private appleMeta filePath =
+        async {
+            return
+                if currentOS = MacOS then filePath |> AppleMetadata.fromFilePath |> Some
                 else None
         }
-        
-    let getFileMetadataAsync (filePath: string): Task<FileMetadata> =
-        task {
-            let xmpSidecarTask =
-                Task.Run(fun () -> getXmpSidecar filePath)
-            let xmpEmbeddedTask =
-                Task.Run(fun () -> getXmpEmbedded filePath)
-            let appleMetadataTask =
-                if currentOS = MacOS then
-                    Task.Run(fun () -> filePath |> AppleMetadata.fromFilePath |> Some)
-                else
-                    Task.FromResult(None)
-                    
-            let! xmpSidecar = xmpSidecarTask
-            let! xmpEmbedded = xmpEmbeddedTask
-            let! appleMetadata = appleMetadataTask
-            
-            return {
-                XmpSidecar = xmpSidecar
-                XmpEmbedded = xmpEmbedded
-                AppleMetadata = appleMetadata
-            }
+
+    /// Reads XMP and Apple metadata for a file.
+    /// Sidecar is checked first; embedded is only read when no sidecar exists.
+    /// Apple metadata runs in parallel with the XMP chain.
+    /// Caller decides execution: Async.StartAsTask for async contexts,
+    /// Async.RunSynchronously only on thread-pool threads (never on the UI thread).
+    let read (filePath: string) : Async<FileMetadata> =
+        async {
+            let! appleChild = Async.StartChild(appleMeta filePath)
+            let! sidecar = xmpSidecar filePath
+            let! xmp =
+                match sidecar with
+                | Some _ -> async { return sidecar }
+                | None   -> xmpEmbedded filePath
+            let! apple = appleChild
+            return { Xmp = xmp; AppleMetadata = apple }
         }
