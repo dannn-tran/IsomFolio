@@ -6,6 +6,8 @@ open System.Text.Json
 open Microsoft.Data.Sqlite
 open IsomFolio.Core.Models
 open IsomFolio.Core.Metadata
+open IsomFolio.Core.Metadata.Mac
+open IsomFolio.Core.Metadata.Xmp
 open IsomFolio.Core.PathUtils
 open IsomFolio.Core.Search
 
@@ -366,4 +368,51 @@ let upsertMetadata (c: SqliteConnection) (fileId: FileId) (meta: EmbeddedMetadat
               yield! creator ]
             |> List.distinct
         do! FTS.updateFileIndexTags c fileId ftsTokens
+    }
+
+let getMetadata (c: SqliteConnection) (fileId: FileId) : Async<EmbeddedMetadata option> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- """
+            SELECT rating, label, title, description, creator, subjects, apple_tags
+            FROM metadata WHERE file_id = @fileId
+        """
+        cmd.Parameters.AddWithValue("@fileId", fileId) |> ignore
+        use reader = cmd.ExecuteReader()
+        if not (reader.Read()) then return None
+        else
+            let strOpt i = if reader.IsDBNull(i) then None else Some (reader.GetString(i))
+            let intOpt i = if reader.IsDBNull(i) then None else Some (reader.GetInt32(i))
+            let listOf i =
+                if reader.IsDBNull(i) then []
+                else
+                    try JsonSerializer.Deserialize<string list>(reader.GetString(i))
+                    with _ -> []
+
+            let rating      = intOpt 0
+            let label       = strOpt 1
+            let title       = strOpt 2
+            let description = strOpt 3
+            let creator     = listOf 4
+            let subjects    = listOf 5
+            let appleTags   = listOf 6 |> List.map (fun t -> { Text = t; ColorIdx = 0 })
+
+            let hasXmp =
+                Option.isSome rating || Option.isSome label ||
+                Option.isSome title  || Option.isSome description ||
+                not creator.IsEmpty  || not subjects.IsEmpty
+
+            let xmp =
+                if hasXmp then
+                    Some {
+                        Core = { XmpCore.empty with Rating = rating; Label = label }
+                        DublinCore = { DublinCore.empty with Title = title; Description = description; Creator = creator; Subject = subjects }
+                    }
+                else None
+
+            let apple =
+                if appleTags.IsEmpty then None
+                else Some { UserTags = appleTags }
+
+            return Some { Xmp = xmp; AppleMetadata = apple }
     }

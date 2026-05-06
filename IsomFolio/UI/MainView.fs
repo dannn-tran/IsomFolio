@@ -10,6 +10,7 @@ open IsomFolio.Core.Indexing.Types
 open IsomFolio.Core.Models
 open IsomFolio.Core.FileIndex
 open IsomFolio.Core.Indexing
+open IsomFolio.Core.Metadata
 open IsomFolio.Core.Storage
 open IsomFolio.Core.Search
 open IsomFolio.Core.PathUtils
@@ -307,6 +308,23 @@ let private countOrphansCmd (catalogPath: string) : Cmd<Msg> =
         OrphanCountLoaded
         (fun ex -> AppError (DbError ex.Message))
 
+let private loadMetadataCmd (catalogPath: string) (fileId: FileId) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () -> withCatalogDb catalogPath (fun c -> Db.getMetadata c fileId))
+        ()
+        (fun meta -> DetailMsg (DetailPanel.MetadataLoaded meta))
+        (fun _    -> NoOp)
+
+let private loadSourceViewCmd (filePath: string) (fileId: FileId) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () -> async {
+            let fi = System.IO.FileInfo(filePath)
+            return! EmbeddedMetadata.readSources filePath fi
+        })
+        ()
+        (fun sources -> DetailMsg (DetailPanel.SourceViewLoaded sources))
+        (fun ex      -> DetailMsg (DetailPanel.SourceViewFailed ex))
+
 let private formatError = function
     | DbError msg              -> $"Database error: {msg}"
     | ScanError msg            -> $"Scan error: {msg}"
@@ -560,15 +578,18 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             fileOpt
             |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
             |> Option.defaultValue state.Detail
-        let loadTagsCmd =
+        let loadCmds =
             fileOpt
             |> Option.map (fun f ->
-                Cmd.OfAsync.either
-                    (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
-                    (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
-                    (fun ex  -> AppError (DbError ex.Message)))
+                Cmd.batch [
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    loadMetadataCmd catalogPath f.Id
+                ])
             |> Option.defaultValue Cmd.none
-        { state with Grid = newGrid; Detail = newDetail }, loadTagsCmd
+        { state with Grid = newGrid; Detail = newDetail }, loadCmds
 
     | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.NavigateTo _ as gMsg) ->
         let newGrid = GridView.update gMsg state.Grid
@@ -580,15 +601,18 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             fileOpt
             |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
             |> Option.defaultValue state.Detail
-        let loadTagsCmd =
+        let loadCmds =
             fileOpt
             |> Option.map (fun f ->
-                Cmd.OfAsync.either
-                    (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
-                    (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
-                    (fun ex  -> AppError (DbError ex.Message)))
+                Cmd.batch [
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    loadMetadataCmd catalogPath f.Id
+                ])
             |> Option.defaultValue Cmd.none
-        { state with Grid = newGrid; Detail = newDetail }, loadTagsCmd
+        { state with Grid = newGrid; Detail = newDetail }, loadCmds
 
     | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.RemoveOrphanedFileRequested fileId) ->
         let newDetail =
@@ -604,6 +628,10 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | _, GridMsg gMsg ->
         { state with Grid = GridView.update gMsg state.Grid }, Cmd.none
+
+    | { Catalog = OpenedCatalog(catalogPath); Detail = { File = Some f } }, DetailMsg DetailPanel.SourceViewRequested ->
+        let newDetail = DetailPanel.update DetailPanel.SourceViewRequested state.Detail
+        { state with Detail = newDetail }, loadSourceViewCmd f.Path f.Id
 
     | { Catalog = OpenedCatalog(catalogPath); Detail = { File = Some f } }, DetailMsg dMsg ->
         handleTagMsg catalogPath f state dMsg
