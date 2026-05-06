@@ -211,8 +211,11 @@ let private startScanCmd (catalogPath: string) (folderPath: string) : Cmd<Msg> =
                 withCatalogDb catalogPath (fun dbConn ->
                     Scanner.scanFolder folderPath
                         (fun batch -> async {
-                            let! _ = Db.upsertFiles dbConn batch
-                            Dispatcher.UIThread.Post(fun () -> dispatch (ScanBatchCompleted batch))
+                            let assets = batch |> List.map (fun sf -> sf.Asset)
+                            let! _ = Db.upsertFiles dbConn assets
+                            for sf in batch do
+                                do! Db.upsertMetadata dbConn sf.Asset.Id sf.Metadata
+                            Dispatcher.UIThread.Post(fun () -> dispatch (ScanBatchCompleted assets))
                         })
                         (fun progress ->
                             Dispatcher.UIThread.Post(fun () -> dispatch (ScanProgressUpdated progress))))
@@ -241,21 +244,32 @@ let private normalizeFolders (folders: string list) =
         else acc @ [ path ]) []
 
 
+let private applyReconcileResult (dbConn: Microsoft.Data.Sqlite.SqliteConnection) (result: ReconcileResult) =
+    async {
+        for oid in result.Orphaned do
+            do! Db.markOrphaned dbConn oid
+        let! scanned = Scanner.refreshMetadata result.NewOrModified
+        for path, meta in scanned do
+            try
+                let fi = System.IO.FileInfo(path)
+                let asset = assetFileFromInfo fi
+                let! _ = Db.upsertFiles dbConn [ asset ]
+                do! Db.upsertMetadata dbConn asset.Id meta
+            with ex ->
+                eprintfn "Reconcile: cannot index %s — %s" path ex.Message
+        let! sidecarMeta = Scanner.refreshMetadata result.SidecarChanged
+        for path, meta in sidecarMeta do
+            let fileId = IsomFolio.Core.FileIndex.computeFileId (IsomFolio.Core.PathUtils.normalizePath path)
+            do! Db.upsertMetadata dbConn fileId meta
+    }
+
 let private reconcileFolderCmd (catalogPath: string) (folderPath: string) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () ->
             withCatalogDb catalogPath (fun dbConn ->
                 async {
-                    let! newPaths, orphanedIds = Scanner.reconcileFolder dbConn folderPath
-                    for oid in orphanedIds do
-                        do! Db.markOrphaned dbConn oid
-                    let newFiles =
-                        newPaths |> List.choose (fun p ->
-                            try Some(assetFileFromInfo (System.IO.FileInfo p))
-                            with _ -> None)
-                    if not newFiles.IsEmpty then
-                        let! _ = Db.upsertFiles dbConn newFiles
-                        ()
+                    let! result = Scanner.reconcileFolder dbConn folderPath
+                    do! applyReconcileResult dbConn result
                 }))
         ()
         (fun () -> ScanFinished 0)
@@ -266,16 +280,8 @@ let private resyncFolderCmd (catalogPath: string) (folderPath: string) : Cmd<Msg
         (fun () ->
             withCatalogDb catalogPath (fun dbConn ->
                 async {
-                    let! newPaths, orphanedIds = Scanner.reconcileFolder dbConn folderPath
-                    for oid in orphanedIds do
-                        do! Db.markOrphaned dbConn oid
-                    let newFiles =
-                        newPaths |> List.choose (fun p ->
-                            try Some(assetFileFromInfo (System.IO.FileInfo p))
-                            with _ -> None)
-                    if not newFiles.IsEmpty then
-                        let! _ = Db.upsertFiles dbConn newFiles
-                        ()
+                    let! result = Scanner.reconcileFolder dbConn folderPath
+                    do! applyReconcileResult dbConn result
                 }))
         ()
         (fun () -> FolderResynced folderPath)
