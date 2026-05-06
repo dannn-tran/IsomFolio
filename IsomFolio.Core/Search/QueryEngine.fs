@@ -31,9 +31,9 @@ let private readAssetFile (r: SqliteDataReader) : AssetFile =
         Ext           = r.GetString(4)
         SizeBytes     = r.GetInt64(5)
         MTimeUnix     = r.GetInt64(6)
-        CreatedAtUnix = 0L  // populated after Phase 3 adds created_at_unix column
         IsOrphaned    = r.GetInt32(7) = 1
         OrphanedAt    = if r.IsDBNull(8) then None else Some(r.GetInt64(8))
+        CreatedAtUnix = r.GetInt64(9)
     }
 
 // ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ let executeSearch (c: SqliteConnection) (query: SearchQuery) : Async<AssetFile l
         let sql = StringBuilder()
         sql.Append("""
             SELECT f.id, f.path, f.filename, f.folder, f.extension,
-                   f.size, f.modified_time, f.is_orphaned, f.orphaned_at
+                   f.size, f.modified_time, f.is_orphaned, f.orphaned_at, f.created_at_unix
             FROM files f
         """) |> ignore
 

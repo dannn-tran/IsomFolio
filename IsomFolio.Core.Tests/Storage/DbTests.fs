@@ -4,7 +4,10 @@ open System
 open System.IO
 open Xunit
 open IsomFolio.Core.Models
+open IsomFolio.Core.Metadata
+open IsomFolio.Core.Metadata.Xmp
 open IsomFolio.Core.Storage
+open IsomFolio.Core.Search
 open IsomFolio.Core.Indexing
 
 let private openTestDb () =
@@ -192,4 +195,59 @@ module ReconcileFolder =
                 Assert.Equal(1, orphaned.Length)
             finally
                 Directory.Delete(dir, true)
+        } |> Async.RunSynchronously
+
+
+module UpsertMetadata =
+
+    let private makeMetaWithRating (rating: int) : EmbeddedMetadata =
+        {
+            Xmp = Some {
+                Core = { XmpCore.empty with Rating = Some rating }
+                DublinCore = { DublinCore.empty with Subject = [ "nature"; "travel" ] }
+            }
+            AppleMetadata = None
+        }
+
+    [<Fact>]
+    let ``persists rating and subjects`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertMetadata c f.Id (makeMetaWithRating 3)
+            use cmd = c.CreateCommand()
+            cmd.CommandText <- "SELECT rating, subjects FROM metadata WHERE file_id = @id"
+            cmd.Parameters.AddWithValue("@id", f.Id) |> ignore
+            use reader = cmd.ExecuteReader()
+            Assert.True(reader.Read())
+            Assert.Equal(3, reader.GetInt32(0))
+            let subjects = System.Text.Json.JsonSerializer.Deserialize<string list>(reader.GetString(1))
+            Assert.Equivalent([ "nature"; "travel" ], subjects)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``upsert is idempotent`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertMetadata c f.Id (makeMetaWithRating 4)
+            do! Db.upsertMetadata c f.Id (makeMetaWithRating 5)
+            use cmd = c.CreateCommand()
+            cmd.CommandText <- "SELECT COUNT(*) FROM metadata WHERE file_id = @id"
+            cmd.Parameters.AddWithValue("@id", f.Id) |> ignore
+            let count = cmd.ExecuteScalar() :?> int64
+            Assert.Equal(1L, count)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``subjects appear in FTS index`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertMetadata c f.Id (makeMetaWithRating 3)
+            let! ids = FTS.searchFts5 c "nature"
+            Assert.Contains(f.Id, ids)
         } |> Async.RunSynchronously
