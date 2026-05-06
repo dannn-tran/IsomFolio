@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Collections.Generic
 open IsomFolio.Core.Indexing.Types
+open IsomFolio.Core.FileIndex
 
 // Track when IsomFolio last wrote an XMP sidecar so we can suppress self-triggered events
 let private selfWrites = Dictionary<string, DateTime>()
@@ -22,6 +23,15 @@ let private isSelfWrite (path: string) =
             true
         | _ -> false)
 
+/// Resolve a .xmp path to the corresponding image path by checking each supported extension.
+/// Returns None if no supported image exists at that base path.
+let private resolveXmpToImage (xmpPath: string) : string option =
+    let basePath = Path.ChangeExtension(xmpPath, null)
+    [ "jpg"; "jpeg"; "png"; "webp"; "gif" ]
+    |> List.tryPick (fun ext ->
+        let candidate = basePath + "." + ext
+        if File.Exists(candidate) then Some candidate else None)
+
 /// Create a FileSystemWatcher for rootPath that fires debounced FileEvents via dispatch.
 /// The returned watcher is already started; call stopWatcher to dispose it.
 let createWatcher (rootPath: string) (dispatch: FileEvent -> unit) : FileSystemWatcher =
@@ -33,7 +43,8 @@ let createWatcher (rootPath: string) (dispatch: FileEvent -> unit) : FileSystemW
         if not (isSelfWrite (
             match event with
             | Created p | Deleted p | Modified p -> p
-            | Renamed(_, np) -> np)) then
+            | Renamed(_, np) -> np
+            | SidecarChanged p | SidecarRemoved p -> p)) then
             dispatch event
 
     let debounce (path: string) (event: FileEvent) =
@@ -55,9 +66,27 @@ let createWatcher (rootPath: string) (dispatch: FileEvent -> unit) : FileSystemW
     watcher.NotifyFilter          <-
         NotifyFilters.LastWrite ||| NotifyFilters.FileName ||| NotifyFilters.DirectoryName
 
-    watcher.Created.Add(fun e -> debounce e.FullPath (Created e.FullPath))
-    watcher.Deleted.Add(fun e -> debounce e.FullPath (Deleted e.FullPath))
-    watcher.Changed.Add(fun e -> debounce e.FullPath (Modified e.FullPath))
+    watcher.Created.Add(fun e ->
+        if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
+            resolveXmpToImage e.FullPath
+            |> Option.iter (fun imgPath -> fire (SidecarChanged imgPath) ())
+        else
+            debounce e.FullPath (Created e.FullPath))
+
+    watcher.Deleted.Add(fun e ->
+        if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
+            resolveXmpToImage e.FullPath
+            |> Option.iter (fun imgPath -> fire (SidecarRemoved imgPath) ())
+        else
+            debounce e.FullPath (Deleted e.FullPath))
+
+    watcher.Changed.Add(fun e ->
+        if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
+            resolveXmpToImage e.FullPath
+            |> Option.iter (fun imgPath -> fire (SidecarChanged imgPath) ())
+        else
+            debounce e.FullPath (Modified e.FullPath))
+
     watcher.Renamed.Add(fun e -> debounce e.FullPath (Renamed(e.OldFullPath, e.FullPath)))
 
     watcher.Error.Add(fun e ->

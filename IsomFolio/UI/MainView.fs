@@ -525,6 +525,28 @@ let private handleFileEvent (catalogPath: string) (state: State) (event: FileEve
     | Modified path when isSupportedExtension (System.IO.Path.GetExtension path) ->
         let folder = System.IO.Path.GetDirectoryName path |> normalizePath
         { state with PendingFolders = state.PendingFolders |> Set.add folder }, Cmd.none
+    | SidecarChanged imagePath | SidecarRemoved imagePath ->
+        let fileId = computeFileId (normalizePath imagePath)
+        let isDetailFile = state.Detail.File |> Option.map (fun f -> f.Id = fileId) = Some true
+        state,
+        Cmd.OfAsync.either
+            (fun () ->
+                withCatalogDb catalogPath (fun dbConn ->
+                    async {
+                        let! results = Scanner.refreshMetadata [ imagePath ]
+                        match results with
+                        | (_, meta) :: _ ->
+                            do! Db.upsertMetadata dbConn fileId meta
+                            return if isDetailFile then Some meta else None
+                        | [] ->
+                            return None
+                    }))
+            ()
+            (fun metaOpt ->
+                match metaOpt with
+                | Some meta -> DetailMsg (DetailPanel.MetadataLoaded (Some meta))
+                | None -> NoOp)
+            (fun ex -> AppError (ScanError ex.Message))
     | _ -> state, Cmd.none
 
 let update (msg: Msg) (state: State) : State * Cmd<Msg> =
