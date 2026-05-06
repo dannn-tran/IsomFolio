@@ -58,6 +58,15 @@ module EmbeddedMetadata =
             return { Xmp = xmp; AppleMetadata = apple }
         }
 
+    /// Apply sidecar-wins to a MetadataSources to produce the equivalent EmbeddedMetadata.
+    /// Used for staleness comparison: if this differs from the DB-cached value, the cache is stale.
+    let ofSources (sources: MetadataSources) : EmbeddedMetadata =
+        let xmp =
+            match sources.Sidecar with
+            | Some _ -> sources.Sidecar
+            | None   -> sources.Embedded
+        { Xmp = xmp; AppleMetadata = sources.Apple }
+
     /// Reads all sources in parallel with no sidecar-wins logic.
     /// Takes a FileInfo to avoid a redundant stat — caller must already have it.
     /// For on-demand source view only; not used in the scan hot path.
