@@ -34,15 +34,16 @@ let openDatabase (dbPath: string) : Async<SqliteConnection> =
 
 let private readAssetFile (reader: SqliteDataReader) : AssetFile =
     {
-        Id         = reader.GetString(0)
-        Path       = reader.GetString(1)
-        Name       = reader.GetString(2)
-        Folder     = reader.GetString(3)
-        Ext        = reader.GetString(4)
-        SizeBytes  = reader.GetInt64(5)
-        MTimeUnix  = reader.GetInt64(6)
-        IsOrphaned = reader.GetInt32(7) = 1
-        OrphanedAt = if reader.IsDBNull(8) then None else Some(reader.GetInt64(8))
+        Id            = reader.GetString(0)
+        Path          = reader.GetString(1)
+        Name          = reader.GetString(2)
+        Folder        = reader.GetString(3)
+        Ext           = reader.GetString(4)
+        SizeBytes     = reader.GetInt64(5)
+        MTimeUnix     = reader.GetInt64(6)
+        CreatedAtUnix = 0L  // populated after Phase 3 adds created_at_unix column
+        IsOrphaned    = reader.GetInt32(7) = 1
+        OrphanedAt    = if reader.IsDBNull(8) then None else Some(reader.GetInt64(8))
     }
 
 let private descendantPrefix (rootFolder: string) =

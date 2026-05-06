@@ -24,15 +24,16 @@ let private descendantPrefix (folderPath: string) =
 
 let private readAssetFile (r: SqliteDataReader) : AssetFile =
     {
-        Id         = r.GetString(0)
-        Path       = r.GetString(1)
-        Name       = r.GetString(2)
-        Folder     = r.GetString(3)
-        Ext        = r.GetString(4)
-        SizeBytes  = r.GetInt64(5)
-        MTimeUnix  = r.GetInt64(6)
-        IsOrphaned = r.GetInt32(7) = 1
-        OrphanedAt = if r.IsDBNull(8) then None else Some(r.GetInt64(8))
+        Id            = r.GetString(0)
+        Path          = r.GetString(1)
+        Name          = r.GetString(2)
+        Folder        = r.GetString(3)
+        Ext           = r.GetString(4)
+        SizeBytes     = r.GetInt64(5)
+        MTimeUnix     = r.GetInt64(6)
+        CreatedAtUnix = 0L  // populated after Phase 3 adds created_at_unix column
+        IsOrphaned    = r.GetInt32(7) = 1
+        OrphanedAt    = if r.IsDBNull(8) then None else Some(r.GetInt64(8))
     }
 
 // ---------------------------------------------------------------------------

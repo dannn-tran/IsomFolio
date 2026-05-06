@@ -16,7 +16,7 @@ open Microsoft.Data.Sqlite
 
 type ScannedFile = {
     Asset    : AssetFile
-    Metadata : FileMetadata
+    Metadata : EmbeddedMetadata
 }
 
 /// Describes the work to perform per file path. Returns None for unsupported or unreadable files.
@@ -38,7 +38,7 @@ let defaultJob : ScanJob = fun path ->
         match fileAsset with
         | None -> return None
         | Some asset ->
-            let! meta = FileMetadata.read path
+            let! meta = EmbeddedMetadata.read path
             return Some { Asset = asset; Metadata = meta }
     }
 

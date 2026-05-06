@@ -8,15 +8,16 @@ open IsomFolio.UI
 let private makeFile (name: string) : AssetFile =
     let path = $"/photos/{name}.jpg"
     {
-        Id = IsomFolio.Core.FileIndex.computeFileId path
-        Path = path
-        Name = $"{name}.jpg"
-        Folder = "/photos"
-        Ext = "jpg"
-        SizeBytes = 1024L
-        MTimeUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-        IsOrphaned = false
-        OrphanedAt = None
+        Id            = IsomFolio.Core.FileIndex.computeFileId path
+        Path          = path
+        Name          = $"{name}.jpg"
+        Folder        = "/photos"
+        Ext           = "jpg"
+        SizeBytes     = 1024L
+        MTimeUnix     = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        CreatedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        IsOrphaned    = false
+        OrphanedAt    = None
     }
 
 module SelectionStability =

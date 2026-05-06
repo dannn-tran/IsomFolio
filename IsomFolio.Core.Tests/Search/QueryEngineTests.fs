@@ -16,15 +16,16 @@ let private openTestDb () =
 let private makeFile (name: string) (folder: string) (ext: string) : AssetFile =
     let path = $"{folder}/{name}.{ext}"
     {
-        Id         = IsomFolio.Core.FileIndex.computeFileId path
-        Path       = path
-        Name       = $"{name}.{ext}"
-        Folder     = folder
-        Ext        = ext
-        SizeBytes  = 1024L
-        MTimeUnix  = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-        IsOrphaned = false
-        OrphanedAt = None
+        Id            = IsomFolio.Core.FileIndex.computeFileId path
+        Path          = path
+        Name          = $"{name}.{ext}"
+        Folder        = folder
+        Ext           = ext
+        SizeBytes     = 1024L
+        MTimeUnix     = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        CreatedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        IsOrphaned    = false
+        OrphanedAt    = None
     }
 
 let private defaultQuery = {

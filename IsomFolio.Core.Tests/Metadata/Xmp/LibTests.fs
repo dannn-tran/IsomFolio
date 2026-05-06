@@ -51,7 +51,7 @@ module GetEmbedded =
             File.Delete(path)
 
 
-module FileMetadataRead =
+module EmbeddedMetadataRead =
 
     [<Fact>]
     let ``sidecar wins over embedded — embedded probe skipped when sidecar present`` () =
@@ -61,7 +61,7 @@ module FileMetadataRead =
         try
             File.WriteAllBytes(imagePath, stubJpeg)
             File.WriteAllText(sidecarPath, xmpPacketWithRating 5)
-            let meta = FileMetadata.read imagePath |> Async.RunSynchronously
+            let meta = EmbeddedMetadata.read imagePath |> Async.RunSynchronously
             match meta.Xmp with
             | Some xmp -> Assert.Equal(Some 5, xmp.Core.Rating)
             | None -> Assert.Fail("Expected sidecar XMP")
