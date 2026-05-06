@@ -76,20 +76,28 @@ module XmpMetadata =
             DublinCore = xmp |> DublinCore.fromXmp
         }
 
+    let private hasEmbeddedXmp (stream: IO.Stream) =
+        let buf = Array.zeroCreate 4096
+        let n = stream.Read(buf, 0, buf.Length)
+        stream.Seek(0L, IO.SeekOrigin.Begin) |> ignore
+        ReadOnlySpan<byte>(buf, 0, n).IndexOf(ReadOnlySpan<byte>("http://ns.adobe.com/xap/1.0/"B)) >= 0
+
     let getEmbedded (assetPath: string): Result<XmpMetadata option, exn> =
         if not (File.Exists(assetPath)) then
             Error (FileNotFoundException assetPath)
         else
             use stream = File.OpenRead assetPath
-            try
-                Ok (ImageMetadataReader.ReadMetadata stream)
-            with e -> Error e
-            |> Result.map (fun d ->
-                d
-                |> Seq.tryPick (function
-                    | :? XmpDirectory as xmpDir -> Some xmpDir
-                    | _ -> None)
-                |> Option.map (fun xmpDir -> xmpDir.XmpMeta |> fromXmp))
+            if not (hasEmbeddedXmp stream) then Ok None
+            else
+                try
+                    Ok (ImageMetadataReader.ReadMetadata stream)
+                with e -> Error e
+                |> Result.map (fun d ->
+                    d
+                    |> Seq.tryPick (function
+                        | :? XmpDirectory as xmpDir -> Some xmpDir
+                        | _ -> None)
+                    |> Option.map (fun xmpDir -> xmpDir.XmpMeta |> fromXmp))
 
     let getSidecar (assetPath: string): Result<XmpMetadata option, exn> =
         let xmpPath = Path.ChangeExtension(assetPath, ".xmp")
