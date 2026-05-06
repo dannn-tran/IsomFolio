@@ -2,9 +2,12 @@ module IsomFolio.Core.Storage.Db
 
 open System
 open System.IO
+open System.Text.Json
 open Microsoft.Data.Sqlite
 open IsomFolio.Core.Models
+open IsomFolio.Core.Metadata
 open IsomFolio.Core.PathUtils
+open IsomFolio.Core.Search
 
 // ---------------------------------------------------------------------------
 // Init
@@ -21,6 +24,12 @@ let openDatabase (dbPath: string) : Async<SqliteConnection> =
                 use cmd = c.CreateCommand()
                 cmd.CommandText <- trimmed
                 cmd.ExecuteNonQuery() |> ignore
+        for migration in Schema.migrations do
+            try
+                use cmd = c.CreateCommand()
+                cmd.CommandText <- migration
+                cmd.ExecuteNonQuery() |> ignore
+            with _ -> ()  // already applied — safe to ignore
         for ddl in Schema.allDdl do
             use cmd = c.CreateCommand()
             cmd.CommandText <- ddl
@@ -41,9 +50,9 @@ let private readAssetFile (reader: SqliteDataReader) : AssetFile =
         Ext           = reader.GetString(4)
         SizeBytes     = reader.GetInt64(5)
         MTimeUnix     = reader.GetInt64(6)
-        CreatedAtUnix = 0L  // populated after Phase 3 adds created_at_unix column
         IsOrphaned    = reader.GetInt32(7) = 1
         OrphanedAt    = if reader.IsDBNull(8) then None else Some(reader.GetInt64(8))
+        CreatedAtUnix = reader.GetInt64(9)
     }
 
 let private descendantPrefix (rootFolder: string) =
@@ -66,20 +75,21 @@ let upsertFiles (c: SqliteConnection) (files: AssetFile list) : Async<int> =
                 cmd.Transaction <- tx
                 cmd.CommandText <- """
                     INSERT OR REPLACE INTO files
-                        (id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at)
+                        (id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, created_at_unix)
                     VALUES
-                        (@id, @path, @filename, @folder, @ext, @size, @mtime, @orphaned, @orphanedAt)
+                        (@id, @path, @filename, @folder, @ext, @size, @mtime, @orphaned, @orphanedAt, @createdAt)
                 """
-                cmd.Parameters.AddWithValue("@id",        f.Id)        |> ignore
-                cmd.Parameters.AddWithValue("@path",      f.Path)      |> ignore
-                cmd.Parameters.AddWithValue("@filename",  f.Name)      |> ignore
-                cmd.Parameters.AddWithValue("@folder",    f.Folder)    |> ignore
-                cmd.Parameters.AddWithValue("@ext",       f.Ext)       |> ignore
-                cmd.Parameters.AddWithValue("@size",      f.SizeBytes) |> ignore
-                cmd.Parameters.AddWithValue("@mtime",     f.MTimeUnix) |> ignore
+                cmd.Parameters.AddWithValue("@id",        f.Id)              |> ignore
+                cmd.Parameters.AddWithValue("@path",      f.Path)            |> ignore
+                cmd.Parameters.AddWithValue("@filename",  f.Name)            |> ignore
+                cmd.Parameters.AddWithValue("@folder",    f.Folder)          |> ignore
+                cmd.Parameters.AddWithValue("@ext",       f.Ext)             |> ignore
+                cmd.Parameters.AddWithValue("@size",      f.SizeBytes)       |> ignore
+                cmd.Parameters.AddWithValue("@mtime",     f.MTimeUnix)       |> ignore
                 cmd.Parameters.AddWithValue("@orphaned",  if f.IsOrphaned then 1 else 0) |> ignore
                 cmd.Parameters.AddWithValue("@orphanedAt",
                     match f.OrphanedAt with Some v -> box v | None -> box DBNull.Value) |> ignore
+                cmd.Parameters.AddWithValue("@createdAt", f.CreatedAtUnix)   |> ignore
                 total <- total + cmd.ExecuteNonQuery()
             tx.Commit()
         return total
@@ -89,7 +99,7 @@ let getFilesByFolder (c: SqliteConnection) (folder: string) : Async<AssetFile li
     async {
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
-            SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
+            SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, created_at_unix
             FROM files
             WHERE folder = @folder AND is_orphaned = 0
             ORDER BY filename
@@ -107,7 +117,7 @@ let getFilesByFolderRecursive (c: SqliteConnection) (rootFolder: string) : Async
         let rootFolder = normalizePath rootFolder
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
-            SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
+            SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, created_at_unix
             FROM files
             WHERE (folder = @folder OR folder LIKE @prefix) AND is_orphaned = 0
             ORDER BY filename
@@ -125,7 +135,7 @@ let getFileById (c: SqliteConnection) (fileId: FileId) : Async<AssetFile option>
     async {
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
-            SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
+            SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, created_at_unix
             FROM files WHERE id = @id
         """
         cmd.Parameters.AddWithValue("@id", fileId) |> ignore
@@ -173,17 +183,18 @@ let updateFilePath (c: SqliteConnection) (oldPath: string) (newFile: AssetFile) 
         cmd.CommandText <- """
             UPDATE files
             SET id = @newId, path = @newPath, filename = @filename, folder = @folder,
-                extension = @ext, size = @size, modified_time = @mtime
+                extension = @ext, size = @size, modified_time = @mtime, created_at_unix = @createdAt
             WHERE path = @oldPath
         """
-        cmd.Parameters.AddWithValue("@newId",    newFile.Id)        |> ignore
-        cmd.Parameters.AddWithValue("@newPath",  newFile.Path)      |> ignore
-        cmd.Parameters.AddWithValue("@filename", newFile.Name)      |> ignore
-        cmd.Parameters.AddWithValue("@folder",   newFile.Folder)    |> ignore
-        cmd.Parameters.AddWithValue("@ext",      newFile.Ext)       |> ignore
-        cmd.Parameters.AddWithValue("@size",     newFile.SizeBytes) |> ignore
-        cmd.Parameters.AddWithValue("@mtime",    newFile.MTimeUnix) |> ignore
-        cmd.Parameters.AddWithValue("@oldPath",  oldPath)           |> ignore
+        cmd.Parameters.AddWithValue("@newId",     newFile.Id)            |> ignore
+        cmd.Parameters.AddWithValue("@newPath",   newFile.Path)          |> ignore
+        cmd.Parameters.AddWithValue("@filename",  newFile.Name)          |> ignore
+        cmd.Parameters.AddWithValue("@folder",    newFile.Folder)        |> ignore
+        cmd.Parameters.AddWithValue("@ext",       newFile.Ext)           |> ignore
+        cmd.Parameters.AddWithValue("@size",      newFile.SizeBytes)     |> ignore
+        cmd.Parameters.AddWithValue("@mtime",     newFile.MTimeUnix)     |> ignore
+        cmd.Parameters.AddWithValue("@createdAt", newFile.CreatedAtUnix) |> ignore
+        cmd.Parameters.AddWithValue("@oldPath",   oldPath)               |> ignore
         cmd.ExecuteNonQuery() |> ignore
     }
 
@@ -291,7 +302,7 @@ let getIndexedPathsInFolder (c: SqliteConnection) (rootFolder: string) : Async<M
         let rootFolder = normalizePath rootFolder
         use cmd = c.CreateCommand()
         cmd.CommandText <- """
-            SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at
+            SELECT id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, created_at_unix
             FROM files
             WHERE folder = @folder OR folder LIKE @prefix
         """
@@ -303,4 +314,56 @@ let getIndexedPathsInFolder (c: SqliteConnection) (rootFolder: string) : Async<M
             let f = readAssetFile reader
             results[f.Path] <- f
         return results |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+    }
+
+// ---------------------------------------------------------------------------
+// Metadata
+// ---------------------------------------------------------------------------
+
+let private jsonList (xs: string list) = JsonSerializer.Serialize(xs)
+
+/// Upsert XMP/Apple metadata for a file. Updates the FTS tags column with
+/// subjects + apple_tags merged with user-defined tags (deduped).
+let upsertMetadata (c: SqliteConnection) (fileId: FileId) (meta: EmbeddedMetadata) : Async<unit> =
+    async {
+        let xmpCore = meta.Xmp |> Option.map (fun x -> x.Core)
+        let xmpDc   = meta.Xmp |> Option.map (fun x -> x.DublinCore)
+        let apple   = meta.AppleMetadata
+
+        let subjects  = xmpDc |> Option.map (fun x -> x.Subject) |> Option.defaultValue []
+        let creator   = xmpDc |> Option.map (fun x -> x.Creator) |> Option.defaultValue []
+        let appleTags = apple  |> Option.map (fun a -> a.UserTags |> List.map (fun t -> t.Text)) |> Option.defaultValue []
+
+        use tx = c.BeginTransaction()
+
+        use cmd = c.CreateCommand()
+        cmd.Transaction <- tx
+        cmd.CommandText <- """
+            INSERT OR REPLACE INTO metadata (file_id, rating, label, title, description, creator, subjects, apple_tags)
+            VALUES (@fileId, @rating, @label, @title, @description, @creator, @subjects, @appleTags)
+        """
+        let optBox (v: 'a option) = match v with Some x -> box x | None -> box DBNull.Value
+        cmd.Parameters.AddWithValue("@fileId",      fileId) |> ignore
+        cmd.Parameters.AddWithValue("@rating",      xmpCore |> Option.bind (fun x -> x.Rating)      |> optBox) |> ignore
+        cmd.Parameters.AddWithValue("@label",       xmpCore |> Option.bind (fun x -> x.Label)       |> optBox) |> ignore
+        cmd.Parameters.AddWithValue("@title",       xmpDc   |> Option.bind (fun x -> x.Title)       |> optBox) |> ignore
+        cmd.Parameters.AddWithValue("@description", xmpDc   |> Option.bind (fun x -> x.Description) |> optBox) |> ignore
+        cmd.Parameters.AddWithValue("@creator",     jsonList creator)   |> ignore
+        cmd.Parameters.AddWithValue("@subjects",    jsonList subjects)  |> ignore
+        cmd.Parameters.AddWithValue("@appleTags",   jsonList appleTags) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+
+        tx.Commit()
+
+        // Merge metadata text with user-defined tags for FTS search
+        let! userTags = getTagsForFile c fileId
+        let ftsTokens =
+            [ yield! userTags
+              yield! subjects
+              yield! appleTags
+              yield! (xmpDc |> Option.bind (fun x -> x.Title)       |> Option.toList)
+              yield! (xmpDc |> Option.bind (fun x -> x.Description) |> Option.toList)
+              yield! creator ]
+            |> List.distinct
+        do! FTS.updateFileIndexTags c fileId ftsTokens
     }
