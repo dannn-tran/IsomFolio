@@ -325,6 +325,57 @@ module PendingFolders =
         Assert.DoesNotContain("/photos/summer", nextState.PendingFolders)
         Assert.Contains("/other", nextState.PendingFolders)
 
+module SidecarEvents =
+
+    [<Fact>]
+    let ``SidecarChanged does not add to PendingFolders`` () =
+        let state = makeState "/catalog"
+        let nextState, _ =
+            MainView.update (MainView.FileEventReceived (SidecarChanged "/photos/beach.jpg")) state
+        Assert.Empty(nextState.PendingFolders)
+
+    [<Fact>]
+    let ``SidecarRemoved does not add to PendingFolders`` () =
+        let state = makeState "/catalog"
+        let nextState, _ =
+            MainView.update (MainView.FileEventReceived (SidecarRemoved "/photos/beach.jpg")) state
+        Assert.Empty(nextState.PendingFolders)
+
+    [<Fact>]
+    let ``SidecarChanged dispatches MetadataLoaded for the currently selected file`` () =
+        async {
+            let! (catalogPath, conn) = openTestCatalog ()
+            use _ = conn
+            let tempDir = Path.Combine(Path.GetTempPath(), $"isomfolio_sidecar_{Guid.NewGuid():N}")
+            Directory.CreateDirectory(tempDir) |> ignore
+            try
+                let imagePath = Path.Combine(tempDir, "beach.jpg")
+                File.WriteAllBytes(imagePath, [| 0xFFuy; 0xD8uy; 0xFFuy; 0xD9uy |])
+                let fileId = IsomFolio.Core.FileIndex.computeFileId (IsomFolio.Core.PathUtils.normalizePath imagePath)
+                let file = {
+                    Id            = fileId
+                    Path          = imagePath
+                    Name          = "beach.jpg"
+                    Folder        = tempDir
+                    Ext           = "jpg"
+                    SizeBytes     = 4L
+                    MTimeUnix     = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                    CreatedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                    IsOrphaned    = false
+                    OrphanedAt    = None
+                }
+                let! _ = Db.upsertFiles conn [ file ]
+                let detailState = DetailPanel.update (DetailPanel.FileSelected file) (DetailPanel.init ())
+                let state = { makeState catalogPath with Detail = detailState }
+                let _, cmd = MainView.update (MainView.FileEventReceived (SidecarChanged imagePath)) state
+                let! msgs = execCmd cmd
+                Assert.True(msgs |> List.exists (function
+                    | MainView.DetailMsg (DetailPanel.MetadataLoaded _) -> true
+                    | _ -> false))
+            finally
+                Directory.Delete(tempDir, true)
+        } |> Async.RunSynchronously
+
 module SidebarFolderRemoval =
 
     [<Fact>]

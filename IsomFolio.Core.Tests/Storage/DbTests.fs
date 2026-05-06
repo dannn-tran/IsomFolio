@@ -204,6 +204,35 @@ module ReconcileFolder =
                 Directory.Delete(dir, true)
         } |> Async.RunSynchronously
 
+    [<Fact>]
+    let ``detects sidecar newer than indexed image`` () =
+        async {
+            let! c = openTestDb ()
+            let dir = Path.Combine(Path.GetTempPath(), $"isomfolio_scan_{Guid.NewGuid():N}")
+            Directory.CreateDirectory(dir) |> ignore
+            let imgPath = Path.Combine(dir, "photo.jpg")
+            File.WriteAllBytes(imgPath, [| 0xFFuy; 0xD8uy; 0xFFuy; 0xD9uy |])
+            try
+                let! _ =
+                    Scanner.scanFolder dir
+                        (fun batch -> async {
+                            let! _ = Db.upsertFiles c (batch |> List.map (fun sf -> sf.Asset))
+                            ()
+                        })
+                        ignore
+                let sidecarPath = Path.Combine(dir, "photo.xmp")
+                File.WriteAllText(sidecarPath, "<x:xmpmeta/>")
+                File.SetLastWriteTimeUtc(sidecarPath, File.GetLastWriteTimeUtc(imgPath).AddSeconds(2.0))
+
+                let! result = Scanner.reconcileFolder c dir
+                let normalize = IsomFolio.Core.PathUtils.normalizePath
+                Assert.Contains(
+                    normalize imgPath,
+                    result.SidecarChanged |> List.map normalize)
+            finally
+                Directory.Delete(dir, true)
+        } |> Async.RunSynchronously
+
 
 module UpsertMetadata =
 
@@ -257,4 +286,20 @@ module UpsertMetadata =
             do! Db.upsertMetadata c f.Id (makeMetaWithRating 3)
             let! ids = FTS.searchFts5 c "nature"
             Assert.Contains(f.Id, ids)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``getMetadata round-trips stored rating and subjects`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertMetadata c f.Id (makeMetaWithRating 4)
+            let! result = Db.getMetadata c f.Id
+            match result with
+            | Some meta ->
+                Assert.Equal(Some 4, meta.Xmp |> Option.bind (fun x -> x.Core.Rating))
+                let subjects = meta.Xmp |> Option.map (fun x -> x.DublinCore.Subject) |> Option.defaultValue []
+                Assert.Equivalent([ "nature"; "travel" ], subjects)
+            | None -> Assert.Fail("Expected Some metadata")
         } |> Async.RunSynchronously
