@@ -30,10 +30,11 @@ let assetFileFromInfo (fi: FileInfo) : AssetFile =
         Name       = fi.Name
         Folder     = normalizePath fi.DirectoryName
         Ext        = ext
-        SizeBytes  = fi.Length
-        MTimeUnix  = DateTimeOffset(fi.LastWriteTimeUtc).ToUnixTimeSeconds()
-        IsOrphaned = false
-        OrphanedAt = None
+        SizeBytes     = fi.Length
+        MTimeUnix     = DateTimeOffset(fi.LastWriteTimeUtc).ToUnixTimeSeconds()
+        CreatedAtUnix = DateTimeOffset(fi.CreationTimeUtc).ToUnixTimeSeconds()
+        IsOrphaned    = false
+        OrphanedAt    = None
     }
 
 /// tileSizePx returns the pixel size for a given TileSize

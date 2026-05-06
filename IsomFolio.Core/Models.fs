@@ -6,15 +6,16 @@ open System
 type FileId = string
 
 type AssetFile = {
-    Id          : FileId
-    Path        : string
-    Name        : string    // filename with extension
-    Folder      : string    // parent directory path
-    Ext         : string    // lowercase, no leading dot e.g. "jpg"
-    SizeBytes   : int64
-    MTimeUnix   : int64     // UTC Unix timestamp seconds
-    IsOrphaned  : bool
-    OrphanedAt  : int64 option
+    Id            : FileId
+    Path          : string
+    Name          : string    // filename with extension
+    Folder        : string    // parent directory path
+    Ext           : string    // lowercase, no leading dot e.g. "jpg"
+    SizeBytes     : int64
+    MTimeUnix     : int64     // UTC Unix timestamp seconds
+    CreatedAtUnix : int64     // UTC Unix timestamp seconds; unreliable on Linux
+    IsOrphaned    : bool
+    OrphanedAt    : int64 option
 }
 
 type ThumbnailState =

@@ -16,15 +16,16 @@ let private openTestDb () =
 let private sampleFile (n: int) : AssetFile =
     let path = $"/photos/test{n}.jpg"
     {
-        Id         = IsomFolio.Core.FileIndex.computeFileId path
-        Path       = path
-        Name       = $"test{n}.jpg"
-        Folder     = "/photos"
-        Ext        = "jpg"
-        SizeBytes  = int64 (n * 1024)
-        MTimeUnix  = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-        IsOrphaned = false
-        OrphanedAt = None
+        Id            = IsomFolio.Core.FileIndex.computeFileId path
+        Path          = path
+        Name          = $"test{n}.jpg"
+        Folder        = "/photos"
+        Ext           = "jpg"
+        SizeBytes     = int64 (n * 1024)
+        MTimeUnix     = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        CreatedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        IsOrphaned    = false
+        OrphanedAt    = None
     }
 
 let private createTempImageDir (count: int) =
