@@ -470,25 +470,6 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
             | Unloaded -> Some(state, Cmd.none)
         | _ -> None)
 
-let private handleTagMsg (catalogPath: string) (f: AssetFile) (state: State) (dMsg: DetailPanel.Msg) : (State * Cmd<Msg>) option =
-    match dMsg with
-    | DetailPanel.OpenExternally ->
-        let cmd = Cmd.ofEffect (fun _ ->
-            try System.Diagnostics.Process.Start(
-                    System.Diagnostics.ProcessStartInfo(f.Path, UseShellExecute = true)) |> ignore
-            with _ -> ())
-        Some(state, cmd)
-    | DetailPanel.RevealInExplorer ->
-        let cmd = Cmd.ofEffect (fun _ ->
-            try
-                if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) then
-                    System.Diagnostics.Process.Start("open", $"-R \"{f.Path}\"") |> ignore
-                elif System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
-                    System.Diagnostics.Process.Start("explorer", $"/select,\"{f.Path}\"") |> ignore
-            with _ -> ())
-        Some(state, cmd)
-    | _ -> None
-
 let private handleFileEvent (catalogPath: string) (state: State) (event: FileEvent) : State * Cmd<Msg> =
     match event with
     | Created path when isSupportedExtension (System.IO.Path.GetExtension path) ->
@@ -648,6 +629,31 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             (fun () -> ScanFinished 0)
             (fun ex -> AppError (DbError ex.Message))
 
+    | _, GridMsg (GridView.OpenExternally fileId) ->
+        let path = state.Grid.Tiles |> List.tryFind (fun t -> t.File.Id = fileId) |> Option.map (fun t -> t.File.Path)
+        state,
+        match path with
+        | None -> Cmd.none
+        | Some p ->
+            Cmd.ofEffect (fun _ ->
+                try System.Diagnostics.Process.Start(
+                        System.Diagnostics.ProcessStartInfo(p, UseShellExecute = true)) |> ignore
+                with _ -> ())
+
+    | _, GridMsg (GridView.RevealInExplorer fileId) ->
+        let path = state.Grid.Tiles |> List.tryFind (fun t -> t.File.Id = fileId) |> Option.map (fun t -> t.File.Path)
+        state,
+        match path with
+        | None -> Cmd.none
+        | Some p ->
+            Cmd.ofEffect (fun _ ->
+                try
+                    if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) then
+                        System.Diagnostics.Process.Start("open", $"-R \"{p}\"") |> ignore
+                    elif System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
+                        System.Diagnostics.Process.Start("explorer", $"/select,\"{p}\"") |> ignore
+                with _ -> ())
+
     | _, GridMsg gMsg ->
         { state with Grid = GridView.update gMsg state.Grid }, Cmd.none
 
@@ -655,9 +661,8 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         let newDetail = DetailPanel.update DetailPanel.SourceViewRequested state.Detail
         { state with Detail = newDetail }, loadSourceViewCmd f.Path f.Id
 
-    | { Catalog = OpenedCatalog(catalogPath); Detail = { File = Some f } }, DetailMsg dMsg ->
-        handleTagMsg catalogPath f state dMsg
-        |> Option.defaultWith (fun () -> { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none)
+    | { Catalog = OpenedCatalog(_) }, DetailMsg dMsg ->
+        { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none
 
     | _, DetailMsg dMsg ->
         { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none

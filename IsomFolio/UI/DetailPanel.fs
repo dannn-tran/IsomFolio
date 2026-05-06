@@ -23,8 +23,6 @@ type Msg =
     | FileSelected       of AssetFile
     | TagsLoaded         of string list
     | TagInputChanged    of string
-    | OpenExternally
-    | RevealInExplorer
     | Closed
     | MetadataLoaded     of EmbeddedMetadata option
     | MetadataViewToggled
@@ -72,8 +70,6 @@ let update (msg: Msg) (state: State) =
             | Some cached -> EmbeddedMetadata.ofSources sources <> cached
         { state with SourceView = Some sources; SourceViewStale = stale }
     | SourceViewFailed _   -> state
-    | OpenExternally
-    | RevealInExplorer     -> state   // handled by MainView
 
 let private formatBytes (bytes: int64) =
     if bytes < 1024L then $"{bytes} B"
@@ -262,28 +258,13 @@ let view (state: State) (dispatch: Msg -> unit) =
                                 else
                                     yield metadataSection state.EmbeddedMeta state.Tags dispatch
 
-                                yield StackPanel.create [
-                                    StackPanel.orientation Orientation.Horizontal
-                                    StackPanel.margin (Avalonia.Thickness(0.0, 12.0))
-                                    StackPanel.children [
-                                        Button.create [
-                                            Button.content "Open"
-                                            Button.margin (Avalonia.Thickness(0.0, 0.0, 4.0, 0.0))
-                                            Button.onClick (fun _ -> dispatch OpenExternally)
-                                        ]
-                                        Button.create [
-                                            Button.content "Reveal"
-                                            Button.margin (Avalonia.Thickness(0.0, 0.0, 4.0, 0.0))
-                                            Button.onClick (fun _ -> dispatch RevealInExplorer)
-                                        ]
-                                        Button.create [
-                                            Button.content (if state.ShowSourceView then "Basic" else "Sources")
-                                            Button.onClick (fun _ ->
-                                                dispatch MetadataViewToggled
-                                                if not state.ShowSourceView then
-                                                    dispatch SourceViewRequested)
-                                        ]
-                                    ]
+                                yield Button.create [
+                                    Button.content (if state.ShowSourceView then "Basic" else "Sources")
+                                    Button.margin (Avalonia.Thickness(0.0, 12.0))
+                                    Button.onClick (fun _ ->
+                                        dispatch MetadataViewToggled
+                                        if not state.ShowSourceView then
+                                            dispatch SourceViewRequested)
                                 ] :> Avalonia.FuncUI.Types.IView
                             ]
                         ])

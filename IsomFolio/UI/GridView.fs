@@ -1,5 +1,6 @@
 module IsomFolio.UI.GridView
 
+open System.Runtime.InteropServices
 open Avalonia.FuncUI.DSL
 open Avalonia.Controls
 open Avalonia.Layout
@@ -29,6 +30,8 @@ type Msg =
     | TileSelected                 of FileId
     | NavigateTo                   of NavDirection * int
     | RemoveOrphanedFileRequested  of FileId
+    | OpenExternally               of FileId
+    | RevealInExplorer             of FileId
 
 let init () = { Tiles = []; TileSize = Medium; SelectedId = None }
 
@@ -56,7 +59,9 @@ let update (msg: Msg) (state: State) =
         { state with Tiles = tiles }
     | TileSizeChanged ts  -> { state with TileSize = ts }
     | TileSelected id                    -> { state with SelectedId = Some id }
-    | RemoveOrphanedFileRequested _      -> state
+    | RemoveOrphanedFileRequested _
+    | OpenExternally _
+    | RevealInExplorer _               -> state
     | NavigateTo (dir, rowSize) ->
         if state.Tiles.IsEmpty then state
         else
@@ -92,24 +97,39 @@ let private tryLoadBitmap (path: string) : Bitmap option =
             Some bmp
         with _ -> None
 
+let private revealLabel =
+    if RuntimeInformation.IsOSPlatform(OSPlatform.OSX) then "Reveal in Finder"
+    elif RuntimeInformation.IsOSPlatform(OSPlatform.Windows) then "Reveal in Explorer"
+    else "Reveal in File Manager"
+
 let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Msg -> unit) =
     let px = float sizePx
+    let menuItems =
+        [
+            XMenuItem.create [
+                XMenuItem.header "Open"
+                XMenuItem.onClick (fun _ -> dispatch (OpenExternally model.File.Id))
+            ]
+            XMenuItem.create [
+                XMenuItem.header revealLabel
+                XMenuItem.onClick (fun _ -> dispatch (RevealInExplorer model.File.Id))
+            ]
+            if model.File.IsOrphaned then
+                XMenuItem.create [
+                    XMenuItem.header "Remove from catalog"
+                    XMenuItem.onClick (fun _ -> dispatch (RemoveOrphanedFileRequested model.File.Id))
+                ]
+        ]
     Border.create [
         Border.width px
         Border.height (px + 24.0)
         Border.margin (Avalonia.Thickness(4.0))
         Border.cornerRadius 4.0
         Border.background (if selected then SolidColorBrush(Theme.accent) else SolidColorBrush(Theme.tileBg))
-        if model.File.IsOrphaned then
-            XBorder.contextMenu (
-                XContextMenu.create [
-                    XContextMenu.viewItems [
-                        XMenuItem.create [
-                            XMenuItem.header "Remove from catalog"
-                            XMenuItem.onClick (fun _ -> dispatch (RemoveOrphanedFileRequested model.File.Id))
-                        ]
-                    ]
-                ])
+        XBorder.contextMenu (
+            XContextMenu.create [
+                XContextMenu.viewItems menuItems
+            ])
         Border.onTapped(
             (fun e ->
                 dispatch (TileSelected model.File.Id)
