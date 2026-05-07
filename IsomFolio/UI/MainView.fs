@@ -232,13 +232,6 @@ let private createWatcherCmd (folderPath: string) : Cmd<Msg> =
         activeWatchers <- w :: activeWatchers)
 
 
-let private loadFolderTreeCmd (folders: string list) : Cmd<Msg> =
-    Cmd.OfAsync.either
-        (fun () -> async { return FolderTree.buildForest folders })
-        ()
-        (Sidebar.FolderTreeLoaded >> SidebarMsg)
-        (fun ex -> AppError (ScanError ex.Message))
-
 let private normalizeFolders (folders: string list) =
     folders
     |> List.map IsomFolio.Core.PathUtils.normalizePath
@@ -246,6 +239,12 @@ let private normalizeFolders (folders: string list) =
         if acc |> List.exists (fun existing -> IsomFolio.Core.PathUtils.samePath existing path) then acc
         else acc @ [ path ]) []
 
+let private loadFolderTreeCmd (folders: string list) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () -> async { return FolderTree.buildForest folders })
+        ()
+        (Sidebar.FolderTreeLoaded >> SidebarMsg)
+        (fun ex -> AppError (ScanError ex.Message))
 
 let private applyReconcileResult (dbConn: Microsoft.Data.Sqlite.SqliteConnection) (result: ReconcileResult) =
     async {
@@ -265,18 +264,6 @@ let private applyReconcileResult (dbConn: Microsoft.Data.Sqlite.SqliteConnection
             let fileId = IsomFolio.Core.FileIndex.computeFileId (IsomFolio.Core.PathUtils.normalizePath path)
             do! Db.upsertMetadata dbConn fileId meta
     }
-
-let private reconcileFolderCmd (catalogPath: string) (folderPath: string) : Cmd<Msg> =
-    Cmd.OfAsync.either
-        (fun () ->
-            withCatalogDb catalogPath (fun dbConn ->
-                async {
-                    let! result = Scanner.reconcileFolder dbConn folderPath
-                    do! applyReconcileResult dbConn result
-                }))
-        ()
-        (fun () -> ScanFinished 0)
-        (fun ex -> AppError (ScanError ex.Message))
 
 let private resyncFolderCmd (catalogPath: string) (folderPath: string) : Cmd<Msg> =
     Cmd.OfAsync.either
@@ -424,11 +411,7 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
         | CatalogOpened (path, folders) ->
             let folders = normalizeFolders folders
             IsomFolio.Core.AppPaths.saveSession { CatalogPath = path; Folders = folders }
-            let perFolderCmds =
-                folders |> List.collect (fun f -> [ reconcileFolderCmd path f; createWatcherCmd f ])
-            let scanProgress =
-                if folders.IsEmpty then None
-                else Some { TotalFound = 0; Inserted = 0; FolderName = "Restoring…" }
+            let newId = state.SearchRequestId + 1
             Some(
                 { state with
                     Catalog         = OpenedCatalog(path)
@@ -438,12 +421,17 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                     Detail          = DetailPanel.init ()
                     SearchBar       = SearchBar.init ()
                     ActiveQuery     = defaultQuery
-                    ScanProgress    = scanProgress
-                    PendingFolders  = Set.empty
+                    ScanProgress    = None
+                    PendingFolders  = Set.ofList folders
                     TagBrowser      = None
                     Notifications   = []
-                    SearchRequestId = state.SearchRequestId + 1 },
-                Cmd.batch (manageWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
+                    SearchRequestId = newId },
+                Cmd.batch (
+                    manageWorkerCmd path
+                    :: startupCleanupCmd path
+                    :: loadFolderTreeCmd folders
+                    :: runSearch path newId defaultQuery
+                    :: (folders |> List.map createWatcherCmd)))
         | AddFolderRequested ->
             let cmd = Cmd.ofEffect (fun dispatch ->
                 let opts = Avalonia.Platform.Storage.FolderPickerOpenOptions(
@@ -481,64 +469,16 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
             | Unloaded -> Some(state, Cmd.none)
         | _ -> None)
 
-let private handleFileEvent (catalogPath: string) (state: State) (event: FileEvent) : State * Cmd<Msg> =
+let private handleFileEvent (state: State) (event: FileEvent) : State * Cmd<Msg> =
+    let markDirty (path: string) =
+        let folder = System.IO.Path.GetDirectoryName path |> normalizePath
+        { state with PendingFolders = state.PendingFolders |> Set.add folder }, Cmd.none
     match event with
-    | Created path when isSupportedExtension (System.IO.Path.GetExtension path) ->
-        let folder = System.IO.Path.GetDirectoryName path |> normalizePath
-        { state with PendingFolders = state.PendingFolders |> Set.add folder }, Cmd.none
-    | Deleted path ->
-        state,
-        Cmd.OfAsync.either
-            (fun () ->
-                withCatalogDb catalogPath (fun dbConn ->
-                    async {
-                        let folder = System.IO.Path.GetDirectoryName path
-                        let! indexed = Db.getIndexedPathsInFolder dbConn folder
-                        match indexed |> Map.tryFind (normalizePath path) with
-                        | Some f -> do! Db.markOrphaned dbConn f.Id
-                        | None   -> ()
-                    }))
-            ()
-            (fun () -> ScanFinished 0)
-            (fun ex -> AppError (ScanError ex.Message))
-    | Renamed(oldPath, newPath) when isSupportedExtension (System.IO.Path.GetExtension newPath) ->
-        state,
-        Cmd.OfAsync.either
-            (fun () ->
-                withCatalogDb catalogPath (fun dbConn ->
-                    async {
-                        let newFile = assetFileFromInfo (System.IO.FileInfo newPath)
-                        do! Db.updateFilePath dbConn (normalizePath oldPath) newFile
-                        enqueueThumbnails catalogPath [ newFile ] 1
-                    }))
-            ()
-            (fun () -> ScanFinished 0)
-            (fun ex -> AppError (ScanError ex.Message))
-    | Modified path when isSupportedExtension (System.IO.Path.GetExtension path) ->
-        let folder = System.IO.Path.GetDirectoryName path |> normalizePath
-        { state with PendingFolders = state.PendingFolders |> Set.add folder }, Cmd.none
-    | SidecarChanged imagePath | SidecarRemoved imagePath ->
-        let fileId = computeFileId (normalizePath imagePath)
-        let isDetailFile = state.Detail.File |> Option.map (fun f -> f.Id = fileId) = Some true
-        state,
-        Cmd.OfAsync.either
-            (fun () ->
-                withCatalogDb catalogPath (fun dbConn ->
-                    async {
-                        let! results = Scanner.refreshMetadata [ imagePath ]
-                        match results with
-                        | (_, meta) :: _ ->
-                            do! Db.upsertMetadata dbConn fileId meta
-                            return if isDetailFile then Some meta else None
-                        | [] ->
-                            return None
-                    }))
-            ()
-            (fun metaOpt ->
-                match metaOpt with
-                | Some meta -> DetailMsg (DetailPanel.MetadataLoaded (Some meta))
-                | None -> NoOp)
-            (fun ex -> AppError (ScanError ex.Message))
+    | Created path  when isSupportedExtension (System.IO.Path.GetExtension path) -> markDirty path
+    | Deleted path  when isSupportedExtension (System.IO.Path.GetExtension path) -> markDirty path
+    | Modified path when isSupportedExtension (System.IO.Path.GetExtension path) -> markDirty path
+    | Renamed(_, newPath) when isSupportedExtension (System.IO.Path.GetExtension newPath) -> markDirty newPath
+    | SidecarChanged imagePath | SidecarRemoved imagePath -> markDirty imagePath
     | _ -> state, Cmd.none
 
 let update (msg: Msg) (state: State) : State * Cmd<Msg> =
@@ -853,8 +793,8 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         { state with PendingFolders = newPending; SearchRequestId = newId },
         Cmd.batch [ runSearch catalogPath newId state.ActiveQuery; countOrphansCmd catalogPath ]
 
-    | { Catalog = OpenedCatalog(catalogPath) }, FileEventReceived event ->
-        handleFileEvent catalogPath state event
+    | { Catalog = OpenedCatalog _ }, FileEventReceived event ->
+        handleFileEvent state event
 
     | _, FileEventReceived _ | _, ResyncFolderRequested _ | _, FolderResynced _ | _, NoOp -> state, Cmd.none
 
