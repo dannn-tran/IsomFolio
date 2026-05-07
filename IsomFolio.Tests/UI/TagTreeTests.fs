@@ -175,3 +175,92 @@ module AddInput =
             |> update AddInputCancelled
         Assert.Empty(state.Roots)
         Assert.True(state.AddInput.IsNone)
+
+
+module AllTagsLoaded =
+
+    [<Fact>]
+    let ``stores tag list`` () =
+        let state = init () |> update (AllTagsLoaded [ "beach"; "travel" ])
+        Assert.Equal<string list>([ "beach"; "travel" ], state.AllTags)
+
+    [<Fact>]
+    let ``replaces previous list`` () =
+        let state =
+            init ()
+            |> update (AllTagsLoaded [ "old" ])
+            |> update (AllTagsLoaded [ "beach"; "travel" ])
+        Assert.Equal<string list>([ "beach"; "travel" ], state.AllTags)
+
+
+module SuggestionSelected =
+
+    [<Fact>]
+    let ``sets AddInput text to selected tag at root`` () =
+        let state =
+            { init () with AllTags = [ "beach"; "travel" ] }
+            |> update (AddInputOpened "")
+            |> update (SuggestionSelected "beach")
+        Assert.Equal(Some ("", "beach"), state.AddInput)
+
+    [<Fact>]
+    let ``strips parent prefix when under a parent`` () =
+        let state =
+            { init () with AllTags = [ "person/John"; "person/Jane" ] }
+            |> update (AddInputOpened "person")
+            |> update (SuggestionSelected "person/Jane")
+        Assert.Equal(Some ("person", "Jane"), state.AddInput)
+
+    [<Fact>]
+    let ``no-op when AddInput is closed`` () =
+        let state = init () |> update (SuggestionSelected "beach")
+        Assert.True(state.AddInput.IsNone)
+
+
+module Suggestions =
+
+    [<Fact>]
+    let ``returns empty list when AddInput is closed`` () =
+        let state = { init () with AllTags = [ "beach" ] }
+        Assert.Empty(suggestions state)
+
+    [<Fact>]
+    let ``returns empty list when text is blank`` () =
+        let state =
+            { init () with AllTags = [ "beach" ] }
+            |> update (AddInputOpened "")
+            |> update (AddInputChanged "  ")
+        Assert.Empty(suggestions state)
+
+    [<Fact>]
+    let ``filters by prefix match`` () =
+        let state =
+            { init () with AllTags = [ "beach"; "travel"; "beachside" ] }
+            |> update (AddInputOpened "")
+            |> update (AddInputChanged "bea")
+        Assert.Equal<string list>([ "beach"; "beachside" ], suggestions state)
+
+    [<Fact>]
+    let ``excludes already-tagged paths`` () =
+        let state =
+            { fromTagList [ "beach" ] with AllTags = [ "beach"; "travel" ] }
+            |> update (AddInputOpened "")
+            |> update (AddInputChanged "bea")
+        Assert.Equal<string list>([], suggestions state)
+
+    [<Fact>]
+    let ``limits results to 8`` () =
+        let tags = [ "a1"; "a2"; "a3"; "a4"; "a5"; "a6"; "a7"; "a8"; "a9"; "a10" ]
+        let state =
+            { init () with AllTags = tags }
+            |> update (AddInputOpened "")
+            |> update (AddInputChanged "a")
+        Assert.Equal(8, suggestions state |> List.length)
+
+    [<Fact>]
+    let ``filters by parent-prefixed path when under a parent`` () =
+        let state =
+            { init () with AllTags = [ "person/John"; "person/Jane"; "place/Paris" ] }
+            |> update (AddInputOpened "person")
+            |> update (AddInputChanged "J")
+        Assert.Equal<string list>([ "person/John"; "person/Jane" ], suggestions state)
