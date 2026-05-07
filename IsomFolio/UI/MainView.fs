@@ -36,6 +36,7 @@ type State = {
     Catalog         : CatalogState
     SearchRequestId : int
     PendingFolders  : Set<string>
+    TagBrowser      : TagBrowser.State option
 }
 
 type Msg =
@@ -43,6 +44,7 @@ type Msg =
     | GridMsg             of GridView.Msg
     | DetailMsg           of DetailPanel.Msg
     | SearchBarMsg        of SearchBar.Msg
+    | TagBrowserMsg       of TagBrowser.Msg
     | FolderOpened        of folderPath: string
     | ScanProgressUpdated of ScanProgress
     | ScanBatchCompleted  of AssetFile list
@@ -82,6 +84,7 @@ let init (w: Window) () : State * Cmd<Msg> =
         Catalog         = Unloaded
         SearchRequestId = 0
         PendingFolders  = Set.empty
+        TagBrowser      = None
     }
     let initCmd =
         match IsomFolio.Core.AppPaths.readLastSession() with
@@ -685,11 +688,74 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             ]
         { state with Detail = newDetail }, cmds
 
+    | { Catalog = OpenedCatalog(catalogPath) }, DetailMsg DetailPanel.TagBrowserRequested ->
+        { state with TagBrowser = Some (TagBrowser.init ()) },
+        Cmd.OfAsync.either
+            (fun () -> withCatalogDb catalogPath Db.getAllTags)
+            ()
+            (fun tags -> TagBrowserMsg (TagBrowser.TagsLoaded tags))
+            (fun ex -> AppError (DbError ex.Message))
+
     | { Catalog = OpenedCatalog(_) }, DetailMsg dMsg ->
         { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none
 
     | _, DetailMsg dMsg ->
         { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none
+
+    | _, TagBrowserMsg TagBrowser.Closed ->
+        { state with TagBrowser = None }, Cmd.none
+
+    | { Catalog = OpenedCatalog(catalogPath); TagBrowser = Some browser }, TagBrowserMsg TagBrowser.RenameSubmitted ->
+        match browser.RenameInput with
+        | None -> state, Cmd.none
+        | Some (oldTag, newText) ->
+            let newTag = newText.Trim()
+            if newTag = "" || newTag = oldTag then
+                { state with TagBrowser = Some (TagBrowser.update TagBrowser.RenameCancelled browser) }, Cmd.none
+            else
+                state,
+                Cmd.OfAsync.either
+                    (fun () -> async {
+                        let! _ = withCatalogDb catalogPath (fun c -> Db.renamePrefixedTags c oldTag newTag)
+                        return! withCatalogDb catalogPath Db.getAllTags
+                    })
+                    ()
+                    (fun tags -> TagBrowserMsg (TagBrowser.MutationCompleted tags))
+                    (fun ex -> AppError (DbError ex.Message))
+
+    | { Catalog = OpenedCatalog(catalogPath); TagBrowser = Some browser }, TagBrowserMsg TagBrowser.DeleteConfirmed ->
+        match browser.PendingDelete with
+        | None -> state, Cmd.none
+        | Some tag ->
+            state,
+            Cmd.OfAsync.either
+                (fun () -> async {
+                    let! _ = withCatalogDb catalogPath (fun c -> Db.deleteTagWithDescendants c tag)
+                    return! withCatalogDb catalogPath Db.getAllTags
+                })
+                ()
+                (fun tags -> TagBrowserMsg (TagBrowser.MutationCompleted tags))
+                (fun ex -> AppError (DbError ex.Message))
+
+    | { Catalog = OpenedCatalog(catalogPath); TagBrowser = Some _ }, TagBrowserMsg (TagBrowser.MutationCompleted tags) ->
+        let newBrowser = state.TagBrowser |> Option.map (TagBrowser.update (TagBrowser.MutationCompleted tags))
+        let newDetail = DetailPanel.update (DetailPanel.TagTreeMsg (TagTree.AllTagsLoaded (tags |> List.map fst))) state.Detail
+        let reloadTagsCmd =
+            match state.Detail.File with
+            | None -> Cmd.none
+            | Some f ->
+                Cmd.OfAsync.either
+                    (fun () -> withCatalogDb catalogPath (fun c -> Db.getTagsForFile c f.Id))
+                    ()
+                    (fun t -> DetailMsg (DetailPanel.TagsLoaded t))
+                    (fun ex -> AppError (DbError ex.Message))
+        { state with TagBrowser = newBrowser; Detail = newDetail }, reloadTagsCmd
+
+    | _, TagBrowserMsg bMsg ->
+        match state.TagBrowser with
+        | None -> state, Cmd.none
+        | Some browser ->
+            { state with TagBrowser = Some (TagBrowser.update bMsg browser) }, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath) }, SearchBarMsg (SearchBar.QuerySubmitted txt) ->
         let query = { state.ActiveQuery with Text = if txt.Trim() = "" then None else Some txt }
@@ -828,7 +894,7 @@ let private welcomeView (dispatch: Msg -> unit) =
         ]
     ] :> Avalonia.FuncUI.Types.IView
 
-let view (state: State) (dispatch: Msg -> unit) =
+let private mainPanel (state: State) (dispatch: Msg -> unit) =
     DockPanel.create [
         DockPanel.background (SolidColorBrush(Theme.mainBg))
         DockPanel.children [
@@ -938,5 +1004,21 @@ let view (state: State) (dispatch: Msg -> unit) =
                     ] :> Avalonia.FuncUI.Types.IView
                 ]
             ]
+        ]
+    ] :> Avalonia.FuncUI.Types.IView
+
+let view (state: State) (dispatch: Msg -> unit) =
+    Grid.create [
+        Grid.children [
+            yield mainPanel state dispatch
+            match state.TagBrowser with
+            | Some browser ->
+                yield Grid.create [
+                    Grid.background (SolidColorBrush(Avalonia.Media.Color.FromArgb(200uy, 0uy, 0uy, 0uy)))
+                    Grid.children [
+                        TagBrowser.view browser (TagBrowserMsg >> dispatch)
+                    ]
+                ] :> Avalonia.FuncUI.Types.IView
+            | None -> ()
         ]
     ] :> Avalonia.FuncUI.Types.IView

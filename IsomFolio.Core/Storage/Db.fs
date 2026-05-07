@@ -309,6 +309,25 @@ let renamePrefixedTags (c: SqliteConnection) (oldPrefix: string) (newPrefix: str
         return exactCount + prefixCount
     }
 
+/// Delete a tag and all its descendants across all files. Returns number of rows deleted.
+let deleteTagWithDescendants (c: SqliteConnection) (tag: string) : Async<int> =
+    async {
+        use tx = c.BeginTransaction()
+        use exactCmd = c.CreateCommand()
+        exactCmd.Transaction <- tx
+        exactCmd.CommandText <- "DELETE FROM tags WHERE tag = @tag"
+        exactCmd.Parameters.AddWithValue("@tag", tag) |> ignore
+        let exactCount = exactCmd.ExecuteNonQuery()
+        use prefixCmd = c.CreateCommand()
+        prefixCmd.Transaction <- tx
+        prefixCmd.CommandText <- "DELETE FROM tags WHERE tag LIKE @pattern ESCAPE '\\'"
+        let escaped = tag.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_")
+        prefixCmd.Parameters.AddWithValue("@pattern", escaped + "/%") |> ignore
+        let prefixCount = prefixCmd.ExecuteNonQuery()
+        tx.Commit()
+        return exactCount + prefixCount
+    }
+
 // ---------------------------------------------------------------------------
 // Misc
 // ---------------------------------------------------------------------------
