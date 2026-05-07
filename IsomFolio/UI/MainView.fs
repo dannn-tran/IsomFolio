@@ -52,7 +52,6 @@ type Msg =
     | ResyncFolderRequested    of folderPath: string
     | FolderResynced           of folderPath: string
     | TagsUpdated              of FileId * string list
-    | TagsSaved           of FileId * string list
     | AppError            of AppError
     | OrphanCountLoaded   of int
     | DismissNotification of System.DateTime
@@ -661,6 +660,17 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         let newDetail = DetailPanel.update DetailPanel.SourceViewRequested state.Detail
         { state with Detail = newDetail }, loadSourceViewCmd f.Path f.Id
 
+    | { Catalog = OpenedCatalog(catalogPath); Detail = { File = Some f } }, DetailMsg (DetailPanel.TagTreeMsg tMsg) when TagTree.isMutating tMsg ->
+        let newDetail = DetailPanel.update (DetailPanel.TagTreeMsg tMsg) state.Detail
+        let newTags = TagTree.flattenTree newDetail.TagTree.Roots
+        let saveCmd =
+            Cmd.OfAsync.either
+                (fun () -> withCatalogDb catalogPath (fun c -> Db.upsertTags c f.Id newTags))
+                ()
+                (fun () -> TagsUpdated (f.Id, newTags))
+                (fun ex -> AppError (DbError ex.Message))
+        { state with Detail = newDetail }, saveCmd
+
     | { Catalog = OpenedCatalog(_) }, DetailMsg dMsg ->
         { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none
 
@@ -720,12 +730,8 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | _, SearchCompleted _ ->
         state, Cmd.none
 
-    | _, TagsUpdated(fileId, tags) | _, TagsSaved(fileId, tags) ->
-        let newDetail =
-            if state.Detail.File |> Option.map _.Id = Some fileId
-            then DetailPanel.update (DetailPanel.TagsLoaded tags) state.Detail
-            else state.Detail
-        { state with Detail = newDetail }, Cmd.none
+    | _, TagsUpdated _ ->
+        state, Cmd.none
 
     | _, AppError err ->
         let msg = formatError err

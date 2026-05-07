@@ -11,6 +11,7 @@
         <Compile Include="UI\ContextMenuExt.fs" />
         <Compile Include="UI\Sidebar.fs" />
         <Compile Include="UI\GridView.fs" />
+        <Compile Include="UI\TagTree.fs" />
         <Compile Include="UI\DetailPanel.fs" />
         <Compile Include="UI\MainView.fs" />
         <Compile Include="Program.fs" />

@@ -39,29 +39,40 @@ let private isContextMenuTrigger (e: PointerPressedEventArgs) =
 
 // --- Materialization ---
 
+let private openMenu (def: XContextMenuAttr list) (source: obj) =
+    let menu = ContextMenu()
+    for attr in def do
+        match attr with
+        | Items itemDefs ->
+            for itemDef in itemDefs do
+                let item = MenuItem()
+                for ia in itemDef do
+                    match ia with
+                    | Header h        -> item.Header <- h
+                    | OnClick handler -> item.Click.Add(handler)
+                menu.Items.Add(item) |> ignore
+    match source with
+    | :? Control as c -> menu.Open(c)
+    | _ -> ()
+
 let private handle (def: XContextMenuAttr list) (e: PointerPressedEventArgs) =
     if isContextMenuTrigger e then
         e.Handled <- true
-        let menu = ContextMenu()
-        for attr in def do
-            match attr with
-            | Items itemDefs ->
-                for itemDef in itemDefs do
-                    let item = MenuItem()
-                    for ia in itemDef do
-                        match ia with
-                        | Header h          -> item.Header <- h
-                        | OnClick handler   -> item.Click.Add(handler)
-                    menu.Items.Add(item) |> ignore
-        match e.Source with
-        | :? Control as c -> menu.Open(c)
-        | _ -> ()
+        openMenu def e.Source
+
+let private handleLeftClick (def: XContextMenuAttr list) (e: PointerPressedEventArgs) =
+    let props = e.GetCurrentPoint(null).Properties
+    if props.PointerUpdateKind = PointerUpdateKind.LeftButtonPressed then
+        e.Handled <- true
+        openMenu def e.Source
 
 // --- Per-control attrs (mirrors Border.contextMenu / StackPanel.contextMenu) ---
 
 module XBorder =
     let contextMenu def =
         Border.onPointerPressed((fun e -> handle def e), SubPatchOptions.Always)
+    let dropdownMenu def =
+        Border.onPointerPressed((fun e -> handleLeftClick def e), SubPatchOptions.Always)
 
 module XStackPanel =
     let contextMenu def =

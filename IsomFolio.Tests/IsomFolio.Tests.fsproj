@@ -10,6 +10,7 @@
     <ItemGroup>
         <Compile Include="AssemblyInfo.fs" />
         <Compile Include="UI\GridViewTests.fs" />
+        <Compile Include="UI\TagTreeTests.fs" />
         <Compile Include="UI\DetailPanelTests.fs" />
         <Compile Include="UI\MainViewTests.fs" />
     </ItemGroup>

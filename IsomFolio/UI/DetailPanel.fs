@@ -7,22 +7,22 @@ open Avalonia.Layout
 open Avalonia.Media
 open IsomFolio.Core.Models
 open IsomFolio.Core.Metadata
+open IsomFolio.UI.ContextMenuExt
 
 type State = {
-    File           : AssetFile option
-    Tags           : string list
-    TagInput       : string
-    IsVisible      : bool
-    EmbeddedMeta   : EmbeddedMetadata option
-    SourceView     : MetadataSources option
-    SourceViewStale: bool
-    ShowSourceView : bool
+    File            : AssetFile option
+    TagTree         : TagTree.State
+    IsVisible       : bool
+    EmbeddedMeta    : EmbeddedMetadata option
+    SourceView      : MetadataSources option
+    SourceViewStale : bool
+    ShowSourceView  : bool
 }
 
 type Msg =
     | FileSelected       of AssetFile
     | TagsLoaded         of string list
-    | TagInputChanged    of string
+    | TagTreeMsg         of TagTree.Msg
     | Closed
     | MetadataLoaded     of EmbeddedMetadata option
     | MetadataViewToggled
@@ -32,8 +32,7 @@ type Msg =
 
 let init () = {
     File            = None
-    Tags            = []
-    TagInput        = ""
+    TagTree         = TagTree.init ()
     IsVisible       = false
     EmbeddedMeta    = None
     SourceView      = None
@@ -50,18 +49,21 @@ let update (msg: Msg) (state: State) =
         else
             { state with
                 File            = Some f
-                Tags            = []
-                TagInput        = ""
+                TagTree         = TagTree.init ()
                 IsVisible       = true
                 EmbeddedMeta    = None
                 SourceView      = None
                 SourceViewStale = false
                 ShowSourceView  = false }
-    | TagsLoaded ts        -> { state with Tags = ts }
-    | TagInputChanged t    -> { state with TagInput = t }
+    | TagsLoaded ts        -> { state with TagTree = TagTree.fromTagList ts }
+    | TagTreeMsg tMsg      -> { state with TagTree = TagTree.update tMsg state.TagTree }
     | Closed               -> { state with IsVisible = false }
     | MetadataLoaded meta  -> { state with EmbeddedMeta = meta }
-    | MetadataViewToggled  -> { state with ShowSourceView = not state.ShowSourceView; SourceView = None; SourceViewStale = false }
+    | MetadataViewToggled  ->
+        { state with
+            ShowSourceView  = not state.ShowSourceView
+            SourceView      = None
+            SourceViewStale = false }
     | SourceViewRequested  -> state
     | SourceViewLoaded sources ->
         let stale =
@@ -108,27 +110,7 @@ let private sectionHeader (text: string) =
         TextBlock.margin (Avalonia.Thickness(0.0, 12.0, 0.0, 4.0))
     ] :> Avalonia.FuncUI.Types.IView
 
-let private tagChip (tag: string) (dispatch: Msg -> unit) =
-    Border.create [
-        Border.cornerRadius 4.0
-        Border.background (SolidColorBrush(Theme.tagChipBg))
-        Border.margin (Avalonia.Thickness(0.0, 2.0, 4.0, 2.0))
-        Border.child (
-            StackPanel.create [
-                StackPanel.orientation Orientation.Horizontal
-                StackPanel.margin (Avalonia.Thickness(6.0, 3.0))
-                StackPanel.children [
-                    TextBlock.create [
-                        TextBlock.text tag
-                        TextBlock.foreground Brushes.White
-                        TextBlock.fontSize Theme.FontSize.sm
-                        TextBlock.verticalAlignment VerticalAlignment.Center
-                    ]
-                ]
-            ])
-    ] :> Avalonia.FuncUI.Types.IView
-
-let private metadataSection (meta: EmbeddedMetadata option) (tags: string list) (dispatch: Msg -> unit) =
+let private aggregatedSection (meta: EmbeddedMetadata option) (tagTree: TagTree.State) (dispatch: Msg -> unit) =
     let xmpCore = meta |> Option.bind (fun m -> m.Xmp) |> Option.map (fun x -> x.Core)
     let xmpDc   = meta |> Option.bind (fun m -> m.Xmp) |> Option.map (fun x -> x.DublinCore)
     let apple   = meta |> Option.bind (fun m -> m.AppleMetadata)
@@ -136,14 +118,8 @@ let private metadataSection (meta: EmbeddedMetadata option) (tags: string list) 
     let optRow label value =
         value |> Option.map (fun v -> metaRow label v) |> Option.toList
 
-    let allTags =
-        let subjects  = xmpDc |> Option.map (fun x -> x.Subject) |> Option.defaultValue []
-        let appleTags = apple |> Option.map (fun a -> a.UserTags |> List.map (fun t -> t.Text)) |> Option.defaultValue []
-        (tags @ subjects @ appleTags) |> List.distinct
-
     StackPanel.create [
         StackPanel.children [
-            yield sectionHeader "METADATA"
             yield! (xmpCore |> Option.bind (fun x -> x.Rating) |> Option.map (fun r -> metaRow "Rating" (String.replicate r "★" + String.replicate (5 - r) "☆")) |> Option.toList)
             yield! (optRow "Label"  (xmpCore |> Option.bind (fun x -> x.Label)))
             yield! (optRow "Title"  (xmpDc   |> Option.bind (fun x -> x.Title)))
@@ -151,29 +127,30 @@ let private metadataSection (meta: EmbeddedMetadata option) (tags: string list) 
             yield! (match xmpDc |> Option.map (fun x -> x.Creator) |> Option.defaultValue [] with
                     | [] -> []
                     | cs -> [ metaRow "Creator" (String.concat ", " cs) ])
-            if not allTags.IsEmpty then
-                yield sectionHeader "TAGS"
-                yield WrapPanel.create [
-                    WrapPanel.children [
-                        for tag in allTags do
-                            yield tagChip tag dispatch
-                    ]
-                ] :> Avalonia.FuncUI.Types.IView
+            match apple with
+            | Some a when not a.UserTags.IsEmpty ->
+                yield metaRow "OS Tags" (a.UserTags |> List.map (fun t -> t.Text) |> String.concat ", ")
+            | _ -> ()
+            yield sectionHeader "TAGS"
+            yield TagTree.view tagTree (TagTreeMsg >> dispatch)
         ]
     ] :> Avalonia.FuncUI.Types.IView
 
-let private sourceViewSection (sources: MetadataSources) (stale: bool) (dispatch: Msg -> unit) =
-    let xmpOpt label (xmp: Xmp.XmpMetadata option) =
-        match xmp with
-        | None -> metaRow label "—"
-        | Some x ->
-            let rating = x.Core.Rating |> Option.map string |> Option.defaultValue "—"
-            let title  = x.DublinCore.Title |> Option.defaultValue "—"
-            metaRow label $"Rating {rating}, Title: {title}"
+let private detailsSection (sources: MetadataSources) (stale: bool) =
+    let xmpRows (xmp: Xmp.XmpMetadata) : Avalonia.FuncUI.Types.IView list =
+        let core = xmp.Core
+        let dc   = xmp.DublinCore
+        [
+            yield! (core.Rating |> Option.map (fun r -> metaRow "Rating" (String.replicate r "★" + String.replicate (5 - r) "☆")) |> Option.toList)
+            yield! (core.Label |> Option.map (fun l -> metaRow "Label" l) |> Option.toList)
+            yield! (dc.Title |> Option.map (fun t -> metaRow "Title" t) |> Option.toList)
+            yield! (dc.Description |> Option.map (fun d -> metaRow "Notes" d) |> Option.toList)
+            yield! (match dc.Creator with [] -> [] | cs -> [ metaRow "Creator" (String.concat ", " cs) ])
+            yield! (match dc.Subject  with [] -> [] | ss -> [ metaRow "Subjects" (String.concat ", " ss) ])
+        ]
 
     StackPanel.create [
         StackPanel.children [
-            yield sectionHeader "METADATA SOURCES"
             if stale then
                 yield Border.create [
                     Border.background (SolidColorBrush(Colors.DarkOrange))
@@ -186,15 +163,59 @@ let private sourceViewSection (sources: MetadataSources) (stale: bool) (dispatch
                         TextBlock.fontSize Theme.FontSize.xs
                     ])
                 ] :> Avalonia.FuncUI.Types.IView
-            yield xmpOpt "Sidecar" sources.Sidecar
-            yield xmpOpt "Embedded" sources.Embedded
+            match sources.Sidecar with
+            | Some xmp ->
+                yield sectionHeader "SIDECAR XMP"
+                yield! xmpRows xmp
+            | None -> ()
+            match sources.Embedded with
+            | Some xmp ->
+                yield sectionHeader "EMBEDDED XMP"
+                yield! xmpRows xmp
+            | None -> ()
+            match sources.Apple with
+            | Some a when not a.UserTags.IsEmpty ->
+                yield sectionHeader "APPLE METADATA"
+                yield metaRow "Tags" (a.UserTags |> List.map (fun t -> t.Text) |> String.concat ", ")
+            | _ -> ()
+            yield sectionHeader "FILESYSTEM"
             yield metaRow "Created"  (sources.FileSystem.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm"))
             yield metaRow "Modified" (sources.FileSystem.ModifiedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm"))
             yield metaRow "Size"     (formatBytes sources.FileSystem.SizeBytes)
-            match sources.Apple with
-            | None -> ()
-            | Some a ->
-                yield metaRow "Tags (OS)" (a.UserTags |> List.map (fun t -> t.Text) |> String.concat ", ")
+        ]
+    ] :> Avalonia.FuncUI.Types.IView
+
+let private metadataHeader (showDetails: bool) (dispatch: Msg -> unit) =
+    DockPanel.create [
+        DockPanel.margin (Avalonia.Thickness(0.0, 12.0, 0.0, 4.0))
+        DockPanel.children [
+            Border.create [
+                Border.dock Dock.Right
+                Border.padding (Avalonia.Thickness(4.0, 0.0, 0.0, 0.0))
+                XBorder.dropdownMenu (
+                    XContextMenu.create [
+                        XContextMenu.viewItems [
+                            XMenuItem.create [
+                                XMenuItem.header (if showDetails then "View summary" else "View details")
+                                XMenuItem.onClick (fun _ ->
+                                    dispatch MetadataViewToggled
+                                    if not showDetails then dispatch SourceViewRequested)
+                            ]
+                        ]
+                    ])
+                Border.child (TextBlock.create [
+                    TextBlock.text "⋮"
+                    TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                    TextBlock.fontSize Theme.FontSize.sm
+                    TextBlock.verticalAlignment VerticalAlignment.Center
+                ])
+            ]
+            TextBlock.create [
+                TextBlock.text "FILE METADATA"
+                TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                TextBlock.fontSize Theme.FontSize.xs
+                TextBlock.verticalAlignment VerticalAlignment.Center
+            ]
         ]
     ] :> Avalonia.FuncUI.Types.IView
 
@@ -245,27 +266,20 @@ let view (state: State) (dispatch: Msg -> unit) =
                                 yield metaRow "Modified" (formatUnix f.MTimeUnix)
                                 yield metaRow "Path"     f.Folder
 
+                                yield metadataHeader state.ShowSourceView dispatch
+
                                 if state.ShowSourceView then
                                     match state.SourceView with
                                     | None ->
                                         yield TextBlock.create [
-                                            TextBlock.text "Loading sources…"
+                                            TextBlock.text "Loading details…"
                                             TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                                             TextBlock.fontSize Theme.FontSize.sm
                                         ] :> Avalonia.FuncUI.Types.IView
                                     | Some sources ->
-                                        yield sourceViewSection sources state.SourceViewStale dispatch
+                                        yield detailsSection sources state.SourceViewStale
                                 else
-                                    yield metadataSection state.EmbeddedMeta state.Tags dispatch
-
-                                yield Button.create [
-                                    Button.content (if state.ShowSourceView then "Basic" else "Sources")
-                                    Button.margin (Avalonia.Thickness(0.0, 12.0))
-                                    Button.onClick (fun _ ->
-                                        dispatch MetadataViewToggled
-                                        if not state.ShowSourceView then
-                                            dispatch SourceViewRequested)
-                                ] :> Avalonia.FuncUI.Types.IView
+                                    yield aggregatedSection state.EmbeddedMeta state.TagTree dispatch
                             ]
                         ])
                 ]
