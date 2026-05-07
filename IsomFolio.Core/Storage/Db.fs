@@ -275,6 +275,40 @@ let getAllTags (c: SqliteConnection) : Async<(string * int) list> =
         return results |> Seq.toList
     }
 
+/// Rename an exact tag across all files. Returns number of rows affected.
+let renameTag (c: SqliteConnection) (oldTag: string) (newTag: string) : Async<int> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "UPDATE tags SET tag = @new WHERE tag = @old"
+        cmd.Parameters.AddWithValue("@new", newTag) |> ignore
+        cmd.Parameters.AddWithValue("@old", oldTag) |> ignore
+        return cmd.ExecuteNonQuery()
+    }
+
+/// Rename a tag hierarchy prefix across all files.
+/// Renames the exact prefix tag and all descendants (e.g. old → new, old/x → new/x).
+/// Returns number of rows affected.
+let renamePrefixedTags (c: SqliteConnection) (oldPrefix: string) (newPrefix: string) : Async<int> =
+    async {
+        use tx = c.BeginTransaction()
+        use exactCmd = c.CreateCommand()
+        exactCmd.Transaction <- tx
+        exactCmd.CommandText <- "UPDATE tags SET tag = @new WHERE tag = @old"
+        exactCmd.Parameters.AddWithValue("@new", newPrefix) |> ignore
+        exactCmd.Parameters.AddWithValue("@old", oldPrefix) |> ignore
+        let exactCount = exactCmd.ExecuteNonQuery()
+        use prefixCmd = c.CreateCommand()
+        prefixCmd.Transaction <- tx
+        prefixCmd.CommandText <- "UPDATE tags SET tag = @newPrefix || SUBSTR(tag, @oldLen + 1) WHERE tag LIKE @pattern ESCAPE '\\'"
+        prefixCmd.Parameters.AddWithValue("@newPrefix", newPrefix) |> ignore
+        prefixCmd.Parameters.AddWithValue("@oldLen", oldPrefix.Length) |> ignore
+        let escaped = oldPrefix.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_")
+        prefixCmd.Parameters.AddWithValue("@pattern", escaped + "/%") |> ignore
+        let prefixCount = prefixCmd.ExecuteNonQuery()
+        tx.Commit()
+        return exactCount + prefixCount
+    }
+
 // ---------------------------------------------------------------------------
 // Misc
 // ---------------------------------------------------------------------------

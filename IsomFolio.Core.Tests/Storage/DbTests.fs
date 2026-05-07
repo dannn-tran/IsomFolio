@@ -303,3 +303,72 @@ module UpsertMetadata =
                 Assert.Equivalent([ "nature"; "travel" ], subjects)
             | None -> Assert.Fail("Expected Some metadata")
         } |> Async.RunSynchronously
+
+
+module RenameTag =
+
+    [<Fact>]
+    let ``exact rename updates matching rows`` () =
+        async {
+            let! c = openTestDb ()
+            let f1 = sampleFile 1
+            let f2 = sampleFile 2
+            let! _ = Db.upsertFiles c [ f1; f2 ]
+            do! Db.upsertTags c f1.Id [ "beach"; "travel" ]
+            do! Db.upsertTags c f2.Id [ "beach" ]
+            let! count = Db.renameTag c "beach" "seaside"
+            Assert.Equal(2, count)
+            let! tags1 = Db.getTagsForFile c f1.Id
+            Assert.Equal<string list>([ "seaside"; "travel" ], tags1 |> List.sort)
+            let! tags2 = Db.getTagsForFile c f2.Id
+            Assert.Equal<string list>([ "seaside" ], tags2)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``no-op when tag not found`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertTags c f.Id [ "travel" ]
+            let! count = Db.renameTag c "beach" "seaside"
+            Assert.Equal(0, count)
+            let! tags = Db.getTagsForFile c f.Id
+            Assert.Equal<string list>([ "travel" ], tags)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``prefix rename updates exact tag and all descendants`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertTags c f.Id [ "person"; "person/John"; "person/Jane"; "place" ]
+            let! count = Db.renamePrefixedTags c "person" "people"
+            Assert.Equal(3, count)
+            let! tags = Db.getTagsForFile c f.Id
+            Assert.Equal<string list>([ "people"; "people/Jane"; "people/John"; "place" ], tags |> List.sort)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``prefix rename does not affect unrelated tags`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertTags c f.Id [ "personal"; "person/John" ]
+            let! _ = Db.renamePrefixedTags c "person" "people"
+            let! tags = Db.getTagsForFile c f.Id
+            Assert.Contains("personal", tags)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``prefix rename no-op when prefix not found`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertTags c f.Id [ "travel" ]
+            let! count = Db.renamePrefixedTags c "person" "people"
+            Assert.Equal(0, count)
+        } |> Async.RunSynchronously
