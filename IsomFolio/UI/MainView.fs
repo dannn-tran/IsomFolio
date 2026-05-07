@@ -459,23 +459,25 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
             match state.Catalog with
             | OpenedCatalog(catalogPath) ->
                 let path = IsomFolio.Core.PathUtils.normalizePath path
-
-                let existingFolders = normalizeFolders state.Sidebar.Folders
-                let alreadyTracked = existingFolders |> List.contains path
-                let folders =
-                    if alreadyTracked then existingFolders
-                    else existingFolders @ [ path ]
-                IsomFolio.Core.AppPaths.saveSession { CatalogPath = catalogPath; Folders = folders }
-                if alreadyTracked then
-                    Some(
-                        { state with Sidebar = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar },
-                        loadFolderTreeCmd folders)
+                if IsomFolio.Core.PathUtils.isUnderCatalogDir path then
+                    Some(state, Cmd.ofMsg (AppError (ScanError "Cannot add a catalog directory as a folder.")))
                 else
-                    Some(
-                        { state with
-                            Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
-                            ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName path } },
-                        Cmd.batch [ loadFolderTreeCmd folders; startScanCmd catalogPath path; createWatcherCmd path ])
+                    let existingFolders = normalizeFolders state.Sidebar.Folders
+                    let alreadyTracked = existingFolders |> List.contains path
+                    let folders =
+                        if alreadyTracked then existingFolders
+                        else existingFolders @ [ path ]
+                    IsomFolio.Core.AppPaths.saveSession { CatalogPath = catalogPath; Folders = folders }
+                    if alreadyTracked then
+                        Some(
+                            { state with Sidebar = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar },
+                            loadFolderTreeCmd folders)
+                    else
+                        Some(
+                            { state with
+                                Sidebar      = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
+                                ScanProgress = Some { TotalFound = 0; Inserted = 0; FolderName = System.IO.Path.GetFileName path } },
+                            Cmd.batch [ loadFolderTreeCmd folders; startScanCmd catalogPath path; createWatcherCmd path ])
             | Unloaded -> Some(state, Cmd.none)
         | _ -> None)
 
