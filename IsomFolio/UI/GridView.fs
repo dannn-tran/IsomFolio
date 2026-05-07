@@ -16,9 +16,11 @@ type TileModel = {
 }
 
 type State = {
-    Tiles      : TileModel list
-    TileSize   : TileSize
-    SelectedId : FileId option
+    Tiles          : TileModel list
+    TileSize       : TileSize
+    SelectedId     : FileId option
+    Albums         : Album list      // manual albums for "Add to Album" context menu
+    CurrentAlbumId : AlbumId option  // set when viewing a manual album
 }
 
 type NavDirection = Left | Right | Up | Down
@@ -33,8 +35,12 @@ type Msg =
     | OpenExternally               of FileId
     | RevealInExplorer             of FileId
     | EnterLoupe                   of FileId
+    | AlbumsUpdated                of Album list
+    | CurrentAlbumChanged          of AlbumId option
+    | AddToAlbum                   of FileId * AlbumId
+    | RemoveFromAlbum              of FileId * AlbumId
 
-let init () = { Tiles = []; TileSize = Medium; SelectedId = None }
+let init () = { Tiles = []; TileSize = Medium; SelectedId = None; Albums = []; CurrentAlbumId = None }
 
 let update (msg: Msg) (state: State) =
     match msg with
@@ -63,7 +69,11 @@ let update (msg: Msg) (state: State) =
     | RemoveOrphanedFileRequested _
     | OpenExternally _
     | RevealInExplorer _
-    | EnterLoupe _                     -> state
+    | EnterLoupe _
+    | AddToAlbum _
+    | RemoveFromAlbum _                -> state
+    | AlbumsUpdated albums             -> { state with Albums = albums }
+    | CurrentAlbumChanged id           -> { state with CurrentAlbumId = id }
     | NavigateTo (dir, rowSize) ->
         if state.Tiles.IsEmpty then state
         else
@@ -104,7 +114,7 @@ let private revealLabel =
     elif RuntimeInformation.IsOSPlatform(OSPlatform.Windows) then "Reveal in Explorer"
     else "Reveal in File Manager"
 
-let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Msg -> unit) =
+let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Album list) (currentAlbumId: AlbumId option) (dispatch: Msg -> unit) =
     let px = float sizePx
     let menuItems =
         [
@@ -121,6 +131,24 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
                     XMenuItem.header "Remove from catalog"
                     XMenuItem.onClick (fun _ -> dispatch (RemoveOrphanedFileRequested model.File.Id))
                 ]
+            if not albums.IsEmpty then
+                XMenuItem.create [
+                    XMenuItem.header "Add to Album"
+                    XMenuItem.subItems [
+                        for album in albums do
+                            yield XMenuItem.create [
+                                XMenuItem.header album.Name
+                                XMenuItem.onClick (fun _ -> dispatch (AddToAlbum (model.File.Id, album.Id)))
+                            ]
+                    ]
+                ]
+            match currentAlbumId with
+            | Some albumId ->
+                XMenuItem.create [
+                    XMenuItem.header "Remove from Album"
+                    XMenuItem.onClick (fun _ -> dispatch (RemoveFromAlbum (model.File.Id, albumId)))
+                ]
+            | None -> ()
         ]
     Border.create [
         Border.width px
@@ -282,7 +310,7 @@ let view (state: State) (dispatch: Msg -> unit) =
                         WrapPanel.margin (Avalonia.Thickness(4.0))
                         WrapPanel.children [
                             for t in state.Tiles do
-                                yield tile t sizePx (state.SelectedId = Some t.File.Id) dispatch
+                                yield tile t sizePx (state.SelectedId = Some t.File.Id) state.Albums state.CurrentAlbumId dispatch
                                       :> Avalonia.FuncUI.Types.IView
                         ]
                     ])

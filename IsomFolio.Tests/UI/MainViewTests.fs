@@ -50,6 +50,8 @@ let private makeState catalogPath : MainView.State = {
     PendingFolders  = Set.empty
     TagBrowser      = None
     ViewMode        = MainView.Browse
+    Albums          = []
+    ViewCtx         = MainView.AllPhotos
 }
 
 let private makeFile (name: string) (folder: string) : AssetFile =

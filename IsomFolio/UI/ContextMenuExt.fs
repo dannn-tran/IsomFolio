@@ -11,6 +11,7 @@ open Avalonia.FuncUI.DSL
 type XMenuItemAttr =
     | Header of string
     | OnClick of (RoutedEventArgs -> unit)
+    | SubItems of XMenuItemAttr list list
 
 type XContextMenuAttr =
     | Items of XMenuItemAttr list list
@@ -21,6 +22,7 @@ module XMenuItem =
     let create (attrs: XMenuItemAttr list) : XMenuItemAttr list = attrs
     let header (text: string)                                   = Header text
     let onClick (handler: RoutedEventArgs -> unit)              = OnClick handler
+    let subItems (items: XMenuItemAttr list list)               = SubItems items
 
 // --- ContextMenu DSL (mirrors ContextMenu module) ---
 
@@ -39,18 +41,24 @@ let private isContextMenuTrigger (e: PointerPressedEventArgs) =
 
 // --- Materialization ---
 
+let rec private buildMenuItem (itemDef: XMenuItemAttr list) : MenuItem =
+    let item = MenuItem()
+    for ia in itemDef do
+        match ia with
+        | Header h        -> item.Header <- h
+        | OnClick handler -> item.Click.Add(handler)
+        | SubItems subDefs ->
+            for subDef in subDefs do
+                item.Items.Add(buildMenuItem subDef) |> ignore
+    item
+
 let private openMenu (def: XContextMenuAttr list) (source: obj) =
     let menu = ContextMenu()
     for attr in def do
         match attr with
         | Items itemDefs ->
             for itemDef in itemDefs do
-                let item = MenuItem()
-                for ia in itemDef do
-                    match ia with
-                    | Header h        -> item.Header <- h
-                    | OnClick handler -> item.Click.Add(handler)
-                menu.Items.Add(item) |> ignore
+                menu.Items.Add(buildMenuItem itemDef) |> ignore
     match source with
     | :? Control as c -> menu.Open(c)
     | _ -> ()

@@ -6,27 +6,40 @@ open Avalonia.Layout
 open Avalonia.Media
 open IsomFolio.Core.PathUtils
 open IsomFolio.Core.Indexing.FolderTree
+open IsomFolio.Core.Models
 open IsomFolio.UI.ContextMenuExt
 
 type State = {
-    Folders         : string list
-    FolderTree      : FolderNode list
-    Tags            : (string * int) list   // (name, count)
-    SelectedTags    : string list
-    SelectedFolder  : string option
+    Folders          : string list
+    FolderTree       : FolderNode list
+    Tags             : (string * int) list   // (name, count)
+    SelectedTags     : string list
+    SelectedFolder   : string option
     CollapsedFolders : Set<string>
+    Albums           : Album list
+    SelectedAlbumId  : AlbumId option
 }
 
 type Msg =
-    | FolderRemoved of string
-    | FolderSelected of string
-    | FolderToggled of string
-    | TagToggled    of string
-    | FoldersLoaded of string list
-    | FolderTreeLoaded of FolderNode list
-    | TagsLoaded    of (string * int) list
+    | FolderRemoved        of string
+    | FolderSelected       of string
+    | FolderToggled        of string
+    | TagToggled           of string
+    | FoldersLoaded        of string list
+    | FolderTreeLoaded     of FolderNode list
+    | TagsLoaded           of (string * int) list
+    | AlbumsLoaded         of Album list
+    | AlbumSelected        of AlbumId
+    | AlbumDeselected
+    | AlbumCreateRequested
+    | AlbumRenameRequested of AlbumId
+    | AlbumDeleteRequested of AlbumId
 
-let init () = { Folders = []; FolderTree = []; Tags = []; SelectedTags = []; SelectedFolder = None; CollapsedFolders = Set.empty }
+let init () = {
+    Folders = []; FolderTree = []; Tags = []; SelectedTags = []
+    SelectedFolder = None; CollapsedFolders = Set.empty
+    Albums = []; SelectedAlbumId = None
+}
 
 let private isPathWithinRoot (root: string) (path: string) = isWithinSubtree root path
 
@@ -57,7 +70,7 @@ let update (msg: Msg) (state: State) =
             FolderTree = state.FolderTree |> List.filter (fun node -> node.Path <> f)
             SelectedFolder = selectedFolder }
     | FolderSelected path   ->
-        { state with SelectedFolder = Some (normalizePath path) }
+        { state with SelectedFolder = Some (normalizePath path); SelectedAlbumId = None }
     | FolderToggled path ->
         let collapsed =
             if state.CollapsedFolders |> Set.contains path
@@ -70,6 +83,12 @@ let update (msg: Msg) (state: State) =
             then state.SelectedTags |> List.filter ((<>) tag)
             else state.SelectedTags @ [ tag ]
         { state with SelectedTags = selected }
+    | AlbumsLoaded albums          -> { state with Albums = albums }
+    | AlbumSelected id             -> { state with SelectedAlbumId = Some id; SelectedFolder = None }
+    | AlbumDeselected              -> { state with SelectedAlbumId = None }
+    | AlbumCreateRequested
+    | AlbumRenameRequested _
+    | AlbumDeleteRequested _       -> state
 
 let private hasPendingIn (nodePath: string) (pendingFolders: Set<string>) =
     let normalizedPath = normalizePath nodePath
@@ -159,6 +178,52 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (pendi
             if not isCollapsed then
                 for child in node.Children do
                     yield folderNodeView (depth + 1) selectedPath pendingFolders collapsedFolders dispatch onRemoveRequested onResyncRequested child :> Avalonia.FuncUI.Types.IView
+        ]
+    ]
+
+let private albumRow (album: Album) (selectedId: AlbumId option) (dispatch: Msg -> unit) =
+    let isSelected = selectedId = Some album.Id
+    let selBg : IBrush =
+        if isSelected then SolidColorBrush(Theme.folderSelectedBg) :> IBrush
+        else Brushes.Transparent :> IBrush
+    let selBorder : IBrush =
+        if isSelected then SolidColorBrush(Theme.folderSelectedBorder) :> IBrush
+        else Brushes.Transparent :> IBrush
+    StackPanel.create [
+        XStackPanel.contextMenu (
+            XContextMenu.create [
+                XContextMenu.viewItems [
+                    XMenuItem.create [
+                        XMenuItem.header "Rename…"
+                        XMenuItem.onClick (fun _ -> dispatch (AlbumRenameRequested album.Id))
+                    ]
+                    XMenuItem.create [
+                        XMenuItem.header "Delete"
+                        XMenuItem.onClick (fun _ -> dispatch (AlbumDeleteRequested album.Id))
+                    ]
+                ]
+            ])
+        StackPanel.children [
+            Button.create [
+                Button.background selBg
+                Button.borderBrush selBorder
+                Button.borderThickness (if isSelected then Avalonia.Thickness(3.0, 1.0, 1.0, 1.0) else Avalonia.Thickness(0.0))
+                Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
+                Button.horizontalAlignment HorizontalAlignment.Stretch
+                Button.horizontalContentAlignment HorizontalAlignment.Left
+                Button.onClick(
+                    (fun _ ->
+                        if isSelected then dispatch AlbumDeselected
+                        else dispatch (AlbumSelected album.Id)),
+                    SubPatchOptions.OnChangeOf album.Id)
+                Button.content (
+                    TextBlock.create [
+                        TextBlock.text album.Name
+                        TextBlock.foreground (SolidColorBrush(if isSelected then Theme.folderSelectedText else Theme.folderUnselectedText))
+                        TextBlock.fontSize Theme.FontSize.md
+                        TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                    ])
+            ]
         ]
     ]
 
@@ -311,6 +376,33 @@ let view (state: State) (dispatch: Msg -> unit) (pendingFolders: Set<string>) (o
                             for tag, count in state.Tags do
                                 yield tagChip tag count (state.SelectedTags |> List.contains tag) dispatch
                                       :> Avalonia.FuncUI.Types.IView
+                            // Album list
+                            yield Grid.create [
+                                Grid.columnDefinitions "*, Auto"
+                                Grid.margin (Avalonia.Thickness(0.0, 16.0, 0.0, 4.0))
+                                Grid.children [
+                                    TextBlock.create [
+                                        Grid.column 0
+                                        TextBlock.text "ALBUMS"
+                                        TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                                        TextBlock.fontSize Theme.FontSize.xs
+                                        TextBlock.verticalAlignment Avalonia.Layout.VerticalAlignment.Center
+                                    ]
+                                    Button.create [
+                                        Grid.column 1
+                                        Button.content "+"
+                                        Button.fontSize Theme.FontSize.lg
+                                        Button.padding (Avalonia.Thickness(6.0, 0.0))
+                                        Button.background Brushes.Transparent
+                                        Button.borderThickness (Avalonia.Thickness(0.0))
+                                        Button.foreground (SolidColorBrush(Theme.textMuted))
+                                        Button.tip "New Album"
+                                        Button.onClick (fun _ -> dispatch AlbumCreateRequested)
+                                    ]
+                                ]
+                            ] :> Avalonia.FuncUI.Types.IView
+                            for album in state.Albums do
+                                yield albumRow album state.SelectedAlbumId dispatch :> Avalonia.FuncUI.Types.IView
                         ]
                     ])
             ]
