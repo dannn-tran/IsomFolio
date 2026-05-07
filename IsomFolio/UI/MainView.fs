@@ -18,6 +18,9 @@ open IsomFolio.Core.PathUtils
 let mutable private thumbnailWorker: MailboxProcessor<Thumbnail.ThumbnailMsg> option = None
 let mutable private activeWatchers: System.IO.FileSystemWatcher list = []
 let mutable private appWindow: Window option = None
+let mutable private loupeKeySubscription: System.IDisposable option = None
+
+type ViewMode = Browse | Loupe
 
 type CatalogState =
     | Unloaded
@@ -37,6 +40,7 @@ type State = {
     SearchRequestId : int
     PendingFolders  : Set<string>
     TagBrowser      : TagBrowser.State option
+    ViewMode        : ViewMode
 }
 
 type Msg =
@@ -62,6 +66,7 @@ type Msg =
     | NewCatalogRequested
     | OpenCatalogRequested
     | CatalogOpened       of catalogPath: string * folders: string list
+    | LoupeMsg            of LoupeView.Msg
     | NoOp
 
 let private defaultQuery = {
@@ -85,6 +90,7 @@ let init (w: Window) () : State * Cmd<Msg> =
         SearchRequestId = 0
         PendingFolders  = Set.empty
         TagBrowser      = None
+        ViewMode        = Browse
     }
     let initCmd =
         match IsomFolio.Core.AppPaths.readLastSession() with
@@ -195,6 +201,7 @@ let private manageWorkerCmd (catalogPath: string) : Cmd<Msg> =
         thumbnailWorker |> Option.iter (fun w -> w.Post(Thumbnail.Shutdown))
         thumbnailWorker <- None
         GridView.clearBitmapCache()
+        LoupeView.clearCache()
 
         // 2. Start new worker pool
         let worker =
@@ -206,6 +213,34 @@ let private manageWorkerCmd (catalogPath: string) : Cmd<Msg> =
                     Dispatcher.UIThread.Post(fun () ->
                         dispatch (GridMsg (GridView.ThumbnailUpdated(fileId, Failed 2)))))
         thumbnailWorker <- Some worker)
+
+let private attachLoupeKeyboardCmd : Cmd<Msg> =
+    Cmd.ofEffect (fun dispatch ->
+        loupeKeySubscription |> Option.iter (fun s -> s.Dispose())
+        loupeKeySubscription <- None
+        match appWindow with
+        | None -> ()
+        | Some w ->
+            let sub =
+                w.KeyDown.Subscribe(fun e ->
+                    if not e.Handled then
+                        match e.Key with
+                        | Avalonia.Input.Key.Left ->
+                            e.Handled <- true
+                            Dispatcher.UIThread.Post(fun () -> dispatch (LoupeMsg (LoupeView.Navigate GridView.Left)))
+                        | Avalonia.Input.Key.Right ->
+                            e.Handled <- true
+                            Dispatcher.UIThread.Post(fun () -> dispatch (LoupeMsg (LoupeView.Navigate GridView.Right)))
+                        | Avalonia.Input.Key.Escape ->
+                            e.Handled <- true
+                            Dispatcher.UIThread.Post(fun () -> dispatch (LoupeMsg LoupeView.ExitRequested))
+                        | _ -> ())
+            loupeKeySubscription <- Some sub)
+
+let private detachLoupeKeyboardCmd : Cmd<Msg> =
+    Cmd.ofEffect (fun _ ->
+        loupeKeySubscription |> Option.iter (fun s -> s.Dispose())
+        loupeKeySubscription <- None)
 
 let private startScanCmd (catalogPath: string) (folderPath: string) : Cmd<Msg> =
     Cmd.ofEffect (fun dispatch ->
@@ -425,9 +460,11 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                     PendingFolders  = Set.ofList folders
                     TagBrowser      = None
                     Notifications   = []
-                    SearchRequestId = newId },
+                    SearchRequestId = newId
+                    ViewMode        = Browse },
                 Cmd.batch (
-                    manageWorkerCmd path
+                    detachLoupeKeyboardCmd
+                    :: manageWorkerCmd path
                     :: startupCleanupCmd path
                     :: loadFolderTreeCmd folders
                     :: runSearch path newId defaultQuery
@@ -613,6 +650,35 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
                         System.Diagnostics.Process.Start("explorer", $"/select,\"{p}\"") |> ignore
                 with _ -> ())
 
+    | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.EnterLoupe fileId) ->
+        let fileOpt =
+            state.Grid.Tiles
+            |> List.tryFind (fun t -> t.File.Id = fileId)
+            |> Option.map _.File
+        let newDetail =
+            fileOpt
+            |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
+            |> Option.defaultValue state.Detail
+        let loadCmds =
+            fileOpt
+            |> Option.map (fun f ->
+                Cmd.batch [
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath Db.getAllTags) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagTreeMsg (TagTree.AllTagsLoaded (tags |> List.map fst))))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    loadMetadataCmd catalogPath f.Id
+                ])
+            |> Option.defaultValue Cmd.none
+        { state with Detail = newDetail; ViewMode = Loupe },
+        Cmd.batch [ attachLoupeKeyboardCmd; loadCmds ]
+
+    | _, GridMsg (GridView.EnterLoupe _) -> state, Cmd.none
+
     | _, GridMsg gMsg ->
         { state with Grid = GridView.update gMsg state.Grid }, Cmd.none
 
@@ -705,6 +771,59 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         | None -> state, Cmd.none
         | Some browser ->
             { state with TagBrowser = Some (TagBrowser.update bMsg browser) }, Cmd.none
+
+    | _, LoupeMsg LoupeView.ExitRequested ->
+        LoupeView.clearCache()
+        { state with ViewMode = Browse }, detachLoupeKeyboardCmd
+
+    | { Catalog = OpenedCatalog(catalogPath) }, LoupeMsg (LoupeView.Navigate dir) ->
+        let newGrid = GridView.update (GridView.NavigateTo (dir, 1)) state.Grid
+        let fileOpt =
+            newGrid.SelectedId
+            |> Option.bind (fun id -> newGrid.Tiles |> List.tryFind (fun t -> t.File.Id = id))
+            |> Option.map _.File
+        let newDetail =
+            fileOpt
+            |> Option.map (fun f -> DetailPanel.update (DetailPanel.FileSelected f) state.Detail)
+            |> Option.defaultValue state.Detail
+        let loadCmds =
+            fileOpt
+            |> Option.map (fun f ->
+                Cmd.batch [
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath Db.getAllTags) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagTreeMsg (TagTree.AllTagsLoaded (tags |> List.map fst))))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    loadMetadataCmd catalogPath f.Id
+                ])
+            |> Option.defaultValue Cmd.none
+        { state with Grid = newGrid; Detail = newDetail }, loadCmds
+
+    | { Catalog = OpenedCatalog(catalogPath) }, LoupeMsg (LoupeView.JumpTo idx) ->
+        if idx < 0 || idx >= state.Grid.Tiles.Length then state, Cmd.none
+        else
+            let tile = state.Grid.Tiles.[idx]
+            let newGrid = GridView.update (GridView.TileSelected tile.File.Id) state.Grid
+            let newDetail = DetailPanel.update (DetailPanel.FileSelected tile.File) state.Detail
+            let loadCmds =
+                Cmd.batch [
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath (fun dbConn -> tile.File.Id |> Db.getTagsForFile dbConn)) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath Db.getAllTags) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagTreeMsg (TagTree.AllTagsLoaded (tags |> List.map fst))))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    loadMetadataCmd catalogPath tile.File.Id
+                ]
+            { state with Grid = newGrid; Detail = newDetail }, loadCmds
+
+    | _, LoupeMsg _ -> state, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath) }, SearchBarMsg (SearchBar.QuerySubmitted txt) ->
         let query = { state.ActiveQuery with Text = if txt.Trim() = "" then None else Some txt }
@@ -939,13 +1058,13 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
                         | Unloaded -> None
                     Sidebar.view state.Sidebar (SidebarMsg >> dispatch) state.PendingFolders (fun () -> dispatch AddFolderRequested) (fun path -> dispatch (FolderRemoveRequested path)) (fun path -> dispatch (ResyncFolderRequested path)) catalogName (fun () -> dispatch NewCatalogRequested) (fun () -> dispatch OpenCatalogRequested))
             ]
-            // Fixed index 3: detail panel
+            // Fixed index 3: detail panel — hidden in Loupe mode
             Border.create [
                 Border.dock Dock.Right
-                Border.isVisible (state.Detail.IsVisible && not state.IsFirstRun)
+                Border.isVisible (state.Detail.IsVisible && not state.IsFirstRun && state.ViewMode = Browse)
                 Border.child (DetailPanel.view state.Detail (DetailMsg >> dispatch))
             ]
-            // Fixed index 4: center — welcome and grid always present, toggled by isVisible
+            // Fixed index 4: center — welcome, grid, or loupe toggled by isVisible
             Grid.create [
                 Grid.children [
                     Border.create [
@@ -953,8 +1072,17 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
                         Border.child (welcomeView dispatch)
                     ] :> Avalonia.FuncUI.Types.IView
                     Border.create [
-                        Border.isVisible (not state.IsFirstRun)
+                        Border.isVisible (not state.IsFirstRun && state.ViewMode = Browse)
                         Border.child (GridView.view state.Grid (GridMsg >> dispatch))
+                    ] :> Avalonia.FuncUI.Types.IView
+                    Border.create [
+                        Border.isVisible (state.ViewMode = Loupe)
+                        Border.child (
+                            let selectedIdx =
+                                state.Grid.SelectedId
+                                |> Option.bind (fun id -> state.Grid.Tiles |> List.tryFindIndex (fun t -> t.File.Id = id))
+                                |> Option.defaultValue 0
+                            LoupeView.view state.Grid.Tiles selectedIdx (LoupeMsg >> dispatch))
                     ] :> Avalonia.FuncUI.Types.IView
                 ]
             ]
