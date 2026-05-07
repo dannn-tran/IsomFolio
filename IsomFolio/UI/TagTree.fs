@@ -11,6 +11,7 @@ type State = {
     Expanded             : Set<string>
     AddInput             : (string * string) option   // (parentPath, text); "" parentPath = root
     PendingRemoveSubtree : string option              // fullPath awaiting 🗑 confirmation
+    AllTags              : string list                // catalog-wide tags for autocomplete
 }
 
 type Msg =
@@ -25,12 +26,15 @@ type Msg =
     | AddInputChanged        of string
     | AddInputSubmitted
     | AddInputCancelled
+    | AllTagsLoaded          of string list
+    | SuggestionSelected     of string
 
 let init () = {
     Roots                = []
     Expanded             = Set.empty
     AddInput             = None
     PendingRemoveSubtree = None
+    AllTags              = []
 }
 
 let fromTagList (tags: string list) : State =
@@ -97,6 +101,33 @@ let update (msg: Msg) (state: State) : State =
                     AddInput = None }
     | AddInputCancelled ->
         { state with AddInput = None }
+    | AllTagsLoaded tags ->
+        { state with AllTags = tags }
+    | SuggestionSelected fullPath ->
+        match state.AddInput with
+        | None -> state
+        | Some (parent, _) ->
+            let text =
+                if parent = "" then fullPath
+                elif fullPath.StartsWith(parent + "/") then fullPath.[(parent.Length + 1)..]
+                else fullPath
+            { state with AddInput = Some (parent, text) }
+
+// Returns autocomplete suggestions for the current AddInput state.
+// Filters AllTags by prefix match, excludes already-tagged paths, max 8.
+let suggestions (state: State) : string list =
+    match state.AddInput with
+    | None -> []
+    | Some (parent, text) ->
+        let trimmed = text.Trim().ToLowerInvariant()
+        if trimmed = "" then []
+        else
+            let prefix = if parent = "" then trimmed else (parent + "/" + trimmed).ToLowerInvariant()
+            let existing = flattenTree state.Roots |> Set.ofList
+            state.AllTags
+            |> List.filter (fun t ->
+                t.ToLowerInvariant().StartsWith(prefix) && not (existing |> Set.contains t))
+            |> List.truncate 8
 
 // Count all Tagged descendants (not counting the node itself).
 let rec private taggedDescendantCount (nodes: TagNode list) =
@@ -203,7 +234,7 @@ let rec private nodeView
             // Inline add-input for this node's children
             match state.AddInput with
             | Some (parent, text) when parent = node.FullPath ->
-                yield addInputView parent text (depth + 1) dispatch
+                yield addInputView parent text (suggestions state) (depth + 1) dispatch
             | _ -> ()
 
             // Children
@@ -213,24 +244,53 @@ let rec private nodeView
         ]
     ] :> Avalonia.FuncUI.Types.IView
 
-and private addInputView (parentPath: string) (text: string) (depth: int) (dispatch: Msg -> unit) =
+and private addInputView (parentPath: string) (text: string) (suggs: string list) (depth: int) (dispatch: Msg -> unit) =
     let indent = float (depth * 16)
-    DockPanel.create [
-        DockPanel.margin (Avalonia.Thickness(indent, 2.0, 4.0, 2.0))
-        DockPanel.children [
-            iconBtn "✕" (fun () -> dispatch AddInputCancelled)
-            |> fun b -> DockPanel.create [ DockPanel.dock Dock.Right; DockPanel.children [ b ] ] :> Avalonia.FuncUI.Types.IView
-            TextBox.create [
-                TextBox.text text
-                TextBox.fontSize Theme.FontSize.sm
-                TextBox.watermark (if parentPath = "" then "tag or tag/subtag" else "subtag")
-                TextBox.onTextChanged (fun t -> dispatch (AddInputChanged t))
-                TextBox.onKeyDown (fun e ->
-                    match e.Key with
-                    | Avalonia.Input.Key.Return -> dispatch AddInputSubmitted
-                    | Avalonia.Input.Key.Escape -> dispatch AddInputCancelled
-                    | _ -> ())
-            ]
+    StackPanel.create [
+        StackPanel.orientation Orientation.Vertical
+        StackPanel.margin (Avalonia.Thickness(indent, 2.0, 4.0, 2.0))
+        StackPanel.children [
+            DockPanel.create [
+                DockPanel.children [
+                    iconBtn "✕" (fun () -> dispatch AddInputCancelled)
+                    |> fun b -> DockPanel.create [ DockPanel.dock Dock.Right; DockPanel.children [ b ] ] :> Avalonia.FuncUI.Types.IView
+                    TextBox.create [
+                        TextBox.text text
+                        TextBox.fontSize Theme.FontSize.sm
+                        TextBox.watermark (if parentPath = "" then "tag or tag/subtag" else "subtag")
+                        TextBox.onTextChanged (fun t -> dispatch (AddInputChanged t))
+                        TextBox.onKeyDown (fun e ->
+                            match e.Key with
+                            | Avalonia.Input.Key.Return -> dispatch AddInputSubmitted
+                            | Avalonia.Input.Key.Escape -> dispatch AddInputCancelled
+                            | _ -> ())
+                    ]
+                ]
+            ] :> Avalonia.FuncUI.Types.IView
+            if not suggs.IsEmpty then
+                Border.create [
+                    Border.background (SolidColorBrush(Theme.panelBg))
+                    Border.borderBrush (SolidColorBrush(Theme.textMuted))
+                    Border.borderThickness (Avalonia.Thickness(1.0))
+                    Border.cornerRadius 4.0
+                    Border.child (
+                        StackPanel.create [
+                            StackPanel.orientation Orientation.Vertical
+                            StackPanel.children [
+                                for s in suggs do
+                                    Button.create [
+                                        Button.content s
+                                        Button.background Brushes.Transparent
+                                        Button.foreground Brushes.White
+                                        Button.fontSize Theme.FontSize.sm
+                                        Button.horizontalAlignment HorizontalAlignment.Stretch
+                                        Button.horizontalContentAlignment HorizontalAlignment.Left
+                                        Button.padding (Avalonia.Thickness(6.0, 3.0))
+                                        Button.onClick (fun _ -> dispatch (SuggestionSelected s))
+                                    ] :> Avalonia.FuncUI.Types.IView
+                            ]
+                        ])
+                ] :> Avalonia.FuncUI.Types.IView
         ]
     ] :> Avalonia.FuncUI.Types.IView
 
@@ -243,7 +303,7 @@ let view (state: State) (dispatch: Msg -> unit) : Avalonia.FuncUI.Types.IView =
             // Root-level add input
             match state.AddInput with
             | Some ("", text) ->
-                yield addInputView "" text 0 dispatch
+                yield addInputView "" text (suggestions state) 0 dispatch
             | _ ->
                 if state.AddInput.IsNone then
                     yield Button.create [

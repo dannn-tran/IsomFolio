@@ -588,6 +588,10 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
                         (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
                         (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
                         (fun ex  -> AppError (DbError ex.Message))
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath Db.getAllTags) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagTreeMsg (TagTree.AllTagsLoaded (tags |> List.map fst))))
+                        (fun ex  -> AppError (DbError ex.Message))
                     loadMetadataCmd catalogPath f.Id
                 ])
             |> Option.defaultValue Cmd.none
@@ -610,6 +614,10 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
                     Cmd.OfAsync.either
                         (fun () -> withCatalogDb catalogPath (fun dbConn -> f.Id |> Db.getTagsForFile dbConn)) ()
                         (fun tags -> DetailMsg (DetailPanel.TagsLoaded tags))
+                        (fun ex  -> AppError (DbError ex.Message))
+                    Cmd.OfAsync.either
+                        (fun () -> withCatalogDb catalogPath Db.getAllTags) ()
+                        (fun tags -> DetailMsg (DetailPanel.TagTreeMsg (TagTree.AllTagsLoaded (tags |> List.map fst))))
                         (fun ex  -> AppError (DbError ex.Message))
                     loadMetadataCmd catalogPath f.Id
                 ])
@@ -663,13 +671,19 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | { Catalog = OpenedCatalog(catalogPath); Detail = { File = Some f } }, DetailMsg (DetailPanel.TagTreeMsg tMsg) when TagTree.isMutating tMsg ->
         let newDetail = DetailPanel.update (DetailPanel.TagTreeMsg tMsg) state.Detail
         let newTags = TagTree.flattenTree newDetail.TagTree.Roots
-        let saveCmd =
-            Cmd.OfAsync.either
-                (fun () -> withCatalogDb catalogPath (fun c -> Db.upsertTags c f.Id newTags))
-                ()
-                (fun () -> TagsUpdated (f.Id, newTags))
-                (fun ex -> AppError (DbError ex.Message))
-        { state with Detail = newDetail }, saveCmd
+        let cmds =
+            Cmd.batch [
+                Cmd.OfAsync.either
+                    (fun () -> withCatalogDb catalogPath (fun c -> Db.upsertTags c f.Id newTags))
+                    ()
+                    (fun () -> TagsUpdated (f.Id, newTags))
+                    (fun ex -> AppError (DbError ex.Message))
+                Cmd.OfAsync.either
+                    (fun () -> withCatalogDb catalogPath Db.getAllTags) ()
+                    (fun tags -> DetailMsg (DetailPanel.TagTreeMsg (TagTree.AllTagsLoaded (tags |> List.map fst))))
+                    (fun ex  -> AppError (DbError ex.Message))
+            ]
+        { state with Detail = newDetail }, cmds
 
     | { Catalog = OpenedCatalog(_) }, DetailMsg dMsg ->
         { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none
