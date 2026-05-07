@@ -29,6 +29,7 @@ type Msg =
     | SourceViewRequested
     | SourceViewLoaded   of MetadataSources
     | SourceViewFailed   of exn
+    | TagBrowserRequested
 
 let init () = {
     File            = None
@@ -72,6 +73,7 @@ let update (msg: Msg) (state: State) =
             | Some cached -> EmbeddedMetadata.ofSources sources <> cached
         { state with SourceView = Some sources; SourceViewStale = stale }
     | SourceViewFailed _   -> state
+    | TagBrowserRequested  -> state  // handled in MainView
 
 let private formatBytes (bytes: int64) =
     if bytes < 1024L then $"{bytes} B"
@@ -131,7 +133,26 @@ let private aggregatedSection (meta: EmbeddedMetadata option) (tagTree: TagTree.
             | Some a when not a.UserTags.IsEmpty ->
                 yield metaRow "OS Tags" (a.UserTags |> List.map (fun t -> t.Text) |> String.concat ", ")
             | _ -> ()
-            yield sectionHeader "TAGS"
+            yield DockPanel.create [
+                DockPanel.margin (Avalonia.Thickness(0.0, 12.0, 0.0, 4.0))
+                DockPanel.children [
+                    Button.create [
+                        Button.dock Dock.Right
+                        Button.content "Browse all"
+                        Button.fontSize Theme.FontSize.xs
+                        Button.background Brushes.Transparent
+                        Button.foreground (SolidColorBrush(Theme.textMuted))
+                        Button.padding (Avalonia.Thickness(4.0, 0.0, 0.0, 0.0))
+                        Button.onClick (fun _ -> dispatch TagBrowserRequested)
+                    ]
+                    TextBlock.create [
+                        TextBlock.text "TAGS"
+                        TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                        TextBlock.fontSize Theme.FontSize.xs
+                        TextBlock.verticalAlignment VerticalAlignment.Center
+                    ]
+                ]
+            ] :> Avalonia.FuncUI.Types.IView
             yield TagTree.view tagTree (TagTreeMsg >> dispatch)
         ]
     ] :> Avalonia.FuncUI.Types.IView

@@ -372,3 +372,59 @@ module RenameTag =
             let! count = Db.renamePrefixedTags c "person" "people"
             Assert.Equal(0, count)
         } |> Async.RunSynchronously
+
+
+module DeleteTag =
+
+    [<Fact>]
+    let ``deletes exact tag from all files`` () =
+        async {
+            let! c = openTestDb ()
+            let f1 = sampleFile 1
+            let f2 = sampleFile 2
+            let! _ = Db.upsertFiles c [ f1; f2 ]
+            do! Db.upsertTags c f1.Id [ "beach"; "travel" ]
+            do! Db.upsertTags c f2.Id [ "beach" ]
+            let! count = Db.deleteTagWithDescendants c "beach"
+            Assert.Equal(2, count)
+            let! tags1 = Db.getTagsForFile c f1.Id
+            Assert.Equal<string list>([ "travel" ], tags1)
+            let! tags2 = Db.getTagsForFile c f2.Id
+            Assert.Empty(tags2)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``deletes tag and all descendants`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertTags c f.Id [ "person"; "person/John"; "person/Jane"; "place" ]
+            let! count = Db.deleteTagWithDescendants c "person"
+            Assert.Equal(3, count)
+            let! tags = Db.getTagsForFile c f.Id
+            Assert.Equal<string list>([ "place" ], tags)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``does not delete unrelated tags with similar prefix`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertTags c f.Id [ "personal"; "person/John" ]
+            let! _ = Db.deleteTagWithDescendants c "person"
+            let! tags = Db.getTagsForFile c f.Id
+            Assert.Contains("personal", tags)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``no-op when tag not found`` () =
+        async {
+            let! c = openTestDb ()
+            let f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            do! Db.upsertTags c f.Id [ "travel" ]
+            let! count = Db.deleteTagWithDescendants c "beach"
+            Assert.Equal(0, count)
+        } |> Async.RunSynchronously
