@@ -32,6 +32,7 @@ type Msg =
     | RemoveOrphanedFileRequested  of FileId
     | OpenExternally               of FileId
     | RevealInExplorer             of FileId
+    | EnterLoupe                   of FileId
 
 let init () = { Tiles = []; TileSize = Medium; SelectedId = None }
 
@@ -61,7 +62,8 @@ let update (msg: Msg) (state: State) =
     | TileSelected id                    -> { state with SelectedId = Some id }
     | RemoveOrphanedFileRequested _
     | OpenExternally _
-    | RevealInExplorer _               -> state
+    | RevealInExplorer _
+    | EnterLoupe _                     -> state
     | NavigateTo (dir, rowSize) ->
         if state.Tiles.IsEmpty then state
         else
@@ -138,6 +140,9 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (dispatch: Ms
                     let sv = Avalonia.VisualTree.VisualExtensions.FindAncestorOfType<ScrollViewer>(v, true)
                     if not (isNull sv) then sv.Focus() |> ignore
                 | _ -> ()),
+            SubPatchOptions.OnChangeOf model.File.Id)
+        Border.onDoubleTapped(
+            (fun _ -> dispatch (EnterLoupe model.File.Id)),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.child (
             Grid.create [
@@ -265,6 +270,11 @@ let view (state: State) (dispatch: Msg -> unit) =
                                     if tile.File.IsOrphaned then
                                         e.Handled <- true
                                         dispatch (RemoveOrphanedFileRequested id)))
+                        | Avalonia.Input.Key.E ->
+                            state.SelectedId
+                            |> Option.iter (fun id ->
+                                e.Handled <- true
+                                dispatch (EnterLoupe id))
                         | _ -> ()),
                     SubPatchOptions.OnChangeOf (state.TileSize, state.SelectedId))
                 ScrollViewer.content (

@@ -49,6 +49,7 @@ let private makeState catalogPath : MainView.State = {
     SearchRequestId = 0
     PendingFolders  = Set.empty
     TagBrowser      = None
+    ViewMode        = MainView.Browse
 }
 
 let private makeFile (name: string) (folder: string) : AssetFile =
