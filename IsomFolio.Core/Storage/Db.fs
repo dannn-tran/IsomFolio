@@ -423,6 +423,165 @@ let upsertMetadata (c: SqliteConnection) (fileId: FileId) (meta: EmbeddedMetadat
         do! FTS.updateFileIndexTags c fileId ftsTokens
     }
 
+// ---------------------------------------------------------------------------
+// Albums
+// ---------------------------------------------------------------------------
+
+let private sortFieldToStr = function
+    | Name -> "Name" | Date -> "Date" | Size -> "Size" | Ext -> "Ext"
+
+let private strToSortField = function
+    | "Name" -> Name | "Date" -> Date | "Size" -> Size | _ -> Ext
+
+let serializeSearchQuery (q: SearchQuery) : string =
+    JsonSerializer.Serialize {|
+        text       = q.Text       |> Option.defaultValue null
+        folderPath = q.FolderPath |> Option.defaultValue null
+        tags       = q.Tags       |> Array.ofList
+        extensions = q.Extensions |> Array.ofList
+        dateFrom   = q.DateRange  |> Option.map (fun (f, _) -> f.ToString("O")) |> Option.defaultValue null
+        dateTo     = q.DateRange  |> Option.map (fun (_, t) -> t.ToString("O")) |> Option.defaultValue null
+        sortBy     = sortFieldToStr q.SortBy
+        sortAsc    = q.SortAsc
+    |}
+
+let deserializeSearchQuery (json: string) : SearchQuery =
+    use doc = JsonDocument.Parse(json)
+    let root = doc.RootElement
+    let strOpt (name: string) =
+        match root.TryGetProperty(name) with
+        | true, el when el.ValueKind <> JsonValueKind.Null -> Some(el.GetString())
+        | _ -> None
+    let strVal (name: string) =
+        match root.TryGetProperty(name) with
+        | true, el when el.ValueKind <> JsonValueKind.Null -> el.GetString()
+        | _ -> null
+    let arrVal (name: string) =
+        match root.TryGetProperty(name) with
+        | true, el when el.ValueKind = JsonValueKind.Array ->
+            [ for e in el.EnumerateArray() do yield e.GetString() ]
+        | _ -> []
+    let boolVal (name: string) =
+        match root.TryGetProperty(name) with
+        | true, el -> el.GetBoolean()
+        | _ -> false
+    let dateRange =
+        match strOpt "dateFrom", strOpt "dateTo" with
+        | Some f, Some t ->
+            try Some(DateTime.Parse(f), DateTime.Parse(t))
+            with _ -> None
+        | _ -> None
+    {
+        Text       = strOpt "text"
+        FolderPath = strOpt "folderPath"
+        Tags       = arrVal "tags"
+        Extensions = arrVal "extensions"
+        DateRange  = dateRange
+        SortBy     = strToSortField (strVal "sortBy")
+        SortAsc    = boolVal "sortAsc"
+    }
+
+let private readAlbum (reader: SqliteDataReader) : Album =
+    let id        = reader.GetString(0)
+    let name      = reader.GetString(1)
+    let kind      = reader.GetString(2)
+    let queryJson = if reader.IsDBNull(3) then None else Some(reader.GetString(3))
+    let sortOrder = reader.GetInt32(4)
+    let albumKind =
+        match kind with
+        | "smart" ->
+            queryJson
+            |> Option.map (fun json -> Smart(deserializeSearchQuery json))
+            |> Option.defaultValue Manual
+        | _ -> Manual
+    { Id = id; Name = name; Kind = albumKind; SortOrder = sortOrder }
+
+let createAlbum (c: SqliteConnection) (album: Album) : Async<unit> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- """
+            INSERT INTO albums (id, name, kind, query_json, sort_order)
+            VALUES (@id, @name, @kind, @queryJson, @sortOrder)
+        """
+        let kind, queryJson =
+            match album.Kind with
+            | Smart q -> "smart", box (serializeSearchQuery q)
+            | Manual  -> "manual", box DBNull.Value
+        cmd.Parameters.AddWithValue("@id",        album.Id)        |> ignore
+        cmd.Parameters.AddWithValue("@name",      album.Name)      |> ignore
+        cmd.Parameters.AddWithValue("@kind",      kind)            |> ignore
+        cmd.Parameters.AddWithValue("@queryJson", queryJson)       |> ignore
+        cmd.Parameters.AddWithValue("@sortOrder", album.SortOrder) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    }
+
+let getAllAlbums (c: SqliteConnection) : Async<Album list> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "SELECT id, name, kind, query_json, sort_order FROM albums ORDER BY sort_order, name"
+        use reader = cmd.ExecuteReader()
+        let results = System.Collections.Generic.List<Album>()
+        while reader.Read() do
+            results.Add(readAlbum reader)
+        return results |> Seq.toList
+    }
+
+let renameAlbum (c: SqliteConnection) (albumId: AlbumId) (newName: string) : Async<unit> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "UPDATE albums SET name = @name WHERE id = @id"
+        cmd.Parameters.AddWithValue("@name", newName)  |> ignore
+        cmd.Parameters.AddWithValue("@id",   albumId)  |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    }
+
+let deleteAlbum (c: SqliteConnection) (albumId: AlbumId) : Async<unit> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "DELETE FROM albums WHERE id = @id"
+        cmd.Parameters.AddWithValue("@id", albumId) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    }
+
+let updateSmartAlbumQuery (c: SqliteConnection) (albumId: AlbumId) (query: SearchQuery) : Async<unit> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "UPDATE albums SET query_json = @json WHERE id = @id AND kind = 'smart'"
+        cmd.Parameters.AddWithValue("@json", serializeSearchQuery query) |> ignore
+        cmd.Parameters.AddWithValue("@id",   albumId)                   |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    }
+
+let addFileToAlbum (c: SqliteConnection) (albumId: AlbumId) (fileId: FileId) : Async<unit> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- """
+            INSERT OR IGNORE INTO album_files (album_id, file_id, added_at)
+            VALUES (@albumId, @fileId, @now)
+        """
+        cmd.Parameters.AddWithValue("@albumId", albumId)                                   |> ignore
+        cmd.Parameters.AddWithValue("@fileId",  fileId)                                    |> ignore
+        cmd.Parameters.AddWithValue("@now",     DateTimeOffset.UtcNow.ToUnixTimeSeconds()) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    }
+
+let removeFileFromAlbum (c: SqliteConnection) (albumId: AlbumId) (fileId: FileId) : Async<unit> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "DELETE FROM album_files WHERE album_id = @albumId AND file_id = @fileId"
+        cmd.Parameters.AddWithValue("@albumId", albumId) |> ignore
+        cmd.Parameters.AddWithValue("@fileId",  fileId)  |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+    }
+
+let countAlbumFiles (c: SqliteConnection) (albumId: AlbumId) : Async<int> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "SELECT COUNT(*) FROM album_files WHERE album_id = @albumId"
+        cmd.Parameters.AddWithValue("@albumId", albumId) |> ignore
+        return cmd.ExecuteScalar() :?> int64 |> int
+    }
+
 let getMetadata (c: SqliteConnection) (fileId: FileId) : Async<EmbeddedMetadata option> =
     async {
         use cmd = c.CreateCommand()

@@ -84,6 +84,29 @@ CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
 END;
 """
 
+let createAlbums = """
+CREATE TABLE IF NOT EXISTS albums (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    query_json TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+let createAlbumFiles = """
+CREATE TABLE IF NOT EXISTS album_files (
+    album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    file_id  TEXT NOT NULL REFERENCES files(id)  ON DELETE CASCADE,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (album_id, file_id)
+);
+"""
+
+let createAlbumFilesIndex = """
+CREATE INDEX IF NOT EXISTS idx_album_files_album ON album_files(album_id);
+"""
+
 /// Migrations — each entry is tried once per open; failures silently ignored (already applied).
 /// Runs BEFORE allDdl so it can drop/alter tables that allDdl then recreates.
 let migrations = [|
@@ -106,4 +129,7 @@ let allDdl = [|
     createTriggerInsert
     createTriggerDelete
     createTriggerUpdate
+    createAlbums
+    createAlbumFiles
+    createAlbumFilesIndex
 |]

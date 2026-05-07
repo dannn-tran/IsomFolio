@@ -123,3 +123,24 @@ let executeSearch (c: SqliteConnection) (query: SearchQuery) : Async<AssetFile l
             results.Add(readAssetFile reader)
         return results |> Seq.toList
     }
+
+/// Returns all files in a manual album ordered by insertion time.
+/// Includes orphaned files so the UI can show them with a badge.
+let executeManualAlbumSearch (c: SqliteConnection) (albumId: AlbumId) : Async<AssetFile list> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- """
+            SELECT f.id, f.path, f.filename, f.folder, f.extension,
+                   f.size, f.modified_time, f.is_orphaned, f.orphaned_at, f.created_at_unix
+            FROM files f
+            JOIN album_files af ON f.id = af.file_id
+            WHERE af.album_id = @albumId
+            ORDER BY af.added_at ASC
+        """
+        cmd.Parameters.AddWithValue("@albumId", albumId) |> ignore
+        use reader = cmd.ExecuteReader()
+        let results = System.Collections.Generic.List<AssetFile>()
+        while reader.Read() do
+            results.Add(readAssetFile reader)
+        return results |> Seq.toList
+    }
