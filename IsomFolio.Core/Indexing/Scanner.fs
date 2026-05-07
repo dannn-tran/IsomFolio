@@ -44,6 +44,7 @@ let defaultJob : ScanJob = fun path ->
 
 let private discoverPaths (rootPath: string) : string seq =
     try Directory.EnumerateFiles(rootPath, "*.*", SearchOption.AllDirectories)
+        |> Seq.filter (not << isUnderCatalogDir)
     with ex ->
         eprintfn "Scanner: cannot enumerate %s — %s" rootPath ex.Message
         Seq.empty
@@ -145,7 +146,8 @@ let reconcileFolder (c: SqliteConnection) (rootPath: string) : Async<ReconcileRe
         let fsFiles = Dictionary<string, FileInfo>()
         let sidecarFiles = Dictionary<string, FileInfo>()  // normalized image path → sidecar FileInfo
         try
-            for filePath in Directory.EnumerateFiles(rootPath, "*.*", SearchOption.AllDirectories) do
+            for filePath in Directory.EnumerateFiles(rootPath, "*.*", SearchOption.AllDirectories)
+                           |> Seq.filter (not << isUnderCatalogDir) do
                 try
                     let fi = FileInfo(filePath)
                     if fi.Extension.ToLowerInvariant() = ".xmp" then

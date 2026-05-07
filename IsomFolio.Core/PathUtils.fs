@@ -28,3 +28,7 @@ let isDescendantPath (ancestor: string) (candidate: string) =
 
 let isWithinSubtree (root: string) (path: string) =
     samePath root path || isDescendantPath root path
+
+let isUnderCatalogDir (path: string) =
+    path.Split([| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |], StringSplitOptions.RemoveEmptyEntries)
+    |> Array.exists (fun seg -> seg.EndsWith(".isomfolio", StringComparison.OrdinalIgnoreCase))
