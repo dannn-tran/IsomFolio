@@ -4,8 +4,6 @@ open System
 open System.IO
 open System.Collections.Generic
 open IsomFolio.Core.Indexing.Types
-open IsomFolio.Core.FileIndex
-open IsomFolio.Core.PathUtils
 
 // Track when IsomFolio last wrote an XMP sidecar so we can suppress self-triggered events
 let private selfWrites = Dictionary<string, DateTime>()
@@ -62,38 +60,33 @@ let createWatcher (rootPath: string) (dispatch: FileEvent -> unit) : FileSystemW
             timers[path] <- t)
 
     let watcher = new FileSystemWatcher(rootPath)
-    watcher.IncludeSubdirectories <- true
+    watcher.IncludeSubdirectories <- false
     watcher.InternalBufferSize    <- 65536
     watcher.NotifyFilter          <-
         NotifyFilters.LastWrite ||| NotifyFilters.FileName ||| NotifyFilters.DirectoryName
 
     watcher.Created.Add(fun e ->
-        if not (isUnderCatalogDir e.FullPath) then
-            if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
-                resolveXmpToImage e.FullPath
-                |> Option.iter (fun imgPath -> fire (SidecarChanged imgPath) ())
-            else
-                debounce e.FullPath (Created e.FullPath))
+        if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
+            resolveXmpToImage e.FullPath
+            |> Option.iter (fun imgPath -> fire (SidecarChanged imgPath) ())
+        else
+            debounce e.FullPath (Created e.FullPath))
 
     watcher.Deleted.Add(fun e ->
-        if not (isUnderCatalogDir e.FullPath) then
-            if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
-                resolveXmpToImage e.FullPath
-                |> Option.iter (fun imgPath -> fire (SidecarRemoved imgPath) ())
-            else
-                debounce e.FullPath (Deleted e.FullPath))
+        if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
+            resolveXmpToImage e.FullPath
+            |> Option.iter (fun imgPath -> fire (SidecarRemoved imgPath) ())
+        else
+            debounce e.FullPath (Deleted e.FullPath))
 
     watcher.Changed.Add(fun e ->
-        if not (isUnderCatalogDir e.FullPath) then
-            if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
-                resolveXmpToImage e.FullPath
-                |> Option.iter (fun imgPath -> fire (SidecarChanged imgPath) ())
-            else
-                debounce e.FullPath (Modified e.FullPath))
+        if e.FullPath.EndsWith(".xmp", StringComparison.OrdinalIgnoreCase) then
+            resolveXmpToImage e.FullPath
+            |> Option.iter (fun imgPath -> fire (SidecarChanged imgPath) ())
+        else
+            debounce e.FullPath (Modified e.FullPath))
 
-    watcher.Renamed.Add(fun e ->
-        if not (isUnderCatalogDir e.FullPath) then
-            debounce e.FullPath (Renamed(e.OldFullPath, e.FullPath)))
+    watcher.Renamed.Add(fun e -> debounce e.FullPath (Renamed(e.OldFullPath, e.FullPath)))
 
     watcher.Error.Add(fun e ->
         eprintfn "Watcher error on %s: %s" rootPath (e.GetException().Message))
