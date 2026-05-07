@@ -431,11 +431,18 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                 else Some { TotalFound = 0; Inserted = 0; FolderName = "Restoring…" }
             Some(
                 { state with
-                    Catalog        = OpenedCatalog(path)
-                    IsFirstRun     = false
-                    Sidebar        = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
-                    ScanProgress   = scanProgress
-                    PendingFolders = Set.empty },
+                    Catalog         = OpenedCatalog(path)
+                    IsFirstRun      = false
+                    Sidebar         = Sidebar.update (Sidebar.FoldersLoaded folders) state.Sidebar
+                    Grid            = GridView.init ()
+                    Detail          = DetailPanel.init ()
+                    SearchBar       = SearchBar.init ()
+                    ActiveQuery     = defaultQuery
+                    ScanProgress    = scanProgress
+                    PendingFolders  = Set.empty
+                    TagBrowser      = None
+                    Notifications   = []
+                    SearchRequestId = state.SearchRequestId + 1 },
                 Cmd.batch (manageWorkerCmd path :: startupCleanupCmd path :: loadFolderTreeCmd folders :: perFolderCmds))
         | AddFolderRequested ->
             let cmd = Cmd.ofEffect (fun dispatch ->
@@ -983,7 +990,12 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
                 Border.dock Dock.Left
                 Border.width 220.0
                 Border.isVisible (not state.IsFirstRun)
-                Border.child (Sidebar.view state.Sidebar (SidebarMsg >> dispatch) state.PendingFolders (fun () -> dispatch AddFolderRequested) (fun path -> dispatch (FolderRemoveRequested path)) (fun path -> dispatch (ResyncFolderRequested path)))
+                Border.child (
+                    let catalogName =
+                        match state.Catalog with
+                        | OpenedCatalog p -> Some (System.IO.Path.GetFileName p)
+                        | Unloaded -> None
+                    Sidebar.view state.Sidebar (SidebarMsg >> dispatch) state.PendingFolders (fun () -> dispatch AddFolderRequested) (fun path -> dispatch (FolderRemoveRequested path)) (fun path -> dispatch (ResyncFolderRequested path)) catalogName (fun () -> dispatch NewCatalogRequested) (fun () -> dispatch OpenCatalogRequested))
             ]
             // Fixed index 3: detail panel
             Border.create [

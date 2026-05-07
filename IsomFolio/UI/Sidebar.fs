@@ -190,11 +190,63 @@ let private tagChip (tag: string) (count: int) (selected: bool) (dispatch: Msg -
             ])
     ]
 
-let view (state: State) (dispatch: Msg -> unit) (pendingFolders: Set<string>) (onAddFolderRequested: unit -> unit) (onFolderRemoveRequested: string -> unit) (onResyncRequested: string -> unit) =
+let view (state: State) (dispatch: Msg -> unit) (pendingFolders: Set<string>) (onAddFolderRequested: unit -> unit) (onFolderRemoveRequested: string -> unit) (onResyncRequested: string -> unit) (catalogName: string option) (onNewCatalogRequested: unit -> unit) (onOpenCatalogRequested: unit -> unit) =
     DockPanel.create [
         DockPanel.width 220.0
         DockPanel.background (SolidColorBrush(Theme.panelBg))
         DockPanel.children [
+            Border.create [
+                Border.dock Dock.Bottom
+                Border.borderThickness (Avalonia.Thickness(0.0, 1.0, 0.0, 0.0))
+                Border.borderBrush (SolidColorBrush(Color.FromArgb(60uy, 136uy, 136uy, 136uy)))
+                Border.padding (Avalonia.Thickness(8.0, 6.0))
+                Border.child (
+                    StackPanel.create [
+                        StackPanel.spacing 4.0
+                        StackPanel.children [
+                            match catalogName with
+                            | Some name ->
+                                yield TextBlock.create [
+                                    TextBlock.text name
+                                    TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                                    TextBlock.fontSize Theme.FontSize.xs
+                                    TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                    TextBlock.tip name
+                                ] :> Avalonia.FuncUI.Types.IView
+                            | None -> ()
+                            yield StackPanel.create [
+                                StackPanel.orientation Orientation.Horizontal
+                                StackPanel.spacing 2.0
+                                StackPanel.children [
+                                    Button.create [
+                                        Button.content "New Catalog…"
+                                        Button.fontSize Theme.FontSize.xs
+                                        Button.foreground (SolidColorBrush(Theme.textMuted))
+                                        Button.background Brushes.Transparent
+                                        Button.borderThickness (Avalonia.Thickness(0.0))
+                                        Button.padding (Avalonia.Thickness(0.0))
+                                        Button.onClick (fun _ -> onNewCatalogRequested())
+                                    ]
+                                    TextBlock.create [
+                                        TextBlock.text "·"
+                                        TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                                        TextBlock.fontSize Theme.FontSize.xs
+                                        TextBlock.verticalAlignment Avalonia.Layout.VerticalAlignment.Center
+                                    ]
+                                    Button.create [
+                                        Button.content "Open Catalog…"
+                                        Button.fontSize Theme.FontSize.xs
+                                        Button.foreground (SolidColorBrush(Theme.textMuted))
+                                        Button.background Brushes.Transparent
+                                        Button.borderThickness (Avalonia.Thickness(0.0))
+                                        Button.padding (Avalonia.Thickness(0.0))
+                                        Button.onClick (fun _ -> onOpenCatalogRequested())
+                                    ]
+                                ]
+                            ] :> Avalonia.FuncUI.Types.IView
+                        ]
+                    ])
+            ] :> Avalonia.FuncUI.Types.IView
             ScrollViewer.create [
                 ScrollViewer.content (
                     StackPanel.create [
