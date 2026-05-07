@@ -43,3 +43,16 @@ type AppError =
     | ScanError         of message: string
     | ThumbnailError    of fileId: FileId * message: string
     | WatcherError      of message: string
+
+type AlbumId = string
+
+type AlbumKind =
+    | Smart of query: SearchQuery
+    | Manual
+
+type Album = {
+    Id        : AlbumId
+    Name      : string
+    Kind      : AlbumKind
+    SortOrder : int
+}

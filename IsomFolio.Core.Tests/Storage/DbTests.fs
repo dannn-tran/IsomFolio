@@ -428,3 +428,223 @@ module DeleteTag =
             let! count = Db.deleteTagWithDescendants c "beach"
             Assert.Equal(0, count)
         } |> Async.RunSynchronously
+
+module SearchQuerySerialization =
+
+    let private defaultQuery : IsomFolio.Core.Models.SearchQuery = {
+        Text       = None
+        FolderPath = None
+        Tags       = []
+        Extensions = []
+        DateRange  = None
+        SortBy     = Date
+        SortAsc    = false
+    }
+
+    [<Fact>]
+    let ``round-trips empty query`` () =
+        let json = Db.serializeSearchQuery defaultQuery
+        let q    = Db.deserializeSearchQuery json
+        Assert.Equal(defaultQuery, q)
+
+    [<Fact>]
+    let ``round-trips full query`` () =
+        let from = DateTime(2024, 1, 1)
+        let until = DateTime(2024, 12, 31)
+        let q = {
+            defaultQuery with
+                Text       = Some "canal"
+                FolderPath = Some "/photos/2024"
+                Tags       = [ "paris"; "architecture" ]
+                Extensions = [ "jpg"; "png" ]
+                DateRange  = Some(from, until)
+                SortBy     = Name
+                SortAsc    = true
+        }
+        let q2 = q |> Db.serializeSearchQuery |> Db.deserializeSearchQuery
+        Assert.Equal(q.Text,       q2.Text)
+        Assert.Equal(q.FolderPath, q2.FolderPath)
+        Assert.Equal<string list>(q.Tags,       q2.Tags)
+        Assert.Equal<string list>(q.Extensions, q2.Extensions)
+        Assert.Equal(q.SortBy,    q2.SortBy)
+        Assert.Equal(q.SortAsc,   q2.SortAsc)
+        Assert.True(q2.DateRange.IsSome)
+        let (f2, t2) = q2.DateRange.Value
+        Assert.Equal(from.Date,  f2.Date)
+        Assert.Equal(until.Date, t2.Date)
+
+module Albums =
+
+    let private newAlbum name kind = {
+        Id        = System.Guid.NewGuid().ToString("N")
+        Name      = name
+        Kind      = kind
+        SortOrder = 0
+    }
+
+    [<Fact>]
+    let ``create and retrieve manual album`` () =
+        async {
+            let! c     = openTestDb ()
+            let  album = newAlbum "Picks" Manual
+            do!  Db.createAlbum c album
+            let! all   = Db.getAllAlbums c
+            Assert.Equal(1, all.Length)
+            Assert.Equal("Picks", all.[0].Name)
+            Assert.Equal(Manual,  all.[0].Kind)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``create and retrieve smart album preserves query`` () =
+        async {
+            let! c   = openTestDb ()
+            let  q   = { Text = Some "paris"; FolderPath = None; Tags = [ "travel" ]; Extensions = []; DateRange = None; SortBy = Date; SortAsc = false }
+            let  album = newAlbum "Paris" (Smart q)
+            do!  Db.createAlbum c album
+            let! all = Db.getAllAlbums c
+            match all.[0].Kind with
+            | Smart q2 ->
+                Assert.Equal(q.Text, q2.Text)
+                Assert.Equal<string list>(q.Tags, q2.Tags)
+            | Manual -> Assert.Fail("Expected Smart album")
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``rename album`` () =
+        async {
+            let! c = openTestDb ()
+            let a  = newAlbum "Old" Manual
+            do!  Db.createAlbum c a
+            do!  Db.renameAlbum c a.Id "New"
+            let! all = Db.getAllAlbums c
+            Assert.Equal("New", all.[0].Name)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``delete album removes it`` () =
+        async {
+            let! c = openTestDb ()
+            let a  = newAlbum "Gone" Manual
+            do!  Db.createAlbum c a
+            do!  Db.deleteAlbum c a.Id
+            let! all = Db.getAllAlbums c
+            Assert.Equal(0, all.Length)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``update smart album query`` () =
+        async {
+            let! c = openTestDb ()
+            let  q1 = { Text = Some "old"; FolderPath = None; Tags = []; Extensions = []; DateRange = None; SortBy = Date; SortAsc = false }
+            let  q2 = { q1 with Text = Some "new" }
+            let  a  = newAlbum "Smart" (Smart q1)
+            do!  Db.createAlbum c a
+            do!  Db.updateSmartAlbumQuery c a.Id q2
+            let! all = Db.getAllAlbums c
+            match all.[0].Kind with
+            | Smart q -> Assert.Equal(Some "new", q.Text)
+            | Manual  -> Assert.Fail("Expected Smart")
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``add and remove file from album`` () =
+        async {
+            let! c = openTestDb ()
+            let  f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            let  a = newAlbum "Manual" Manual
+            do!  Db.createAlbum c a
+            do!  Db.addFileToAlbum c a.Id f.Id
+            let! n = Db.countAlbumFiles c a.Id
+            Assert.Equal(1, n)
+            do!  Db.removeFileFromAlbum c a.Id f.Id
+            let! n2 = Db.countAlbumFiles c a.Id
+            Assert.Equal(0, n2)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``add file to album is idempotent`` () =
+        async {
+            let! c = openTestDb ()
+            let  f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            let  a = newAlbum "Manual" Manual
+            do!  Db.createAlbum c a
+            do!  Db.addFileToAlbum c a.Id f.Id
+            do!  Db.addFileToAlbum c a.Id f.Id
+            let! n = Db.countAlbumFiles c a.Id
+            Assert.Equal(1, n)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``deleting a file cascades to album_files`` () =
+        async {
+            let! c = openTestDb ()
+            let  f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            let  a = newAlbum "Manual" Manual
+            do!  Db.createAlbum c a
+            do!  Db.addFileToAlbum c a.Id f.Id
+            do!  Db.deleteFile c f.Id
+            let! n = Db.countAlbumFiles c a.Id
+            Assert.Equal(0, n)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``deleting album cascades to album_files`` () =
+        async {
+            let! c = openTestDb ()
+            let  f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            let  a = newAlbum "Manual" Manual
+            do!  Db.createAlbum c a
+            do!  Db.addFileToAlbum c a.Id f.Id
+            do!  Db.deleteAlbum c a.Id
+            let! all = Db.getAllAlbums c
+            Assert.Equal(0, all.Length)
+        } |> Async.RunSynchronously
+
+module ManualAlbumSearch =
+
+    [<Fact>]
+    let ``returns files in album ordered by insertion time`` () =
+        async {
+            let! c  = openTestDb ()
+            let  f1 = sampleFile 1
+            let  f2 = sampleFile 2
+            let! _  = Db.upsertFiles c [ f1; f2 ]
+            let  a  = { Id = System.Guid.NewGuid().ToString("N"); Name = "A"; Kind = Manual; SortOrder = 0 }
+            do!  Db.createAlbum c a
+            do!  Db.addFileToAlbum c a.Id f1.Id
+            do!  System.Threading.Tasks.Task.Delay(10) |> Async.AwaitTask
+            do!  Db.addFileToAlbum c a.Id f2.Id
+            let! results = IsomFolio.Core.Search.QueryEngine.executeManualAlbumSearch c a.Id
+            Assert.Equal(2, results.Length)
+            Assert.Equal(f1.Id, results.[0].Id)
+            Assert.Equal(f2.Id, results.[1].Id)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``returns empty list for empty album`` () =
+        async {
+            let! c = openTestDb ()
+            let  a = { Id = System.Guid.NewGuid().ToString("N"); Name = "Empty"; Kind = Manual; SortOrder = 0 }
+            do!  Db.createAlbum c a
+            let! results = IsomFolio.Core.Search.QueryEngine.executeManualAlbumSearch c a.Id
+            Assert.Equal(0, results.Length)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``includes orphaned files`` () =
+        async {
+            let! c = openTestDb ()
+            let  f = sampleFile 1
+            let! _ = Db.upsertFiles c [ f ]
+            let  a = { Id = System.Guid.NewGuid().ToString("N"); Name = "A"; Kind = Manual; SortOrder = 0 }
+            do!  Db.createAlbum c a
+            do!  Db.addFileToAlbum c a.Id f.Id
+            do!  Db.markOrphaned c f.Id
+            let! results = IsomFolio.Core.Search.QueryEngine.executeManualAlbumSearch c a.Id
+            Assert.Equal(1, results.Length)
+            Assert.True(results.[0].IsOrphaned)
+        } |> Async.RunSynchronously
