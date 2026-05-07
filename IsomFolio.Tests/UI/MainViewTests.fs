@@ -413,3 +413,86 @@ module KeyboardNavigation =
 
         Assert.Equal(f2.Id, nextState.Grid.SelectedId.Value)
         Assert.Equal(Some f2.Id, nextState.Detail.File |> Option.map _.Id)
+
+module AlbumsLoading =
+
+    let private makeAlbum id name kind : Album =
+        { Id = id; Name = name; Kind = kind; SortOrder = 0 }
+
+    [<Fact>]
+    let ``AlbumsLoaded updates state.Albums`` () =
+        let albums = [ makeAlbum "a1" "Tokyo" Manual ]
+        let next, _ = MainView.update (MainView.AlbumsLoaded albums) (makeState "/catalog")
+        Assert.Equal<Album list>(albums, next.Albums)
+
+    [<Fact>]
+    let ``AlbumsLoaded propagates all albums to Sidebar`` () =
+        let albums = [ makeAlbum "a1" "Tokyo" Manual; makeAlbum "a2" "By Date" (Smart defaultQuery) ]
+        let next, _ = MainView.update (MainView.AlbumsLoaded albums) (makeState "/catalog")
+        Assert.Equal(2, next.Sidebar.Albums.Length)
+
+    [<Fact>]
+    let ``AlbumsLoaded propagates only manual albums to Grid`` () =
+        let albums = [ makeAlbum "a1" "Tokyo" Manual; makeAlbum "a2" "By Date" (Smart defaultQuery) ]
+        let next, _ = MainView.update (MainView.AlbumsLoaded albums) (makeState "/catalog")
+        Assert.Equal(1, next.Grid.Albums.Length)
+        Assert.Equal("Tokyo", next.Grid.Albums[0].Name)
+
+module AlbumViewRouting =
+
+    [<Fact>]
+    let ``AlbumSelected sets ViewCtx to AlbumView`` () =
+        let next, _ = MainView.update (MainView.SidebarMsg (Sidebar.AlbumSelected "a1")) (makeState "/catalog")
+        Assert.Equal(MainView.AlbumView "a1", next.ViewCtx)
+
+    [<Fact>]
+    let ``AlbumSelected sets Grid.CurrentAlbumId`` () =
+        let next, _ = MainView.update (MainView.SidebarMsg (Sidebar.AlbumSelected "a1")) (makeState "/catalog")
+        Assert.Equal(Some "a1", next.Grid.CurrentAlbumId)
+
+    [<Fact>]
+    let ``AlbumSelected clears ActiveQuery FolderPath`` () =
+        let state = { makeState "/catalog" with ActiveQuery = { defaultQuery with FolderPath = Some "/photos" } }
+        let next, _ = MainView.update (MainView.SidebarMsg (Sidebar.AlbumSelected "a1")) state
+        Assert.Equal(None, next.ActiveQuery.FolderPath)
+
+    [<Fact>]
+    let ``AlbumDeselected returns to AllPhotos`` () =
+        let state = { makeState "/catalog" with ViewCtx = MainView.AlbumView "a1" }
+        let next, _ = MainView.update (MainView.SidebarMsg Sidebar.AlbumDeselected) state
+        Assert.Equal(MainView.AllPhotos, next.ViewCtx)
+        Assert.Equal(None, next.Grid.CurrentAlbumId)
+
+    [<Fact>]
+    let ``FolderSelected while in AlbumView clears CurrentAlbumId`` () =
+        let state =
+            { makeState "/catalog" with
+                ViewCtx = MainView.AlbumView "a1"
+                Grid    = { GridView.init () with CurrentAlbumId = Some "a1" } }
+        let next, _ = MainView.update (MainView.SidebarMsg (Sidebar.FolderSelected "/photos")) state
+        Assert.Equal(None, next.Grid.CurrentAlbumId)
+        Assert.Equal(MainView.FolderView "/photos", next.ViewCtx)
+
+    [<Fact>]
+    let ``ScanBatchCompleted is ignored in AlbumView`` () =
+        let state = { makeState "/catalog" with ViewCtx = MainView.AlbumView "a1" }
+        let file = makeFile "new" "/photos"
+        let next, _ = MainView.update (MainView.ScanBatchCompleted [file]) state
+        Assert.Empty(next.Grid.Tiles)
+
+    [<Fact>]
+    let ``Search while in AlbumView switches ViewCtx to AllPhotos`` () =
+        let state =
+            { makeState "/catalog" with
+                ViewCtx = MainView.AlbumView "a1"
+                Grid    = { GridView.init () with CurrentAlbumId = Some "a1" } }
+        let next, _ = MainView.update (MainView.SearchBarMsg (SearchBar.QuerySubmitted "paris")) state
+        Assert.Equal(MainView.AllPhotos, next.ViewCtx)
+        Assert.Equal(None, next.Grid.CurrentAlbumId)
+
+    [<Fact>]
+    let ``RemoveFromAlbum bumps SearchRequestId`` () =
+        let state = { makeState "/catalog" with SearchRequestId = 5 }
+        let file = makeFile "a" "/photos"
+        let next, _ = MainView.update (MainView.GridMsg (GridView.RemoveFromAlbum (file.Id, "a1"))) state
+        Assert.Equal(6, next.SearchRequestId)

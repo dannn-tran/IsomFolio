@@ -171,3 +171,47 @@ module KeyboardNavigation =
         let state = { state with SelectedId = Some files[5].Id }
         let next = GridView.update (GridView.NavigateTo (GridView.Down, rowSize)) state
         Assert.Equal(files[5].Id, next.SelectedId.Value)
+
+module Albums =
+
+    let private makeAlbum id name : Album =
+        { Id = id; Name = name; Kind = Manual; SortOrder = 0 }
+
+    [<Fact>]
+    let ``AlbumsUpdated sets Albums`` () =
+        let album = makeAlbum "a1" "Tokyo"
+        let next = GridView.update (GridView.AlbumsUpdated [album]) (GridView.init ())
+        Assert.Equal<Album list>([album], next.Albums)
+
+    [<Fact>]
+    let ``CurrentAlbumChanged Some sets CurrentAlbumId`` () =
+        let next = GridView.update (GridView.CurrentAlbumChanged (Some "a1")) (GridView.init ())
+        Assert.Equal(Some "a1", next.CurrentAlbumId)
+
+    [<Fact>]
+    let ``CurrentAlbumChanged None clears CurrentAlbumId`` () =
+        let state = { GridView.init () with CurrentAlbumId = Some "a1" }
+        let next = GridView.update (GridView.CurrentAlbumChanged None) state
+        Assert.Equal(None, next.CurrentAlbumId)
+
+    [<Fact>]
+    let ``AddToAlbum does not mutate state`` () =
+        let file = makeFile "alpha"
+        let state =
+            { GridView.init () with
+                Tiles = [{ File = file; Thumbnail = NotRequested }]
+                SelectedId = Some file.Id }
+        let next = GridView.update (GridView.AddToAlbum (file.Id, "a1")) state
+        Assert.Equal<GridView.TileModel list>(state.Tiles, next.Tiles)
+        Assert.Equal(state.SelectedId, next.SelectedId)
+
+    [<Fact>]
+    let ``RemoveFromAlbum does not mutate state`` () =
+        let file = makeFile "alpha"
+        let state =
+            { GridView.init () with
+                Tiles = [{ File = file; Thumbnail = NotRequested }]
+                SelectedId = Some file.Id }
+        let next = GridView.update (GridView.RemoveFromAlbum (file.Id, "a1")) state
+        Assert.Equal<GridView.TileModel list>(state.Tiles, next.Tiles)
+        Assert.Equal(state.SelectedId, next.SelectedId)
