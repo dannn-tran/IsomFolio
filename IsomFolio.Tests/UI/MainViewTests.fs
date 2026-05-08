@@ -50,8 +50,9 @@ let private makeState catalogPath : MainView.State = {
     PendingFolders  = Set.empty
     TagBrowser      = None
     ViewMode        = MainView.Browse
-    Albums          = []
-    ViewCtx         = MainView.AllPhotos
+    Albums            = []
+    ViewCtx           = MainView.AllPhotos
+    SmartAlbumEditor  = None
 }
 
 let private makeFile (name: string) (folder: string) : AssetFile =
@@ -496,3 +497,89 @@ module AlbumViewRouting =
         let file = makeFile "a" "/photos"
         let next, _ = MainView.update (MainView.GridMsg (GridView.RemoveFromAlbum (file.Id, "a1"))) state
         Assert.Equal(6, next.SearchRequestId)
+
+module CriteriaSearch =
+
+    [<Fact>]
+    let ``TagAdded bumps SearchRequestId`` () =
+        let state = makeState "/catalog"
+        let next, _ = MainView.update (MainView.SearchBarMsg (SearchBar.TagAdded "travel")) state
+        Assert.Equal(1, next.SearchRequestId)
+
+    [<Fact>]
+    let ``TagAdded updates SearchBar tag filter`` () =
+        let state = makeState "/catalog"
+        let next, _ = MainView.update (MainView.SearchBarMsg (SearchBar.TagAdded "travel")) state
+        Assert.Contains("travel", next.SearchBar.TagFilter)
+
+    [<Fact>]
+    let ``ExtToggled bumps SearchRequestId`` () =
+        let state = makeState "/catalog"
+        let next, _ = MainView.update (MainView.SearchBarMsg (SearchBar.ExtToggled "jpg")) state
+        Assert.Equal(1, next.SearchRequestId)
+
+    [<Fact>]
+    let ``FolderFilterSet clears Sidebar SelectedFolder`` () =
+        let state =
+            { makeState "/catalog" with
+                Sidebar = { Sidebar.init () with SelectedFolder = Some "/photos" } }
+        let next, _ = MainView.update (MainView.SearchBarMsg (SearchBar.FolderFilterSet (Some "/travel"))) state
+        Assert.Equal(None, next.Sidebar.SelectedFolder)
+
+    [<Fact>]
+    let ``FolderFilterSet sets SearchBar FolderFilter`` () =
+        let state = makeState "/catalog"
+        let next, _ = MainView.update (MainView.SearchBarMsg (SearchBar.FolderFilterSet (Some "/travel"))) state
+        Assert.Equal(Some "/travel", next.SearchBar.FolderFilter)
+
+    [<Fact>]
+    let ``CriteriaToggled does not bump SearchRequestId`` () =
+        let state = makeState "/catalog"
+        let next, _ = MainView.update (MainView.SearchBarMsg SearchBar.CriteriaToggled) state
+        Assert.Equal(0, next.SearchRequestId)
+
+module SmartAlbumEditing =
+
+    let private makeSmartAlbum id name q : Album =
+        { Id = id; Name = name; Kind = Smart q; SortOrder = 0 }
+
+    [<Fact>]
+    let ``AlbumEditCriteriaRequested opens SmartAlbumEditor`` () =
+        let q = { defaultQuery with Tags = [ "travel" ] }
+        let album = makeSmartAlbum "a1" "My Smart" q
+        let state = { makeState "/catalog" with Albums = [ album ] }
+        let next, _ = MainView.update (MainView.SidebarMsg (Sidebar.AlbumEditCriteriaRequested "a1")) state
+        Assert.True(next.SmartAlbumEditor.IsSome)
+        Assert.Equal("a1", next.SmartAlbumEditor.Value.AlbumId)
+
+    [<Fact>]
+    let ``AlbumEditCriteriaRequested for unknown id does nothing`` () =
+        let state = makeState "/catalog"
+        let next, _ = MainView.update (MainView.SidebarMsg (Sidebar.AlbumEditCriteriaRequested "unknown")) state
+        Assert.Equal(None, next.SmartAlbumEditor)
+
+    [<Fact>]
+    let ``SmartAlbumEditorMsg Cancelled closes editor`` () =
+        let q = { defaultQuery with Tags = [ "travel" ] }
+        let album = makeSmartAlbum "a1" "My Smart" q
+        let editor = SmartAlbumEditor.initFromAlbum album
+        let state = { makeState "/catalog" with SmartAlbumEditor = Some editor }
+        let next, _ = MainView.update (MainView.SmartAlbumEditorMsg SmartAlbumEditor.Cancelled) state
+        Assert.Equal(None, next.SmartAlbumEditor)
+
+    [<Fact>]
+    let ``SmartAlbumEditorMsg TagAdded updates editor state`` () =
+        let album = makeSmartAlbum "a1" "N" defaultQuery
+        let editor = SmartAlbumEditor.initFromAlbum album
+        let state = { makeState "/catalog" with SmartAlbumEditor = Some editor }
+        let next, _ = MainView.update (MainView.SmartAlbumEditorMsg (SmartAlbumEditor.TagAdded "travel")) state
+        Assert.True(next.SmartAlbumEditor.IsSome)
+        Assert.Contains("travel", next.SmartAlbumEditor.Value.TagFilter)
+
+    [<Fact>]
+    let ``SmartAlbumEditorMsg SaveRequested closes editor`` () =
+        let album = makeSmartAlbum "a1" "N" defaultQuery
+        let editor = SmartAlbumEditor.initFromAlbum album
+        let state = { makeState "/catalog" with SmartAlbumEditor = Some editor }
+        let next, _ = MainView.update (MainView.SmartAlbumEditorMsg SmartAlbumEditor.SaveRequested) state
+        Assert.Equal(None, next.SmartAlbumEditor)

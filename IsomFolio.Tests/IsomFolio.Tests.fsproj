@@ -14,6 +14,8 @@
         <Compile Include="UI\TagBrowserTests.fs" />
         <Compile Include="UI\DetailPanelTests.fs" />
         <Compile Include="UI\SidebarTests.fs" />
+        <Compile Include="UI\SearchBarTests.fs" />
+        <Compile Include="UI\SmartAlbumEditorTests.fs" />
         <Compile Include="UI\MainViewTests.fs" />
     </ItemGroup>
 
