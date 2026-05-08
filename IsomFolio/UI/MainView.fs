@@ -44,10 +44,11 @@ type State = {
     Catalog         : CatalogState
     SearchRequestId : int
     PendingFolders  : Set<string>
-    TagBrowser      : TagBrowser.State option
-    ViewMode        : ViewMode
-    Albums          : Album list
-    ViewCtx         : ViewContext
+    TagBrowser        : TagBrowser.State option
+    ViewMode          : ViewMode
+    Albums            : Album list
+    ViewCtx           : ViewContext
+    SmartAlbumEditor  : SmartAlbumEditor.State option
 }
 
 type Msg =
@@ -74,7 +75,8 @@ type Msg =
     | OpenCatalogRequested
     | CatalogOpened       of catalogPath: string * folders: string list
     | LoupeMsg            of LoupeView.Msg
-    | AlbumsLoaded        of Album list
+    | AlbumsLoaded            of Album list
+    | SmartAlbumEditorMsg     of SmartAlbumEditor.Msg
     | NoOp
 
 let private defaultQuery = {
@@ -97,10 +99,11 @@ let init (w: Window) () : State * Cmd<Msg> =
         Catalog         = Unloaded
         SearchRequestId = 0
         PendingFolders  = Set.empty
-        TagBrowser      = None
-        ViewMode        = Browse
-        Albums          = []
-        ViewCtx         = AllPhotos
+        TagBrowser        = None
+        ViewMode          = Browse
+        Albums            = []
+        ViewCtx           = AllPhotos
+        SmartAlbumEditor  = None
     }
     let initCmd =
         match IsomFolio.Core.AppPaths.readLastSession() with
@@ -342,6 +345,34 @@ let private countOrphansCmd (catalogPath: string) : Cmd<Msg> =
         OrphanCountLoaded
         (fun ex -> AppError (DbError ex.Message))
 
+let private buildQuery (state: State) : SearchQuery =
+    let dateRange =
+        match SearchBar.parseDateOpt state.SearchBar.DateFrom, SearchBar.parseDateOpt state.SearchBar.DateTo with
+        | None, None -> None
+        | df, dt -> Some (df |> Option.defaultValue System.DateTime.MinValue, dt |> Option.defaultValue System.DateTime.MaxValue)
+    { Text       = if state.SearchBar.InputText.Trim() = "" then None else Some state.SearchBar.InputText
+      FolderPath = state.SearchBar.FolderFilter |> Option.orElse state.Sidebar.SelectedFolder
+      Tags       = state.SearchBar.TagFilter
+      Extensions = state.SearchBar.ExtFilter
+      DateRange  = dateRange
+      SortBy     = Date
+      SortAsc    = false }
+
+let private runContextSearchCmd (catalogPath: string) (requestId: int) (state: State) : Cmd<Msg> =
+    match state.ViewCtx with
+    | AlbumView albumId ->
+        match state.Albums |> List.tryFind (fun a -> a.Id = albumId) with
+        | Some { Kind = Manual } ->
+            Cmd.OfAsync.either
+                (fun () -> withCatalogDb catalogPath (fun c -> QueryEngine.executeManualAlbumSearch c albumId))
+                ()
+                (fun files -> SearchCompleted(requestId, files))
+                (fun ex -> AppError (DbError ex.Message))
+        | Some { Kind = Smart q } ->
+            runSearch catalogPath requestId q
+        | None -> runSearch catalogPath requestId state.ActiveQuery
+    | _ -> runSearch catalogPath requestId state.ActiveQuery
+
 let private loadAlbumsCmd (catalogPath: string) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () -> withCatalogDb catalogPath Db.getAllAlbums) ()
@@ -581,8 +612,9 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                     Notifications   = []
                     SearchRequestId = newId
                     ViewMode        = Browse
-                    Albums          = []
-                    ViewCtx         = AllPhotos },
+                    Albums            = []
+                    ViewCtx           = AllPhotos
+                    SmartAlbumEditor  = None },
                 Cmd.batch (
                     detachLoupeKeyboardCmd
                     :: manageWorkerCmd path
@@ -684,15 +716,12 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         let newSidebar = Sidebar.update sbMsg state.Sidebar
         let newId = state.SearchRequestId + 1
         let newGrid = GridView.update (GridView.CurrentAlbumChanged (Some id)) state.Grid
-        { state with
-            Sidebar = newSidebar; ViewCtx = AlbumView id
-            SearchRequestId = newId; Grid = newGrid
-            ActiveQuery = { state.ActiveQuery with FolderPath = None } },
-        Cmd.OfAsync.either
-            (fun () -> withCatalogDb catalogPath (fun c -> QueryEngine.executeManualAlbumSearch c id))
-            ()
-            (fun files -> SearchCompleted(newId, files))
-            (fun ex -> AppError (DbError ex.Message))
+        let newState =
+            { state with
+                Sidebar = newSidebar; ViewCtx = AlbumView id
+                SearchRequestId = newId; Grid = newGrid
+                ActiveQuery = { state.ActiveQuery with FolderPath = None } }
+        newState, runContextSearchCmd catalogPath newId newState
 
     | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg (Sidebar.AlbumDeselected as sbMsg) ->
         let newSidebar = Sidebar.update sbMsg state.Sidebar
@@ -717,6 +746,12 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             | AlbumView aid when aid = id -> Cmd.ofMsg (SidebarMsg Sidebar.AlbumDeselected)
             | _ -> Cmd.none
         state, Cmd.batch [ deleteAlbumCmd catalogPath id name; exitAlbumCmd ]
+
+    | _, SidebarMsg (Sidebar.AlbumEditCriteriaRequested id) ->
+        let album = state.Albums |> List.tryFind (fun a -> a.Id = id)
+        match album with
+        | Some a -> { state with SmartAlbumEditor = Some (SmartAlbumEditor.initFromAlbum a) }, Cmd.none
+        | None   -> state, Cmd.none
 
     | _, SidebarMsg sbMsg ->
         { state with Sidebar = Sidebar.update sbMsg state.Sidebar }, Cmd.none
@@ -1018,8 +1053,6 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             Grid    = GridView.update (GridView.AlbumsUpdated manualAlbums) state.Grid }, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath) }, SearchBarMsg (SearchBar.QuerySubmitted txt) ->
-        let query = { state.ActiveQuery with Text = if txt.Trim() = "" then None else Some txt }
-        let newId = state.SearchRequestId + 1
         let (newSidebar, newGrid, newViewCtx) =
             match state.ViewCtx with
             | AlbumView _ ->
@@ -1027,13 +1060,72 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
                 GridView.update (GridView.CurrentAlbumChanged None) state.Grid,
                 AllPhotos
             | other -> state.Sidebar, state.Grid, other
-        { state with
-            ActiveQuery = query; SearchRequestId = newId
-            Sidebar = newSidebar; Grid = newGrid; ViewCtx = newViewCtx },
+        let newSearchBar = SearchBar.update (SearchBar.TextChanged txt) state.SearchBar
+        let stateWithSearch = { state with SearchBar = newSearchBar; Sidebar = newSidebar; Grid = newGrid; ViewCtx = newViewCtx }
+        let query = buildQuery stateWithSearch
+        let newId = state.SearchRequestId + 1
+        { stateWithSearch with ActiveQuery = query; SearchRequestId = newId },
         runSearch catalogPath newId query
+
+    | { Catalog = OpenedCatalog(catalogPath) }, SearchBarMsg (SearchBar.FolderFilterSet _ as sbMsg) ->
+        let newSearchBar = SearchBar.update sbMsg state.SearchBar
+        let newSidebar = Sidebar.update Sidebar.FolderDeselected state.Sidebar
+        let newState = { state with SearchBar = newSearchBar; Sidebar = newSidebar }
+        let query = buildQuery newState
+        let newId = state.SearchRequestId + 1
+        { newState with ActiveQuery = query; SearchRequestId = newId },
+        runSearch catalogPath newId query
+
+    | { Catalog = OpenedCatalog(catalogPath) }, SearchBarMsg sbMsg when SearchBar.isCriteriaMsg sbMsg ->
+        let newSearchBar = SearchBar.update sbMsg state.SearchBar
+        let newState = { state with SearchBar = newSearchBar }
+        let query = buildQuery newState
+        let newId = state.SearchRequestId + 1
+        { newState with ActiveQuery = query; SearchRequestId = newId },
+        runSearch catalogPath newId query
+
+    | { Catalog = OpenedCatalog(catalogPath) }, SearchBarMsg SearchBar.SaveAsSmartAlbumRequested ->
+        let query = buildQuery state
+        state, showInputDialogCmd "New Smart Album" "" "Create" (fun name ->
+            Cmd.OfAsync.either
+                (fun () ->
+                    withCatalogDb catalogPath (fun c -> async {
+                        let album = {
+                            Id = System.Guid.NewGuid().ToString("N")
+                            Name = name
+                            Kind = Smart query
+                            SortOrder = 0
+                        }
+                        do! Db.createAlbum c album
+                        return! Db.getAllAlbums c
+                    }))
+                ()
+                AlbumsLoaded
+                (fun ex -> AppError (DbError ex.Message)))
 
     | _, SearchBarMsg sbMsg ->
         { state with SearchBar = SearchBar.update sbMsg state.SearchBar }, Cmd.none
+
+    | { Catalog = OpenedCatalog(catalogPath); SmartAlbumEditor = Some editor }, SmartAlbumEditorMsg SmartAlbumEditor.SaveRequested ->
+        let newQuery = SmartAlbumEditor.toSearchQuery editor
+        { state with SmartAlbumEditor = None },
+        Cmd.OfAsync.either
+            (fun () ->
+                withCatalogDb catalogPath (fun c -> async {
+                    do! Db.updateSmartAlbumQuery c editor.AlbumId newQuery
+                    return! Db.getAllAlbums c
+                }))
+            ()
+            AlbumsLoaded
+            (fun ex -> AppError (DbError ex.Message))
+
+    | _, SmartAlbumEditorMsg SmartAlbumEditor.Cancelled ->
+        { state with SmartAlbumEditor = None }, Cmd.none
+
+    | _, SmartAlbumEditorMsg eMsg ->
+        match state.SmartAlbumEditor with
+        | Some editor -> { state with SmartAlbumEditor = Some (SmartAlbumEditor.update eMsg editor) }, Cmd.none
+        | None        -> state, Cmd.none
 
     | _, ScanProgressUpdated progress ->
         { state with ScanProgress = Some progress }, Cmd.none
@@ -1055,17 +1147,8 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | { Catalog = OpenedCatalog(catalogPath) }, ScanFinished _ ->
         let newId = state.SearchRequestId + 1
-        let searchCmd =
-            match state.ViewCtx with
-            | AlbumView albumId ->
-                Cmd.OfAsync.either
-                    (fun () -> withCatalogDb catalogPath (fun c -> QueryEngine.executeManualAlbumSearch c albumId))
-                    ()
-                    (fun files -> SearchCompleted(newId, files))
-                    (fun ex -> AppError (DbError ex.Message))
-            | _ -> runSearch catalogPath newId state.ActiveQuery
-        { state with ScanProgress = None; SearchRequestId = newId },
-        Cmd.batch [ searchCmd; countOrphansCmd catalogPath ]
+        let newState = { state with ScanProgress = None; SearchRequestId = newId }
+        newState, Cmd.batch [ runContextSearchCmd catalogPath newId newState; countOrphansCmd catalogPath ]
 
     | _, ScanFinished _ ->
         { state with ScanProgress = None }, Cmd.none
@@ -1121,17 +1204,8 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             state.PendingFolders
             |> Set.filter (fun p -> not (isWithinSubtree path p))
         let newId = state.SearchRequestId + 1
-        let searchCmd =
-            match state.ViewCtx with
-            | AlbumView albumId ->
-                Cmd.OfAsync.either
-                    (fun () -> withCatalogDb catalogPath (fun c -> QueryEngine.executeManualAlbumSearch c albumId))
-                    ()
-                    (fun files -> SearchCompleted(newId, files))
-                    (fun ex -> AppError (DbError ex.Message))
-            | _ -> runSearch catalogPath newId state.ActiveQuery
-        { state with PendingFolders = newPending; SearchRequestId = newId },
-        Cmd.batch [ searchCmd; countOrphansCmd catalogPath ]
+        let newState = { state with PendingFolders = newPending; SearchRequestId = newId }
+        newState, Cmd.batch [ runContextSearchCmd catalogPath newId newState; countOrphansCmd catalogPath ]
 
     | { Catalog = OpenedCatalog _ }, FileEventReceived event ->
         handleFileEvent state event
@@ -1188,13 +1262,13 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
         DockPanel.background (SolidColorBrush(Theme.mainBg))
         DockPanel.children [
             // Fixed index 0: search bar
-            DockPanel.create [
-                DockPanel.dock Dock.Top
-                DockPanel.background (SolidColorBrush(Theme.panelBg))
-                DockPanel.height 40.0
-                DockPanel.children [
+            Border.create [
+                Border.dock Dock.Top
+                Border.child (
                     SearchBar.view state.SearchBar (SearchBarMsg >> dispatch)
-                ]
+                        (state.Sidebar.Tags |> List.map fst)
+                        state.Sidebar.Folders
+                        (SearchBar.hasCriteria state.SearchBar))
             ]
             // Fixed index 1: status area — orphan banner, notifications, scan progress
             // Wrapped in a StackPanel so its variable inner content never shifts outer DockPanel indices
@@ -1322,6 +1396,13 @@ let view (state: State) (dispatch: Msg -> unit) =
                         TagBrowser.view browser (TagBrowserMsg >> dispatch)
                     ]
                 ] :> Avalonia.FuncUI.Types.IView
+            | None -> ()
+            match state.SmartAlbumEditor with
+            | Some editor ->
+                yield SmartAlbumEditor.view editor (SmartAlbumEditorMsg >> dispatch)
+                      (state.Sidebar.Tags |> List.map fst)
+                      state.Sidebar.Folders
+                      :> Avalonia.FuncUI.Types.IView
             | None -> ()
         ]
     ] :> Avalonia.FuncUI.Types.IView

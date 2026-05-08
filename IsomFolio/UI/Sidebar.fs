@@ -31,9 +31,11 @@ type Msg =
     | AlbumsLoaded         of Album list
     | AlbumSelected        of AlbumId
     | AlbumDeselected
+    | FolderDeselected
     | AlbumCreateRequested
-    | AlbumRenameRequested of AlbumId
-    | AlbumDeleteRequested of AlbumId
+    | AlbumRenameRequested          of AlbumId
+    | AlbumDeleteRequested          of AlbumId
+    | AlbumEditCriteriaRequested    of AlbumId
 
 let init () = {
     Folders = []; FolderTree = []; Tags = []; SelectedTags = []
@@ -69,6 +71,7 @@ let update (msg: Msg) (state: State) =
             Folders = folders
             FolderTree = state.FolderTree |> List.filter (fun node -> node.Path <> f)
             SelectedFolder = selectedFolder }
+    | FolderDeselected        -> { state with SelectedFolder = None }
     | FolderSelected path   ->
         { state with SelectedFolder = Some (normalizePath path); SelectedAlbumId = None }
     | FolderToggled path ->
@@ -88,7 +91,8 @@ let update (msg: Msg) (state: State) =
     | AlbumDeselected              -> { state with SelectedAlbumId = None }
     | AlbumCreateRequested
     | AlbumRenameRequested _
-    | AlbumDeleteRequested _       -> state
+    | AlbumDeleteRequested _
+    | AlbumEditCriteriaRequested _ -> state
 
 let private hasPendingIn (nodePath: string) (pendingFolders: Set<string>) =
     let normalizedPath = normalizePath nodePath
@@ -183,25 +187,32 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (pendi
 
 let private albumRow (album: Album) (selectedId: AlbumId option) (dispatch: Msg -> unit) =
     let isSelected = selectedId = Some album.Id
+    let isSmart = match album.Kind with Smart _ -> true | Manual -> false
     let selBg : IBrush =
         if isSelected then SolidColorBrush(Theme.folderSelectedBg) :> IBrush
         else Brushes.Transparent :> IBrush
     let selBorder : IBrush =
         if isSelected then SolidColorBrush(Theme.folderSelectedBorder) :> IBrush
         else Brushes.Transparent :> IBrush
+    let menuItems = [
+        yield XMenuItem.create [
+            XMenuItem.header "Rename…"
+            XMenuItem.onClick (fun _ -> dispatch (AlbumRenameRequested album.Id))
+        ]
+        if isSmart then
+            yield XMenuItem.create [
+                XMenuItem.header "Edit Criteria…"
+                XMenuItem.onClick (fun _ -> dispatch (AlbumEditCriteriaRequested album.Id))
+            ]
+        yield XMenuItem.create [
+            XMenuItem.header "Delete"
+            XMenuItem.onClick (fun _ -> dispatch (AlbumDeleteRequested album.Id))
+        ]
+    ]
     StackPanel.create [
         XStackPanel.contextMenu (
             XContextMenu.create [
-                XContextMenu.viewItems [
-                    XMenuItem.create [
-                        XMenuItem.header "Rename…"
-                        XMenuItem.onClick (fun _ -> dispatch (AlbumRenameRequested album.Id))
-                    ]
-                    XMenuItem.create [
-                        XMenuItem.header "Delete"
-                        XMenuItem.onClick (fun _ -> dispatch (AlbumDeleteRequested album.Id))
-                    ]
-                ]
+                XContextMenu.viewItems menuItems
             ])
         StackPanel.children [
             Button.create [
@@ -218,7 +229,7 @@ let private albumRow (album: Album) (selectedId: AlbumId option) (dispatch: Msg 
                     SubPatchOptions.OnChangeOf album.Id)
                 Button.content (
                     TextBlock.create [
-                        TextBlock.text album.Name
+                        TextBlock.text (if isSmart then $"★ {album.Name}" else album.Name)
                         TextBlock.foreground (SolidColorBrush(if isSelected then Theme.folderSelectedText else Theme.folderUnselectedText))
                         TextBlock.fontSize Theme.FontSize.md
                         TextBlock.textTrimming TextTrimming.CharacterEllipsis

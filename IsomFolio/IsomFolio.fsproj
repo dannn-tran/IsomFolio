@@ -7,14 +7,15 @@
 
     <ItemGroup>
         <Compile Include="UI\Theme.fs" />
-        <Compile Include="UI\SearchBar.fs" />
         <Compile Include="UI\ContextMenuExt.fs" />
+        <Compile Include="UI\SearchBar.fs" />
         <Compile Include="UI\Sidebar.fs" />
         <Compile Include="UI\GridView.fs" />
         <Compile Include="UI\TagTree.fs" />
         <Compile Include="UI\TagBrowser.fs" />
         <Compile Include="UI\DetailPanel.fs" />
         <Compile Include="UI\LoupeView.fs" />
+        <Compile Include="UI\SmartAlbumEditor.fs" />
         <Compile Include="UI\MainView.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
