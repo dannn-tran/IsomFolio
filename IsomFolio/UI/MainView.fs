@@ -49,6 +49,7 @@ type State = {
     Albums            : Album list
     ViewCtx           : ViewContext
     SmartAlbumEditor  : SmartAlbumEditor.State option
+    RecentCatalogs    : string list option
 }
 
 type Msg =
@@ -77,6 +78,8 @@ type Msg =
     | LoupeMsg            of LoupeView.Msg
     | AlbumsLoaded            of Album list
     | SmartAlbumEditorMsg     of SmartAlbumEditor.Msg
+    | RecentCatalogSelected   of string
+    | DismissRecentCatalogs
     | NoOp
 
 let private defaultQuery = {
@@ -86,6 +89,7 @@ let private defaultQuery = {
 
 let init (w: Window) () : State * Cmd<Msg> =
     appWindow <- Some w
+    let recents = IsomFolio.Core.AppPaths.readRecentCatalogs()
     let state = {
         Sidebar         = Sidebar.init ()
         Grid            = GridView.init ()
@@ -104,21 +108,9 @@ let init (w: Window) () : State * Cmd<Msg> =
         Albums            = []
         ViewCtx           = AllPhotos
         SmartAlbumEditor  = None
+        RecentCatalogs    = if recents.IsEmpty then None else Some recents
     }
-    let initCmd =
-        match IsomFolio.Core.AppPaths.readLastSession() with
-        | None -> Cmd.none
-        | Some session ->
-            Cmd.OfAsync.either
-                (fun () -> async {
-                    let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath session.CatalogPath)
-                    use c = conn
-                    return session.CatalogPath, session.Folders
-                })
-                ()
-                CatalogOpened
-                (fun ex -> AppError (DbError ex.Message))
-    state, initCmd
+    state, Cmd.none
 
 let private withCatalogDb (catalogPath: string) (work: _ -> Async<'T>) : Async<'T> =
     async {
@@ -596,6 +588,7 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
         | CatalogOpened (path, folders) ->
             let folders = normalizeFolders folders
             IsomFolio.Core.AppPaths.saveSession { CatalogPath = path; Folders = folders }
+            IsomFolio.Core.AppPaths.saveRecentCatalog path
             let newId = state.SearchRequestId + 1
             Some(
                 { state with
@@ -614,7 +607,8 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                     ViewMode        = Browse
                     Albums            = []
                     ViewCtx           = AllPhotos
-                    SmartAlbumEditor  = None },
+                    SmartAlbumEditor  = None
+                    RecentCatalogs    = None },
                 Cmd.batch (
                     detachLoupeKeyboardCmd
                     :: manageWorkerCmd path
@@ -676,10 +670,32 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     match state, msg with
     | _, NewCatalogRequested
     | _, OpenCatalogRequested
-    | _, CatalogOpened _
     | _, AddFolderRequested
     | _, FolderOpened _ ->
         handleCatalogMsg state msg |> Option.defaultValue (state, Cmd.none)
+
+    | _, CatalogOpened _ ->
+        let cleared = { state with RecentCatalogs = None }
+        handleCatalogMsg cleared msg |> Option.defaultValue (cleared, Cmd.none)
+
+    | _, RecentCatalogSelected path ->
+        let folders =
+            match IsomFolio.Core.AppPaths.readLastSession() with
+            | Some s when s.CatalogPath = path -> s.Folders
+            | _ -> []
+        state,
+        Cmd.OfAsync.either
+            (fun () -> async {
+                let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath path)
+                use c = conn
+                return path, folders
+            })
+            ()
+            CatalogOpened
+            (fun ex -> AppError (DbError ex.Message))
+
+    | _, DismissRecentCatalogs ->
+        { state with RecentCatalogs = None }, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg (Sidebar.FolderSelected _ as sbMsg) ->
         let newSidebar = Sidebar.update sbMsg state.Sidebar
@@ -1212,6 +1228,91 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | _, FileEventReceived _ | _, ResyncFolderRequested _ | _, FolderResynced _ | _, NoOp -> state, Cmd.none
 
+let private recentCatalogsView (recents: string list) (dispatch: Msg -> unit) =
+    Grid.create [
+        Grid.background (SolidColorBrush(Color.FromArgb(200uy, 0uy, 0uy, 0uy)))
+        Grid.children [
+            Border.create [
+                Border.maxWidth 480.0
+                Border.background (SolidColorBrush(Theme.panelBg))
+                Border.cornerRadius 6.0
+                Border.padding (Avalonia.Thickness(24.0))
+                Border.horizontalAlignment HorizontalAlignment.Center
+                Border.verticalAlignment VerticalAlignment.Center
+                Border.child (
+                    StackPanel.create [
+                        StackPanel.spacing 8.0
+                        StackPanel.children [
+                            DockPanel.create [
+                                DockPanel.children [
+                                    Button.create [
+                                        Button.dock Dock.Right
+                                        Button.content "×"
+                                        Button.background Brushes.Transparent
+                                        Button.borderThickness (Avalonia.Thickness(0.0))
+                                        Button.foreground (SolidColorBrush(Theme.textMuted))
+                                        Button.onClick (fun _ -> dispatch DismissRecentCatalogs)
+                                    ]
+                                    TextBlock.create [
+                                        TextBlock.text "Recent Catalogs"
+                                        TextBlock.fontSize Theme.FontSize.lg
+                                        TextBlock.foreground Brushes.White
+                                        TextBlock.fontWeight FontWeight.SemiBold
+                                        TextBlock.verticalAlignment VerticalAlignment.Center
+                                    ]
+                                ]
+                            ] :> Avalonia.FuncUI.Types.IView
+                            for path in recents do
+                                yield Button.create [
+                                    Button.horizontalAlignment HorizontalAlignment.Stretch
+                                    Button.horizontalContentAlignment HorizontalAlignment.Left
+                                    Button.padding (Avalonia.Thickness(10.0, 8.0))
+                                    Button.onClick(
+                                        (fun _ -> dispatch (RecentCatalogSelected path)),
+                                        SubPatchOptions.OnChangeOf path)
+                                    Button.content (
+                                        StackPanel.create [
+                                            StackPanel.children [
+                                                TextBlock.create [
+                                                    TextBlock.text (System.IO.Path.GetFileName path)
+                                                    TextBlock.foreground Brushes.White
+                                                    TextBlock.fontSize Theme.FontSize.md
+                                                    TextBlock.fontWeight FontWeight.SemiBold
+                                                ] :> Avalonia.FuncUI.Types.IView
+                                                TextBlock.create [
+                                                    TextBlock.text path
+                                                    TextBlock.foreground (SolidColorBrush(Theme.textDim))
+                                                    TextBlock.fontSize Theme.FontSize.xs
+                                                    TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                                ] :> Avalonia.FuncUI.Types.IView
+                                            ]
+                                        ])
+                                ] :> Avalonia.FuncUI.Types.IView
+                            DockPanel.create [
+                                DockPanel.margin (Avalonia.Thickness(0.0, 8.0, 0.0, 0.0))
+                                DockPanel.children [
+                                    Button.create [
+                                        Button.dock Dock.Right
+                                        Button.content "Open Other…"
+                                        Button.padding (Avalonia.Thickness(16.0, 6.0))
+                                        Button.onClick (fun _ -> dispatch OpenCatalogRequested)
+                                    ] :> Avalonia.FuncUI.Types.IView
+                                    Button.create [
+                                        Button.dock Dock.Right
+                                        Button.content "New Catalog…"
+                                        Button.padding (Avalonia.Thickness(16.0, 6.0))
+                                        Button.background Brushes.Transparent
+                                        Button.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
+                                        Button.onClick (fun _ -> dispatch NewCatalogRequested)
+                                    ] :> Avalonia.FuncUI.Types.IView
+                                ]
+                            ] :> Avalonia.FuncUI.Types.IView
+                        ]
+                    ])
+            ]
+        ]
+    ]
+
 let private welcomeView (dispatch: Msg -> unit) =
     DockPanel.create [
         DockPanel.children [
@@ -1403,6 +1504,10 @@ let view (state: State) (dispatch: Msg -> unit) =
                       (state.Sidebar.Tags |> List.map fst)
                       state.Sidebar.Folders
                       :> Avalonia.FuncUI.Types.IView
+            | None -> ()
+            match state.RecentCatalogs with
+            | Some recents ->
+                yield recentCatalogsView recents dispatch :> Avalonia.FuncUI.Types.IView
             | None -> ()
         ]
     ] :> Avalonia.FuncUI.Types.IView

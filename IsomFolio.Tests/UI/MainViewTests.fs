@@ -53,6 +53,7 @@ let private makeState catalogPath : MainView.State = {
     Albums            = []
     ViewCtx           = MainView.AllPhotos
     SmartAlbumEditor  = None
+    RecentCatalogs    = None
 }
 
 let private makeFile (name: string) (folder: string) : AssetFile =
@@ -583,3 +584,30 @@ module SmartAlbumEditing =
         let state = { makeState "/catalog" with SmartAlbumEditor = Some editor }
         let next, _ = MainView.update (MainView.SmartAlbumEditorMsg SmartAlbumEditor.SaveRequested) state
         Assert.Equal(None, next.SmartAlbumEditor)
+
+module RecentCatalogsOverlay =
+
+    [<Fact>]
+    let ``DismissRecentCatalogs clears RecentCatalogs`` () =
+        let state = { makeState "/catalog" with RecentCatalogs = Some [ "/a"; "/b" ] }
+        let next, _ = MainView.update MainView.DismissRecentCatalogs state
+        Assert.Equal(None, next.RecentCatalogs)
+
+    [<Fact>]
+    let ``DismissRecentCatalogs produces no command`` () =
+        let state = { makeState "/catalog" with RecentCatalogs = Some [ "/a" ] }
+        let _, cmd = MainView.update MainView.DismissRecentCatalogs state
+        Assert.Empty(cmd)
+
+    [<Fact>]
+    let ``CatalogOpened clears RecentCatalogs`` () =
+        let state = { makeState "/catalog" with RecentCatalogs = Some [ "/a" ] }
+        let next, _ = MainView.update (MainView.CatalogOpened ("/catalog", [])) state
+        Assert.Equal(None, next.RecentCatalogs)
+
+    [<Fact>]
+    let ``RecentCatalogSelected produces a command and does not change state`` () =
+        let state = { makeState "/catalog" with RecentCatalogs = Some [ "/a" ] }
+        let next, cmd = MainView.update (MainView.RecentCatalogSelected "/a") state
+        Assert.Equal(state.RecentCatalogs, next.RecentCatalogs)
+        Assert.NotEmpty(cmd)

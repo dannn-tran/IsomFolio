@@ -38,3 +38,32 @@ let saveSession (s: Session) =
     Directory.CreateDirectory(appDataRoot ()) |> ignore
     let data = {| catalogPath = s.CatalogPath; folders = s.Folders |}
     File.WriteAllText(sessionFilePath (), System.Text.Json.JsonSerializer.Serialize(data))
+
+let private recentCatalogsPath () = Path.Combine(appDataRoot (), "recent.txt")
+let private maxRecent = 10
+
+let readRecentCatalogs () : string list =
+    let f = recentCatalogsPath ()
+    let raw =
+        if not (File.Exists f) then
+            match readLastSession() with
+            | Some s -> [ s.CatalogPath ]
+            | None   -> []
+        else
+            try File.ReadAllLines(f) |> Array.toList
+            with _ -> []
+    raw |> List.filter Directory.Exists |> List.truncate maxRecent
+
+let saveRecentCatalog (catalogPath: string) =
+    Directory.CreateDirectory(appDataRoot ()) |> ignore
+    let f = recentCatalogsPath ()
+    let existing =
+        if File.Exists f then
+            try File.ReadAllLines(f) |> Array.toList
+            with _ -> []
+        else []
+    let updated =
+        catalogPath :: (existing |> List.filter (fun p -> p <> catalogPath))
+        |> List.truncate maxRecent
+    try File.WriteAllLines(f, updated)
+    with _ -> ()
