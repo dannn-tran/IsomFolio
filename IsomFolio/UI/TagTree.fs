@@ -164,7 +164,7 @@ let rec private nodeView
     StackPanel.create [
         StackPanel.orientation Orientation.Vertical
         StackPanel.children [
-            DockPanel.create [
+            yield DockPanel.create [
                 DockPanel.margin (Avalonia.Thickness(indent, 1.0, 0.0, 1.0))
                 DockPanel.children [
                     // Right-side action buttons

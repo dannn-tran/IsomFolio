@@ -48,7 +48,6 @@ let private parseBinaryPlist (data: byte[]) : Result<string list, string> =
         let readBigEndianInt64 (slice: byte[]) =
             BitConverter.ToInt64(slice |> Array.rev, 0)
 
-        let numObjects        = readBigEndianInt64 data.[trailerOffset + 8  .. trailerOffset + 15]
         let topObject         = readBigEndianInt64 data.[trailerOffset + 16 .. trailerOffset + 23]
         let offsetTableStart  = readBigEndianInt64 data.[trailerOffset + 24 .. trailerOffset + 31]
 
