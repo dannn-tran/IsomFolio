@@ -10,15 +10,16 @@ open IsomFolio.Core.Models
 open IsomFolio.UI.ContextMenuExt
 
 type State = {
-    Folders          : string list
-    FolderTree       : FolderNode list
-    Tags             : (string * int) list   // (name, count)
-    SelectedTags     : string list
-    SelectedFolder   : string option
-    CollapsedFolders : Set<string>
-    Albums           : Album list
-    SelectedAlbumId  : AlbumId option
-    FolderCounts     : Map<string, int>
+    Folders               : string list
+    FolderTree            : FolderNode list
+    Tags                  : (string * int) list   // (name, count)
+    SelectedTags          : string list
+    SelectedFolder        : string option
+    CollapsedFolders      : Set<string>
+    Albums                : Album list
+    SelectedAlbumId       : AlbumId option
+    FolderCounts          : Map<string, int>
+    FolderSearchRecursive : bool
 }
 
 type Msg =
@@ -38,11 +39,13 @@ type Msg =
     | AlbumDeleteRequested          of AlbumId
     | AlbumEditCriteriaRequested    of AlbumId
     | FolderCountsLoaded            of Map<string, int>
+    | FolderSearchRecursiveToggled
 
 let init () = {
     Folders = []; FolderTree = []; Tags = []; SelectedTags = []
     SelectedFolder = None; CollapsedFolders = Set.empty
     Albums = []; SelectedAlbumId = None; FolderCounts = Map.empty
+    FolderSearchRecursive = true
 }
 
 let private isPathWithinRoot (root: string) (path: string) = isWithinSubtree root path
@@ -88,14 +91,15 @@ let update (msg: Msg) (state: State) =
             then state.SelectedTags |> List.filter ((<>) tag)
             else state.SelectedTags @ [ tag ]
         { state with SelectedTags = selected }
-    | AlbumsLoaded albums          -> { state with Albums = albums }
-    | AlbumSelected id             -> { state with SelectedAlbumId = Some id; SelectedFolder = None }
-    | AlbumDeselected              -> { state with SelectedAlbumId = None }
-    | FolderCountsLoaded counts    -> { state with FolderCounts = counts }
+    | AlbumsLoaded albums              -> { state with Albums = albums }
+    | AlbumSelected id                 -> { state with SelectedAlbumId = Some id; SelectedFolder = None }
+    | AlbumDeselected                  -> { state with SelectedAlbumId = None }
+    | FolderCountsLoaded counts        -> { state with FolderCounts = counts }
+    | FolderSearchRecursiveToggled     -> { state with FolderSearchRecursive = not state.FolderSearchRecursive }
     | AlbumCreateRequested
     | AlbumRenameRequested _
     | AlbumDeleteRequested _
-    | AlbumEditCriteriaRequested _ -> state
+    | AlbumEditCriteriaRequested _     -> state
 
 let private hasPendingIn (nodePath: string) (pendingFolders: Set<string>) =
     let normalizedPath = normalizePath nodePath
@@ -380,6 +384,26 @@ let view (state: State) (dispatch: Msg -> unit) (pendingFolders: Set<string>) (o
                             else
                                 for node in state.FolderTree do
                                     yield folderNodeView 0 state.SelectedFolder pendingFolders state.CollapsedFolders state.FolderCounts dispatch onFolderRemoveRequested onResyncRequested node :> Avalonia.FuncUI.Types.IView
+                            if state.SelectedFolder.IsSome then
+                                yield StackPanel.create [
+                                    StackPanel.orientation Orientation.Horizontal
+                                    StackPanel.margin (Avalonia.Thickness(4.0, 4.0, 0.0, 0.0))
+                                    StackPanel.spacing 6.0
+                                    StackPanel.children [
+                                        CheckBox.create [
+                                            CheckBox.isChecked state.FolderSearchRecursive
+                                            CheckBox.onClick(
+                                                (fun _ -> dispatch FolderSearchRecursiveToggled),
+                                                SubPatchOptions.OnChangeOf state.FolderSearchRecursive)
+                                        ]
+                                        TextBlock.create [
+                                            TextBlock.text "Include subfolders"
+                                            TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                                            TextBlock.fontSize Theme.FontSize.xs
+                                            TextBlock.verticalAlignment Avalonia.Layout.VerticalAlignment.Center
+                                        ]
+                                    ]
+                                ] :> Avalonia.FuncUI.Types.IView
                             // Tag list
                             if not state.Tags.IsEmpty then
                                 yield TextBlock.create [

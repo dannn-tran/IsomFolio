@@ -29,13 +29,14 @@ type TileSize = Small | Medium | Large  // 128 / 256 / 512 px
 type SortField = Name | Date | Size | Ext
 
 type SearchQuery = {
-    Text        : string option
-    FolderPath  : string option
-    Tags        : string list
-    Extensions  : string list
-    DateRange   : (DateTime * DateTime) option
-    SortBy      : SortField
-    SortAsc     : bool
+    Text            : string option
+    FolderPath      : string option
+    FolderRecursive : bool
+    Tags            : string list
+    Extensions      : string list
+    DateRange       : (DateTime * DateTime) option
+    SortBy          : SortField
+    SortAsc         : bool
 }
 
 type AppError =

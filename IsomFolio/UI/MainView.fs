@@ -83,7 +83,7 @@ type Msg =
     | NoOp
 
 let private defaultQuery = {
-    Text = None; FolderPath = None; Tags = []; Extensions = []
+    Text = None; FolderPath = None; FolderRecursive = true; Tags = []; Extensions = []
     DateRange = None; SortBy = Date; SortAsc = false
 }
 
@@ -344,13 +344,14 @@ let private buildQuery (state: State) : SearchQuery =
         match SearchBar.parseDateOpt state.SearchBar.DateFrom, SearchBar.parseDateOpt state.SearchBar.DateTo with
         | None, None -> None
         | df, dt -> Some (df |> Option.defaultValue System.DateTime.MinValue, dt |> Option.defaultValue System.DateTime.MaxValue)
-    { Text       = if state.SearchBar.InputText.Trim() = "" then None else Some state.SearchBar.InputText
-      FolderPath = state.SearchBar.FolderFilter |> Option.orElse state.Sidebar.SelectedFolder
-      Tags       = state.SearchBar.TagFilter
-      Extensions = state.SearchBar.ExtFilter
-      DateRange  = dateRange
-      SortBy     = Date
-      SortAsc    = false }
+    { Text            = if state.SearchBar.InputText.Trim() = "" then None else Some state.SearchBar.InputText
+      FolderPath      = state.SearchBar.FolderFilter |> Option.orElse state.Sidebar.SelectedFolder
+      FolderRecursive = state.Sidebar.FolderSearchRecursive
+      Tags            = state.SearchBar.TagFilter
+      Extensions      = state.SearchBar.ExtFilter
+      DateRange       = dateRange
+      SortBy          = Date
+      SortAsc         = false }
 
 let private runContextSearchCmd (catalogPath: string) (requestId: int) (state: State) : Cmd<Msg> =
     match state.ViewCtx with
@@ -772,6 +773,13 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         match album with
         | Some a -> { state with SmartAlbumEditor = Some (SmartAlbumEditor.initFromAlbum a) }, Cmd.none
         | None   -> state, Cmd.none
+
+    | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg Sidebar.FolderSearchRecursiveToggled ->
+        let newSidebar = Sidebar.update Sidebar.FolderSearchRecursiveToggled state.Sidebar
+        let newId = state.SearchRequestId + 1
+        let newState = { state with Sidebar = newSidebar; SearchRequestId = newId }
+        let newStateWithQuery = { newState with ActiveQuery = buildQuery newState }
+        newStateWithQuery, runContextSearchCmd catalogPath newId newStateWithQuery
 
     | _, SidebarMsg sbMsg ->
         { state with Sidebar = Sidebar.update sbMsg state.Sidebar }, Cmd.none

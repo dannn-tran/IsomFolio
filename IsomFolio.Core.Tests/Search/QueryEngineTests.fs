@@ -29,13 +29,14 @@ let private makeFile (name: string) (folder: string) (ext: string) : AssetFile =
     }
 
 let private defaultQuery = {
-    Text       = None
-    FolderPath = None
-    Tags       = []
-    Extensions = []
-    DateRange  = None
-    SortBy     = Name
-    SortAsc    = true
+    Text            = None
+    FolderPath      = None
+    FolderRecursive = true
+    Tags            = []
+    Extensions      = []
+    DateRange       = None
+    SortBy          = Name
+    SortAsc         = true
 }
 
 

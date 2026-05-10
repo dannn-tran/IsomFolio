@@ -88,8 +88,11 @@ let executeSearch (c: SqliteConnection) (query: SearchQuery) : Async<AssetFile l
         match query.FolderPath with
         | Some folderPath when folderPath.Trim() <> "" ->
             cmd.Parameters.AddWithValue("@folder", folderPath) |> ignore
-            cmd.Parameters.AddWithValue("@folderPrefix", descendantPrefix folderPath) |> ignore
-            sql.Append(" AND (f.folder = @folder OR f.folder LIKE @folderPrefix)") |> ignore
+            if query.FolderRecursive then
+                cmd.Parameters.AddWithValue("@folderPrefix", descendantPrefix folderPath) |> ignore
+                sql.Append(" AND (f.folder = @folder OR f.folder LIKE @folderPrefix)") |> ignore
+            else
+                sql.Append(" AND f.folder = @folder") |> ignore
         | _ -> ()
 
         // Extension filter

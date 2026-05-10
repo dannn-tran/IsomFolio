@@ -6,7 +6,7 @@ open IsomFolio.Core.Models
 open IsomFolio.UI.SmartAlbumEditor
 
 let private defaultQuery = {
-    Text = None; FolderPath = None; Tags = []; Extensions = []
+    Text = None; FolderPath = None; FolderRecursive = true; Tags = []; Extensions = []
     DateRange = None; SortBy = Date; SortAsc = false
 }
 

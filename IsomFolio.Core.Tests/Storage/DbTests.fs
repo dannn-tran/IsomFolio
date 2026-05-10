@@ -432,13 +432,14 @@ module DeleteTag =
 module SearchQuerySerialization =
 
     let private defaultQuery : IsomFolio.Core.Models.SearchQuery = {
-        Text       = None
-        FolderPath = None
-        Tags       = []
-        Extensions = []
-        DateRange  = None
-        SortBy     = Date
-        SortAsc    = false
+        Text            = None
+        FolderPath      = None
+        FolderRecursive = true
+        Tags            = []
+        Extensions      = []
+        DateRange       = None
+        SortBy          = Date
+        SortAsc         = false
     }
 
     [<Fact>]
@@ -498,7 +499,7 @@ module Albums =
     let ``create and retrieve smart album preserves query`` () =
         async {
             let! c   = openTestDb ()
-            let  q   = { Text = Some "paris"; FolderPath = None; Tags = [ "travel" ]; Extensions = []; DateRange = None; SortBy = Date; SortAsc = false }
+            let  q   = { Text = Some "paris"; FolderPath = None; FolderRecursive = true; Tags = [ "travel" ]; Extensions = []; DateRange = None; SortBy = Date; SortAsc = false }
             let  album = newAlbum "Paris" (Smart q)
             do!  Db.createAlbum c album
             let! all = Db.getAllAlbums c
@@ -535,7 +536,7 @@ module Albums =
     let ``update smart album query`` () =
         async {
             let! c = openTestDb ()
-            let  q1 = { Text = Some "old"; FolderPath = None; Tags = []; Extensions = []; DateRange = None; SortBy = Date; SortAsc = false }
+            let  q1 = { Text = Some "old"; FolderPath = None; FolderRecursive = true; Tags = []; Extensions = []; DateRange = None; SortBy = Date; SortAsc = false }
             let  q2 = { q1 with Text = Some "new" }
             let  a  = newAlbum "Smart" (Smart q1)
             do!  Db.createAlbum c a

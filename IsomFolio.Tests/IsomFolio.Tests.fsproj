@@ -5,6 +5,7 @@
         <TargetFramework>net10.0</TargetFramework>
         <IsPackable>false</IsPackable>
         <RootNamespace>IsomFolio.Tests</RootNamespace>
+        <OtherFlags>--warnon:1182</OtherFlags>
     </PropertyGroup>
 
     <ItemGroup>
