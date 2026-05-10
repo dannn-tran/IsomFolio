@@ -3,6 +3,7 @@ module IsomFolio.UI.GridView
 open System.Runtime.InteropServices
 open Avalonia.FuncUI.DSL
 open Avalonia.Controls
+open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Media.Imaging
@@ -93,6 +94,9 @@ let update (msg: Msg) (state: State) =
                     if i >= state.Tiles.Length then currentIdx else i
             { state with SelectedId = Some state.Tiles.[newIdx].File.Id }
 
+let mutable private dragStartPoint = Avalonia.Point()
+let mutable private dragCandidateFileId: FileId option = None
+
 let private bitmapCache = System.Collections.Generic.Dictionary<string, Bitmap>()
 
 let clearBitmapCache () =
@@ -171,6 +175,27 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.onDoubleTapped(
             (fun _ -> dispatch (EnterLoupe model.File.Id)),
+            SubPatchOptions.OnChangeOf model.File.Id)
+        Border.onPointerPressed(
+            (fun e ->
+                dragStartPoint <- e.GetCurrentPoint(Unchecked.defaultof<Avalonia.Visual>).Position
+                dragCandidateFileId <- Some model.File.Id),
+            SubPatchOptions.OnChangeOf model.File.Id)
+        Border.onPointerMoved(
+            (fun e ->
+                let point = e.GetCurrentPoint(Unchecked.defaultof<Avalonia.Visual>)
+                match dragCandidateFileId with
+                | Some fileId when point.Properties.IsLeftButtonPressed ->
+                    let pos = point.Position
+                    if abs(pos.X - dragStartPoint.X) > 8.0 || abs(pos.Y - dragStartPoint.Y) > 8.0 then
+                        dragCandidateFileId <- None
+                        let data = DataObject()
+                        data.Set("IsomFolio.FileId", fileId :> obj)
+                        DragDrop.DoDragDrop(e, data, DragDropEffects.Copy) |> ignore
+                | _ -> ()),
+            SubPatchOptions.OnChangeOf model.File.Id)
+        Border.onPointerReleased(
+            (fun _ -> dragCandidateFileId <- None),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.child (
             Grid.create [

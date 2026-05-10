@@ -1,7 +1,9 @@
 module IsomFolio.UI.Sidebar
 
+open Avalonia.FuncUI.Builder
 open Avalonia.FuncUI.DSL
 open Avalonia.Controls
+open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open IsomFolio.Core.PathUtils
@@ -40,6 +42,7 @@ type Msg =
     | AlbumEditCriteriaRequested    of AlbumId
     | FolderCountsLoaded            of Map<string, int>
     | FolderSearchRecursiveToggled
+    | FileDroppedToAlbum            of FileId * AlbumId
 
 let init () = {
     Folders = []; FolderTree = []; Tags = []; SelectedTags = []
@@ -96,6 +99,7 @@ let update (msg: Msg) (state: State) =
     | AlbumDeselected                  -> { state with SelectedAlbumId = None }
     | FolderCountsLoaded counts        -> { state with FolderCounts = counts }
     | FolderSearchRecursiveToggled     -> { state with FolderSearchRecursive = not state.FolderSearchRecursive }
+    | FileDroppedToAlbum _             -> state
     | AlbumCreateRequested
     | AlbumRenameRequested _
     | AlbumDeleteRequested _
@@ -224,24 +228,39 @@ let private albumRow (album: Album) (selectedId: AlbumId option) (dispatch: Msg 
             ])
         StackPanel.children [
             Button.create [
-                Button.background selBg
-                Button.borderBrush selBorder
-                Button.borderThickness (if isSelected then Avalonia.Thickness(3.0, 1.0, 1.0, 1.0) else Avalonia.Thickness(0.0))
-                Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
-                Button.horizontalAlignment HorizontalAlignment.Stretch
-                Button.horizontalContentAlignment HorizontalAlignment.Left
-                Button.onClick(
+                yield Button.background selBg
+                yield Button.borderBrush selBorder
+                yield Button.borderThickness (if isSelected then Avalonia.Thickness(3.0, 1.0, 1.0, 1.0) else Avalonia.Thickness(0.0))
+                yield Button.padding (Avalonia.Thickness(8.0, 4.0, 6.0, 4.0))
+                yield Button.horizontalAlignment HorizontalAlignment.Stretch
+                yield Button.horizontalContentAlignment HorizontalAlignment.Left
+                yield Button.onClick(
                     (fun _ ->
                         if isSelected then dispatch AlbumDeselected
                         else dispatch (AlbumSelected album.Id)),
                     SubPatchOptions.OnChangeOf album.Id)
-                Button.content (
+                yield Button.content (
                     TextBlock.create [
                         TextBlock.text (if isSmart then $"★ {album.Name}" else album.Name)
                         TextBlock.foreground (SolidColorBrush(if isSelected then Theme.folderSelectedText else Theme.folderUnselectedText))
                         TextBlock.fontSize Theme.FontSize.md
                         TextBlock.textTrimming TextTrimming.CharacterEllipsis
                     ])
+                if not isSmart then
+                    yield AttrBuilder<Avalonia.Controls.Button>.CreateProperty<bool>(DragDrop.AllowDropProperty, true, ValueNone)
+                    yield AttrBuilder<Avalonia.Controls.Button>.CreateSubscription<DragEventArgs>(
+                        DragDrop.DragOverEvent,
+                        fun args ->
+                            if args.Data.Contains("IsomFolio.FileId") then
+                                args.DragEffects <- DragDropEffects.Copy
+                            else
+                                args.DragEffects <- DragDropEffects.None)
+                    yield AttrBuilder<Avalonia.Controls.Button>.CreateSubscription<DragEventArgs>(
+                        DragDrop.DropEvent,
+                        fun (args: DragEventArgs) ->
+                            match args.Data.Get("IsomFolio.FileId") with
+                            | :? string as fileId -> dispatch (FileDroppedToAlbum(fileId, album.Id))
+                            | _ -> ())
             ]
         ]
     ]
