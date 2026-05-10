@@ -19,6 +19,11 @@ let mutable private thumbnailWorker: MailboxProcessor<Thumbnail.ThumbnailMsg> op
 let mutable private activeWatchers: System.IO.FileSystemWatcher list = []
 let mutable private appWindow: Window option = None
 let mutable private loupeKeySubscription: System.IDisposable option = None
+let mutable private undoKeySubscription: System.IDisposable option = None
+
+type AlbumCommand =
+    | FileAddedToAlbum    of FileId * AlbumId
+    | FileRemovedFromAlbum of FileId * AlbumId
 
 type ViewMode = Browse | Loupe
 
@@ -50,6 +55,8 @@ type State = {
     ViewCtx           : ViewContext
     SmartAlbumEditor  : SmartAlbumEditor.State option
     RecentCatalogs    : string list option
+    UndoStack         : AlbumCommand list
+    RedoStack         : AlbumCommand list
 }
 
 type Msg =
@@ -80,6 +87,8 @@ type Msg =
     | SmartAlbumEditorMsg     of SmartAlbumEditor.Msg
     | RecentCatalogSelected   of string
     | DismissRecentCatalogs
+    | UndoRequested
+    | RedoRequested
     | NoOp
 
 let private defaultQuery = {
@@ -109,6 +118,8 @@ let init (w: Window) () : State * Cmd<Msg> =
         ViewCtx           = AllPhotos
         SmartAlbumEditor  = None
         RecentCatalogs    = if recents.IsEmpty then None else Some recents
+        UndoStack         = []
+        RedoStack         = []
     }
     state, Cmd.none
 
@@ -248,6 +259,31 @@ let private detachLoupeKeyboardCmd : Cmd<Msg> =
     Cmd.ofEffect (fun _ ->
         loupeKeySubscription |> Option.iter (fun s -> s.Dispose())
         loupeKeySubscription <- None)
+
+let private attachUndoKeyboardCmd : Cmd<Msg> =
+    Cmd.ofEffect (fun dispatch ->
+        undoKeySubscription |> Option.iter (fun s -> s.Dispose())
+        undoKeySubscription <- None
+        match appWindow with
+        | None -> ()
+        | Some w ->
+            let meta = Avalonia.Input.KeyModifiers.Meta    // Cmd on macOS
+            let ctrl = Avalonia.Input.KeyModifiers.Control
+            let shift = Avalonia.Input.KeyModifiers.Shift
+            let sub =
+                w.KeyDown.Subscribe(fun e ->
+                    if not e.Handled then
+                        let mods = e.KeyModifiers
+                        let isUndo = (mods = meta || mods = ctrl) && e.Key = Avalonia.Input.Key.Z
+                        let isRedo = ((mods = (meta ||| shift) || mods = (ctrl ||| shift)) && e.Key = Avalonia.Input.Key.Z)
+                                  || ((mods = meta || mods = ctrl) && e.Key = Avalonia.Input.Key.Y)
+                        if isUndo then
+                            e.Handled <- true
+                            Dispatcher.UIThread.Post(fun () -> dispatch UndoRequested)
+                        elif isRedo then
+                            e.Handled <- true
+                            Dispatcher.UIThread.Post(fun () -> dispatch RedoRequested))
+            undoKeySubscription <- Some sub)
 
 let private startScanCmd (catalogPath: string) (folderPath: string) : Cmd<Msg> =
     Cmd.ofEffect (fun dispatch ->
@@ -614,9 +650,12 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                     Albums            = []
                     ViewCtx           = AllPhotos
                     SmartAlbumEditor  = None
-                    RecentCatalogs    = None },
+                    RecentCatalogs    = None
+                    UndoStack         = []
+                    RedoStack         = [] },
                 Cmd.batch (
                     detachLoupeKeyboardCmd
+                    :: attachUndoKeyboardCmd
                     :: manageWorkerCmd path
                     :: startupCleanupCmd path
                     :: loadFolderTreeCmd folders
@@ -782,7 +821,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         newStateWithQuery, runContextSearchCmd catalogPath newId newStateWithQuery
 
     | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg (Sidebar.FileDroppedToAlbum(fileId, albumId)) ->
-        state,
+        { state with UndoStack = FileAddedToAlbum(fileId, albumId) :: state.UndoStack; RedoStack = [] },
         Cmd.OfAsync.either
             (fun () -> withCatalogDb catalogPath (fun c -> Db.addFileToAlbum c albumId fileId))
             ()
@@ -913,7 +952,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | _, GridMsg (GridView.EnterLoupe _) -> state, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.AddToAlbum (fileId, albumId)) ->
-        state,
+        { state with UndoStack = FileAddedToAlbum(fileId, albumId) :: state.UndoStack; RedoStack = [] },
         Cmd.OfAsync.either
             (fun () -> withCatalogDb catalogPath (fun c -> Db.addFileToAlbum c albumId fileId))
             ()
@@ -922,7 +961,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.RemoveFromAlbum (fileId, albumId)) ->
         let newId = state.SearchRequestId + 1
-        { state with SearchRequestId = newId },
+        { state with SearchRequestId = newId; UndoStack = FileRemovedFromAlbum(fileId, albumId) :: state.UndoStack; RedoStack = [] },
         Cmd.OfAsync.either
             (fun () ->
                 withCatalogDb catalogPath (fun c -> async {
@@ -1245,6 +1284,50 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | { Catalog = OpenedCatalog _ }, FileEventReceived event ->
         handleFileEvent state event
+
+    | { Catalog = OpenedCatalog(catalogPath) }, UndoRequested ->
+        match state.UndoStack with
+        | [] -> state, Cmd.none
+        | cmd :: rest ->
+            let newId = state.SearchRequestId + 1
+            let inverseCmd =
+                match cmd with
+                | FileAddedToAlbum(fileId, albumId)    -> FileRemovedFromAlbum(fileId, albumId)
+                | FileRemovedFromAlbum(fileId, albumId) -> FileAddedToAlbum(fileId, albumId)
+            let (fileId, albumId) = match cmd with FileAddedToAlbum(f,a) | FileRemovedFromAlbum(f,a) -> f, a
+            { state with UndoStack = rest; RedoStack = inverseCmd :: state.RedoStack; SearchRequestId = newId },
+            Cmd.OfAsync.either
+                (fun () ->
+                    withCatalogDb catalogPath (fun c -> async {
+                        match cmd with
+                        | FileAddedToAlbum _    -> do! Db.removeFileFromAlbum c albumId fileId
+                        | FileRemovedFromAlbum _ -> do! Db.addFileToAlbum c albumId fileId
+                        return! QueryEngine.executeManualAlbumSearch c albumId
+                    }))
+                ()
+                (fun files -> SearchCompleted(newId, files))
+                (fun ex -> AppError (DbError ex.Message))
+
+    | { Catalog = OpenedCatalog(catalogPath) }, RedoRequested ->
+        match state.RedoStack with
+        | [] -> state, Cmd.none
+        | cmd :: rest ->
+            let newId = state.SearchRequestId + 1
+            let (fileId, albumId) = match cmd with FileAddedToAlbum(f,a) | FileRemovedFromAlbum(f,a) -> f, a
+            { state with RedoStack = rest; UndoStack = cmd :: state.UndoStack; SearchRequestId = newId },
+            Cmd.OfAsync.either
+                (fun () ->
+                    withCatalogDb catalogPath (fun c -> async {
+                        match cmd with
+                        | FileAddedToAlbum _    -> do! Db.addFileToAlbum c albumId fileId
+                        | FileRemovedFromAlbum _ -> do! Db.removeFileFromAlbum c albumId fileId
+                        return! QueryEngine.executeManualAlbumSearch c albumId
+                    }))
+                ()
+                (fun files -> SearchCompleted(newId, files))
+                (fun ex -> AppError (DbError ex.Message))
+
+    | _, UndoRequested | _, RedoRequested -> state, Cmd.none
 
     | _, FileEventReceived _ | _, ResyncFolderRequested _ | _, FolderResynced _ | _, NoOp -> state, Cmd.none
 

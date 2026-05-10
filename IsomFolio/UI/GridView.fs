@@ -1,4 +1,5 @@
 module IsomFolio.UI.GridView
+#nowarn "44"
 
 open System.Runtime.InteropServices
 open Avalonia.FuncUI.DSL
