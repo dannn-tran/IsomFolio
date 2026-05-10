@@ -1,4 +1,5 @@
 module IsomFolio.UI.Sidebar
+#nowarn "44"
 
 open Avalonia.FuncUI.Builder
 open Avalonia.FuncUI.DSL

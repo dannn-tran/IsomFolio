@@ -49,6 +49,8 @@ let private makeState catalogPath : MainView.State = {
     ViewCtx           = MainView.AllPhotos
     SmartAlbumEditor  = None
     RecentCatalogs    = None
+    UndoStack         = []
+    RedoStack         = []
 }
 
 let private makeFile (name: string) (folder: string) : AssetFile =
@@ -577,3 +579,47 @@ module RecentCatalogsOverlay =
         let next, cmd = MainView.update (MainView.RecentCatalogSelected "/a") state
         Assert.Equal(state.RecentCatalogs, next.RecentCatalogs)
         Assert.NotEmpty(cmd)
+
+module AlbumUndoRedo =
+
+    [<Fact>]
+    let ``AddToAlbum pushes to UndoStack and clears RedoStack`` () =
+        let state = { makeState "/catalog" with RedoStack = [ MainView.FileRemovedFromAlbum("f1", "a1") ] }
+        let next, _ = MainView.update (MainView.GridMsg (GridView.AddToAlbum ("f1", "a1"))) state
+        Assert.Equal<MainView.AlbumCommand list>([ MainView.FileAddedToAlbum("f1", "a1") ], next.UndoStack)
+        Assert.Empty(next.RedoStack)
+
+    [<Fact>]
+    let ``RemoveFromAlbum pushes to UndoStack and clears RedoStack`` () =
+        let state = { makeState "/catalog" with RedoStack = [ MainView.FileAddedToAlbum("f1", "a1") ] }
+        let next, _ = MainView.update (MainView.GridMsg (GridView.RemoveFromAlbum ("f1", "a1"))) state
+        Assert.Equal<MainView.AlbumCommand list>([ MainView.FileRemovedFromAlbum("f1", "a1") ], next.UndoStack)
+        Assert.Empty(next.RedoStack)
+
+    [<Fact>]
+    let ``UndoRequested pops UndoStack and pushes inverse to RedoStack`` () =
+        let state = { makeState "/catalog" with UndoStack = [ MainView.FileAddedToAlbum("f1", "a1") ] }
+        let next, _ = MainView.update MainView.UndoRequested state
+        Assert.Empty(next.UndoStack)
+        Assert.Equal<MainView.AlbumCommand list>([ MainView.FileRemovedFromAlbum("f1", "a1") ], next.RedoStack)
+
+    [<Fact>]
+    let ``UndoRequested on empty stack does nothing`` () =
+        let state = makeState "/catalog"
+        let next, cmd = MainView.update MainView.UndoRequested state
+        Assert.Empty(next.UndoStack)
+        Assert.Empty(cmd)
+
+    [<Fact>]
+    let ``RedoRequested pops RedoStack and pushes back to UndoStack`` () =
+        let state = { makeState "/catalog" with RedoStack = [ MainView.FileAddedToAlbum("f1", "a1") ] }
+        let next, _ = MainView.update MainView.RedoRequested state
+        Assert.Empty(next.RedoStack)
+        Assert.Equal<MainView.AlbumCommand list>([ MainView.FileAddedToAlbum("f1", "a1") ], next.UndoStack)
+
+    [<Fact>]
+    let ``RedoRequested on empty stack does nothing`` () =
+        let state = makeState "/catalog"
+        let next, cmd = MainView.update MainView.RedoRequested state
+        Assert.Empty(next.RedoStack)
+        Assert.Empty(cmd)
