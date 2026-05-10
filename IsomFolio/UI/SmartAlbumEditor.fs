@@ -50,10 +50,11 @@ let initFromAlbum (album: Album) =
 
 let toSearchQuery (state: State) : SearchQuery =
     {
-        Text       = None
-        FolderPath = state.FolderFilter
-        Tags       = state.TagFilter
-        Extensions = state.ExtFilter
+        Text            = None
+        FolderPath      = state.FolderFilter
+        FolderRecursive = true
+        Tags            = state.TagFilter
+        Extensions      = state.ExtFilter
         DateRange  =
             match parseDateOpt state.DateFrom, parseDateOpt state.DateTo with
             | None, None -> None

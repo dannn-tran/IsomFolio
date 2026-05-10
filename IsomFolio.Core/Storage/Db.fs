@@ -446,14 +446,15 @@ let private strToSortField = function
 
 let serializeSearchQuery (q: SearchQuery) : string =
     JsonSerializer.Serialize {|
-        text       = q.Text       |> Option.defaultValue null
-        folderPath = q.FolderPath |> Option.defaultValue null
-        tags       = q.Tags       |> Array.ofList
-        extensions = q.Extensions |> Array.ofList
-        dateFrom   = q.DateRange  |> Option.map (fun (f, _) -> f.ToString("O")) |> Option.defaultValue null
-        dateTo     = q.DateRange  |> Option.map (fun (_, t) -> t.ToString("O")) |> Option.defaultValue null
-        sortBy     = sortFieldToStr q.SortBy
-        sortAsc    = q.SortAsc
+        text            = q.Text       |> Option.defaultValue null
+        folderPath      = q.FolderPath |> Option.defaultValue null
+        folderRecursive = q.FolderRecursive
+        tags            = q.Tags       |> Array.ofList
+        extensions      = q.Extensions |> Array.ofList
+        dateFrom        = q.DateRange  |> Option.map (fun (f, _) -> f.ToString("O")) |> Option.defaultValue null
+        dateTo          = q.DateRange  |> Option.map (fun (_, t) -> t.ToString("O")) |> Option.defaultValue null
+        sortBy          = sortFieldToStr q.SortBy
+        sortAsc         = q.SortAsc
     |}
 
 let deserializeSearchQuery (json: string) : SearchQuery =
@@ -483,13 +484,14 @@ let deserializeSearchQuery (json: string) : SearchQuery =
             with _ -> None
         | _ -> None
     {
-        Text       = strOpt "text"
-        FolderPath = strOpt "folderPath"
-        Tags       = arrVal "tags"
-        Extensions = arrVal "extensions"
-        DateRange  = dateRange
-        SortBy     = strToSortField (strVal "sortBy")
-        SortAsc    = boolVal "sortAsc"
+        Text            = strOpt "text"
+        FolderPath      = strOpt "folderPath"
+        FolderRecursive = boolVal "folderRecursive"
+        Tags            = arrVal "tags"
+        Extensions      = arrVal "extensions"
+        DateRange       = dateRange
+        SortBy          = strToSortField (strVal "sortBy")
+        SortAsc         = boolVal "sortAsc"
     }
 
 let private readAlbum (reader: SqliteDataReader) : Album =

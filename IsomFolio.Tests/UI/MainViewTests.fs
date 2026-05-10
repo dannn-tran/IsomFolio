@@ -12,13 +12,14 @@ open IsomFolio.Core.Models
 open IsomFolio.Core.Storage
 
 let private defaultQuery = {
-    Text = None
-    FolderPath = None
-    Tags = []
-    Extensions = []
-    DateRange = None
-    SortBy = Date
-    SortAsc = false
+    Text            = None
+    FolderPath      = None
+    FolderRecursive = true
+    Tags            = []
+    Extensions      = []
+    DateRange       = None
+    SortBy          = Date
+    SortAsc         = false
 }
 
 let private openTestCatalog () =
