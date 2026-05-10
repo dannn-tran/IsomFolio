@@ -18,6 +18,7 @@ type State = {
     CollapsedFolders : Set<string>
     Albums           : Album list
     SelectedAlbumId  : AlbumId option
+    FolderCounts     : Map<string, int>
 }
 
 type Msg =
@@ -36,11 +37,12 @@ type Msg =
     | AlbumRenameRequested          of AlbumId
     | AlbumDeleteRequested          of AlbumId
     | AlbumEditCriteriaRequested    of AlbumId
+    | FolderCountsLoaded            of Map<string, int>
 
 let init () = {
     Folders = []; FolderTree = []; Tags = []; SelectedTags = []
     SelectedFolder = None; CollapsedFolders = Set.empty
-    Albums = []; SelectedAlbumId = None
+    Albums = []; SelectedAlbumId = None; FolderCounts = Map.empty
 }
 
 let private isPathWithinRoot (root: string) (path: string) = isWithinSubtree root path
@@ -89,6 +91,7 @@ let update (msg: Msg) (state: State) =
     | AlbumsLoaded albums          -> { state with Albums = albums }
     | AlbumSelected id             -> { state with SelectedAlbumId = Some id; SelectedFolder = None }
     | AlbumDeselected              -> { state with SelectedAlbumId = None }
+    | FolderCountsLoaded counts    -> { state with FolderCounts = counts }
     | AlbumCreateRequested
     | AlbumRenameRequested _
     | AlbumDeleteRequested _
@@ -98,7 +101,7 @@ let private hasPendingIn (nodePath: string) (pendingFolders: Set<string>) =
     let normalizedPath = normalizePath nodePath
     pendingFolders |> Set.exists (fun p -> isWithinSubtree normalizedPath p)
 
-let rec private folderNodeView (depth: int) (selectedPath: string option) (pendingFolders: Set<string>) (collapsedFolders: Set<string>) (dispatch: Msg -> unit) (onRemoveRequested: string -> unit) (onResyncRequested: string -> unit) (node: FolderNode) =
+let rec private folderNodeView (depth: int) (selectedPath: string option) (pendingFolders: Set<string>) (collapsedFolders: Set<string>) (folderCounts: Map<string, int>) (dispatch: Msg -> unit) (onRemoveRequested: string -> unit) (onResyncRequested: string -> unit) (node: FolderNode) =
     let isSelected = selectedPath |> Option.exists (samePath node.Path)
     let isCollapsed = collapsedFolders |> Set.contains node.Path
     let foreground =
@@ -168,8 +171,9 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (pendi
                             (fun _ -> dispatch (FolderSelected node.Path)),
                             SubPatchOptions.OnChangeOf node.Path)
                         Button.content (
+                            let count = folderCounts |> Map.tryFind node.Path |> Option.defaultValue 0
                             TextBlock.create [
-                                TextBlock.text node.Name
+                                TextBlock.text (if count > 0 then $"{node.Name}  ({count})" else node.Name)
                                 TextBlock.foreground foreground
                                 TextBlock.fontSize Theme.FontSize.md
                                 TextBlock.fontWeight (if depth = 0 then FontWeight.SemiBold else FontWeight.Normal)
@@ -181,7 +185,7 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (pendi
             ] :> Avalonia.FuncUI.Types.IView
             if not isCollapsed then
                 for child in node.Children do
-                    yield folderNodeView (depth + 1) selectedPath pendingFolders collapsedFolders dispatch onRemoveRequested onResyncRequested child :> Avalonia.FuncUI.Types.IView
+                    yield folderNodeView (depth + 1) selectedPath pendingFolders collapsedFolders folderCounts dispatch onRemoveRequested onResyncRequested child :> Avalonia.FuncUI.Types.IView
         ]
     ]
 
@@ -371,11 +375,11 @@ let view (state: State) (dispatch: Msg -> unit) (pendingFolders: Set<string>) (o
                             ] :> Avalonia.FuncUI.Types.IView
                             if state.FolderTree.IsEmpty then
                                 for folder in state.Folders do
-                                    yield folderNodeView 0 state.SelectedFolder pendingFolders state.CollapsedFolders dispatch onFolderRemoveRequested onResyncRequested { Name = displayName folder; Path = folder; Children = [] }
+                                    yield folderNodeView 0 state.SelectedFolder pendingFolders state.CollapsedFolders state.FolderCounts dispatch onFolderRemoveRequested onResyncRequested { Name = displayName folder; Path = folder; Children = [] }
                                           :> Avalonia.FuncUI.Types.IView
                             else
                                 for node in state.FolderTree do
-                                    yield folderNodeView 0 state.SelectedFolder pendingFolders state.CollapsedFolders dispatch onFolderRemoveRequested onResyncRequested node :> Avalonia.FuncUI.Types.IView
+                                    yield folderNodeView 0 state.SelectedFolder pendingFolders state.CollapsedFolders state.FolderCounts dispatch onFolderRemoveRequested onResyncRequested node :> Avalonia.FuncUI.Types.IView
                             // Tag list
                             if not state.Tags.IsEmpty then
                                 yield TextBlock.create [

@@ -208,6 +208,17 @@ let deleteFile (c: SqliteConnection) (fileId: FileId) : Async<unit> =
         cmd.ExecuteNonQuery() |> ignore
     }
 
+let getFolderCounts (c: SqliteConnection) : Async<Map<string, int>> =
+    async {
+        use cmd = c.CreateCommand()
+        cmd.CommandText <- "SELECT folder, COUNT(*) FROM files WHERE is_orphaned = 0 GROUP BY folder"
+        use reader = cmd.ExecuteReader()
+        let mutable result = Map.empty
+        while reader.Read() do
+            result <- result |> Map.add (reader.GetString(0)) (reader.GetInt32(1))
+        return result
+    }
+
 let countOrphans (c: SqliteConnection) : Async<int> =
     async {
         use cmd = c.CreateCommand()
