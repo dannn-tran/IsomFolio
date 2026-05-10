@@ -180,7 +180,10 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
         Border.onPointerPressed(
             (fun e ->
                 dragStartPoint <- e.GetCurrentPoint(Unchecked.defaultof<Avalonia.Visual>).Position
-                dragCandidateFileId <- Some model.File.Id),
+                dragCandidateFileId <- Some model.File.Id
+                match e.Source with
+                | :? Avalonia.Input.IInputElement as src -> e.Pointer.Capture(src)
+                | _ -> ()),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.onPointerMoved(
             (fun e ->
@@ -196,7 +199,9 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
                 | _ -> ()),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.onPointerReleased(
-            (fun _ -> dragCandidateFileId <- None),
+            (fun e ->
+                dragCandidateFileId <- None
+                e.Pointer.Capture(null)),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.child (
             Grid.create [
