@@ -165,6 +165,7 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (pendi
                             Button.background Brushes.Transparent
                             Button.borderThickness (Avalonia.Thickness(0.0))
                             Button.padding (Avalonia.Thickness(4.0, 0.0, 2.0, 0.0))
+                            Button.tip (if isCollapsed then "Expand" else "Collapse")
                             Button.onClick(
                                 (fun _ -> dispatch (FolderToggled node.Path)),
                                 SubPatchOptions.OnChangeOf node.Path)
@@ -246,6 +247,7 @@ let private albumRow (album: Album) (selectedId: AlbumId option) (dispatch: Msg 
                         TextBlock.foreground (SolidColorBrush(if isSelected then Theme.folderSelectedText else Theme.folderUnselectedText))
                         TextBlock.fontSize Theme.FontSize.md
                         TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                        if isSmart then TextBlock.tip "Smart Album — defined by search criteria"
                     ])
                 if not isSmart then
                     yield AttrBuilder<Avalonia.Controls.Button>.CreateProperty<bool>(DragDrop.AllowDropProperty, true, ValueNone)
