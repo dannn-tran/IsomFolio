@@ -781,6 +781,14 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         let newStateWithQuery = { newState with ActiveQuery = buildQuery newState }
         newStateWithQuery, runContextSearchCmd catalogPath newId newStateWithQuery
 
+    | { Catalog = OpenedCatalog(catalogPath) }, SidebarMsg (Sidebar.FileDroppedToAlbum(fileId, albumId)) ->
+        state,
+        Cmd.OfAsync.either
+            (fun () -> withCatalogDb catalogPath (fun c -> Db.addFileToAlbum c albumId fileId))
+            ()
+            (fun () -> NoOp)
+            (fun ex -> AppError (DbError ex.Message))
+
     | _, SidebarMsg sbMsg ->
         { state with Sidebar = Sidebar.update sbMsg state.Sidebar }, Cmd.none
 
