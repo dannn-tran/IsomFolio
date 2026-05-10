@@ -137,7 +137,7 @@ let private stopFolderWatcherCmd (folderPath: string) : Cmd<Msg> =
     Cmd.ofEffect (fun _ ->
         let toStop, remaining =
             activeWatchers
-            |> List.partition (fun w -> IsomFolio.Core.PathUtils.samePath w.Path folderPath)
+            |> List.partition (fun w -> samePath w.Path folderPath)
         for w in toStop do Watcher.stopWatcher w
         activeWatchers <- remaining)
 
@@ -159,25 +159,27 @@ let private confirmFolderRemovalCmd (folderPath: string) : Cmd<Msg> =
         | None -> ()
         | Some owner ->
             let folderName = System.IO.Path.GetFileName(folderPath)
-            let dialog = new Window(
-                Title = "Remove Folder",
-                Width = 380.0,
-                SizeToContent = SizeToContent.Height,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                CanResize = false,
-                ShowInTaskbar = false)
+            let dialog =
+                Window(
+                    Title = "Remove Folder",
+                    Width = 380.0,
+                    SizeToContent = SizeToContent.Height,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    CanResize = false,
+                    ShowInTaskbar = false)
 
             let panel = StackPanel(Margin = Avalonia.Thickness(20.0), Spacing = 16.0)
 
             let label =
                 TextBlock(
                     Text = $"Remove \"{folderName}\" from the library?\n\nFiles on disk are not affected. Images from this folder will no longer appear in the grid.",
-                    TextWrapping = Avalonia.Media.TextWrapping.Wrap)
+                    TextWrapping = TextWrapping.Wrap)
 
-            let btnRow = new StackPanel(
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Spacing = 8.0)
+            let btnRow =
+                StackPanel(
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8.0)
 
             let cancelBtn = Button(Content = "Cancel", IsCancel = true)
             let removeBtn = Button(Content = "Remove", IsDefault = true)
@@ -274,9 +276,9 @@ let private createWatcherCmd (folderPath: string) : Cmd<Msg> =
 
 let private normalizeFolders (folders: string list) =
     folders
-    |> List.map IsomFolio.Core.PathUtils.normalizePath
+    |> List.map normalizePath
     |> List.fold (fun acc path ->
-        if acc |> List.exists (fun existing -> IsomFolio.Core.PathUtils.samePath existing path) then acc
+        if acc |> List.exists (fun existing -> samePath existing path) then acc
         else acc @ [ path ]) []
 
 let private loadFolderTreeCmd (folders: string list) : Cmd<Msg> =
@@ -301,7 +303,7 @@ let private applyReconcileResult (dbConn: Microsoft.Data.Sqlite.SqliteConnection
                 eprintfn "Reconcile: cannot index %s — %s" path ex.Message
         let! sidecarMeta = Scanner.refreshMetadata result.SidecarChanged
         for path, meta in sidecarMeta do
-            let fileId = IsomFolio.Core.FileIndex.computeFileId (IsomFolio.Core.PathUtils.normalizePath path)
+            let fileId = computeFileId (normalizePath path)
             do! Db.upsertMetadata dbConn fileId meta
     }
 
@@ -392,8 +394,8 @@ let private showInputDialogCmd (title: string) (defaultText: string) (confirmLab
             confirmBtn.Click.Add(fun _ -> dialog.Close(textBox.Text :> obj))
             btnRow.Children.Add(cancelBtn)
             btnRow.Children.Add(confirmBtn)
-            panel.Children.Add(textBox) |> ignore
-            panel.Children.Add(btnRow) |> ignore
+            panel.Children.Add(textBox)
+            panel.Children.Add(btnRow)
             dialog.Content <- panel
             dialog.ShowDialog<obj>(owner)
                 .ContinueWith(fun (t: System.Threading.Tasks.Task<obj>) ->
@@ -448,7 +450,7 @@ let private deleteAlbumCmd (catalogPath: string) (albumId: AlbumId) (albumName: 
                 CanResize = false,
                 ShowInTaskbar = false)
             let panel = StackPanel(Margin = Avalonia.Thickness(20.0), Spacing = 16.0)
-            let label = TextBlock(Text = $"Delete \"{albumName}\"?\n\nFiles on disk are not affected.", TextWrapping = Avalonia.Media.TextWrapping.Wrap)
+            let label = TextBlock(Text = $"Delete \"{albumName}\"?\n\nFiles on disk are not affected.", TextWrapping = TextWrapping.Wrap)
             let btnRow = StackPanel(Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8.0)
             let cancelBtn = Button(Content = "Cancel", IsCancel = true)
             let deleteBtn = Button(Content = "Delete", IsDefault = true)
@@ -456,8 +458,8 @@ let private deleteAlbumCmd (catalogPath: string) (albumId: AlbumId) (albumName: 
             deleteBtn.Click.Add(fun _ -> dialog.Close(true))
             btnRow.Children.Add(cancelBtn)
             btnRow.Children.Add(deleteBtn)
-            panel.Children.Add(label) |> ignore
-            panel.Children.Add(btnRow) |> ignore
+            panel.Children.Add(label)
+            panel.Children.Add(btnRow)
             dialog.Content <- panel
             dialog.ShowDialog<bool>(owner)
                 .ContinueWith(fun (t: System.Threading.Tasks.Task<bool>) ->
@@ -481,7 +483,7 @@ let private loadMetadataCmd (catalogPath: string) (fileId: FileId) : Cmd<Msg> =
         (fun meta -> DetailMsg (DetailPanel.MetadataLoaded meta))
         (fun _    -> NoOp)
 
-let private loadSourceViewCmd (filePath: string) (fileId: FileId) : Cmd<Msg> =
+let private loadSourceViewCmd (filePath: string) (_: FileId) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () -> async {
             let fi = System.IO.FileInfo(filePath)
@@ -497,7 +499,7 @@ let private formatError = function
     | ThumbnailError(_, msg)   -> $"Thumbnail failed: {msg}"
     | WatcherError msg         -> $"Watcher error: {msg}"
 
-let private enqueueThumbnails (catalogPath: string) (files: AssetFile list) (priority: int) =
+let private enqueueThumbnails (_: string) (files: AssetFile list) (priority: int) =
     match thumbnailWorker with
     | Some w ->
         for f in files do
@@ -554,8 +556,6 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                             Async.Start(async {
                                 try
                                     let catalogPath = IsomFolio.Core.AppPaths.createCatalog parentDir baseName
-                                    let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath catalogPath)
-                                    use c = conn
                                     uiDispatch dispatch (CatalogOpened (catalogPath, []))
                                 with ex ->
                                     uiDispatch dispatch (AppError (ScanError ex.Message)) }))
@@ -574,8 +574,6 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                             let catalogPath = t.Result[0].Path.LocalPath
                             Async.Start(async {
                                 try
-                                    let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath catalogPath)
-                                    use c = conn
                                     let folders =
                                         match IsomFolio.Core.AppPaths.readLastSession() with
                                         | Some s when s.CatalogPath = catalogPath -> s.Folders
@@ -631,8 +629,8 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
         | FolderOpened path ->
             match state.Catalog with
             | OpenedCatalog(catalogPath) ->
-                let path = IsomFolio.Core.PathUtils.normalizePath path
-                if IsomFolio.Core.PathUtils.isUnderCatalogDir path then
+                let path = normalizePath path
+                if isUnderCatalogDir path then
                     Some(state, Cmd.ofMsg (AppError (ScanError "Cannot add a catalog directory as a folder.")))
                 else
                     let existingFolders = normalizeFolders state.Sidebar.Folders
@@ -686,8 +684,6 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         state,
         Cmd.OfAsync.either
             (fun () -> async {
-                let! conn = Db.openDatabase (IsomFolio.Core.AppPaths.dbPath path)
-                use c = conn
                 return path, folders
             })
             ()
@@ -918,7 +914,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | _, GridMsg gMsg ->
         { state with Grid = GridView.update gMsg state.Grid }, Cmd.none
 
-    | { Catalog = OpenedCatalog(catalogPath); Detail = { File = Some f } }, DetailMsg DetailPanel.SourceViewRequested ->
+    | { Catalog = OpenedCatalog _; Detail = { File = Some f } }, DetailMsg DetailPanel.SourceViewRequested ->
         let newDetail = DetailPanel.update DetailPanel.SourceViewRequested state.Detail
         { state with Detail = newDetail }, loadSourceViewCmd f.Path f.Id
 
@@ -947,7 +943,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             (fun tags -> TagBrowserMsg (TagBrowser.TagsLoaded tags))
             (fun ex -> AppError (DbError ex.Message))
 
-    | { Catalog = OpenedCatalog(_) }, DetailMsg dMsg ->
+    | { Catalog = OpenedCatalog _ }, DetailMsg dMsg ->
         { state with Detail = DetailPanel.update dMsg state.Detail }, Cmd.none
 
     | _, DetailMsg dMsg ->
@@ -1069,7 +1065,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             Grid    = GridView.update (GridView.AlbumsUpdated manualAlbums) state.Grid }, Cmd.none
 
     | { Catalog = OpenedCatalog(catalogPath) }, SearchBarMsg (SearchBar.QuerySubmitted txt) ->
-        let (newSidebar, newGrid, newViewCtx) =
+        let newSidebar, newGrid, newViewCtx =
             match state.ViewCtx with
             | AlbumView _ ->
                 Sidebar.update Sidebar.AlbumDeselected state.Sidebar,
@@ -1228,116 +1224,70 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
 
     | _, FileEventReceived _ | _, ResyncFolderRequested _ | _, FolderResynced _ | _, NoOp -> state, Cmd.none
 
-let private recentCatalogsView (recents: string list) (dispatch: Msg -> unit) =
-    Grid.create [
-        Grid.background (SolidColorBrush(Color.FromArgb(200uy, 0uy, 0uy, 0uy)))
-        Grid.children [
-            Border.create [
-                Border.maxWidth 480.0
-                Border.background (SolidColorBrush(Theme.panelBg))
-                Border.cornerRadius 6.0
-                Border.padding (Avalonia.Thickness(24.0))
-                Border.horizontalAlignment HorizontalAlignment.Center
-                Border.verticalAlignment VerticalAlignment.Center
-                Border.child (
-                    StackPanel.create [
-                        StackPanel.spacing 8.0
-                        StackPanel.children [
-                            DockPanel.create [
-                                DockPanel.children [
-                                    Button.create [
-                                        Button.dock Dock.Right
-                                        Button.content "×"
-                                        Button.background Brushes.Transparent
-                                        Button.borderThickness (Avalonia.Thickness(0.0))
-                                        Button.foreground (SolidColorBrush(Theme.textMuted))
-                                        Button.onClick (fun _ -> dispatch DismissRecentCatalogs)
-                                    ]
-                                    TextBlock.create [
-                                        TextBlock.text "Recent Catalogs"
-                                        TextBlock.fontSize Theme.FontSize.lg
-                                        TextBlock.foreground Brushes.White
-                                        TextBlock.fontWeight FontWeight.SemiBold
-                                        TextBlock.verticalAlignment VerticalAlignment.Center
-                                    ]
-                                ]
-                            ] :> Avalonia.FuncUI.Types.IView
-                            for path in recents do
-                                yield Button.create [
-                                    Button.horizontalAlignment HorizontalAlignment.Stretch
-                                    Button.horizontalContentAlignment HorizontalAlignment.Left
-                                    Button.padding (Avalonia.Thickness(10.0, 8.0))
-                                    Button.onClick(
-                                        (fun _ -> dispatch (RecentCatalogSelected path)),
-                                        SubPatchOptions.OnChangeOf path)
-                                    Button.content (
-                                        StackPanel.create [
-                                            StackPanel.children [
-                                                TextBlock.create [
-                                                    TextBlock.text (System.IO.Path.GetFileName path)
-                                                    TextBlock.foreground Brushes.White
-                                                    TextBlock.fontSize Theme.FontSize.md
-                                                    TextBlock.fontWeight FontWeight.SemiBold
-                                                ] :> Avalonia.FuncUI.Types.IView
-                                                TextBlock.create [
-                                                    TextBlock.text path
-                                                    TextBlock.foreground (SolidColorBrush(Theme.textDim))
-                                                    TextBlock.fontSize Theme.FontSize.xs
-                                                    TextBlock.textTrimming TextTrimming.CharacterEllipsis
-                                                ] :> Avalonia.FuncUI.Types.IView
-                                            ]
-                                        ])
-                                ] :> Avalonia.FuncUI.Types.IView
-                            DockPanel.create [
-                                DockPanel.margin (Avalonia.Thickness(0.0, 8.0, 0.0, 0.0))
-                                DockPanel.children [
-                                    Button.create [
-                                        Button.dock Dock.Right
-                                        Button.content "Open Other…"
-                                        Button.padding (Avalonia.Thickness(16.0, 6.0))
-                                        Button.onClick (fun _ -> dispatch OpenCatalogRequested)
-                                    ] :> Avalonia.FuncUI.Types.IView
-                                    Button.create [
-                                        Button.dock Dock.Right
-                                        Button.content "New Catalog…"
-                                        Button.padding (Avalonia.Thickness(16.0, 6.0))
-                                        Button.background Brushes.Transparent
-                                        Button.margin (Avalonia.Thickness(0.0, 0.0, 8.0, 0.0))
-                                        Button.onClick (fun _ -> dispatch NewCatalogRequested)
-                                    ] :> Avalonia.FuncUI.Types.IView
-                                ]
-                            ] :> Avalonia.FuncUI.Types.IView
-                        ]
-                    ])
-            ]
-        ]
-    ]
-
-let private welcomeView (dispatch: Msg -> unit) =
+let private launchScreen (state: State) (dispatch: Msg -> unit) =
     DockPanel.create [
+        DockPanel.background (SolidColorBrush(Theme.mainBg))
         DockPanel.children [
             StackPanel.create [
                 StackPanel.verticalAlignment VerticalAlignment.Center
                 StackPanel.horizontalAlignment HorizontalAlignment.Center
-                StackPanel.spacing 16.0
+                StackPanel.maxWidth 480.0
+                StackPanel.spacing 12.0
                 StackPanel.children [
-                    TextBlock.create [
+                    yield TextBlock.create [
                         TextBlock.text "IsomFolio"
                         TextBlock.fontSize 32.0
                         TextBlock.fontWeight FontWeight.Light
                         TextBlock.foreground Brushes.White
                         TextBlock.horizontalAlignment HorizontalAlignment.Center
-                    ]
-                    TextBlock.create [
+                    ] :> Avalonia.FuncUI.Types.IView
+                    yield TextBlock.create [
                         TextBlock.text "Your files stay on disk. Tags travel with them."
                         TextBlock.fontSize Theme.FontSize.lg
                         TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                         TextBlock.horizontalAlignment HorizontalAlignment.Center
-                    ]
-                    StackPanel.create [
+                        TextBlock.margin (Avalonia.Thickness(0.0, 0.0, 0.0, 8.0))
+                    ] :> Avalonia.FuncUI.Types.IView
+                    match state.RecentCatalogs with
+                    | Some recents ->
+                        yield TextBlock.create [
+                            TextBlock.text "Recent Catalogs"
+                            TextBlock.foreground (SolidColorBrush(Theme.textMuted))
+                            TextBlock.fontSize Theme.FontSize.sm
+                            TextBlock.fontWeight FontWeight.SemiBold
+                        ] :> Avalonia.FuncUI.Types.IView
+                        for path in recents do
+                            yield Button.create [
+                                Button.horizontalAlignment HorizontalAlignment.Stretch
+                                Button.horizontalContentAlignment HorizontalAlignment.Left
+                                Button.padding (Avalonia.Thickness(10.0, 8.0))
+                                Button.onClick(
+                                    (fun _ -> dispatch (RecentCatalogSelected path)),
+                                    SubPatchOptions.OnChangeOf path)
+                                Button.content (
+                                    StackPanel.create [
+                                        StackPanel.children [
+                                            TextBlock.create [
+                                                TextBlock.text (System.IO.Path.GetFileName path)
+                                                TextBlock.foreground Brushes.White
+                                                TextBlock.fontSize Theme.FontSize.md
+                                                TextBlock.fontWeight FontWeight.SemiBold
+                                            ] :> Avalonia.FuncUI.Types.IView
+                                            TextBlock.create [
+                                                TextBlock.text path
+                                                TextBlock.foreground (SolidColorBrush(Theme.textDim))
+                                                TextBlock.fontSize Theme.FontSize.xs
+                                                TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                            ] :> Avalonia.FuncUI.Types.IView
+                                        ]
+                                    ])
+                            ] :> Avalonia.FuncUI.Types.IView
+                    | None -> ()
+                    yield StackPanel.create [
                         StackPanel.orientation Orientation.Horizontal
                         StackPanel.horizontalAlignment HorizontalAlignment.Center
                         StackPanel.spacing 8.0
+                        StackPanel.margin (Avalonia.Thickness(0.0, 8.0, 0.0, 0.0))
                         StackPanel.children [
                             Button.create [
                                 Button.content "New Catalog…"
@@ -1352,7 +1302,7 @@ let private welcomeView (dispatch: Msg -> unit) =
                                 Button.onClick (fun _ -> dispatch OpenCatalogRequested)
                             ]
                         ]
-                    ]
+                    ] :> Avalonia.FuncUI.Types.IView
                 ]
             ]
         ]
@@ -1379,7 +1329,7 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
                     Border.create [
                         Border.isVisible false
                     ]
-                    for (msg, t) in state.Notifications do
+                    for msg, t in state.Notifications do
                         Border.create [
                             Border.background (SolidColorBrush(Theme.errorBg))
                             Border.padding (Avalonia.Thickness(8.0, 4.0))
@@ -1460,15 +1410,11 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
                 Border.isVisible (state.Detail.IsVisible && not state.IsFirstRun && state.ViewMode = Browse)
                 Border.child (DetailPanel.view state.Detail (DetailMsg >> dispatch))
             ]
-            // Fixed index 4: center — welcome, grid, or loupe toggled by isVisible
+            // Fixed index 4: center — grid or loupe toggled by isVisible
             Grid.create [
                 Grid.children [
                     Border.create [
-                        Border.isVisible state.IsFirstRun
-                        Border.child (welcomeView dispatch)
-                    ] :> Avalonia.FuncUI.Types.IView
-                    Border.create [
-                        Border.isVisible (not state.IsFirstRun && state.ViewMode = Browse)
+                        Border.isVisible (state.ViewMode = Browse)
                         Border.child (GridView.view state.Grid (GridMsg >> dispatch))
                     ] :> Avalonia.FuncUI.Types.IView
                     Border.create [
@@ -1488,26 +1434,26 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
 let view (state: State) (dispatch: Msg -> unit) =
     Grid.create [
         Grid.children [
-            yield mainPanel state dispatch
-            match state.TagBrowser with
-            | Some browser ->
-                yield Grid.create [
-                    Grid.background (SolidColorBrush(Avalonia.Media.Color.FromArgb(200uy, 0uy, 0uy, 0uy)))
-                    Grid.children [
-                        TagBrowser.view browser (TagBrowserMsg >> dispatch)
-                    ]
-                ] :> Avalonia.FuncUI.Types.IView
-            | None -> ()
-            match state.SmartAlbumEditor with
-            | Some editor ->
-                yield SmartAlbumEditor.view editor (SmartAlbumEditorMsg >> dispatch)
-                      (state.Sidebar.Tags |> List.map fst)
-                      state.Sidebar.Folders
-                      :> Avalonia.FuncUI.Types.IView
-            | None -> ()
-            match state.RecentCatalogs with
-            | Some recents ->
-                yield recentCatalogsView recents dispatch :> Avalonia.FuncUI.Types.IView
-            | None -> ()
+            match state.Catalog with
+            | Unloaded ->
+                yield launchScreen state dispatch
+            | OpenedCatalog _ ->
+                yield mainPanel state dispatch
+                match state.TagBrowser with
+                | Some browser ->
+                    yield Grid.create [
+                        Grid.background (SolidColorBrush(Color.FromArgb(200uy, 0uy, 0uy, 0uy)))
+                        Grid.children [
+                            TagBrowser.view browser (TagBrowserMsg >> dispatch)
+                        ]
+                    ] :> Avalonia.FuncUI.Types.IView
+                | None -> ()
+                match state.SmartAlbumEditor with
+                | Some editor ->
+                    yield SmartAlbumEditor.view editor (SmartAlbumEditorMsg >> dispatch)
+                          (state.Sidebar.Tags |> List.map fst)
+                          state.Sidebar.Folders
+                          :> Avalonia.FuncUI.Types.IView
+                | None -> ()
         ]
     ] :> Avalonia.FuncUI.Types.IView
