@@ -367,6 +367,13 @@ let private runContextSearchCmd (catalogPath: string) (requestId: int) (state: S
         | None -> runSearch catalogPath requestId state.ActiveQuery
     | _ -> runSearch catalogPath requestId state.ActiveQuery
 
+let private loadFolderCountsCmd (catalogPath: string) : Cmd<Msg> =
+    Cmd.OfAsync.either
+        (fun () -> withCatalogDb catalogPath Db.getFolderCounts)
+        ()
+        (Sidebar.FolderCountsLoaded >> SidebarMsg)
+        (fun _ -> NoOp)
+
 let private loadAlbumsCmd (catalogPath: string) : Cmd<Msg> =
     Cmd.OfAsync.either
         (fun () -> withCatalogDb catalogPath Db.getAllAlbums) ()
@@ -613,6 +620,7 @@ let private handleCatalogMsg (state: State) (msg: Msg) : (State * Cmd<Msg>) opti
                     :: startupCleanupCmd path
                     :: loadFolderTreeCmd folders
                     :: loadAlbumsCmd path
+                    :: loadFolderCountsCmd path
                     :: runSearch path newId defaultQuery
                     :: (folders |> List.map createWatcherCmd)))
         | AddFolderRequested ->
@@ -1160,7 +1168,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | { Catalog = OpenedCatalog(catalogPath) }, ScanFinished _ ->
         let newId = state.SearchRequestId + 1
         let newState = { state with ScanProgress = None; SearchRequestId = newId }
-        newState, Cmd.batch [ runContextSearchCmd catalogPath newId newState; countOrphansCmd catalogPath ]
+        newState, Cmd.batch [ runContextSearchCmd catalogPath newId newState; countOrphansCmd catalogPath; loadFolderCountsCmd catalogPath ]
 
     | _, ScanFinished _ ->
         { state with ScanProgress = None }, Cmd.none
@@ -1217,7 +1225,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             |> Set.filter (fun p -> not (isWithinSubtree path p))
         let newId = state.SearchRequestId + 1
         let newState = { state with PendingFolders = newPending; SearchRequestId = newId }
-        newState, Cmd.batch [ runContextSearchCmd catalogPath newId newState; countOrphansCmd catalogPath ]
+        newState, Cmd.batch [ runContextSearchCmd catalogPath newId newState; countOrphansCmd catalogPath; loadFolderCountsCmd catalogPath ]
 
     | { Catalog = OpenedCatalog _ }, FileEventReceived event ->
         handleFileEvent state event
