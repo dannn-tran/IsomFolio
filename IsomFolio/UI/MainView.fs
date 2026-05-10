@@ -1450,6 +1450,7 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
                                             Button.padding (Avalonia.Thickness(4.0, 0.0))
                                             Button.background Brushes.Transparent
                                             Button.foreground Brushes.White
+                                            Button.tip "Dismiss"
                                             Button.onClick (fun _ -> dispatch (DismissNotification t))
                                         ]
                                         TextBlock.create [

@@ -258,6 +258,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
                                         TextBlock.text "⚠"
                                         TextBlock.horizontalAlignment HorizontalAlignment.Center
                                         TextBlock.verticalAlignment VerticalAlignment.Center
+                                        TextBlock.tip "Image could not be displayed"
                                     ]
                             | Pending ->
                                 ProgressBar.create [
@@ -273,6 +274,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
                                     TextBlock.foreground (SolidColorBrush(Theme.textMuted))
                                     TextBlock.horizontalAlignment HorizontalAlignment.Center
                                     TextBlock.verticalAlignment VerticalAlignment.Center
+                                    TextBlock.tip "Thumbnail generation failed"
                                 ]
                             | NotRequested ->
                                 Border.create [
@@ -295,6 +297,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
                                     TextBlock.text "?"
                                     TextBlock.foreground (SolidColorBrush(Theme.textDim))
                                     TextBlock.fontSize Theme.FontSize.xs
+                                    TextBlock.tip "File not found on disk"
                                 ])
                         ] :> Avalonia.FuncUI.Types.IView
                 ]
