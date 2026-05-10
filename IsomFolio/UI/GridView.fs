@@ -17,10 +17,13 @@ type TileModel = {
     Thumbnail : ThumbnailState
 }
 
+type SelectionModifier = Plain | RangeExtend | Toggle
+
 type State = {
     Tiles          : TileModel list
     TileSize       : TileSize
-    SelectedId     : FileId option
+    SelectedIds    : Set<FileId>
+    AnchorId       : FileId option   // last non-shift click; used for range extension and detail panel
     Albums         : Album list      // manual albums for "Add to Album" context menu
     CurrentAlbumId : AlbumId option  // set when viewing a manual album
 }
@@ -31,7 +34,7 @@ type Msg =
     | TilesLoaded                  of AssetFile list
     | ThumbnailUpdated             of FileId * ThumbnailState
     | TileSizeChanged              of TileSize
-    | TileSelected                 of FileId
+    | TileClicked                  of FileId * SelectionModifier
     | NavigateTo                   of NavDirection * int
     | RemoveOrphanedFileRequested  of FileId
     | OpenExternally               of FileId
@@ -42,7 +45,11 @@ type Msg =
     | AddToAlbum                   of FileId * AlbumId
     | RemoveFromAlbum              of FileId * AlbumId
 
-let init () = { Tiles = []; TileSize = Medium; SelectedId = None; Albums = []; CurrentAlbumId = None }
+let init () = {
+    Tiles = []; TileSize = Medium
+    SelectedIds = Set.empty; AnchorId = None
+    Albums = []; CurrentAlbumId = None
+}
 
 let update (msg: Msg) (state: State) =
     match msg with
@@ -57,17 +64,33 @@ let update (msg: Msg) (state: State) =
             |> List.map (fun f ->
                 { File = f
                   Thumbnail = existingStates |> Map.tryFind f.Id |> Option.defaultValue NotRequested })
-        let newSelectedId =
-            state.SelectedId
-            |> Option.filter (fun id -> files |> List.exists (fun f -> f.Id = id))
-        { state with Tiles = tiles; SelectedId = newSelectedId }
+        let newSelectedIds = state.SelectedIds |> Set.filter (fun id -> files |> List.exists (fun f -> f.Id = id))
+        let newAnchorId    = state.AnchorId    |> Option.filter (fun id -> files |> List.exists (fun f -> f.Id = id))
+        { state with Tiles = tiles; SelectedIds = newSelectedIds; AnchorId = newAnchorId }
     | ThumbnailUpdated(fileId, thumbState) ->
         let tiles =
             state.Tiles |> List.map (fun t ->
                 if t.File.Id = fileId then { t with Thumbnail = thumbState } else t)
         { state with Tiles = tiles }
-    | TileSizeChanged ts  -> { state with TileSize = ts }
-    | TileSelected id                    -> { state with SelectedId = Some id }
+    | TileSizeChanged ts -> { state with TileSize = ts }
+    | TileClicked (id, Plain) ->
+        { state with SelectedIds = Set.singleton id; AnchorId = Some id }
+    | TileClicked (id, Toggle) ->
+        let newIds =
+            if state.SelectedIds.Contains id then state.SelectedIds.Remove id
+            else state.SelectedIds.Add id
+        { state with SelectedIds = newIds; AnchorId = Some id }
+    | TileClicked (id, RangeExtend) ->
+        let anchorIdx =
+            state.AnchorId
+            |> Option.bind (fun aid -> state.Tiles |> List.tryFindIndex (fun t -> t.File.Id = aid))
+            |> Option.defaultValue 0
+        let clickedIdx =
+            state.Tiles |> List.tryFindIndex (fun t -> t.File.Id = id)
+            |> Option.defaultValue 0
+        let lo, hi = min anchorIdx clickedIdx, max anchorIdx clickedIdx
+        let rangeIds = state.Tiles.[lo..hi] |> List.map (fun t -> t.File.Id) |> Set.ofList
+        { state with SelectedIds = rangeIds }
     | RemoveOrphanedFileRequested _
     | OpenExternally _
     | RevealInExplorer _
@@ -80,7 +103,7 @@ let update (msg: Msg) (state: State) =
         if state.Tiles.IsEmpty then state
         else
             let currentIdx =
-                state.SelectedId
+                state.AnchorId
                 |> Option.bind (fun id -> state.Tiles |> List.tryFindIndex (fun t -> t.File.Id = id))
                 |> Option.defaultValue 0
             let newIdx =
@@ -93,7 +116,8 @@ let update (msg: Msg) (state: State) =
                 | Down  ->
                     let i = currentIdx + rowSize
                     if i >= state.Tiles.Length then currentIdx else i
-            { state with SelectedId = Some state.Tiles.[newIdx].File.Id }
+            let newId = state.Tiles.[newIdx].File.Id
+            { state with SelectedIds = Set.singleton newId; AnchorId = Some newId }
 
 let mutable private dragStartPoint = Avalonia.Point()
 let mutable private dragCandidateFileId: FileId option = None
@@ -167,7 +191,11 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
             ])
         Border.onTapped(
             (fun e ->
-                dispatch (TileSelected model.File.Id)
+                let selMod =
+                    if e.KeyModifiers.HasFlag(KeyModifiers.Shift) then RangeExtend
+                    elif e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta) then Toggle
+                    else Plain
+                dispatch (TileClicked(model.File.Id, selMod))
                 match e.Source with
                 | :? Avalonia.Visual as v ->
                     let sv = Avalonia.VisualTree.VisualExtensions.FindAncestorOfType<ScrollViewer>(v, true)
@@ -199,9 +227,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
                 | _ -> ()),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.onPointerReleased(
-            (fun e ->
-                dragCandidateFileId <- None
-                e.Pointer.Capture(null)),
+            (fun _ -> dragCandidateFileId <- None),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.child (
             Grid.create [
@@ -321,8 +347,8 @@ let view (state: State) (dispatch: Msg -> unit) =
                                 | _ -> 1
                             dispatch (NavigateTo (dir, rowSize))
                         | Avalonia.Input.Key.Delete ->
-                            state.SelectedId
-                            |> Option.iter (fun id ->
+                            state.SelectedIds
+                            |> Set.iter (fun id ->
                                 state.Tiles
                                 |> List.tryFind (fun t -> t.File.Id = id)
                                 |> Option.iter (fun tile ->
@@ -330,18 +356,18 @@ let view (state: State) (dispatch: Msg -> unit) =
                                         e.Handled <- true
                                         dispatch (RemoveOrphanedFileRequested id)))
                         | Avalonia.Input.Key.E ->
-                            state.SelectedId
+                            state.AnchorId
                             |> Option.iter (fun id ->
                                 e.Handled <- true
                                 dispatch (EnterLoupe id))
                         | _ -> ()),
-                    SubPatchOptions.OnChangeOf (state.TileSize, state.SelectedId))
+                    SubPatchOptions.OnChangeOf (state.TileSize, state.AnchorId))
                 ScrollViewer.content (
                     WrapPanel.create [
                         WrapPanel.margin (Avalonia.Thickness(4.0))
                         WrapPanel.children [
                             for t in state.Tiles do
-                                yield tile t sizePx (state.SelectedId = Some t.File.Id) state.Albums state.CurrentAlbumId dispatch
+                                yield tile t sizePx (state.SelectedIds.Contains t.File.Id) state.Albums state.CurrentAlbumId dispatch
                                       :> Avalonia.FuncUI.Types.IView
                         ]
                     ])
