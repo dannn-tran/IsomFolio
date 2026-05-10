@@ -359,12 +359,13 @@ module KeyboardNavigation =
             { makeState "/catalog" with
                 Grid =
                     { GridView.init () with
-                        Tiles     = [ { File = f1; Thumbnail = NotRequested }; { File = f2; Thumbnail = NotRequested } ]
-                        SelectedId = Some f1.Id } }
+                        Tiles      = [ { File = f1; Thumbnail = NotRequested }; { File = f2; Thumbnail = NotRequested } ]
+                        SelectedIds = Set.singleton f1.Id
+                        AnchorId    = Some f1.Id } }
 
         let nextState, _ = MainView.update (MainView.GridMsg (GridView.NavigateTo (GridView.Right, 2))) state
 
-        Assert.Equal(f2.Id, nextState.Grid.SelectedId.Value)
+        Assert.Equal(f2.Id, nextState.Grid.AnchorId.Value)
         Assert.Equal(Some f2.Id, nextState.Detail.File |> Option.map _.Id)
 
     [<Fact>]
@@ -375,13 +376,14 @@ module KeyboardNavigation =
             { makeState "/catalog" with
                 Grid =
                     { GridView.init () with
-                        Tiles     = [ { File = f1; Thumbnail = NotRequested }; { File = f2; Thumbnail = NotRequested } ]
-                        SelectedId = Some f2.Id }
+                        Tiles      = [ { File = f1; Thumbnail = NotRequested }; { File = f2; Thumbnail = NotRequested } ]
+                        SelectedIds = Set.singleton f2.Id
+                        AnchorId    = Some f2.Id }
                 Detail = DetailPanel.update (DetailPanel.FileSelected f2) (DetailPanel.init ()) }
 
         let nextState, _ = MainView.update (MainView.GridMsg (GridView.NavigateTo (GridView.Right, 2))) state
 
-        Assert.Equal(f2.Id, nextState.Grid.SelectedId.Value)
+        Assert.Equal(f2.Id, nextState.Grid.AnchorId.Value)
         Assert.Equal(Some f2.Id, nextState.Detail.File |> Option.map _.Id)
 
 module AlbumsLoading =

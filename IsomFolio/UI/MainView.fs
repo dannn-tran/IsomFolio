@@ -831,11 +831,11 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | _, SidebarMsg sbMsg ->
         { state with Sidebar = Sidebar.update sbMsg state.Sidebar }, Cmd.none
 
-    | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.TileSelected fileId) ->
-        let newGrid  = GridView.update (GridView.TileSelected fileId) state.Grid
+    | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.TileClicked _ as gMsg) ->
+        let newGrid  = GridView.update gMsg state.Grid
         let fileOpt =
-            newGrid.Tiles
-            |> List.tryFind (fun t -> t.File.Id = fileId)
+            newGrid.AnchorId
+            |> Option.bind (fun id -> newGrid.Tiles |> List.tryFind (fun t -> t.File.Id = id))
             |> Option.map _.File
         let newDetail =
             fileOpt
@@ -861,7 +861,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.NavigateTo _ as gMsg) ->
         let newGrid = GridView.update gMsg state.Grid
         let fileOpt =
-            newGrid.SelectedId
+            newGrid.AnchorId
             |> Option.bind (fun id -> newGrid.Tiles |> List.tryFind (fun t -> t.File.Id = id))
             |> Option.map _.File
         let newDetail =
@@ -1074,7 +1074,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     | { Catalog = OpenedCatalog(catalogPath) }, LoupeMsg (LoupeView.Navigate dir) ->
         let newGrid = GridView.update (GridView.NavigateTo (dir, 1)) state.Grid
         let fileOpt =
-            newGrid.SelectedId
+            newGrid.AnchorId
             |> Option.bind (fun id -> newGrid.Tiles |> List.tryFind (fun t -> t.File.Id = id))
             |> Option.map _.File
         let newDetail =
@@ -1102,7 +1102,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
         if idx < 0 || idx >= state.Grid.Tiles.Length then state, Cmd.none
         else
             let tile = state.Grid.Tiles.[idx]
-            let newGrid = GridView.update (GridView.TileSelected tile.File.Id) state.Grid
+            let newGrid = GridView.update (GridView.TileClicked (tile.File.Id, GridView.Plain)) state.Grid
             let newDetail = DetailPanel.update (DetailPanel.FileSelected tile.File) state.Detail
             let loadCmds =
                 Cmd.batch [
@@ -1235,7 +1235,7 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             |> primeGridThumbnails catalogPath 1
         
         let newDetail =
-            match newGrid.SelectedId with
+            match newGrid.AnchorId with
             | Some sid ->
                 newGrid.Tiles
                 |> List.tryFind (fun t -> t.File.Id = sid)
@@ -1528,7 +1528,7 @@ let private mainPanel (state: State) (dispatch: Msg -> unit) =
                         Border.isVisible (state.ViewMode = Loupe)
                         Border.child (
                             let selectedIdx =
-                                state.Grid.SelectedId
+                                state.Grid.AnchorId
                                 |> Option.bind (fun id -> state.Grid.Tiles |> List.tryFindIndex (fun t -> t.File.Id = id))
                                 |> Option.defaultValue 0
                             LoupeView.view state.Grid.Tiles selectedIdx (LoupeMsg >> dispatch))
