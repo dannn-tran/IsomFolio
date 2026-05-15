@@ -142,35 +142,35 @@ let rec private folderNodeView (depth: int) (selectedPath: string option) (pendi
             yield DockPanel.create [
                 DockPanel.margin (Avalonia.Thickness(float (depth * 14), 2.0, 0.0, 2.0))
                 DockPanel.children [
-                    if hasPendingIn node.Path pendingFolders then
-                        yield Button.create [
-                            Button.dock Dock.Right
-                            Button.content "↻"
-                            Button.fontSize Theme.FontSize.lg
-                            Button.foreground (SolidColorBrush(Theme.pendingAmber))
-                            Button.background Brushes.Transparent
-                            Button.borderThickness (Avalonia.Thickness(0.0))
-                            Button.padding (Avalonia.Thickness(6.0, 0.0))
-                            Button.tip "Changes detected — click to resync"
-                            Button.onClick(
-                                (fun _ -> onResyncRequested node.Path),
-                                SubPatchOptions.OnChangeOf node.Path)
-                        ] :> Avalonia.FuncUI.Types.IView
-                    if not node.Children.IsEmpty then
-                        yield Button.create [
-                            Button.dock Dock.Left
-                            Button.content (if isCollapsed then "▸" else "▾")
-                            Button.fontSize Theme.FontSize.xs
-                            Button.foreground (SolidColorBrush(Theme.textMuted))
-                            Button.background Brushes.Transparent
-                            Button.borderThickness (Avalonia.Thickness(0.0))
-                            Button.padding (Avalonia.Thickness(4.0, 0.0, 2.0, 0.0))
-                            Button.tip (if isCollapsed then "Expand" else "Collapse")
-                            Button.onClick(
-                                (fun _ -> dispatch (FolderToggled node.Path)),
-                                SubPatchOptions.OnChangeOf node.Path)
-                        ] :> Avalonia.FuncUI.Types.IView
-                    yield Button.create [
+                    Button.create [
+                        Button.dock Dock.Right
+                        Button.isVisible (hasPendingIn node.Path pendingFolders)
+                        Button.content "↻"
+                        Button.fontSize Theme.FontSize.lg
+                        Button.foreground (SolidColorBrush(Theme.pendingAmber))
+                        Button.background Brushes.Transparent
+                        Button.borderThickness (Avalonia.Thickness(0.0))
+                        Button.padding (Avalonia.Thickness(6.0, 0.0))
+                        Button.tip "Changes detected — click to resync"
+                        Button.onClick(
+                            (fun _ -> onResyncRequested node.Path),
+                            SubPatchOptions.OnChangeOf node.Path)
+                    ] :> Avalonia.FuncUI.Types.IView
+                    Button.create [
+                        Button.dock Dock.Left
+                        Button.isVisible (not node.Children.IsEmpty)
+                        Button.content (if isCollapsed then "▸" else "▾")
+                        Button.fontSize Theme.FontSize.xs
+                        Button.foreground (SolidColorBrush(Theme.textMuted))
+                        Button.background Brushes.Transparent
+                        Button.borderThickness (Avalonia.Thickness(0.0))
+                        Button.padding (Avalonia.Thickness(4.0, 0.0, 2.0, 0.0))
+                        Button.tip (if isCollapsed then "Expand" else "Collapse")
+                        Button.onClick(
+                            (fun _ -> dispatch (FolderToggled node.Path)),
+                            SubPatchOptions.OnChangeOf node.Path)
+                    ] :> Avalonia.FuncUI.Types.IView
+                    Button.create [
                         Button.background selectionBackground
                         Button.borderBrush selectionBorder
                         Button.borderThickness selectionBorderThickness
@@ -254,15 +254,17 @@ let private albumRow (album: Album) (selectedId: AlbumId option) (dispatch: Msg 
                     yield AttrBuilder<Avalonia.Controls.Button>.CreateSubscription<DragEventArgs>(
                         DragDrop.DragOverEvent,
                         fun args ->
-                            if args.Data.Contains("IsomFolio.FileId") then
+                            if args.Data.Contains("IsomFolio.FileIds") then
                                 args.DragEffects <- DragDropEffects.Copy
                             else
                                 args.DragEffects <- DragDropEffects.None)
                     yield AttrBuilder<Avalonia.Controls.Button>.CreateSubscription<DragEventArgs>(
                         DragDrop.DropEvent,
                         fun (args: DragEventArgs) ->
-                            match args.Data.Get("IsomFolio.FileId") with
-                            | :? string as fileId -> dispatch (FileDroppedToAlbum(fileId, album.Id))
+                            match args.Data.Get("IsomFolio.FileIds") with
+                            | :? string as csv ->
+                                for fileId in csv.Split(',') do
+                                    dispatch (FileDroppedToAlbum(fileId, album.Id))
                             | _ -> ())
             ]
         ]
