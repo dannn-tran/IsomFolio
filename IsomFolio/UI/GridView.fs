@@ -8,6 +8,7 @@ open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
 open Avalonia.Media.Imaging
+open Avalonia.Threading
 open IsomFolio.Core.Models
 open IsomFolio.Core.FileIndex
 open IsomFolio.UI.ContextMenuExt
@@ -26,6 +27,7 @@ type State = {
     AnchorId       : FileId option   // last non-shift click; used for range extension and detail panel
     Albums         : Album list      // manual albums for "Add to Album" context menu
     CurrentAlbumId : AlbumId option  // set when viewing a manual album
+    DraggedIds     : Set<FileId>     // files currently being dragged
 }
 
 type NavDirection = Left | Right | Up | Down
@@ -44,11 +46,15 @@ type Msg =
     | CurrentAlbumChanged          of AlbumId option
     | AddToAlbum                   of FileId * AlbumId
     | RemoveFromAlbum              of FileId * AlbumId
+    | DragStarted                  of Set<FileId>
+    | DragEnded
+    | RemoveSelectionFromAlbum     of AlbumId
 
 let init () = {
     Tiles = []; TileSize = Medium
     SelectedIds = Set.empty; AnchorId = None
     Albums = []; CurrentAlbumId = None
+    DraggedIds = Set.empty
 }
 
 let update (msg: Msg) (state: State) =
@@ -91,12 +97,15 @@ let update (msg: Msg) (state: State) =
         let lo, hi = min anchorIdx clickedIdx, max anchorIdx clickedIdx
         let rangeIds = state.Tiles.[lo..hi] |> List.map (fun t -> t.File.Id) |> Set.ofList
         { state with SelectedIds = rangeIds }
+    | DragStarted ids  -> { state with DraggedIds = ids }
+    | DragEnded        -> { state with DraggedIds = Set.empty }
     | RemoveOrphanedFileRequested _
     | OpenExternally _
     | RevealInExplorer _
     | EnterLoupe _
     | AddToAlbum _
-    | RemoveFromAlbum _                -> state
+    | RemoveFromAlbum _
+    | RemoveSelectionFromAlbum _       -> state
     | AlbumsUpdated albums             -> { state with Albums = albums }
     | CurrentAlbumChanged id           -> { state with CurrentAlbumId = id }
     | NavigateTo (dir, rowSize) ->
@@ -143,7 +152,7 @@ let private revealLabel =
     elif RuntimeInformation.IsOSPlatform(OSPlatform.Windows) then "Reveal in Explorer"
     else "Reveal in File Manager"
 
-let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Album list) (currentAlbumId: AlbumId option) (dispatch: Msg -> unit) =
+let private tile (model: TileModel) (sizePx: int) (selected: bool) (isDragged: bool) (selectedIds: Set<FileId>) (albums: Album list) (currentAlbumId: AlbumId option) (dispatch: Msg -> unit) =
     let px = float sizePx
     let menuItems =
         [
@@ -184,6 +193,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
         Border.height (px + 24.0)
         Border.margin (Avalonia.Thickness(4.0))
         Border.cornerRadius 4.0
+        Border.opacity (if isDragged then 0.55 else 1.0)
         Border.background (if selected then SolidColorBrush(Theme.accent) else SolidColorBrush(Theme.tileBg))
         XBorder.contextMenu (
             XContextMenu.create [
@@ -208,10 +218,7 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
         Border.onPointerPressed(
             (fun e ->
                 dragStartPoint <- e.GetCurrentPoint(Unchecked.defaultof<Avalonia.Visual>).Position
-                dragCandidateFileId <- Some model.File.Id
-                match e.Source with
-                | :? Avalonia.Input.IInputElement as src -> e.Pointer.Capture(src)
-                | _ -> ()),
+                dragCandidateFileId <- Some model.File.Id),
             SubPatchOptions.OnChangeOf model.File.Id)
         Border.onPointerMoved(
             (fun e ->
@@ -221,11 +228,19 @@ let private tile (model: TileModel) (sizePx: int) (selected: bool) (albums: Albu
                     let pos = point.Position
                     if abs(pos.X - dragStartPoint.X) > 8.0 || abs(pos.Y - dragStartPoint.Y) > 8.0 then
                         dragCandidateFileId <- None
+                        let draggedIds =
+                            if selectedIds.Contains fileId then selectedIds
+                            else Set.singleton fileId
+                        let csv = draggedIds |> Set.toSeq |> String.concat ","
                         let data = DataObject()
-                        data.Set("IsomFolio.FileId", fileId :> obj)
-                        DragDrop.DoDragDrop(e, data, DragDropEffects.Copy) |> ignore
+                        data.Set("IsomFolio.FileIds", csv :> obj)
+                        dispatch (DragStarted draggedIds)
+                        DragDrop.DoDragDrop(e, data, DragDropEffects.Copy)
+                            .ContinueWith(fun (_: System.Threading.Tasks.Task<DragDropEffects>) ->
+                                Dispatcher.UIThread.Post(fun () -> dispatch DragEnded))
+                        |> ignore
                 | _ -> ()),
-            SubPatchOptions.OnChangeOf model.File.Id)
+            SubPatchOptions.OnChangeOf (model.File.Id, selectedIds))
         Border.onPointerReleased(
             (fun _ -> dragCandidateFileId <- None),
             SubPatchOptions.OnChangeOf model.File.Id)
@@ -350,27 +365,32 @@ let view (state: State) (dispatch: Msg -> unit) =
                                 | _ -> 1
                             dispatch (NavigateTo (dir, rowSize))
                         | Avalonia.Input.Key.Delete ->
-                            state.SelectedIds
-                            |> Set.iter (fun id ->
-                                state.Tiles
-                                |> List.tryFind (fun t -> t.File.Id = id)
-                                |> Option.iter (fun tile ->
-                                    if tile.File.IsOrphaned then
-                                        e.Handled <- true
-                                        dispatch (RemoveOrphanedFileRequested id)))
+                            match state.CurrentAlbumId with
+                            | Some albumId when not state.SelectedIds.IsEmpty ->
+                                e.Handled <- true
+                                dispatch (RemoveSelectionFromAlbum albumId)
+                            | _ ->
+                                state.SelectedIds
+                                |> Set.iter (fun id ->
+                                    state.Tiles
+                                    |> List.tryFind (fun t -> t.File.Id = id)
+                                    |> Option.iter (fun tile ->
+                                        if tile.File.IsOrphaned then
+                                            e.Handled <- true
+                                            dispatch (RemoveOrphanedFileRequested id)))
                         | Avalonia.Input.Key.E ->
                             state.AnchorId
                             |> Option.iter (fun id ->
                                 e.Handled <- true
                                 dispatch (EnterLoupe id))
                         | _ -> ()),
-                    SubPatchOptions.OnChangeOf (state.TileSize, state.AnchorId))
+                    SubPatchOptions.OnChangeOf (state.TileSize, state.AnchorId, state.CurrentAlbumId, state.SelectedIds))
                 ScrollViewer.content (
                     WrapPanel.create [
                         WrapPanel.margin (Avalonia.Thickness(4.0))
                         WrapPanel.children [
                             for t in state.Tiles do
-                                yield tile t sizePx (state.SelectedIds.Contains t.File.Id) state.Albums state.CurrentAlbumId dispatch
+                                yield tile t sizePx (state.SelectedIds.Contains t.File.Id) (state.DraggedIds.Contains t.File.Id) state.SelectedIds state.Albums state.CurrentAlbumId dispatch
                                       :> Avalonia.FuncUI.Types.IView
                         ]
                     ])

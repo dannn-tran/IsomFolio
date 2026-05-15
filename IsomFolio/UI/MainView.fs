@@ -959,6 +959,23 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
             (fun () -> NoOp)
             (fun ex -> AppError (DbError ex.Message))
 
+    | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.RemoveSelectionFromAlbum albumId) ->
+        let fileIds = state.Grid.SelectedIds
+        let newId = state.SearchRequestId + 1
+        let newUndoStack =
+            fileIds |> Set.fold (fun stack fid -> FileRemovedFromAlbum(fid, albumId) :: stack) state.UndoStack
+        { state with SearchRequestId = newId; UndoStack = newUndoStack; RedoStack = [] },
+        Cmd.OfAsync.either
+            (fun () ->
+                withCatalogDb catalogPath (fun c -> async {
+                    for fid in fileIds do
+                        do! Db.removeFileFromAlbum c albumId fid
+                    return! QueryEngine.executeManualAlbumSearch c albumId
+                }))
+            ()
+            (fun files -> SearchCompleted(newId, files))
+            (fun ex -> AppError (DbError ex.Message))
+
     | { Catalog = OpenedCatalog(catalogPath) }, GridMsg (GridView.RemoveFromAlbum (fileId, albumId)) ->
         let newId = state.SearchRequestId + 1
         { state with SearchRequestId = newId; UndoStack = FileRemovedFromAlbum(fileId, albumId) :: state.UndoStack; RedoStack = [] },
