@@ -13,7 +13,7 @@ pub fn is_supported_extension(ext: &str) -> bool {
 pub fn compute_file_id(absolute_path: &str) -> FileId {
     let mut hasher = Sha256::new();
     hasher.update(absolute_path.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {

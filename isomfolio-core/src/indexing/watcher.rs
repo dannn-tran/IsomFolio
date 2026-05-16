@@ -165,7 +165,7 @@ where
         .map_err(|e| crate::models::AppError::Watcher(e.to_string()))?;
 
     watcher
-        .watch(Path::new(root_path), RecursiveMode::NonRecursive)
+        .watch(Path::new(root_path), RecursiveMode::Recursive)
         .map_err(|e| crate::models::AppError::Watcher(e.to_string()))?;
 
     Ok(FileWatcher {

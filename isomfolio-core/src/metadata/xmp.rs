@@ -115,7 +115,7 @@ pub fn parse_xmp_xml(xml: &str) -> XmpMetadata {
                     state.in_description = true;
                     for attr in e.attributes().flatten() {
                         let attr_name = std::str::from_utf8(attr.key.as_ref()).unwrap_or("").to_string();
-                        let val = attr.unescape_value().unwrap_or_default().into_owned();
+                        let val = std::str::from_utf8(attr.value.as_ref()).unwrap_or_default().to_string();
                         let (ans, alocal) = resolve_prefix(&attr_name, &ns_map);
                         match (ans, alocal) {
                             (ns, "Rating") if ns == NS_XMP => {
@@ -159,7 +159,7 @@ pub fn parse_xmp_xml(xml: &str) -> XmpMetadata {
                     // Check xml:lang="x-default"
                     state.li_is_xdefault = e.attributes().flatten().any(|a| {
                         let k = std::str::from_utf8(a.key.as_ref()).unwrap_or("");
-                        let v = a.unescape_value().unwrap_or_default();
+                        let v = std::str::from_utf8(a.value.as_ref()).unwrap_or_default();
                         let (ans, al) = resolve_prefix(k, &ns_map);
                         ans == NS_XML && al == "lang" && v == "x-default"
                     });
@@ -251,7 +251,8 @@ pub fn parse_xmp_xml(xml: &str) -> XmpMetadata {
             }
 
             Ok(Event::Text(t)) => {
-                let text = t.unescape().unwrap_or_default();
+                let raw = std::str::from_utf8(t.as_ref()).unwrap_or_default();
+                let text = quick_xml::escape::unescape(raw).unwrap_or(std::borrow::Cow::Borrowed(raw));
                 if state.in_li {
                     state.li_text.push_str(&text);
                 } else if state.current_prop.is_some() && !state.in_container {

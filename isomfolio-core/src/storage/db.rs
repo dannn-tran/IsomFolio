@@ -1,4 +1,5 @@
 use rusqlite::{Connection, params};
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::models::*;
@@ -497,6 +498,27 @@ pub fn remove_file_from_album(
     conn.execute(
         "DELETE FROM album_files WHERE album_id = ?1 AND file_id = ?2",
         params![album_id, file_id],
+    )?;
+    Ok(())
+}
+
+pub fn get_all_album_file_counts(conn: &Connection) -> Result<HashMap<String, usize>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT album_id, COUNT(*) FROM album_files GROUP BY album_id",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let id: String = row.get(0)?;
+        let count: i64 = row.get(1)?;
+        Ok((id, count as usize))
+    })?;
+    rows.collect::<Result<HashMap<_, _>, _>>().map_err(Into::into)
+}
+
+pub fn set_file_rating(conn: &Connection, file_id: &str, rating: Option<i32>) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT INTO metadata (file_id, rating) VALUES (?1, ?2) \
+         ON CONFLICT(file_id) DO UPDATE SET rating = excluded.rating",
+        params![file_id, rating],
     )?;
     Ok(())
 }
