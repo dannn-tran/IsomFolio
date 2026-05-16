@@ -24,7 +24,6 @@ const FG_DIM: Color       = Color { r: 0.55, g: 0.55, b: 0.60, a: 1.0 };
 const ACCENT: Color       = Color { r: 0.20, g: 0.55, b: 0.95, a: 1.0 };
 const ALBUM_HOVER: Color  = Color { r: 0.10, g: 0.25, b: 0.50, a: 1.0 };
 const SEL_RING: Color     = Color::WHITE;
-const DRAG_ALPHA: f32     = 0.35;
 const TILE_CORNER: f32    = 4.0;
 const STAR_GOLD: Color    = Color { r: 1.0, g: 0.82, b: 0.0, a: 1.0 };
 
@@ -150,11 +149,7 @@ impl App {
         let idx = self.loupe_idx.min(total.saturating_sub(1));
 
         let img_element: Element<Msg> = if let Some(file) = self.files.get(idx) {
-            let handle = match self.thumbnails.get(&file.id) {
-                Some(ThumbnailState::Ready(_)) => image::Handle::from_path(&file.path),
-                _ => image::Handle::from_path(&file.path),
-            };
-            image(handle)
+            image(image::Handle::from_path(&file.path))
                 .content_fit(iced::ContentFit::Contain)
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -860,12 +855,10 @@ impl App {
             }
         };
 
-        let (border_color, border_width, _alpha) = if dragging {
-            (Color::TRANSPARENT, 0.0_f32, DRAG_ALPHA)
-        } else if selected {
-            (SEL_RING, 2.5, 1.0)
+        let (border_color, border_width) = if selected && !dragging {
+            (SEL_RING, 2.5_f32)
         } else {
-            (Color::TRANSPARENT, 0.0, 1.0)
+            (Color::TRANSPARENT, 0.0)
         };
 
         container(tile_content)
