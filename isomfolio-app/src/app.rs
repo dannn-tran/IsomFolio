@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
 use iced::{
@@ -66,9 +66,11 @@ pub enum Msg {
     SidebarItemClicked(SidebarItem),
 
     FilesLoaded(Vec<AssetFile>),
-    AlbumsLoaded(Vec<Album>),
-    AlbumCountsLoaded(HashMap<String, usize>),
-    FolderCountsLoaded(Vec<(String, usize)>),
+    SidebarLoaded {
+        folders: Vec<(String, usize)>,
+        albums: Vec<Album>,
+        album_counts: HashMap<String, usize>,
+    },
 
     TileSizeUp,
     TileSizeDown,
@@ -232,6 +234,12 @@ impl App {
             .ok()
             .map(|c| Arc::new(Mutex::new(c)));
 
+        let initial_status = if conn.is_none() {
+            "Error: could not open database — check permissions".to_string()
+        } else {
+            String::new()
+        };
+
         let app = App {
             conn,
             catalog_dir,
@@ -282,7 +290,7 @@ impl App {
             detail_rating: None,
             detail_label: None,
             detail_title: None,
-            status: String::new(),
+            status: initial_status,
             is_scanning: false,
         };
 
@@ -440,30 +448,16 @@ impl App {
         let Some(conn) = self.conn.clone() else {
             return Task::none();
         };
-        let conn2 = Arc::clone(&conn);
-        let conn3 = Arc::clone(&conn);
-        let t1 = Task::perform(
+        Task::perform(
             async move {
                 let g = conn.lock().unwrap();
-                db::get_folder_counts(&g).unwrap_or_default()
+                let folders = db::get_folder_counts(&g).unwrap_or_default();
+                let albums = db::get_all_albums(&g).unwrap_or_default();
+                let album_counts = db::get_all_album_file_counts(&g).unwrap_or_default();
+                (folders, albums, album_counts)
             },
-            Msg::FolderCountsLoaded,
-        );
-        let t2 = Task::perform(
-            async move {
-                let g = conn2.lock().unwrap();
-                db::get_all_albums(&g).unwrap_or_default()
-            },
-            Msg::AlbumsLoaded,
-        );
-        let t3 = Task::perform(
-            async move {
-                let g = conn3.lock().unwrap();
-                db::get_all_album_file_counts(&g).unwrap_or_default()
-            },
-            Msg::AlbumCountsLoaded,
-        );
-        Task::batch([t1, t2, t3])
+            |(folders, albums, album_counts)| Msg::SidebarLoaded { folders, albums, album_counts },
+        )
     }
 
     fn maybe_load_detail(&self) -> Task<Msg> {
@@ -591,18 +585,10 @@ impl App {
                 self.maybe_load_detail()
             }
 
-            Msg::AlbumsLoaded(albums) => {
+            Msg::SidebarLoaded { folders, albums, album_counts } => {
+                self.folders = folders;
                 self.albums = albums;
-                Task::none()
-            }
-
-            Msg::AlbumCountsLoaded(counts) => {
-                self.album_counts = counts;
-                Task::none()
-            }
-
-            Msg::FolderCountsLoaded(counts) => {
-                self.folders = counts;
+                self.album_counts = album_counts;
                 self.start_watchers_for_folders();
                 Task::none()
             }
@@ -1348,11 +1334,13 @@ fn next_sort_field(f: SortField) -> SortField {
 }
 
 fn new_album_id() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    format!("alb-{nanos:x}")
+    format!("alb-{nanos:x}-{seq:x}")
 }
 
 pub fn unix_to_date_str(ts: i64) -> String {
