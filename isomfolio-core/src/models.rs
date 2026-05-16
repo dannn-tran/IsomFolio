@@ -26,23 +26,6 @@ pub enum ThumbnailState {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum TileSize {
-    Small,
-    Medium,
-    Large,
-}
-
-impl TileSize {
-    pub fn px(self) -> u32 {
-        match self {
-            TileSize::Small => 128,
-            TileSize::Medium => 256,
-            TileSize::Large => 512,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum SortField {
     Name,
     Date,
