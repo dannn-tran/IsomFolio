@@ -15,22 +15,37 @@ pub struct ScannedFile {
     pub meta: metadata::EmbeddedMetadata,
 }
 
-fn discover_paths(root_path: &str) -> impl Iterator<Item = String> {
-    let entries = fs::read_dir(root_path)
-        .ok()
-        .into_iter()
-        .flatten();
-    entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .filter_map(|e| e.path().to_str().map(|s| s.to_string()))
-        .filter(|p| {
-            Path::new(p)
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| is_supported_extension(ext))
-                .unwrap_or(false)
-        })
+fn discover_paths(root_path: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let mut dirs = vec![root_path.to_string()];
+    while let Some(dir) = dirs.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            let path = match entry.path().to_str() {
+                Some(p) => p.to_string(),
+                None => continue,
+            };
+            if ft.is_dir() {
+                dirs.push(path);
+            } else if ft.is_file()
+                && Path::new(&path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| is_supported_extension(e))
+                    .unwrap_or(false)
+            {
+                results.push(path);
+            }
+        }
+    }
+    results
 }
 
 pub fn scan_folder(
@@ -89,6 +104,34 @@ pub fn scan_folder(
     }
 
     Ok(ScanResult { total_count: total })
+}
+
+pub fn resync_files(conn: &Connection, paths: &[String]) -> Result<(), AppError> {
+    for path in paths {
+        let Some(asset) = asset_file_from_path(path) else { continue };
+        let meta = metadata::read_metadata(path);
+        db::upsert_files(conn, &[asset.clone()])?;
+        db::upsert_metadata(conn, &asset.id, &meta)?;
+    }
+    Ok(())
+}
+
+pub fn resync_sidecar_files(conn: &Connection, paths: &[String]) -> Result<(), AppError> {
+    for path in paths {
+        let Some(asset) = asset_file_from_path(path) else { continue };
+        let meta = metadata::read_metadata(path);
+        db::upsert_metadata(conn, &asset.id, &meta)?;
+    }
+    Ok(())
+}
+
+pub fn apply_reconcile(conn: &Connection, result: ReconcileResult) -> Result<(), AppError> {
+    for orphan_id in result.orphaned {
+        db::mark_orphaned(conn, &orphan_id)?;
+    }
+    resync_files(conn, &result.new_or_modified)?;
+    resync_sidecar_files(conn, &result.sidecar_changed)?;
+    Ok(())
 }
 
 pub fn reconcile_folder(
