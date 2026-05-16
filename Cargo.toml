@@ -1,0 +1,3 @@
+[workspace]
+members = ["isomfolio-core"]
+resolver = "2"
