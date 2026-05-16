@@ -95,6 +95,9 @@ pub enum Msg {
     ConfirmCreateAlbum,
     CancelCreateAlbum,
     AlbumCreated,
+    AlbumRenamed,
+    SmartAlbumUpdated,
+    FilesRemovedFromAlbum,
 
     StartRenameAlbum(AlbumId),
     RenameAlbumInputChanged(String),
@@ -572,6 +575,7 @@ impl App {
                 self.selected_item = item;
                 self.files.clear();
                 self.scroll_y = 0.0;
+                self.loupe_idx = 0;
                 self.grid_selected.clear();
                 self.drag = None;
                 self.dragging_ids.clear();
@@ -913,7 +917,15 @@ impl App {
                 Task::none()
             }
 
-            Msg::AlbumCreated => self.load_sidebar_task(),
+            Msg::AlbumCreated | Msg::AlbumRenamed | Msg::SmartAlbumUpdated => {
+                self.load_sidebar_task()
+            }
+
+            Msg::FilesRemovedFromAlbum => {
+                let t1 = self.load_sidebar_task();
+                let t2 = self.load_files_task();
+                Task::batch([t1, t2])
+            }
 
             Msg::StartRenameAlbum(album_id) => {
                 let current_name = self.albums.iter()
@@ -944,7 +956,7 @@ impl App {
                         let guard = conn.lock().unwrap();
                         let _ = db::rename_album(&guard, &album_id, &name);
                     },
-                    |()| Msg::AlbumCreated,
+                    |()| Msg::AlbumRenamed,
                 )
             }
 
@@ -990,7 +1002,7 @@ impl App {
                             let _ = db::remove_file_from_album(&guard, &album_id, fid);
                         }
                     },
-                    |()| Msg::AlbumDeleted,
+                    |()| Msg::FilesRemovedFromAlbum,
                 )
             }
 
@@ -1112,7 +1124,7 @@ impl App {
                         let guard = conn.lock().unwrap();
                         let _ = db::update_smart_album_query(&guard, &album_id, &query);
                     },
-                    |()| Msg::AlbumCreated,
+                    |()| Msg::SmartAlbumUpdated,
                 )
             }
 
