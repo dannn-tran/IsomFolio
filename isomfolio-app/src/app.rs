@@ -157,6 +157,54 @@ pub enum Msg {
     NoOp,
 }
 
+pub struct CriteriaState {
+    pub show: bool,
+    pub tags: Vec<String>,
+    pub tag_input: String,
+    pub date_from: String,
+    pub date_to: String,
+    pub exts: HashSet<String>,
+    pub save_smart_input: Option<String>,
+}
+
+impl Default for CriteriaState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            tags: Vec::new(),
+            tag_input: String::new(),
+            date_from: String::new(),
+            date_to: String::new(),
+            exts: HashSet::new(),
+            save_smart_input: None,
+        }
+    }
+}
+
+pub struct DetailState {
+    pub show: bool,
+    pub file_id: Option<String>,
+    pub tags: Vec<String>,
+    pub tag_input: String,
+    pub rating: Option<i32>,
+    pub label: Option<String>,
+    pub title: Option<String>,
+}
+
+impl Default for DetailState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            file_id: None,
+            tags: Vec::new(),
+            tag_input: String::new(),
+            rating: None,
+            label: None,
+            title: None,
+        }
+    }
+}
+
 pub struct App {
     pub conn: Option<Arc<Mutex<Connection>>>,
     pub catalog_dir: String,
@@ -203,23 +251,8 @@ pub struct App {
     pub sort_by: SortField,
     pub sort_asc: bool,
 
-    // Criteria panel
-    pub show_criteria: bool,
-    pub criteria_tags: Vec<String>,
-    pub criteria_tag_input: String,
-    pub criteria_date_from: String,
-    pub criteria_date_to: String,
-    pub criteria_exts: HashSet<String>,
-    pub save_smart_input: Option<String>,
-
-    // Detail panel
-    pub show_detail: bool,
-    pub detail_file_id: Option<String>,
-    pub detail_tags: Vec<String>,
-    pub detail_tag_input: String,
-    pub detail_rating: Option<i32>,
-    pub detail_label: Option<String>,
-    pub detail_title: Option<String>,
+    pub criteria: CriteriaState,
+    pub detail: DetailState,
 
     pub status: String,
     pub is_scanning: bool,
@@ -277,20 +310,8 @@ impl App {
             rename_album_input: String::new(),
             sort_by: SortField::Name,
             sort_asc: true,
-            show_criteria: false,
-            criteria_tags: Vec::new(),
-            criteria_tag_input: String::new(),
-            criteria_date_from: String::new(),
-            criteria_date_to: String::new(),
-            criteria_exts: HashSet::new(),
-            save_smart_input: None,
-            show_detail: false,
-            detail_file_id: None,
-            detail_tags: Vec::new(),
-            detail_tag_input: String::new(),
-            detail_rating: None,
-            detail_label: None,
-            detail_title: None,
+            criteria: CriteriaState::default(),
+            detail: DetailState::default(),
             status: initial_status,
             is_scanning: false,
         };
@@ -300,13 +321,13 @@ impl App {
     }
 
     pub fn cols(&self) -> usize {
-        let detail_w = if self.show_detail { SIDEBAR_WIDTH } else { 0.0 };
+        let detail_w = if self.detail.show { SIDEBAR_WIDTH } else { 0.0 };
         let avail = (self.viewport_width - 2.0 * GRID_PADDING - detail_w).max(0.0);
         ((avail + TILE_GAP) / (self.tile_px + TILE_GAP)) as usize
     }
 
     pub fn criteria_panel_height(&self) -> f32 {
-        if !self.show_criteria {
+        if !self.criteria.show {
             return 0.0;
         }
         let rows = CRITERIA_ROW_COUNT as f32;
@@ -316,10 +337,10 @@ impl App {
     }
 
     pub fn criteria_has_any(&self) -> bool {
-        !self.criteria_tags.is_empty()
-            || !self.criteria_exts.is_empty()
-            || !self.criteria_date_from.is_empty()
-            || !self.criteria_date_to.is_empty()
+        !self.criteria.tags.is_empty()
+            || !self.criteria.exts.is_empty()
+            || !self.criteria.date_from.is_empty()
+            || !self.criteria.date_to.is_empty()
     }
 
     pub fn current_album_is_smart(&self) -> bool {
@@ -335,7 +356,7 @@ impl App {
     }
 
     pub fn detail_file(&self) -> Option<&AssetFile> {
-        let id = self.detail_file_id.as_deref()?;
+        let id = self.detail.file_id.as_deref()?;
         self.files.iter().find(|f| f.id == id)
     }
 
@@ -346,10 +367,10 @@ impl App {
         };
         SearchQuery {
             text: text_opt,
-            tags: self.criteria_tags.clone(),
-            extensions: self.criteria_exts.iter().cloned().collect(),
-            date_from: parse_date_str(&self.criteria_date_from),
-            date_to: parse_date_str(&self.criteria_date_to),
+            tags: self.criteria.tags.clone(),
+            extensions: self.criteria.exts.iter().cloned().collect(),
+            date_from: parse_date_str(&self.criteria.date_from),
+            date_to: parse_date_str(&self.criteria.date_to),
             sort_by: self.sort_by,
             sort_asc: self.sort_asc,
             ..Default::default()
@@ -462,14 +483,14 @@ impl App {
     }
 
     fn maybe_load_detail(&self) -> Task<Msg> {
-        if !self.show_detail {
+        if !self.detail.show {
             return Task::none();
         }
         if self.grid_selected.len() != 1 {
             return Task::none();
         }
         let file_id = self.grid_selected.iter().next().unwrap().clone();
-        if self.detail_file_id.as_deref() == Some(file_id.as_str()) {
+        if self.detail.file_id.as_deref() == Some(file_id.as_str()) {
             return Task::none();
         }
         let Some(conn) = self.conn.clone() else { return Task::none(); };
@@ -534,14 +555,14 @@ impl App {
                 if let SidebarItem::Album(ref id) = item {
                     if let Some(album) = self.albums.iter().find(|a| &a.id == id) {
                         if let AlbumKind::Smart(ref q) = album.kind {
-                            self.criteria_tags = q.tags.clone();
-                            self.criteria_date_from =
+                            self.criteria.tags = q.tags.clone();
+                            self.criteria.date_from =
                                 q.date_from.map(unix_to_date_str).unwrap_or_default();
-                            self.criteria_date_to =
+                            self.criteria.date_to =
                                 q.date_to.map(unix_to_date_str).unwrap_or_default();
-                            self.criteria_exts = q.extensions.iter().cloned().collect();
+                            self.criteria.exts = q.extensions.iter().cloned().collect();
                             self.search_text = q.text.clone().unwrap_or_default();
-                            self.show_criteria = true;
+                            self.criteria.show = true;
                         }
                     }
                 }
@@ -552,8 +573,8 @@ impl App {
                 self.grid_selected.clear();
                 self.drag = None;
                 self.dragging_ids.clear();
-                self.save_smart_input = None;
-                self.detail_file_id = None;
+                self.criteria.save_smart_input = None;
+                self.detail.file_id = None;
                 self.load_files_task()
             }
 
@@ -681,12 +702,12 @@ impl App {
                         });
                     }
                 }
-                if self.show_detail && self.grid_selected.len() != 1 {
-                    self.detail_file_id = None;
-                    self.detail_tags.clear();
-                    self.detail_rating = None;
-                    self.detail_label = None;
-                    self.detail_title = None;
+                if self.detail.show && self.grid_selected.len() != 1 {
+                    self.detail.file_id = None;
+                    self.detail.tags.clear();
+                    self.detail.rating = None;
+                    self.detail.label = None;
+                    self.detail.title = None;
                 }
                 Task::none()
             }
@@ -720,7 +741,7 @@ impl App {
                 }
                 self.create_album_input = None;
                 self.rename_album_id = None;
-                self.save_smart_input = None;
+                self.criteria.save_smart_input = None;
                 Task::none()
             }
 
@@ -968,70 +989,70 @@ impl App {
             // Criteria panel
 
             Msg::ToggleCriteria => {
-                self.show_criteria = !self.show_criteria;
+                self.criteria.show = !self.criteria.show;
                 Task::none()
             }
 
             Msg::CriteriaTagInputChanged(s) => {
-                self.criteria_tag_input = s;
+                self.criteria.tag_input = s;
                 Task::none()
             }
 
             Msg::AddCriteriaTag => {
-                let tag = self.criteria_tag_input.trim().to_string();
-                self.criteria_tag_input.clear();
-                if !tag.is_empty() && !self.criteria_tags.contains(&tag) {
-                    self.criteria_tags.push(tag);
+                let tag = self.criteria.tag_input.trim().to_string();
+                self.criteria.tag_input.clear();
+                if !tag.is_empty() && !self.criteria.tags.contains(&tag) {
+                    self.criteria.tags.push(tag);
                 }
                 self.load_files_task()
             }
 
             Msg::RemoveCriteriaTag(tag) => {
-                self.criteria_tags.retain(|t| t != &tag);
+                self.criteria.tags.retain(|t| t != &tag);
                 self.load_files_task()
             }
 
             Msg::CriteriaDateFromChanged(s) => {
-                self.criteria_date_from = s;
+                self.criteria.date_from = s;
                 self.load_files_task()
             }
 
             Msg::CriteriaDateToChanged(s) => {
-                self.criteria_date_to = s;
+                self.criteria.date_to = s;
                 self.load_files_task()
             }
 
             Msg::ToggleCriteriaExt(ext) => {
-                if self.criteria_exts.contains(&ext) {
-                    self.criteria_exts.remove(&ext);
+                if self.criteria.exts.contains(&ext) {
+                    self.criteria.exts.remove(&ext);
                 } else {
-                    self.criteria_exts.insert(ext);
+                    self.criteria.exts.insert(ext);
                 }
                 self.load_files_task()
             }
 
             Msg::ClearCriteria => {
-                self.criteria_tags.clear();
-                self.criteria_date_from.clear();
-                self.criteria_date_to.clear();
-                self.criteria_exts.clear();
+                self.criteria.tags.clear();
+                self.criteria.date_from.clear();
+                self.criteria.date_to.clear();
+                self.criteria.exts.clear();
                 self.load_files_task()
             }
 
             // Smart album handlers
 
             Msg::SaveAsSmartAlbum => {
-                self.save_smart_input = Some(String::new());
+                self.criteria.save_smart_input = Some(String::new());
                 Task::none()
             }
 
             Msg::SmartAlbumNameChanged(s) => {
-                self.save_smart_input = Some(s);
+                self.criteria.save_smart_input = Some(s);
                 Task::none()
             }
 
             Msg::ConfirmSmartAlbum => {
-                let name = self.save_smart_input.take().unwrap_or_default();
+                let name = self.criteria.save_smart_input.take().unwrap_or_default();
                 let name = name.trim().to_string();
                 if name.is_empty() {
                     return Task::none();
@@ -1072,9 +1093,9 @@ impl App {
             // Detail panel handlers
 
             Msg::ToggleDetail => {
-                self.show_detail = !self.show_detail;
-                if self.show_detail {
-                    self.detail_file_id = None;
+                self.detail.show = !self.detail.show;
+                if self.detail.show {
+                    self.detail.file_id = None;
                     self.maybe_load_detail()
                 } else {
                     Task::none()
@@ -1082,29 +1103,29 @@ impl App {
             }
 
             Msg::DetailLoaded { file_id, tags, rating, label, title } => {
-                self.detail_file_id = Some(file_id);
-                self.detail_tags = tags;
-                self.detail_rating = rating;
-                self.detail_label = label;
-                self.detail_title = title;
+                self.detail.file_id = Some(file_id);
+                self.detail.tags = tags;
+                self.detail.rating = rating;
+                self.detail.label = label;
+                self.detail.title = title;
                 Task::none()
             }
 
             Msg::DetailTagInputChanged(s) => {
-                self.detail_tag_input = s;
+                self.detail.tag_input = s;
                 Task::none()
             }
 
             Msg::AddDetailTag => {
-                let tag = self.detail_tag_input.trim().to_string();
-                self.detail_tag_input.clear();
-                if tag.is_empty() || self.detail_tags.contains(&tag) {
+                let tag = self.detail.tag_input.trim().to_string();
+                self.detail.tag_input.clear();
+                if tag.is_empty() || self.detail.tags.contains(&tag) {
                     return Task::none();
                 }
-                self.detail_tags.push(tag);
-                let Some(ref fid) = self.detail_file_id else { return Task::none(); };
+                self.detail.tags.push(tag);
+                let Some(ref fid) = self.detail.file_id else { return Task::none(); };
                 let fid = fid.clone();
-                let tags = self.detail_tags.clone();
+                let tags = self.detail.tags.clone();
                 let Some(conn) = self.conn.clone() else { return Task::none(); };
                 Task::perform(
                     async move {
@@ -1116,10 +1137,10 @@ impl App {
             }
 
             Msg::RemoveDetailTag(tag) => {
-                self.detail_tags.retain(|t| t != &tag);
-                let Some(ref fid) = self.detail_file_id else { return Task::none(); };
+                self.detail.tags.retain(|t| t != &tag);
+                let Some(ref fid) = self.detail.file_id else { return Task::none(); };
                 let fid = fid.clone();
-                let tags = self.detail_tags.clone();
+                let tags = self.detail.tags.clone();
                 let Some(conn) = self.conn.clone() else { return Task::none(); };
                 Task::perform(
                     async move {
@@ -1131,9 +1152,9 @@ impl App {
             }
 
             Msg::SetDetailRating(n) => {
-                let new_rating = if self.detail_rating == Some(n) { None } else { Some(n) };
-                self.detail_rating = new_rating;
-                let Some(ref fid) = self.detail_file_id else { return Task::none(); };
+                let new_rating = if self.detail.rating == Some(n) { None } else { Some(n) };
+                self.detail.rating = new_rating;
+                let Some(ref fid) = self.detail.file_id else { return Task::none(); };
                 let fid = fid.clone();
                 let Some(conn) = self.conn.clone() else { return Task::none(); };
                 Task::perform(
