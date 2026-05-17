@@ -3,6 +3,7 @@ use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::file_index::is_supported_extension;
@@ -92,6 +93,13 @@ fn classify_event(event: &Event, xmp_path: &str) -> Option<FileEvent> {
 pub struct FileWatcher {
     _watcher: RecommendedWatcher,
     pub self_write: SelfWriteGuard,
+    shutdown: Arc<AtomicBool>,
+}
+
+impl Drop for FileWatcher {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+    }
 }
 
 pub fn create_watcher<F>(root_path: &str, dispatch: F) -> Result<FileWatcher, crate::models::AppError>
@@ -109,10 +117,16 @@ where
     let dispatch = Arc::new(dispatch);
     let dispatch_clone = Arc::clone(&dispatch);
 
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_thread = Arc::clone(&shutdown);
+
     // Debounce flusher thread
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_millis(50));
+            if shutdown_thread.load(Ordering::Relaxed) {
+                break;
+            }
             let mut map = pending_dispatch.lock().unwrap();
             let now = Instant::now();
             let ready: Vec<(String, FileEvent)> = map
@@ -171,6 +185,7 @@ where
     Ok(FileWatcher {
         _watcher: watcher,
         self_write: SelfWriteGuard { registry: self_write_registry },
+        shutdown,
     })
 }
 
