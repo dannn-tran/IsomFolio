@@ -8,6 +8,7 @@ pub enum FileEvent {
     Modified(String),
     SidecarChanged(String),
     SidecarRemoved(String),
+    ScanProgress(ScanProgress),
 }
 
 #[derive(Debug, Clone)]
