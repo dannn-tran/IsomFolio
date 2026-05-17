@@ -7,8 +7,8 @@ use iced::{
 use isomfolio_core::models::ThumbnailState;
 
 use super::styles::{
-    active_chip_style, ghost_btn_style, inactive_chip_style, ACCENT, BG_CRITERIA, BG_GRID, ERR,
-    FG_DIM, STAR_GOLD, TILE_CORNER,
+    active_chip_style, ghost_btn_style, inactive_chip_style, ACCENT, BG_CRITERIA, BG_GRID,
+    BG_TILE_LOADING, BORDER, ERR, FG_DIM, STAR_GOLD, TILE_CORNER,
     SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
 };
 use crate::app::{
@@ -116,15 +116,14 @@ impl App {
                 .content_fit(iced::ContentFit::Cover)
                 .into(),
             _ => {
-                let bg = Color { r: 0.20, g: 0.20, b: 0.25, a: 1.0 };
                 container(text(&file.name).size(10).color(FG_DIM))
                     .width(self.tile_px)
                     .height(self.tile_px)
                     .align_x(Alignment::Center)
                     .align_y(Alignment::End)
                     .padding(Padding { top: 0.0, right: SPACE_1, bottom: SPACE_1_5, left: SPACE_1 })
-                    .style(move |_: &Theme| container::Style {
-                        background: Some(Background::Color(bg)),
+                    .style(|_: &Theme| container::Style {
+                        background: Some(Background::Color(BG_TILE_LOADING)),
                         border: Border { radius: TILE_CORNER.into(), ..Default::default() },
                         ..Default::default()
                     })
@@ -290,7 +289,7 @@ impl App {
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_CRITERIA)),
                 border: Border {
-                    color: Color { r: 0.28, g: 0.28, b: 0.34, a: 1.0 },
+                    color: BORDER,
                     width: 1.0,
                     radius: 0.0.into(),
                 },

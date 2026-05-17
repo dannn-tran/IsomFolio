@@ -4,8 +4,8 @@ use iced::{
 };
 
 use super::styles::{
-    active_chip_style, ghost_btn_style, ACCENT, BG_GRID, ERR, FG, FG_DIM, FG_MUTED,
-    SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, SPACE_4, SPACE_5, SPACE_6,
+    active_chip_style, ghost_btn_style, ACCENT, BG_GRID, BG_MODAL, BORDER, ERR, FG, FG_DIM,
+    FG_MUTED, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, SPACE_4, SPACE_5, SPACE_6,
 };
 use crate::app::{App, Msg};
 
@@ -235,12 +235,7 @@ fn field_style(_: &Theme) -> container::Style {
             a: 0.03,
         })),
         border: Border {
-            color: Color {
-                r: 0.24,
-                g: 0.24,
-                b: 0.28,
-                a: 1.0,
-            },
+            color: BORDER,
             width: 1.0,
             radius: 6.0.into(),
         },
@@ -250,12 +245,7 @@ fn field_style(_: &Theme) -> container::Style {
 
 fn modal_style(_: &Theme) -> container::Style {
     container::Style {
-        background: Some(Background::Color(Color {
-            r: 0.11,
-            g: 0.11,
-            b: 0.14,
-            a: 1.0,
-        })),
+        background: Some(Background::Color(BG_MODAL)),
         border: Border {
             radius: 10.0.into(),
             ..Default::default()

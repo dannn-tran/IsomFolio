@@ -71,6 +71,30 @@ pub const ERR: Color = Color {
     b: 0.35,
     a: 1.0,
 };
+pub const BORDER: Color = Color {
+    r: 0.28,
+    g: 0.28,
+    b: 0.34,
+    a: 1.0,
+};
+pub const BG_MODAL: Color = Color {
+    r: 0.11,
+    g: 0.11,
+    b: 0.14,
+    a: 1.0,
+};
+pub const BG_TILE_LOADING: Color = Color {
+    r: 0.20,
+    g: 0.20,
+    b: 0.25,
+    a: 1.0,
+};
+pub const DANGER: Color = Color {
+    r: 0.65,
+    g: 0.12,
+    b: 0.12,
+    a: 1.0,
+};
 
 pub const UNIT: f32 = 4.0;
 pub const SPACE_0_5: f32 = UNIT * 0.5;
@@ -159,12 +183,7 @@ pub fn inactive_chip_style(_theme: &Theme, status: button::Status) -> button::St
 
 pub fn danger_btn_style(_theme: &Theme, _status: button::Status) -> button::Style {
     button::Style {
-        background: Some(Background::Color(Color {
-            r: 0.65,
-            g: 0.12,
-            b: 0.12,
-            a: 1.0,
-        })),
+        background: Some(Background::Color(DANGER)),
         text_color: Color::WHITE,
         border: Border {
             radius: 4.0.into(),
@@ -180,12 +199,7 @@ pub fn sidebar_divider<'a>() -> Element<'a, Msg> {
         .width(Length::Fill)
         .height(1.0)
         .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(Color {
-                r: 0.28,
-                g: 0.28,
-                b: 0.34,
-                a: 1.0,
-            })),
+            background: Some(Background::Color(BORDER)),
             ..Default::default()
         })
         .into()
