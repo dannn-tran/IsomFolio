@@ -1,7 +1,7 @@
 use iced::{
     Alignment, Background, Border, Color, Element, Length, Padding,
     widget::{
-        column, container, image, mouse_area, row, scrollable, text, text_input, Space,
+        column, container, image, row, scrollable, stack, text, text_input, Space,
         button,
     },
     Theme,
@@ -25,7 +25,6 @@ const FG_DIM: Color       = Color { r: 0.70, g: 0.70, b: 0.75, a: 1.0 };
 const FG_MUTED: Color     = Color { r: 0.45, g: 0.45, b: 0.50, a: 1.0 };
 const ACCENT: Color       = Color { r: 0.20, g: 0.55, b: 0.95, a: 1.0 };
 const ALBUM_HOVER: Color  = Color { r: 0.10, g: 0.25, b: 0.50, a: 1.0 };
-const SEL_RING: Color     = Color::WHITE;
 const TILE_CORNER: f32    = 4.0;
 const STAR_GOLD: Color    = Color { r: 1.0, g: 0.82, b: 0.0, a: 1.0 };
 const ERR: Color          = Color { r: 0.95, g: 0.35, b: 0.35, a: 1.0 };
@@ -241,10 +240,6 @@ impl App {
 
         let catalog_header: Element<Msg> = row![
             text(catalog_name).size(11).color(FG_DIM),
-            Space::new().width(Length::Fill),
-            button(text("Open…").size(11))
-                .on_press(Msg::PickOpenCatalog)
-                .style(ghost_btn_style),
         ]
         .align_y(Alignment::Center)
         .into();
@@ -341,19 +336,14 @@ impl App {
                     .padding([0, 4]),
                 );
             } else {
-                let album_id = album.id.clone();
-                content = content.push(
-                    mouse_area(album_sidebar_row(
-                        album.name.clone(),
-                        album.id.clone(),
-                        count,
-                        sel,
-                        hovered,
-                        is_smart,
-                    ))
-                    .on_enter(Msg::DragHoverAlbum(Some(album_id)))
-                    .on_exit(Msg::DragHoverAlbum(None)),
-                );
+                content = content.push(album_sidebar_row(
+                    album.name.clone(),
+                    album.id.clone(),
+                    count,
+                    sel,
+                    hovered,
+                    is_smart,
+                ));
             }
         }
 
@@ -367,7 +357,30 @@ impl App {
             );
         }
 
-        container(scrollable(content.spacing(2).padding(12)))
+        let sidebar_scroll = scrollable(content.spacing(2).padding(12))
+            .direction(scrollable::Direction::Vertical(
+                scrollable::Scrollbar::new().width(4).scroller_width(4),
+            ))
+            .on_scroll(|vp| Msg::SidebarScrolled(vp.absolute_offset().y))
+            .height(Length::Fill);
+
+        let bottom_strip = column![
+            sidebar_divider(),
+            container(
+                button(text("Open Catalog…").size(12))
+                    .on_press(Msg::PickOpenCatalog)
+                    .style(ghost_btn_style)
+                    .width(Length::Fill),
+            )
+            .width(Length::Fill)
+            .padding([6, 12])
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_STATUSBAR)),
+                ..Default::default()
+            }),
+        ];
+
+        container(column![sidebar_scroll, bottom_strip])
             .width(SIDEBAR_WIDTH)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {
@@ -938,38 +951,44 @@ impl App {
             }
         };
 
-        let (border_color, border_width) = if selected && !dragging {
-            (SEL_RING, 2.5_f32)
-        } else {
-            (Color::TRANSPARENT, 0.0)
-        };
-
-        let drag_overlay_color = if dragging {
+        let overlay_color = if dragging {
             Color { r: 0.0, g: 0.0, b: 0.0, a: 0.45 }
+        } else if selected {
+            Color { r: ACCENT.r, g: ACCENT.g, b: ACCENT.b, a: 0.28 }
         } else {
             Color::TRANSPARENT
         };
 
-        container(
+        let (ring_color, ring_width) = if selected && !dragging {
+            (ACCENT, 3.0_f32)
+        } else {
+            (Color::TRANSPARENT, 0.0)
+        };
+
+        let tile_px = self.tile_px;
+        stack(vec![
             container(tile_content)
-                .width(self.tile_px)
-                .height(self.tile_px)
+                .width(tile_px)
+                .height(tile_px)
+                .style(|_: &Theme| container::Style {
+                    border: Border { radius: TILE_CORNER.into(), ..Default::default() },
+                    ..Default::default()
+                })
+                .into(),
+            container(Space::new())
+                .width(tile_px)
+                .height(tile_px)
                 .style(move |_: &Theme| container::Style {
+                    background: Some(Background::Color(overlay_color)),
                     border: Border {
-                        color: border_color,
-                        width: border_width,
+                        color: ring_color,
+                        width: ring_width,
                         radius: TILE_CORNER.into(),
                     },
                     ..Default::default()
-                }),
-        )
-        .width(self.tile_px)
-        .height(self.tile_px)
-        .style(move |_: &Theme| container::Style {
-            background: Some(Background::Color(drag_overlay_color)),
-            border: Border { radius: TILE_CORNER.into(), ..Default::default() },
-            ..Default::default()
-        })
+                })
+                .into(),
+        ])
         .into()
     }
 }
@@ -1063,40 +1082,100 @@ fn confirm_action_row<'a>(prompt: String, confirm_msg: Msg, cancel_msg: Msg) -> 
 
 impl App {
     fn view_welcome(&self) -> Element<'_, Msg> {
+        let location_display = match &self.new_catalog_dir {
+            Some(dir) => std::path::Path::new(dir)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(dir.as_str())
+                .to_string(),
+            None => String::new(),
+        };
+
+        let location_row = row![
+            text("Location").size(13).color(FG_DIM).width(110),
+            if location_display.is_empty() {
+                text("Not set").size(13).color(FG_MUTED)
+            } else {
+                text(location_display).size(13).color(FG)
+            },
+            Space::new().width(Length::Fill),
+            button(text("Browse…").size(13))
+                .on_press(Msg::PickNewCatalogDir)
+                .style(ghost_btn_style),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+
+        let name_row = row![
+            text("Catalog name").size(13).color(FG_DIM).width(110),
+            text_input("My Photos", &self.new_catalog_name)
+                .on_input(Msg::NewCatalogNameChanged)
+                .on_submit(Msg::ConfirmNewCatalog)
+                .size(13)
+                .width(200),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+
+        let can_create =
+            self.new_catalog_dir.is_some() && !self.new_catalog_name.trim().is_empty();
+
+        let create_btn = {
+            let b = button(text("Create Catalog").size(13)).style(if can_create {
+                active_chip_style
+            } else {
+                |_: &Theme, _: button::Status| button::Style {
+                    background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.04 })),
+                    text_color: FG_MUTED,
+                    border: Border { radius: 4.0.into(), ..Default::default() },
+                    shadow: iced::Shadow::default(),
+                    snap: false,
+                }
+            });
+            if can_create { b.on_press(Msg::ConfirmNewCatalog) } else { b }
+        };
+
+        let new_catalog_form = container(
+            column![
+                text("New Catalog").size(11).color(FG_DIM),
+                Space::new().height(10),
+                location_row,
+                Space::new().height(8),
+                name_row,
+                Space::new().height(14),
+                create_btn,
+            ]
+            .align_x(Alignment::Start),
+        )
+        .padding(20)
+        .style(|_: &Theme| container::Style {
+            background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.04 })),
+            border: Border {
+                color: Color { r: 0.28, g: 0.28, b: 0.34, a: 1.0 },
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        });
+
         let mut col = column![
             text("IsomFolio").size(36).color(FG),
             Space::new().height(4),
             text("Photo library manager").size(14).color(FG_DIM),
             Space::new().height(32),
-            button(text("Open Existing Catalog…").size(14))
+            new_catalog_form,
+            Space::new().height(16),
+            button(text("Open Existing Catalog…").size(13))
                 .on_press(Msg::PickOpenCatalog)
                 .style(ghost_btn_style),
-            Space::new().height(8),
         ]
         .spacing(0)
         .align_x(Alignment::Center);
 
-        if let Some(_) = &self.new_catalog_dir {
-            col = col.push(
-                row![
-                    text_input("Catalog name…", &self.new_catalog_name)
-                        .on_input(Msg::NewCatalogNameChanged)
-                        .on_submit(Msg::ConfirmNewCatalog)
-                        .size(13)
-                        .width(180),
-                    button(text("Create").size(13))
-                        .on_press(Msg::ConfirmNewCatalog)
-                        .style(ghost_btn_style),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            );
-        } else {
-            col = col.push(
-                button(text("New Catalog…").size(14))
-                    .on_press(Msg::PickNewCatalogDir)
-                    .style(ghost_btn_style),
-            );
+        if !self.status.is_empty() {
+            col = col
+                .push(Space::new().height(8))
+                .push(text(&self.status).size(12).color(ERR));
         }
 
         if !self.recent_catalogs.is_empty() {

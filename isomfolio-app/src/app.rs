@@ -27,6 +27,7 @@ pub const TILE_GAP: f32 = 8.0;
 pub const ALBUM_ITEM_HEIGHT: f32 = 44.0;
 pub const DRAG_THRESHOLD: f32 = 6.0;
 pub const BUFFER_ROWS: usize = 2;
+pub const SIDEBAR_ALBUMS_BASE_Y: f32 = 184.0;
 pub const SEARCH_BAR_HEIGHT: f32 = 40.0;
 pub const CRITERIA_ROW_HEIGHT: f32 = 32.0;
 pub const CRITERIA_ROW_COUNT: usize = 3;
@@ -153,6 +154,7 @@ pub enum Msg {
     DbError(String),
     Tick,
     DragHoverAlbum(Option<AlbumId>),
+    SidebarScrolled(f32),
 
     // Catalog management
     PickOpenCatalog,
@@ -281,6 +283,7 @@ pub struct App {
     pub new_catalog_name: String,
     pub album_pending_delete: Option<AlbumId>,
     pub folder_pending_remove: Option<String>,
+    pub sidebar_scroll_y: f32,
 }
 
 impl App {
@@ -352,6 +355,7 @@ impl App {
             new_catalog_name: String::new(),
             album_pending_delete: None,
             folder_pending_remove: None,
+            sidebar_scroll_y: 0.0,
         };
 
         (app, task)
@@ -710,6 +714,23 @@ impl App {
                                 [origin_id].into()
                             };
                         }
+                    }
+                }
+                if self.drag.as_ref().map_or(false, |d| d.active) {
+                    if pos.x < SIDEBAR_WIDTH {
+                        let n_folders = self.folders.len();
+                        let albums_top = SIDEBAR_ALBUMS_BASE_Y
+                            + n_folders as f32 * (ALBUM_ITEM_HEIGHT + 2.0);
+                        let y_in_content = pos.y + self.sidebar_scroll_y - albums_top;
+                        let row_h = ALBUM_ITEM_HEIGHT + 2.0;
+                        self.drag_hover_album = if y_in_content >= 0.0 {
+                            let idx = (y_in_content / row_h) as usize;
+                            self.albums.get(idx).map(|a| a.id.clone())
+                        } else {
+                            None
+                        };
+                    } else {
+                        self.drag_hover_album = None;
                     }
                 }
                 Task::none()
@@ -1368,7 +1389,22 @@ impl App {
                 },
             ),
 
+            Msg::SidebarScrolled(y) => {
+                self.sidebar_scroll_y = y;
+                Task::none()
+            }
+
             Msg::OpenCatalogPicked(path) => {
+                let db = isomfolio_core::app_paths::db_path(&path);
+                if !std::path::Path::new(&db).exists() {
+                    let name = std::path::Path::new(&path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(path.as_str())
+                        .to_string();
+                    self.status = format!("\"{}\" is not a valid catalog", name);
+                    return Task::none();
+                }
                 Task::done(Msg::OpenCatalog(path))
             }
 
