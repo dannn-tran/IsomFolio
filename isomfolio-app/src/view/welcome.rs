@@ -6,6 +6,7 @@ use iced::{
 use super::styles::{
     active_chip_style, ghost_btn_style, ACCENT, BG_GRID, BG_MODAL, BORDER, ERR, FG, FG_DIM,
     FG_MUTED, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, SPACE_4, SPACE_5, SPACE_6,
+    TEXT_BASE, TEXT_DISPLAY, TEXT_LG, TEXT_MD, TEXT_SM, TEXT_TITLE,
 };
 use crate::app::{App, Msg};
 
@@ -18,7 +19,7 @@ impl App {
         if self.recent_catalogs.is_empty() {
             recent_list = recent_list.push(
                 text("No recent catalogues yet. Create one or browse for an existing catalogue.")
-                    .size(13)
+                    .size(TEXT_BASE)
                     .color(FG_MUTED),
             );
         } else {
@@ -33,9 +34,9 @@ impl App {
 
                 let content = container(
                     column![
-                        text(name).size(15).color(FG),
+                        text(name).size(TEXT_LG).color(FG),
                         Space::new().height(SPACE_1),
-                        text(path).size(12).width(Length::Fill).color(if selected {
+                        text(path).size(TEXT_MD).width(Length::Fill).color(if selected {
                             FG
                         } else {
                             FG_DIM
@@ -56,7 +57,7 @@ impl App {
         }
 
         let recent_section = column![
-            text("Recents").size(11).color(FG_DIM),
+            text("Recents").size(TEXT_SM).color(FG_DIM),
             Space::new().height(SPACE_2),
             scrollable(recent_list)
                 .width(Length::Fill)
@@ -68,7 +69,7 @@ impl App {
 
         let actions = row![
             {
-                let btn = button(text("Open").size(14)).style(if can_open_selected {
+                let btn = button(text("Open").size(TEXT_LG)).style(if can_open_selected {
                     active_chip_style
                 } else {
                     quiet_btn_disabled_style
@@ -79,10 +80,10 @@ impl App {
                     btn
                 }
             },
-            button(text("New Catalog...").size(14))
+            button(text("New Catalog...").size(TEXT_LG))
                 .on_press(Msg::ShowNewCatalogModal)
                 .style(ghost_btn_style),
-            button(text("Browse...").size(14))
+            button(text("Browse...").size(TEXT_LG))
                 .on_press(Msg::PickOpenCatalog)
                 .style(ghost_btn_style),
         ]
@@ -91,9 +92,9 @@ impl App {
         .align_y(Alignment::Center);
 
         let mut base = column![
-            text("IsomFolio").size(36).color(FG),
+            text("IsomFolio").size(TEXT_DISPLAY).color(FG),
             Space::new().height(SPACE_1),
-            text("Photo library manager").size(14).color(FG_DIM),
+            text("Photo library manager").size(TEXT_LG).color(FG_DIM),
             Space::new().height(SPACE_6),
             recent_section,
             Space::new().height(SPACE_4),
@@ -107,7 +108,7 @@ impl App {
         if !self.status.is_empty() {
             base = base
                 .push(Space::new().height(SPACE_2_5))
-                .push(text(&self.status).size(12).color(ERR));
+                .push(text(&self.status).size(TEXT_MD).color(ERR));
         }
 
         let base_layer: Element<'_, Msg> = container(base)
@@ -132,40 +133,40 @@ impl App {
 
         let modal = container(
             column![
-                text("New Catalog").size(20).color(FG),
+                text("New Catalog").size(TEXT_TITLE).color(FG),
                 Space::new().height(SPACE_1_5),
                 text("Create a catalogue in a chosen location.")
-                    .size(13)
+                    .size(TEXT_BASE)
                     .color(FG_DIM),
                 Space::new().height(SPACE_4),
-                text("Catalog name").size(12).color(FG_DIM),
+                text("Catalog name").size(TEXT_MD).color(FG_DIM),
                 Space::new().height(SPACE_1_5),
                 text_input("My Photos", &self.new_catalog_name)
                     .on_input(Msg::NewCatalogNameChanged)
                     .on_submit(Msg::ConfirmNewCatalog)
                     .padding([SPACE_2, SPACE_2_5])
-                    .size(13)
+                    .size(TEXT_BASE)
                     .width(Length::Fill),
                 Space::new().height(SPACE_4),
-                text("Location").size(12).color(FG_DIM),
+                text("Location").size(TEXT_MD).color(FG_DIM),
                 Space::new().height(SPACE_1_5),
-                container(text(location_display).size(13).color(
+                container(text(location_display).size(TEXT_BASE).color(
                     if self.new_catalog_dir.is_some() { FG } else { FG_MUTED }
                 ))
                 .width(Length::Fill)
                 .padding([SPACE_2_5, SPACE_3])
                 .style(field_style),
                 Space::new().height(SPACE_2_5),
-                button(text("Choose Location…").size(13))
+                button(text("Choose Location…").size(TEXT_BASE))
                     .on_press(Msg::PickNewCatalogDir)
                     .style(ghost_btn_style),
                 Space::new().height(SPACE_4),
                 row![
-                    button(text("Cancel").size(13))
+                    button(text("Cancel").size(TEXT_BASE))
                         .on_press(Msg::HideNewCatalogModal)
                         .style(ghost_btn_style),
                     {
-                        let btn = button(text("Create Catalog").size(13)).style(if can_create {
+                        let btn = button(text("Create Catalog").size(TEXT_BASE)).style(if can_create {
                             active_chip_style
                         } else {
                             |_: &Theme, _: button::Status| button::Style {
@@ -277,7 +278,7 @@ fn recent_item_style(selected: bool, status: button::Status) -> button::Style {
         match status {
             button::Status::Hovered => Color { r: 0.25, g: 0.59, b: 1.0, a: 0.28 },
             button::Status::Pressed => Color { r: 0.18, g: 0.49, b: 0.88, a: 0.36 },
-            _ => Color { r: ACCENT.r, g: ACCENT.g, b: ACCENT.b, a: 0.22 },
+            _ => Color { a: 0.22, ..ACCENT },
         }
     } else {
         match status {

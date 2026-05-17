@@ -96,6 +96,15 @@ pub const DANGER: Color = Color {
     a: 1.0,
 };
 
+pub const TEXT_XS: f32 = 10.0;
+pub const TEXT_SM: f32 = 11.0;
+pub const TEXT_MD: f32 = 12.0;
+pub const TEXT_BASE: f32 = 13.0;
+pub const TEXT_LG: f32 = 14.0;
+pub const TEXT_STAR: f32 = 18.0;
+pub const TEXT_TITLE: f32 = 20.0;
+pub const TEXT_DISPLAY: f32 = 36.0;
+
 pub const UNIT: f32 = 4.0;
 pub const SPACE_0_5: f32 = UNIT * 0.5;
 pub const SPACE_1: f32 = UNIT;

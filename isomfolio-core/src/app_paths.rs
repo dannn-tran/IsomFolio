@@ -84,7 +84,7 @@ pub fn read_recent_catalogs() -> Vec<String> {
     };
     raw.into_iter()
         .filter(|p| Path::new(p).is_dir())
-        .take(10)
+        .take(5)
         .collect()
 }
 
@@ -102,7 +102,7 @@ pub fn save_recent_catalog(catalog_path: &str) {
     };
     let updated: Vec<String> = std::iter::once(catalog_path.to_string())
         .chain(existing.into_iter().filter(|p| p != catalog_path))
-        .take(10)
+        .take(5)
         .collect();
     let _ = std::fs::write(path, updated.join("\n"));
 }

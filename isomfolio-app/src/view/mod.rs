@@ -12,6 +12,7 @@ use crate::app::{sort_field_label, App, Msg, SidebarItem, ViewMode};
 use styles::{
     active_chip_style, ghost_btn_style, BG_STATUSBAR, FG, FG_DIM, FG_MUTED,
     SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
+    TEXT_BASE, TEXT_LG, TEXT_MD,
 };
 
 impl App {
@@ -64,7 +65,7 @@ impl App {
         {
             let n = self.grid_selected.len();
             Some(
-                button(text(format!("Remove {n}")).size(12))
+                button(text(format!("Remove {n}")).size(TEXT_MD))
                     .on_press(Msg::RemoveFromAlbum)
                     .style(ghost_btn_style)
                     .into(),
@@ -74,7 +75,7 @@ impl App {
         };
 
         let mut status_row = row![
-            text(status).size(12).color(FG),
+            text(status).size(TEXT_MD).color(FG),
             Space::new().width(Length::Fill),
         ]
         .spacing(SPACE_2)
@@ -92,7 +93,7 @@ impl App {
                 } else {
                     "Filters".to_string()
                 };
-                button(text(filter_label).size(12))
+                button(text(filter_label).size(TEXT_MD))
                     .on_press(Msg::ToggleCriteria)
                     .style(move |t: &Theme, s| {
                         if show_criteria {
@@ -103,7 +104,7 @@ impl App {
                     })
             })
             .push(
-                button(text("Info").size(12))
+                button(text("Info").size(TEXT_MD))
                     .on_press(Msg::ToggleDetail)
                     .style(move |t: &Theme, s| {
                         if show_detail {
@@ -114,22 +115,22 @@ impl App {
                     }),
             )
             .push(
-                button(text(sort_label).size(12))
+                button(text(sort_label).size(TEXT_MD))
                     .on_press(Msg::SortCycleAll)
                     .style(ghost_btn_style),
             )
             .push(
-                button(text("−").size(14))
+                button(text("−").size(TEXT_LG))
                     .on_press(Msg::TileSizeDown)
                     .style(ghost_btn_style),
             )
             .push(
                 text(format!("{}px", self.tile_px as u32))
-                    .size(12)
+                    .size(TEXT_MD)
                     .color(FG_MUTED),
             )
             .push(
-                button(text("+").size(14))
+                button(text("+").size(TEXT_LG))
                     .on_press(Msg::TileSizeUp)
                     .style(ghost_btn_style),
             );
@@ -178,7 +179,7 @@ impl App {
 
         let top_bar = container(
             row![
-                button(text("✕").size(14).color(FG))
+                button(text("✕").size(TEXT_LG).color(FG))
                     .on_press(Msg::OpenLoupe)
                     .style(|_: &Theme, _| button::Style {
                         background: Some(Background::Color(Color {
@@ -196,9 +197,9 @@ impl App {
                         snap: false,
                     }),
                 Space::new().width(Length::Fill),
-                text(filename).size(13).color(FG),
+                text(filename).size(TEXT_BASE).color(FG),
                 Space::new().width(Length::Fill),
-                text(counter).size(12).color(FG_DIM),
+                text(counter).size(TEXT_MD).color(FG_DIM),
             ]
             .spacing(SPACE_2_5)
             .align_y(Alignment::Center),
@@ -218,10 +219,10 @@ impl App {
         let bottom_bar = container(
             row![
                 Space::new().width(Length::Fill),
-                button(text("‹ Prev").size(13))
+                button(text("‹ Prev").size(TEXT_BASE))
                     .on_press(Msg::Navigate { dx: -1, dy: 0 })
                     .style(ghost_btn_style),
-                button(text("Next ›").size(13))
+                button(text("Next ›").size(TEXT_BASE))
                     .on_press(Msg::Navigate { dx: 1, dy: 0 })
                     .style(ghost_btn_style),
                 Space::new().width(Length::Fill),

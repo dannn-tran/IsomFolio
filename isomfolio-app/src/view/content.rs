@@ -1,15 +1,16 @@
 use iced::widget::scrollable::Direction;
 use iced::{
     widget::{button, column, container, image, row, scrollable, stack, text, text_input, Space},
-    Alignment, Background, Border, Color, Element, Length, Padding, Theme,
+    Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
 use isomfolio_core::models::ThumbnailState;
 
 use super::styles::{
     active_chip_style, ghost_btn_style, inactive_chip_style, ACCENT, BG_CRITERIA, BG_GRID,
-    BG_TILE_LOADING, BORDER, ERR, FG_DIM, STAR_GOLD, TILE_CORNER,
-    SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
+    BG_TILE_LOADING, BORDER, ERR, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1,
+    SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE,
+    TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
 };
 use crate::app::{
     format_file_size, parse_date_str, unix_to_date_str, App, Msg, BUFFER_ROWS, GRID_PADDING,
@@ -22,14 +23,14 @@ impl App {
             text_input("Search photos…", &self.search_text)
                 .on_input(Msg::SearchChanged)
                 .padding([SPACE_1_5, SPACE_2_5])
-                .size(13)
+                .size(TEXT_BASE)
                 .width(Length::Fill),
         )
         .padding([SPACE_1_5, SPACE_3])
         .width(Length::Fill);
 
         let empty_or_grid: Element<Msg> = if self.files.is_empty() {
-            container(text("No photos in this view").size(16).color(FG_DIM))
+            container(text("No photos in this view").size(TEXT_BASE).color(FG_DIM))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_x(Alignment::Center)
@@ -116,12 +117,9 @@ impl App {
                 .content_fit(iced::ContentFit::Cover)
                 .into(),
             _ => {
-                container(text(&file.name).size(10).color(FG_DIM))
+                container(Space::new())
                     .width(self.tile_px)
                     .height(self.tile_px)
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::End)
-                    .padding(Padding { top: 0.0, right: SPACE_1, bottom: SPACE_1_5, left: SPACE_1 })
                     .style(|_: &Theme| container::Style {
                         background: Some(Background::Color(BG_TILE_LOADING)),
                         border: Border { radius: TILE_CORNER.into(), ..Default::default() },
@@ -134,7 +132,7 @@ impl App {
         let overlay_color = if dragging {
             Color { r: 0.0, g: 0.0, b: 0.0, a: 0.45 }
         } else if selected {
-            Color { r: ACCENT.r, g: ACCENT.g, b: ACCENT.b, a: 0.28 }
+            Color { a: 0.28, ..ACCENT }
         } else {
             Color::TRANSPARENT
         };
@@ -178,7 +176,7 @@ impl App {
         let mut tags_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
         for tag in &self.criteria.tags {
             tags_row = tags_row.push(
-                button(text(format!("{tag} ×")).size(11))
+                button(text(format!("{tag} ×")).size(TEXT_SM))
                     .on_press(Msg::RemoveCriteriaTag(tag.clone()))
                     .style(active_chip_style),
             );
@@ -188,8 +186,8 @@ impl App {
                 .on_input(Msg::CriteriaTagInputChanged)
                 .on_submit(Msg::AddCriteriaTag)
                 .padding([SPACE_1, SPACE_1_5])
-                .size(11)
-                .width(80),
+                .size(TEXT_SM)
+                .width(120),
         );
         col = col.push(tags_row);
 
@@ -198,44 +196,44 @@ impl App {
         let to_err =
             !self.criteria.date_to.is_empty() && parse_date_str(&self.criteria.date_to).is_none();
         let mut date_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
-        date_row = date_row.push(text("From").size(11).color(FG_DIM));
+        date_row = date_row.push(text("From").size(TEXT_SM).color(FG_DIM));
         date_row = date_row.push(
             text_input("YYYY-MM-DD", &self.criteria.date_from)
                 .on_input(Msg::CriteriaDateFromChanged)
                 .padding([SPACE_1, SPACE_1_5])
-                .size(11)
+                .size(TEXT_SM)
                 .width(100),
         );
         if from_err {
-            date_row = date_row.push(text("✕ bad date").size(10).color(ERR));
+            date_row = date_row.push(text("✕ bad date").size(TEXT_XS).color(ERR));
         }
-        date_row = date_row.push(text("To").size(11).color(FG_DIM));
+        date_row = date_row.push(text("To").size(TEXT_SM).color(FG_DIM));
         date_row = date_row.push(
             text_input("YYYY-MM-DD", &self.criteria.date_to)
                 .on_input(Msg::CriteriaDateToChanged)
                 .padding([SPACE_1, SPACE_1_5])
-                .size(11)
+                .size(TEXT_SM)
                 .width(100),
         );
         if to_err {
-            date_row = date_row.push(text("✕ bad date").size(10).color(ERR));
+            date_row = date_row.push(text("✕ bad date").size(TEXT_XS).color(ERR));
         }
         col = col.push(date_row);
         if from_err || to_err {
             col = col.push(
                 text("Format: YYYY-MM-DD  e.g. 2024-06-15")
-                    .size(10)
+                    .size(TEXT_XS)
                     .color(ERR),
             );
         }
 
-        let mut ext_row = row![text("Type").size(11).color(FG_DIM)]
+        let mut ext_row = row![text("Type").size(TEXT_SM).color(FG_DIM)]
             .spacing(SPACE_1)
             .align_y(Alignment::Center);
         for ext in ["jpg", "png", "webp", "gif"] {
             let active = self.criteria.exts.contains(ext);
             ext_row = ext_row.push(
-                button(text(format!(".{}", ext.to_uppercase())).size(11))
+                button(text(format!(".{}", ext.to_uppercase())).size(TEXT_SM))
                     .on_press(Msg::ToggleCriteriaExt(ext.to_string()))
                     .style(if active { active_chip_style } else { inactive_chip_style }),
             );
@@ -245,7 +243,7 @@ impl App {
         if self.criteria_has_any() {
             let is_smart = self.current_album_is_smart();
             let mut action_row = row![
-                button(text("Clear").size(11))
+                button(text("Clear").size(TEXT_SM))
                     .on_press(Msg::ClearCriteria)
                     .style(ghost_btn_style),
                 Space::new().width(Length::Fill),
@@ -255,7 +253,7 @@ impl App {
 
             if is_smart {
                 action_row = action_row.push(
-                    button(text("Update Smart Album").size(11))
+                    button(text("Update Smart Album").size(TEXT_SM))
                         .on_press(Msg::UpdateSmartAlbum)
                         .style(ghost_btn_style),
                 );
@@ -266,17 +264,17 @@ impl App {
                             .on_input(Msg::SmartAlbumNameChanged)
                             .on_submit(Msg::ConfirmSmartAlbum)
                             .padding([SPACE_1, SPACE_1_5])
-                            .size(11)
+                            .size(TEXT_SM)
                             .width(120),
                     )
                     .push(
-                        button(text("Save").size(11))
+                        button(text("Save").size(TEXT_SM))
                             .on_press(Msg::ConfirmSmartAlbum)
                             .style(ghost_btn_style),
                     );
             } else {
                 action_row = action_row.push(
-                    button(text("Save as Smart Album").size(11))
+                    button(text("Save as Smart Album").size(TEXT_SM))
                         .on_press(Msg::SaveAsSmartAlbum)
                         .style(ghost_btn_style),
                 );
@@ -291,7 +289,7 @@ impl App {
                 border: Border {
                     color: BORDER,
                     width: 1.0,
-                    radius: 0.0.into(),
+                    radius: 4.0.into(),
                 },
                 ..Default::default()
             })
@@ -304,33 +302,33 @@ impl App {
 
         let file = self.detail_file();
 
-        let mut col = column![text("Info").size(11).color(FG_DIM)]
+        let mut col = column![text("Info").size(TEXT_SM).color(FG_DIM)]
             .spacing(SPACE_2)
             .padding(SPACE_3);
 
         if let Some(file) = file {
-            col = col.push(text(&file.name).size(13));
+            col = col.push(text(&file.name).size(TEXT_BASE));
 
             let size_str = format_file_size(file.size_bytes);
             let date_str = unix_to_date_str(file.mtime_unix);
 
             col = col
-                .push(text(format!("Size  {size_str}")).size(11).color(FG_DIM))
-                .push(text(format!("Date  {date_str}")).size(11).color(FG_DIM))
+                .push(text(format!("Size  {size_str}")).size(TEXT_SM).color(FG_DIM))
+                .push(text(format!("Date  {date_str}")).size(TEXT_SM).color(FG_DIM))
                 .push(
                     text(format!("Type  .{}", file.ext.to_uppercase()))
-                        .size(11)
+                        .size(TEXT_SM)
                         .color(FG_DIM),
                 );
 
             col = col.push(Space::new().height(SPACE_1));
-            let mut stars_row = row![].spacing(SPACE_0_5);
+            let mut stars_row = row![].spacing(SPACE_1);
             for star in 1..=5i32 {
                 let filled = self.detail.rating.map(|r| r >= star).unwrap_or(false);
                 stars_row = stars_row.push(
                     button(
                         text(if filled { "★" } else { "☆" })
-                            .size(18)
+                            .size(TEXT_STAR)
                             .color(if filled { STAR_GOLD } else { FG_DIM }),
                     )
                     .on_press(Msg::SetDetailRating(star))
@@ -346,15 +344,15 @@ impl App {
             col = col.push(stars_row);
 
             col = col.push(Space::new().height(SPACE_1));
-            col = col.push(text("Tags").size(11).color(FG_DIM));
+            col = col.push(text("Tags").size(TEXT_SM).color(FG_DIM));
 
             for tag in &self.detail.tags {
                 col = col.push(
                     container(
                         row![
-                            text(tag).size(11),
+                            text(tag).size(TEXT_SM),
                             Space::new().width(Length::Fill),
-                            button(text("×").size(10).color(FG_DIM))
+                            button(text("×").size(TEXT_XS).color(FG_DIM))
                                 .on_press(Msg::RemoveDetailTag(tag.clone()))
                                 .style(|_: &Theme, _| button::Style {
                                     background: None,
@@ -385,7 +383,7 @@ impl App {
                     .on_input(Msg::DetailTagInputChanged)
                     .on_submit(Msg::AddDetailTag)
                     .padding([SPACE_1, SPACE_1_5])
-                    .size(11)
+                    .size(TEXT_SM)
                     .width(Length::Fill),
             );
 
@@ -393,21 +391,21 @@ impl App {
                 col = col.push(Space::new().height(SPACE_1));
                 col = col.push(
                     row![
-                        text("Title").size(11).color(FG_DIM),
+                        text("Title").size(TEXT_SM).color(FG_DIM),
                         Space::new().width(Length::Fill),
-                        text("read-only").size(10).color(FG_DIM),
+                        text("read-only").size(TEXT_XS).color(FG_MUTED),
                     ]
                     .align_y(Alignment::Center),
                 );
-                col = col.push(text(title).size(12));
+                col = col.push(text(title).size(TEXT_MD));
             }
 
             if let Some(label) = &self.detail.label {
                 col = col.push(
                     row![
-                        text(format!("Label  {label}")).size(11).color(FG_DIM),
+                        text(format!("Label  {label}")).size(TEXT_SM).color(FG_DIM),
                         Space::new().width(Length::Fill),
-                        text("read-only").size(10).color(FG_DIM),
+                        text("read-only").size(TEXT_XS).color(FG_MUTED),
                     ]
                     .align_y(Alignment::Center),
                 );
@@ -419,18 +417,24 @@ impl App {
                 } else {
                     "Select a single photo"
                 })
-                .size(12)
+                .size(TEXT_MD)
                 .color(FG_DIM),
             );
         }
 
-        container(col)
-            .width(SIDEBAR_WIDTH)
-            .height(Length::Fill)
-            .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(BG_SIDEBAR)),
-                ..Default::default()
-            })
-            .into()
+        container(
+            scrollable(col)
+                .height(Length::Fill)
+                .direction(scrollable::Direction::Vertical(
+                    scrollable::Scrollbar::new().width(4).scroller_width(4),
+                )),
+        )
+        .width(SIDEBAR_WIDTH)
+        .height(Length::Fill)
+        .style(|_: &Theme| container::Style {
+            background: Some(Background::Color(BG_SIDEBAR)),
+            ..Default::default()
+        })
+        .into()
     }
 }

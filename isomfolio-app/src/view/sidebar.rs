@@ -9,6 +9,7 @@ use super::styles::{
     confirm_action_row, ghost_btn_style, sidebar_divider, ACCENT, ALBUM_HOVER, BG_SIDEBAR,
     BG_STATUSBAR, FG, FG_DIM, FG_MUTED,
     SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_3,
+    TEXT_BASE, TEXT_MD, TEXT_SM,
 };
 use crate::app::{App, Msg, SidebarItem, ALBUM_ITEM_HEIGHT, SIDEBAR_WIDTH};
 
@@ -21,7 +22,7 @@ impl App {
             .and_then(|n| n.to_str())
             .unwrap_or("Catalog");
 
-        let catalog_header: Element<Msg> = row![text(catalog_name).size(11).color(FG_DIM),]
+        let catalog_header: Element<Msg> = row![text(catalog_name).size(TEXT_SM).color(FG_DIM),]
             .align_y(Alignment::Center)
             .into();
 
@@ -34,9 +35,9 @@ impl App {
         );
 
         let albums_header: Element<Msg> = row![
-            text("Albums").size(11).color(FG_DIM),
+            text("Albums").size(TEXT_SM).color(FG_DIM),
             Space::new().width(Length::Fill),
-            button(text("+").size(13))
+            button(text("+").size(TEXT_BASE))
                 .on_press(Msg::StartCreateAlbum)
                 .style(ghost_btn_style),
         ]
@@ -50,9 +51,9 @@ impl App {
             "Scan"
         };
         let folders_header: Element<Msg> = row![
-            text("Folders").size(11).color(FG_DIM),
+            text("Folders").size(TEXT_SM).color(FG_DIM),
             Space::new().width(Length::Fill),
-            button(text(scan_btn_label).size(11))
+            button(text(scan_btn_label).size(TEXT_SM))
                 .on_press(if is_scan_active {
                     Msg::NoOp
                 } else {
@@ -66,7 +67,7 @@ impl App {
         let mut content = column![
             catalog_header,
             Space::new().height(SPACE_1_5),
-            text("Library").size(11).color(FG_DIM),
+            text("Library").size(TEXT_SM).color(FG_DIM),
             all_row,
             Space::new().height(SPACE_1),
             sidebar_divider(),
@@ -118,7 +119,7 @@ impl App {
                             .on_input(Msg::RenameAlbumInputChanged)
                             .on_submit(Msg::ConfirmRenameAlbum)
                             .padding([SPACE_1_5, SPACE_2])
-                            .size(13),
+                            .size(TEXT_BASE),
                     )
                     .height(ALBUM_ITEM_HEIGHT)
                     .align_y(Alignment::Center)
@@ -142,7 +143,7 @@ impl App {
                     .on_input(Msg::CreateAlbumInputChanged)
                     .on_submit(Msg::ConfirmCreateAlbum)
                     .padding([SPACE_1_5, SPACE_2])
-                    .size(13),
+                    .size(TEXT_BASE),
             );
         }
 
@@ -156,7 +157,7 @@ impl App {
         let bottom_strip = column![
             sidebar_divider(),
             container(
-                button(text("Open Catalog…").size(12))
+                button(text("Open Catalog…").size(TEXT_MD))
                     .on_press(Msg::PickOpenCatalog)
                     .style(ghost_btn_style)
                     .width(Length::Fill),
@@ -205,7 +206,7 @@ fn sidebar_row_button<'a>(
     };
 
     container(
-        button(text(label).size(13).color(if selected || drop_hover {
+        button(text(label).size(TEXT_BASE).color(if selected || drop_hover {
             Color::WHITE
         } else {
             FG
@@ -261,7 +262,7 @@ fn folder_sidebar_row<'a>(
     };
     let label_btn = button(
         row![text(format!("{name}{count_str}"))
-            .size(13)
+            .size(TEXT_BASE)
             .color(text_color),]
         .align_y(Alignment::Center),
     )
@@ -275,7 +276,7 @@ fn folder_sidebar_row<'a>(
         snap: false,
     });
 
-    let remove_btn = button(text("×").size(11).color(FG_DIM))
+    let remove_btn = button(text("×").size(TEXT_SM).color(FG_DIM))
         .on_press(Msg::RequestRemoveFolder(path))
         .style(|_: &Theme, _| button::Style {
             background: Some(Background::Color(Color::TRANSPARENT)),
@@ -341,9 +342,9 @@ fn album_sidebar_row<'a>(
     let name_btn = button(
         row![
             text(format!("{smart_indicator}{label}"))
-                .size(13)
+                .size(TEXT_BASE)
                 .color(text_color),
-            text(count_str).size(11).color(FG_MUTED),
+            text(count_str).size(TEXT_SM).color(FG_MUTED),
         ]
         .align_y(Alignment::Center),
     )
@@ -361,7 +362,7 @@ fn album_sidebar_row<'a>(
 
     let rename_btn = if selected {
         Some(
-            button(text("✎").size(11).color(FG_DIM))
+            button(text("✎").size(TEXT_SM).color(FG_DIM))
                 .on_press(Msg::StartRenameAlbum(album_id.clone()))
                 .style(|_: &Theme, _| button::Style {
                     background: Some(Background::Color(Color::TRANSPARENT)),
@@ -375,7 +376,7 @@ fn album_sidebar_row<'a>(
         None
     };
 
-    let delete_btn = button(text("×").size(11).color(FG_DIM))
+    let delete_btn = button(text("×").size(TEXT_SM).color(FG_DIM))
         .on_press(Msg::RequestDeleteAlbum(album_id))
         .style(|_: &Theme, _| button::Style {
             background: Some(Background::Color(Color::TRANSPARENT)),
