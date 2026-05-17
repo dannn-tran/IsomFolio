@@ -185,10 +185,10 @@ pub struct App {
 
     pub thumbnail_pool: Option<ThumbnailPool>,
     pub thumbnail_tx: mpsc::SyncSender<ThumbnailEvent>,
-    pub thumbnail_rx: Arc<Mutex<mpsc::Receiver<ThumbnailEvent>>>,
+    pub thumbnail_rx: mpsc::Receiver<ThumbnailEvent>,
 
     pub watcher_tx: mpsc::SyncSender<FileEvent>,
-    pub watcher_rx: Arc<Mutex<mpsc::Receiver<FileEvent>>>,
+    pub watcher_rx: mpsc::Receiver<FileEvent>,
     pub watchers: Vec<(String, FileWatcher)>,
 
     pub scan_count: Arc<AtomicUsize>,
@@ -266,9 +266,9 @@ impl App {
             modifiers: keyboard::Modifiers::default(),
             thumbnail_pool: None,
             thumbnail_tx: tx,
-            thumbnail_rx: Arc::new(Mutex::new(rx)),
+            thumbnail_rx: rx,
             watcher_tx: wtx,
-            watcher_rx: Arc::new(Mutex::new(wrx)),
+            watcher_rx: wrx,
             watchers: Vec::new(),
             scan_count: Arc::new(AtomicUsize::new(0)),
             scan_folder_name: String::new(),
@@ -1198,15 +1198,13 @@ impl App {
 
             Msg::Tick => {
                 // Drain thumbnails
-                if let Ok(rx) = self.thumbnail_rx.lock() {
-                    while let Ok(ev) = rx.try_recv() {
-                        match ev {
-                            ThumbnailEvent::Ready(fid, path) => {
-                                self.thumbnails.insert(fid, ThumbnailState::Ready(path));
-                            }
-                            ThumbnailEvent::Failed(fid, _err) => {
-                                self.thumbnails.insert(fid, ThumbnailState::Failed(0));
-                            }
+                while let Ok(ev) = self.thumbnail_rx.try_recv() {
+                    match ev {
+                        ThumbnailEvent::Ready(fid, path) => {
+                            self.thumbnails.insert(fid, ThumbnailState::Ready(path));
+                        }
+                        ThumbnailEvent::Failed(fid, _err) => {
+                            self.thumbnails.insert(fid, ThumbnailState::Failed(0));
                         }
                     }
                 }
@@ -1234,10 +1232,8 @@ impl App {
 
                 // Drain file watcher events
                 let mut file_events: Vec<FileEvent> = Vec::new();
-                if let Ok(rx) = self.watcher_rx.lock() {
-                    while let Ok(ev) = rx.try_recv() {
-                        file_events.push(ev);
-                    }
+                while let Ok(ev) = self.watcher_rx.try_recv() {
+                    file_events.push(ev);
                 }
                 if !file_events.is_empty() {
                     if let Some(conn) = self.conn.clone() {
