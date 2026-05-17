@@ -13,6 +13,7 @@ use isomfolio_core::models::ThumbnailState;
 use crate::app::{
     App, Msg, SidebarItem, ViewMode, SIDEBAR_WIDTH, GRID_PADDING, TILE_GAP,
     ALBUM_ITEM_HEIGHT, BUFFER_ROWS, sort_field_label, unix_to_date_str, format_file_size,
+    parse_date_str,
 };
 
 const BG_SIDEBAR: Color   = Color { r: 0.11, g: 0.11, b: 0.14, a: 1.0 };
@@ -26,6 +27,7 @@ const ALBUM_HOVER: Color  = Color { r: 0.10, g: 0.25, b: 0.50, a: 1.0 };
 const SEL_RING: Color     = Color::WHITE;
 const TILE_CORNER: f32    = 4.0;
 const STAR_GOLD: Color    = Color { r: 1.0, g: 0.82, b: 0.0, a: 1.0 };
+const ERR: Color          = Color { r: 0.95, g: 0.35, b: 0.35, a: 1.0 };
 
 impl App {
     pub fn view(&self) -> Element<'_, Msg> {
@@ -529,22 +531,35 @@ impl App {
         col = col.push(tags_row);
 
         // Date range row
-        let date_row = row![
-            text("From").size(11).color(FG_DIM),
+        let from_err = !self.criteria_date_from.is_empty()
+            && parse_date_str(&self.criteria_date_from).is_none();
+        let to_err = !self.criteria_date_to.is_empty()
+            && parse_date_str(&self.criteria_date_to).is_none();
+        let mut date_row = row![]
+            .spacing(6)
+            .align_y(Alignment::Center);
+        date_row = date_row.push(text("From").size(11).color(FG_DIM));
+        date_row = date_row.push(
             text_input("YYYY-MM-DD", &self.criteria_date_from)
                 .on_input(Msg::CriteriaDateFromChanged)
                 .padding([3, 6])
                 .size(11)
                 .width(100),
-            text("To").size(11).color(FG_DIM),
+        );
+        if from_err {
+            date_row = date_row.push(text("✕").size(10).color(ERR));
+        }
+        date_row = date_row.push(text("To").size(11).color(FG_DIM));
+        date_row = date_row.push(
             text_input("YYYY-MM-DD", &self.criteria_date_to)
                 .on_input(Msg::CriteriaDateToChanged)
                 .padding([3, 6])
                 .size(11)
                 .width(100),
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center);
+        );
+        if to_err {
+            date_row = date_row.push(text("✕").size(10).color(ERR));
+        }
         col = col.push(date_row);
 
         // Extension toggles
