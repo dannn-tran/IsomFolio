@@ -154,6 +154,21 @@ pub enum Msg {
     Tick,
     DragHoverAlbum(Option<AlbumId>),
 
+    // Catalog management
+    PickOpenCatalog,
+    OpenCatalogPicked(String),
+    PickNewCatalogDir,
+    NewCatalogDirPicked(String),
+    NewCatalogNameChanged(String),
+    ConfirmNewCatalog,
+    OpenCatalog(String),
+
+    // Confirm destructive actions
+    RequestDeleteAlbum(AlbumId),
+    CancelDeleteAlbum,
+    RequestRemoveFolder(String),
+    CancelRemoveFolder,
+
     NoOp,
 }
 
@@ -256,28 +271,41 @@ pub struct App {
 
     pub status: String,
     pub is_scanning: bool,
+
+    pub show_welcome: bool,
+    pub recent_catalogs: Vec<String>,
+    pub new_catalog_dir: Option<String>,
+    pub new_catalog_name: String,
+    pub album_pending_delete: Option<AlbumId>,
+    pub folder_pending_remove: Option<String>,
 }
 
 impl App {
-    pub fn new(catalog_dir: String) -> (Self, Task<Msg>) {
+    pub fn new(catalog_dir: Option<String>) -> (Self, Task<Msg>) {
         let (tx, rx) = mpsc::sync_channel::<ThumbnailEvent>(500);
         let (wtx, wrx) = mpsc::sync_channel::<FileEvent>(200);
 
-        let conn = isomfolio_core::app_paths::ensure_directories(&catalog_dir);
-        let _ = conn;
-        let conn = db::open_database(&db_path(&catalog_dir))
-            .ok()
-            .map(|c| Arc::new(Mutex::new(c)));
+        let recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
 
-        let initial_status = if conn.is_none() {
-            "Error: could not open database — check permissions".to_string()
-        } else {
-            String::new()
+        let (catalog_dir_str, conn, initial_status, show_welcome, task) = match catalog_dir {
+            Some(dir) => {
+                isomfolio_core::app_paths::ensure_directories(&dir);
+                let conn = db::open_database(&db_path(&dir))
+                    .ok()
+                    .map(|c| Arc::new(Mutex::new(c)));
+                let status = if conn.is_none() {
+                    "Error: could not open database — check permissions".to_string()
+                } else {
+                    String::new()
+                };
+                (dir, conn, status, false, Task::done(Msg::CatalogReady))
+            }
+            None => (String::new(), None, String::new(), true, Task::none()),
         };
 
         let app = App {
             conn,
-            catalog_dir,
+            catalog_dir: catalog_dir_str,
             view_mode: ViewMode::Browse,
             loupe_idx: 0,
             folders: Vec::new(),
@@ -314,10 +342,26 @@ impl App {
             detail: DetailState::default(),
             status: initial_status,
             is_scanning: false,
+            show_welcome,
+            recent_catalogs,
+            new_catalog_dir: None,
+            new_catalog_name: String::new(),
+            album_pending_delete: None,
+            folder_pending_remove: None,
         };
 
-        let task = Task::done(Msg::CatalogReady);
         (app, task)
+    }
+
+    pub fn window_title(&self) -> String {
+        if self.catalog_dir.is_empty() {
+            return "IsomFolio".to_string();
+        }
+        let name = std::path::Path::new(&self.catalog_dir)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("IsomFolio");
+        format!("IsomFolio — {name}")
     }
 
     pub fn cols(&self) -> usize {
@@ -822,7 +866,18 @@ impl App {
                 Task::batch([t1, t2])
             }
 
+            Msg::RequestRemoveFolder(path) => {
+                self.folder_pending_remove = Some(path);
+                Task::none()
+            }
+
+            Msg::CancelRemoveFolder => {
+                self.folder_pending_remove = None;
+                Task::none()
+            }
+
             Msg::RemoveFolder(path) => {
+                self.folder_pending_remove = None;
                 self.folders.retain(|(p, _)| p != &path);
                 self.watchers.retain(|(p, _)| p != &path);
                 if self.selected_item == SidebarItem::Folder(path.clone()) {
@@ -925,7 +980,18 @@ impl App {
                 )
             }
 
+            Msg::RequestDeleteAlbum(album_id) => {
+                self.album_pending_delete = Some(album_id);
+                Task::none()
+            }
+
+            Msg::CancelDeleteAlbum => {
+                self.album_pending_delete = None;
+                Task::none()
+            }
+
             Msg::DeleteAlbum(album_id) => {
+                self.album_pending_delete = None;
                 if self.selected_item == SidebarItem::Album(album_id.clone()) {
                     self.selected_item = SidebarItem::AllFiles;
                     self.files.clear();
@@ -1255,6 +1321,105 @@ impl App {
                     self.drag_hover_album = opt_id;
                 }
                 Task::none()
+            }
+
+            Msg::PickOpenCatalog => Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .set_title("Open Catalog")
+                        .pick_folder()
+                        .await
+                        .map(|h| h.path().to_string_lossy().to_string())
+                },
+                |opt| match opt {
+                    Some(path) => Msg::OpenCatalogPicked(path),
+                    None => Msg::NoOp,
+                },
+            ),
+
+            Msg::OpenCatalogPicked(path) => {
+                Task::done(Msg::OpenCatalog(path))
+            }
+
+            Msg::PickNewCatalogDir => Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .set_title("Choose location for new catalog")
+                        .pick_folder()
+                        .await
+                        .map(|h| h.path().to_string_lossy().to_string())
+                },
+                |opt| match opt {
+                    Some(dir) => Msg::NewCatalogDirPicked(dir),
+                    None => Msg::NoOp,
+                },
+            ),
+
+            Msg::NewCatalogDirPicked(dir) => {
+                self.new_catalog_dir = Some(dir);
+                self.new_catalog_name.clear();
+                Task::none()
+            }
+
+            Msg::NewCatalogNameChanged(s) => {
+                self.new_catalog_name = s;
+                Task::none()
+            }
+
+            Msg::ConfirmNewCatalog => {
+                let Some(dir) = self.new_catalog_dir.take() else { return Task::none(); };
+                let name = self.new_catalog_name.trim().to_string();
+                if name.is_empty() {
+                    self.new_catalog_dir = Some(dir);
+                    return Task::none();
+                }
+                Task::perform(
+                    async move {
+                        isomfolio_core::app_paths::create_catalog(&dir, &name)
+                            .map_err(|e| e.to_string())
+                    },
+                    |result| match result {
+                        Ok(path) => Msg::OpenCatalog(path),
+                        Err(e) => Msg::DbError(e),
+                    },
+                )
+            }
+
+            Msg::OpenCatalog(path) => {
+                isomfolio_core::app_paths::save_recent_catalog(&path);
+                self.watchers.clear();
+                self.thumbnail_pool = None;
+                self.files.clear();
+                self.thumbnails.clear();
+                self.folders.clear();
+                self.albums.clear();
+                self.album_counts.clear();
+                self.grid_selected.clear();
+                self.drag = None;
+                self.dragging_ids.clear();
+                self.pending_search = None;
+                self.search_text.clear();
+                self.criteria = CriteriaState::default();
+                self.detail = DetailState::default();
+                self.selected_item = SidebarItem::AllFiles;
+                self.scroll_y = 0.0;
+                self.loupe_idx = 0;
+                self.view_mode = ViewMode::Browse;
+                self.album_pending_delete = None;
+                self.folder_pending_remove = None;
+                isomfolio_core::app_paths::ensure_directories(&path);
+                self.conn = db::open_database(&db_path(&path))
+                    .ok()
+                    .map(|c| Arc::new(Mutex::new(c)));
+                self.status = if self.conn.is_none() {
+                    "Error: could not open database — check permissions".to_string()
+                } else {
+                    String::new()
+                };
+                self.catalog_dir = path;
+                self.show_welcome = false;
+                self.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
+                Task::done(Msg::CatalogReady)
             }
 
             Msg::NoOp => Task::none(),
