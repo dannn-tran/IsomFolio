@@ -4,23 +4,22 @@ mod update;
 pub use types::*;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
 
-use iced::{
-    Event, Point, Subscription, Task,
-    event, keyboard, mouse,
-};
+use iced::{event, keyboard, mouse, Event, Point, Subscription, Task};
 
-use isomfolio_core::indexing::watcher::{FileWatcher, create_watcher};
-use isomfolio_core::indexing::types::FileEvent;
-use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, SortField, ThumbnailState};
-use isomfolio_core::storage::db;
 use isomfolio_core::app_paths::db_path;
-use isomfolio_core::indexing::thumbnail::{ThumbnailPool, create_worker_pool, thumbnail_cache_path};
-use isomfolio_core::Connection;
-use isomfolio_core::search::query_engine::{execute_search, execute_manual_album_search};
+use isomfolio_core::indexing::thumbnail::{
+    create_worker_pool, thumbnail_cache_path, ThumbnailPool,
+};
+use isomfolio_core::indexing::types::FileEvent;
+use isomfolio_core::indexing::watcher::{create_watcher, FileWatcher};
 use isomfolio_core::models::SearchQuery;
+use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, SortField, ThumbnailState};
+use isomfolio_core::search::query_engine::{execute_manual_album_search, execute_search};
+use isomfolio_core::storage::db;
+use isomfolio_core::Connection;
 
 pub struct App {
     pub conn: Option<Arc<Mutex<Connection>>>,
@@ -76,6 +75,8 @@ pub struct App {
 
     pub show_welcome: bool,
     pub recent_catalogs: Vec<String>,
+    pub selected_recent_catalog: Option<String>,
+    pub show_new_catalog_modal: bool,
     pub new_catalog_dir: Option<String>,
     pub new_catalog_name: String,
     pub album_pending_delete: Option<AlbumId>,
@@ -148,6 +149,8 @@ impl App {
             scan_pending: false,
             show_welcome,
             recent_catalogs,
+            selected_recent_catalog: None,
+            show_new_catalog_modal: false,
             new_catalog_dir: None,
             new_catalog_name: String::new(),
             album_pending_delete: None,
@@ -181,7 +184,11 @@ impl App {
         }
         let rows = CRITERIA_ROW_COUNT as f32;
         let spacing = (CRITERIA_ROW_COUNT - 1) as f32 * 6.0;
-        let action_row = if self.criteria_has_any() { CRITERIA_ROW_HEIGHT + 6.0 } else { 0.0 };
+        let action_row = if self.criteria_has_any() {
+            CRITERIA_ROW_HEIGHT + 6.0
+        } else {
+            0.0
+        };
         rows * CRITERIA_ROW_HEIGHT + spacing + CRITERIA_PADDING + action_row
     }
 
@@ -212,7 +219,11 @@ impl App {
     pub fn build_search_query(&self) -> SearchQuery {
         let text_opt = {
             let t = self.search_text.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         };
         SearchQuery {
             text: text_opt,
@@ -246,14 +257,18 @@ impl App {
     }
 
     pub(crate) fn enqueue_thumbnails(&mut self) {
-        let Some(pool) = &self.thumbnail_pool else { return };
+        let Some(pool) = &self.thumbnail_pool else {
+            return;
+        };
         let catalog_dir = self.catalog_dir.clone();
         for (priority, file) in self.files.iter().enumerate() {
             if !self.thumbnails.contains_key(&file.id) {
-                self.thumbnails.insert(file.id.clone(), ThumbnailState::Pending);
+                self.thumbnails
+                    .insert(file.id.clone(), ThumbnailState::Pending);
                 let cache = thumbnail_cache_path(&catalog_dir, &file.id);
                 if std::path::Path::new(&cache).exists() {
-                    self.thumbnails.insert(file.id.clone(), ThumbnailState::Ready(cache));
+                    self.thumbnails
+                        .insert(file.id.clone(), ThumbnailState::Ready(cache));
                 } else {
                     pool.enqueue(&file.id, &file.path, priority as i32);
                 }
@@ -263,7 +278,9 @@ impl App {
 
     pub(crate) fn start_watchers_for_folders(&mut self) {
         let current: HashSet<String> = self.watchers.iter().map(|(p, _)| p.clone()).collect();
-        let new_paths: Vec<String> = self.folders.iter()
+        let new_paths: Vec<String> = self
+            .folders
+            .iter()
             .filter(|(p, _)| !current.contains(p.as_str()))
             .map(|(p, _)| p.clone())
             .collect();
@@ -276,7 +293,8 @@ impl App {
             }
         }
         let folder_set: HashSet<&str> = self.folders.iter().map(|(p, _)| p.as_str()).collect();
-        self.watchers.retain(|(p, _)| folder_set.contains(p.as_str()));
+        self.watchers
+            .retain(|(p, _)| folder_set.contains(p.as_str()));
     }
 
     pub fn load_files_task(&self) -> Task<Msg> {
@@ -291,9 +309,7 @@ impl App {
             async move {
                 let guard = conn.lock().unwrap();
                 match item {
-                    SidebarItem::AllFiles => {
-                        execute_search(&guard, &query).unwrap_or_default()
-                    }
+                    SidebarItem::AllFiles => execute_search(&guard, &query).unwrap_or_default(),
                     SidebarItem::Folder(path) => {
                         let q = SearchQuery {
                             folder_path: Some(path),
@@ -327,7 +343,11 @@ impl App {
                 let album_counts = db::get_all_album_file_counts(&g).unwrap_or_default();
                 (folders, albums, album_counts)
             },
-            |(folders, albums, album_counts)| Msg::SidebarLoaded { folders, albums, album_counts },
+            |(folders, albums, album_counts)| Msg::SidebarLoaded {
+                folders,
+                albums,
+                album_counts,
+            },
         )
     }
 
@@ -342,7 +362,9 @@ impl App {
         if self.detail.file_id.as_deref() == Some(file_id.as_str()) {
             return Task::none();
         }
-        let Some(conn) = self.conn.clone() else { return Task::none(); };
+        let Some(conn) = self.conn.clone() else {
+            return Task::none();
+        };
         Task::perform(
             async move {
                 let g = conn.lock().unwrap();
@@ -388,26 +410,25 @@ impl App {
             return None;
         }
         let idx = row * cols + col;
-        if idx < self.files.len() { Some(idx) } else { None }
+        if idx < self.files.len() {
+            Some(idx)
+        } else {
+            None
+        }
     }
 
     pub fn subscription(&self) -> Subscription<Msg> {
-        let tick_sub = iced::time::every(std::time::Duration::from_millis(50))
-            .map(|_| Msg::Tick);
+        let tick_sub = iced::time::every(std::time::Duration::from_millis(50)).map(|_| Msg::Tick);
 
         let event_sub = event::listen_with(|event, _status, _id| match event {
-            Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                Some(Msg::MouseMoved(position))
-            }
+            Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::MouseMoved(position)),
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 Some(Msg::MousePressed)
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 Some(Msg::MouseReleased)
             }
-            Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => {
-                Some(Msg::ModifiersChanged(m))
-            }
+            Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::ModifiersChanged(m)),
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
                 ..

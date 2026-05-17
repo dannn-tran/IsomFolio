@@ -1,19 +1,19 @@
-use iced::{
-    Alignment, Background, Border, Color, Element, Length, Padding,
-    widget::{button, column, container, image, row, scrollable, stack, text, text_input, Space},
-    Theme,
-};
 use iced::widget::scrollable::Direction;
+use iced::{
+    widget::{button, column, container, image, row, scrollable, stack, text, text_input, Space},
+    Alignment, Background, Border, Color, Element, Length, Padding, Theme,
+};
 
 use isomfolio_core::models::ThumbnailState;
 
-use crate::app::{
-    App, Msg, GRID_PADDING, TILE_GAP, BUFFER_ROWS,
-    unix_to_date_str, format_file_size, parse_date_str,
-};
 use super::styles::{
-    BG_GRID, BG_CRITERIA, FG_DIM, ACCENT, TILE_CORNER, STAR_GOLD, ERR,
-    ghost_btn_style, active_chip_style, inactive_chip_style,
+    active_chip_style, ghost_btn_style, inactive_chip_style, ACCENT, BG_CRITERIA, BG_GRID, ERR,
+    FG_DIM, STAR_GOLD, TILE_CORNER,
+    SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
+};
+use crate::app::{
+    format_file_size, parse_date_str, unix_to_date_str, App, Msg, BUFFER_ROWS, GRID_PADDING,
+    TILE_GAP,
 };
 
 impl App {
@@ -21,22 +21,20 @@ impl App {
         let search_bar = container(
             text_input("Search photos…", &self.search_text)
                 .on_input(Msg::SearchChanged)
-                .padding([6, 10])
+                .padding([SPACE_1_5, SPACE_2_5])
                 .size(13)
                 .width(Length::Fill),
         )
-        .padding([5, 12])
+        .padding([SPACE_1_5, SPACE_3])
         .width(Length::Fill);
 
         let empty_or_grid: Element<Msg> = if self.files.is_empty() {
-            container(
-                text("No photos in this view").size(16).color(FG_DIM),
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center)
-            .into()
+            container(text("No photos in this view").size(16).color(FG_DIM))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
+                .into()
         } else {
             let cols = self.cols().max(1);
             let tile_px = self.tile_px;
@@ -58,9 +56,7 @@ impl App {
             for r in first_row..last_row {
                 let start = r * cols;
                 let end = (start + cols).min(total);
-                let tiles: Vec<Element<Msg>> = (start..end)
-                    .map(|i| self.view_tile(i))
-                    .collect();
+                let tiles: Vec<Element<Msg>> = (start..end).map(|i| self.view_tile(i)).collect();
                 let padding = cols - tiles.len();
                 let mut all_tiles = tiles;
                 for _ in 0..padding {
@@ -126,7 +122,7 @@ impl App {
                     .height(self.tile_px)
                     .align_x(Alignment::Center)
                     .align_y(Alignment::End)
-                    .padding(Padding { top: 0.0, right: 4.0, bottom: 6.0, left: 4.0 })
+                    .padding(Padding { top: 0.0, right: SPACE_1, bottom: SPACE_1_5, left: SPACE_1 })
                     .style(move |_: &Theme| container::Style {
                         background: Some(Background::Color(bg)),
                         border: Border { radius: TILE_CORNER.into(), ..Default::default() },
@@ -178,9 +174,9 @@ impl App {
     }
 
     pub(super) fn view_criteria_panel(&self) -> Element<'_, Msg> {
-        let mut col = column![].spacing(6).padding([6, 12]);
+        let mut col = column![].spacing(SPACE_1_5).padding([SPACE_1_5, SPACE_3]);
 
-        let mut tags_row = row![].spacing(6).align_y(Alignment::Center);
+        let mut tags_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
         for tag in &self.criteria.tags {
             tags_row = tags_row.push(
                 button(text(format!("{tag} ×")).size(11))
@@ -192,7 +188,7 @@ impl App {
             text_input("+ tag", &self.criteria.tag_input)
                 .on_input(Msg::CriteriaTagInputChanged)
                 .on_submit(Msg::AddCriteriaTag)
-                .padding([3, 6])
+                .padding([SPACE_1, SPACE_1_5])
                 .size(11)
                 .width(80),
         );
@@ -200,14 +196,14 @@ impl App {
 
         let from_err = !self.criteria.date_from.is_empty()
             && parse_date_str(&self.criteria.date_from).is_none();
-        let to_err = !self.criteria.date_to.is_empty()
-            && parse_date_str(&self.criteria.date_to).is_none();
-        let mut date_row = row![].spacing(6).align_y(Alignment::Center);
+        let to_err =
+            !self.criteria.date_to.is_empty() && parse_date_str(&self.criteria.date_to).is_none();
+        let mut date_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
         date_row = date_row.push(text("From").size(11).color(FG_DIM));
         date_row = date_row.push(
             text_input("YYYY-MM-DD", &self.criteria.date_from)
                 .on_input(Msg::CriteriaDateFromChanged)
-                .padding([3, 6])
+                .padding([SPACE_1, SPACE_1_5])
                 .size(11)
                 .width(100),
         );
@@ -218,7 +214,7 @@ impl App {
         date_row = date_row.push(
             text_input("YYYY-MM-DD", &self.criteria.date_to)
                 .on_input(Msg::CriteriaDateToChanged)
-                .padding([3, 6])
+                .padding([SPACE_1, SPACE_1_5])
                 .size(11)
                 .width(100),
         );
@@ -227,11 +223,15 @@ impl App {
         }
         col = col.push(date_row);
         if from_err || to_err {
-            col = col.push(text("Format: YYYY-MM-DD  e.g. 2024-06-15").size(10).color(ERR));
+            col = col.push(
+                text("Format: YYYY-MM-DD  e.g. 2024-06-15")
+                    .size(10)
+                    .color(ERR),
+            );
         }
 
         let mut ext_row = row![text("Type").size(11).color(FG_DIM)]
-            .spacing(4)
+            .spacing(SPACE_1)
             .align_y(Alignment::Center);
         for ext in ["jpg", "png", "webp", "gif"] {
             let active = self.criteria.exts.contains(ext);
@@ -251,7 +251,7 @@ impl App {
                     .style(ghost_btn_style),
                 Space::new().width(Length::Fill),
             ]
-            .spacing(6)
+            .spacing(SPACE_1_5)
             .align_y(Alignment::Center);
 
             if is_smart {
@@ -266,7 +266,7 @@ impl App {
                         text_input("Album name…", name_input)
                             .on_input(Msg::SmartAlbumNameChanged)
                             .on_submit(Msg::ConfirmSmartAlbum)
-                            .padding([3, 6])
+                            .padding([SPACE_1, SPACE_1_5])
                             .size(11)
                             .width(120),
                     )
@@ -300,14 +300,14 @@ impl App {
     }
 
     pub(super) fn view_detail(&self) -> Element<'_, Msg> {
-        use crate::app::SIDEBAR_WIDTH;
         use super::styles::BG_SIDEBAR;
+        use crate::app::SIDEBAR_WIDTH;
 
         let file = self.detail_file();
 
         let mut col = column![text("Info").size(11).color(FG_DIM)]
-            .spacing(8)
-            .padding(12);
+            .spacing(SPACE_2)
+            .padding(SPACE_3);
 
         if let Some(file) = file {
             col = col.push(text(&file.name).size(13));
@@ -318,10 +318,14 @@ impl App {
             col = col
                 .push(text(format!("Size  {size_str}")).size(11).color(FG_DIM))
                 .push(text(format!("Date  {date_str}")).size(11).color(FG_DIM))
-                .push(text(format!("Type  .{}", file.ext.to_uppercase())).size(11).color(FG_DIM));
+                .push(
+                    text(format!("Type  .{}", file.ext.to_uppercase()))
+                        .size(11)
+                        .color(FG_DIM),
+                );
 
-            col = col.push(Space::new().height(4));
-            let mut stars_row = row![].spacing(2);
+            col = col.push(Space::new().height(SPACE_1));
+            let mut stars_row = row![].spacing(SPACE_0_5);
             for star in 1..=5i32 {
                 let filled = self.detail.rating.map(|r| r >= star).unwrap_or(false);
                 stars_row = stars_row.push(
@@ -342,7 +346,7 @@ impl App {
             }
             col = col.push(stars_row);
 
-            col = col.push(Space::new().height(4));
+            col = col.push(Space::new().height(SPACE_1));
             col = col.push(text("Tags").size(11).color(FG_DIM));
 
             for tag in &self.detail.tags {
@@ -363,9 +367,14 @@ impl App {
                         ]
                         .align_y(Alignment::Center),
                     )
-                    .padding([2, 4])
+                    .padding([SPACE_0_5, SPACE_1])
                     .style(|_: &Theme| container::Style {
-                        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.05 })),
+                        background: Some(Background::Color(Color {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: 0.05,
+                        })),
                         border: Border { radius: 3.0.into(), ..Default::default() },
                         ..Default::default()
                     }),
@@ -376,13 +385,13 @@ impl App {
                 text_input("Add tag…", &self.detail.tag_input)
                     .on_input(Msg::DetailTagInputChanged)
                     .on_submit(Msg::AddDetailTag)
-                    .padding([4, 6])
+                    .padding([SPACE_1, SPACE_1_5])
                     .size(11)
                     .width(Length::Fill),
             );
 
             if let Some(title) = &self.detail.title {
-                col = col.push(Space::new().height(4));
+                col = col.push(Space::new().height(SPACE_1));
                 col = col.push(
                     row![
                         text("Title").size(11).color(FG_DIM),

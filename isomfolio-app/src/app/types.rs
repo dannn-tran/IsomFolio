@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use iced::{Point, keyboard};
+use iced::{keyboard, Point};
 use isomfolio_core::models::{Album, AlbumId, AssetFile};
 
 pub const SIDEBAR_WIDTH: f32 = 220.0;
@@ -64,10 +64,17 @@ pub enum Msg {
     MouseReleased,
     ModifiersChanged(keyboard::Modifiers),
     EscapePressed,
-    Navigate { dx: i32, dy: i32 },
+    Navigate {
+        dx: i32,
+        dy: i32,
+    },
     OpenLoupe,
 
-    Scrolled { y: f32, height: f32, width: f32 },
+    Scrolled {
+        y: f32,
+        height: f32,
+        width: f32,
+    },
 
     DroppedToAlbum(AlbumId),
     DropCompleted,
@@ -137,6 +144,10 @@ pub enum Msg {
 
     PickOpenCatalog,
     OpenCatalogPicked(String),
+    SelectRecentCatalog(String),
+    OpenSelectedRecentCatalog,
+    ShowNewCatalogModal,
+    HideNewCatalogModal,
     PickNewCatalogDir,
     NewCatalogDirPicked(String),
     NewCatalogNameChanged(String),

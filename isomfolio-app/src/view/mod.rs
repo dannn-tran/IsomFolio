@@ -1,16 +1,18 @@
-pub mod styles;
-mod sidebar;
 mod content;
+mod sidebar;
+pub mod styles;
 mod welcome;
 
 use iced::{
-    Alignment, Background, Border, Color, Element, Length,
     widget::{button, column, container, image, row, text, Space},
-    Theme,
+    Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
-use crate::app::{App, Msg, SidebarItem, ViewMode, sort_field_label};
-use styles::{BG_STATUSBAR, FG, FG_DIM, FG_MUTED, ghost_btn_style, active_chip_style};
+use crate::app::{sort_field_label, App, Msg, SidebarItem, ViewMode};
+use styles::{
+    active_chip_style, ghost_btn_style, BG_STATUSBAR, FG, FG_DIM, FG_MUTED,
+    SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
+};
 
 impl App {
     pub fn view(&self) -> Element<'_, Msg> {
@@ -28,7 +30,9 @@ impl App {
             let count = self.dragging_ids.len();
             match &drag_hover {
                 Some(id) => {
-                    let name = self.albums.iter()
+                    let name = self
+                        .albums
+                        .iter()
                         .find(|a| &a.id == id)
                         .map(|a| a.name.as_str())
                         .unwrap_or("?");
@@ -44,29 +48,36 @@ impl App {
             "Click to select · Cmd+click multi-select · Enter for loupe · Drag to album".to_string()
         };
 
-        let sort_label = format!("{} {}", sort_field_label(self.sort_by), if self.sort_asc { "▲" } else { "▼" });
+        let sort_label = format!(
+            "{} {}",
+            sort_field_label(self.sort_by),
+            if self.sort_asc { "▲" } else { "▼" }
+        );
 
         let show_criteria = self.criteria.show;
         let show_detail = self.detail.show;
 
-        let remove_btn: Option<Element<Msg>> =
-            if matches!(self.selected_item, SidebarItem::Album(_)) && !self.grid_selected.is_empty() {
-                let n = self.grid_selected.len();
-                Some(
-                    button(text(format!("Remove {n}")).size(12))
-                        .on_press(Msg::RemoveFromAlbum)
-                        .style(ghost_btn_style)
-                        .into(),
-                )
-            } else {
-                None
-            };
+        let remove_btn: Option<Element<Msg>> = if matches!(
+            self.selected_item,
+            SidebarItem::Album(_)
+        ) && !self.grid_selected.is_empty()
+        {
+            let n = self.grid_selected.len();
+            Some(
+                button(text(format!("Remove {n}")).size(12))
+                    .on_press(Msg::RemoveFromAlbum)
+                    .style(ghost_btn_style)
+                    .into(),
+            )
+        } else {
+            None
+        };
 
         let mut status_row = row![
             text(status).size(12).color(FG),
             Space::new().width(Length::Fill),
         ]
-        .spacing(8)
+        .spacing(SPACE_2)
         .align_y(Alignment::Center);
 
         if let Some(btn) = remove_btn {
@@ -84,14 +95,22 @@ impl App {
                 button(text(filter_label).size(12))
                     .on_press(Msg::ToggleCriteria)
                     .style(move |t: &Theme, s| {
-                        if show_criteria { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+                        if show_criteria {
+                            active_chip_style(t, s)
+                        } else {
+                            ghost_btn_style(t, s)
+                        }
                     })
             })
             .push(
                 button(text("Info").size(12))
                     .on_press(Msg::ToggleDetail)
                     .style(move |t: &Theme, s| {
-                        if show_detail { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+                        if show_detail {
+                            active_chip_style(t, s)
+                        } else {
+                            ghost_btn_style(t, s)
+                        }
                     }),
             )
             .push(
@@ -104,7 +123,11 @@ impl App {
                     .on_press(Msg::TileSizeDown)
                     .style(ghost_btn_style),
             )
-            .push(text(format!("{}px", self.tile_px as u32)).size(12).color(FG_MUTED))
+            .push(
+                text(format!("{}px", self.tile_px as u32))
+                    .size(12)
+                    .color(FG_MUTED),
+            )
             .push(
                 button(text("+").size(14))
                     .on_press(Msg::TileSizeUp)
@@ -112,15 +135,14 @@ impl App {
             );
 
         let status_bar = container(status_row)
-            .padding([4, 12])
+            .padding([SPACE_1, SPACE_3])
             .width(Length::Fill)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_STATUSBAR)),
                 ..Default::default()
             });
 
-        let mut main_row = row![self.view_sidebar(), self.view_grid()]
-            .height(Length::Fill);
+        let mut main_row = row![self.view_sidebar(), self.view_grid()].height(Length::Fill);
         if self.detail.show {
             main_row = main_row.push(self.view_detail());
         }
@@ -142,10 +164,12 @@ impl App {
             Space::new().width(Length::Fill).height(Length::Fill).into()
         };
 
-        let filename = self.files.get(idx)
-            .map(|f| f.name.as_str())
-            .unwrap_or("");
-        let wrap_hint = if total > 1 && (idx == 0 || idx == total - 1) { " ↩" } else { "" };
+        let filename = self.files.get(idx).map(|f| f.name.as_str()).unwrap_or("");
+        let wrap_hint = if total > 1 && (idx == 0 || idx == total - 1) {
+            " ↩"
+        } else {
+            ""
+        };
         let counter = if total > 0 {
             format!("{} / {}{}", idx + 1, total, wrap_hint)
         } else {
@@ -157,9 +181,17 @@ impl App {
                 button(text("✕").size(14).color(FG))
                     .on_press(Msg::OpenLoupe)
                     .style(|_: &Theme, _| button::Style {
-                        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.1 })),
+                        background: Some(Background::Color(Color {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: 0.1
+                        })),
                         text_color: FG,
-                        border: Border { radius: 4.0.into(), ..Default::default() },
+                        border: Border {
+                            radius: 4.0.into(),
+                            ..Default::default()
+                        },
                         shadow: iced::Shadow::default(),
                         snap: false,
                     }),
@@ -168,13 +200,18 @@ impl App {
                 Space::new().width(Length::Fill),
                 text(counter).size(12).color(FG_DIM),
             ]
-            .spacing(10)
+            .spacing(SPACE_2_5)
             .align_y(Alignment::Center),
         )
-        .padding([6, 12])
+        .padding([SPACE_1_5, SPACE_3])
         .width(Length::Fill)
         .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.7 })),
+            background: Some(Background::Color(Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.7,
+            })),
             ..Default::default()
         });
 
@@ -189,25 +226,33 @@ impl App {
                     .style(ghost_btn_style),
                 Space::new().width(Length::Fill),
             ]
-            .spacing(12)
+            .spacing(SPACE_3)
             .align_y(Alignment::Center),
         )
-        .padding([8, 12])
+        .padding([SPACE_2, SPACE_3])
         .width(Length::Fill)
         .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.7 })),
+            background: Some(Background::Color(Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.7,
+            })),
             ..Default::default()
         });
 
-        container(
-            column![top_bar, img_element, bottom_bar]
-        )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(Color { r: 0.03, g: 0.03, b: 0.03, a: 1.0 })),
-            ..Default::default()
-        })
-        .into()
+        container(column![top_bar, img_element, bottom_bar])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(Color {
+                    r: 0.03,
+                    g: 0.03,
+                    b: 0.03,
+                    a: 1.0,
+                })),
+                ..Default::default()
+            })
+            .into()
     }
 }
