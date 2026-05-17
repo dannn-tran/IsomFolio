@@ -59,9 +59,6 @@ impl App {
             "Click to select · Cmd+click multi-select · Enter for loupe · Drag to album".to_string()
         };
 
-        let scan_label = if self.is_scanning { "Scanning…" } else { "Scan Folder" };
-        let scan_msg = if self.is_scanning { Msg::NoOp } else { Msg::ScanPickFolder };
-
         let sort_label = format!("{} {}", sort_field_label(self.sort_by), if self.sort_asc { "▲" } else { "▼" });
 
         let show_criteria = self.criteria.show;
@@ -92,11 +89,6 @@ impl App {
         }
 
         status_row = status_row
-            .push(
-                button(text(scan_label).size(12))
-                    .on_press(scan_msg)
-                    .style(ghost_btn_style),
-            )
             .push({
                 let criteria_active = self.criteria_has_any();
                 let filter_label = if criteria_active {
@@ -119,12 +111,7 @@ impl App {
             )
             .push(
                 button(text(sort_label).size(12))
-                    .on_press(Msg::SortFieldCycle)
-                    .style(ghost_btn_style),
-            )
-            .push(
-                button(text(if self.sort_asc { "▲" } else { "▼" }).size(12))
-                    .on_press(Msg::SortDirToggle)
+                    .on_press(Msg::SortCycleAll)
                     .style(ghost_btn_style),
             )
             .push(
@@ -173,8 +160,9 @@ impl App {
         let filename = self.files.get(idx)
             .map(|f| f.name.as_str())
             .unwrap_or("");
+        let wrap_hint = if total > 1 && (idx == 0 || idx == total - 1) { " ↩" } else { "" };
         let counter = if total > 0 {
-            format!("{} / {}", idx + 1, total)
+            format!("{} / {}{}", idx + 1, total, wrap_hint)
         } else {
             String::new()
         };
@@ -276,39 +264,52 @@ impl App {
         .align_y(Alignment::Center)
         .into();
 
+        let is_scan_active = self.is_scanning || self.scan_pending;
+        let scan_btn_label = if is_scan_active { "Scanning…" } else { "Scan" };
+        let folders_header: Element<Msg> = row![
+            text("Folders").size(11).color(FG_DIM),
+            Space::new().width(Length::Fill),
+            button(text(scan_btn_label).size(11))
+                .on_press(if is_scan_active { Msg::NoOp } else { Msg::ScanPickFolder })
+                .style(ghost_btn_style),
+        ]
+        .align_y(Alignment::Center)
+        .into();
+
         let mut content = column![
             catalog_header,
             Space::new().height(6),
             text("Library").size(11).color(FG_DIM),
             all_row,
+            Space::new().height(4),
+            sidebar_divider(),
+            Space::new().height(4),
+            folders_header,
         ]
         .spacing(2);
 
-        if !self.folders.is_empty() {
-            content = content
-                .push(Space::new().height(8))
-                .push(text("Folders").size(11).color(FG_DIM));
-            for (path, count) in &self.folders {
-                let name = std::path::Path::new(path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(path.as_str())
-                    .to_string();
-                let sel = self.selected_item == SidebarItem::Folder(path.clone());
-                if self.folder_pending_remove.as_deref() == Some(path.as_str()) {
-                    content = content.push(confirm_action_row(
-                        "Remove folder? Indexed data deleted.".to_string(),
-                        Msg::RemoveFolder(path.clone()),
-                        Msg::CancelRemoveFolder,
-                    ));
-                } else {
-                    content = content.push(folder_sidebar_row(name, path.clone(), *count, sel));
-                }
+        for (path, count) in &self.folders {
+            let name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(path.as_str())
+                .to_string();
+            let sel = self.selected_item == SidebarItem::Folder(path.clone());
+            if self.folder_pending_remove.as_deref() == Some(path.as_str()) {
+                content = content.push(confirm_action_row(
+                    "Remove folder? Indexed data deleted.".to_string(),
+                    Msg::RemoveFolder(path.clone()),
+                    Msg::CancelRemoveFolder,
+                ));
+            } else {
+                content = content.push(folder_sidebar_row(name, path.clone(), *count, sel));
             }
         }
 
         content = content
-            .push(Space::new().height(8))
+            .push(Space::new().height(4))
+            .push(sidebar_divider())
+            .push(Space::new().height(4))
             .push(albums_header);
 
         for album in &self.albums {
@@ -622,7 +623,7 @@ impl App {
         for ext in ["jpg", "png", "webp", "gif"] {
             let active = self.criteria.exts.contains(ext);
             ext_row = ext_row.push(
-                button(text(ext).size(11))
+                button(text(format!(".{}", ext.to_uppercase())).size(11))
                     .on_press(Msg::ToggleCriteriaExt(ext.to_string()))
                     .style(if active { active_chip_style } else { inactive_chip_style }),
             );
@@ -769,13 +770,25 @@ impl App {
 
             if let Some(title) = &self.detail.title {
                 col = col.push(Space::new().height(4));
-                col = col.push(text("Title").size(11).color(FG_DIM));
+                col = col.push(
+                    row![
+                        text("Title").size(11).color(FG_DIM),
+                        Space::new().width(Length::Fill),
+                        text("read-only").size(10).color(FG_DIM),
+                    ]
+                    .align_y(Alignment::Center),
+                );
                 col = col.push(text(title).size(12));
             }
 
             if let Some(label) = &self.detail.label {
                 col = col.push(
-                    text(format!("Label  {label}")).size(11).color(FG_DIM),
+                    row![
+                        text(format!("Label  {label}")).size(11).color(FG_DIM),
+                        Space::new().width(Length::Fill),
+                        text("read-only").size(10).color(FG_DIM),
+                    ]
+                    .align_y(Alignment::Center),
                 );
             }
         } else {
@@ -955,9 +968,14 @@ impl App {
     }
 }
 
-fn ghost_btn_style(_theme: &Theme, _status: button::Status) -> button::Style {
+fn ghost_btn_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let alpha = match status {
+        button::Status::Hovered => 0.13,
+        button::Status::Pressed => 0.22,
+        _ => 0.06,
+    };
     button::Style {
-        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.06 })),
+        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: alpha })),
         text_color: FG_DIM,
         border: Border { radius: 4.0.into(), ..Default::default() },
         shadow: iced::Shadow::default(),
@@ -965,9 +983,14 @@ fn ghost_btn_style(_theme: &Theme, _status: button::Status) -> button::Style {
     }
 }
 
-fn active_chip_style(_theme: &Theme, _status: button::Status) -> button::Style {
+fn active_chip_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered => Color { r: 0.28, g: 0.62, b: 1.0, a: 1.0 },
+        button::Status::Pressed => Color { r: 0.15, g: 0.45, b: 0.82, a: 1.0 },
+        _ => ACCENT,
+    };
     button::Style {
-        background: Some(Background::Color(ACCENT)),
+        background: Some(Background::Color(bg)),
         text_color: Color::WHITE,
         border: Border { radius: 4.0.into(), ..Default::default() },
         shadow: iced::Shadow::default(),
@@ -975,9 +998,14 @@ fn active_chip_style(_theme: &Theme, _status: button::Status) -> button::Style {
     }
 }
 
-fn inactive_chip_style(_theme: &Theme, _status: button::Status) -> button::Style {
+fn inactive_chip_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let alpha = match status {
+        button::Status::Hovered => 0.15,
+        button::Status::Pressed => 0.22,
+        _ => 0.08,
+    };
     button::Style {
-        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.08 })),
+        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: alpha })),
         text_color: FG_DIM,
         border: Border { radius: 4.0.into(), ..Default::default() },
         shadow: iced::Shadow::default(),
@@ -993,6 +1021,17 @@ fn danger_btn_style(_theme: &Theme, _status: button::Status) -> button::Style {
         shadow: iced::Shadow::default(),
         snap: false,
     }
+}
+
+fn sidebar_divider<'a>() -> Element<'a, Msg> {
+    container(Space::new())
+        .width(Length::Fill)
+        .height(1.0)
+        .style(|_: &Theme| container::Style {
+            background: Some(Background::Color(Color { r: 0.22, g: 0.22, b: 0.27, a: 1.0 })),
+            ..Default::default()
+        })
+        .into()
 }
 
 fn confirm_action_row<'a>(prompt: String, confirm_msg: Msg, cancel_msg: Msg) -> Element<'a, Msg> {

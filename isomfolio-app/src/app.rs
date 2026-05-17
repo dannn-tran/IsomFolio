@@ -169,6 +169,8 @@ pub enum Msg {
     RequestRemoveFolder(String),
     CancelRemoveFolder,
 
+    ScanDialogDone(Option<String>),
+    SortCycleAll,
     NoOp,
 }
 
@@ -271,6 +273,7 @@ pub struct App {
 
     pub status: String,
     pub is_scanning: bool,
+    pub scan_pending: bool,
 
     pub show_welcome: bool,
     pub recent_catalogs: Vec<String>,
@@ -342,6 +345,7 @@ impl App {
             detail: DetailState::default(),
             status: initial_status,
             is_scanning: false,
+            scan_pending: false,
             show_welcome,
             recent_catalogs,
             new_catalog_dir: None,
@@ -744,6 +748,12 @@ impl App {
                             cursor: pos,
                             active: false,
                         });
+                    } else if pos.x > SIDEBAR_WIDTH {
+                        let mods = self.modifiers;
+                        if !mods.command() && !mods.shift() {
+                            self.grid_selected.clear();
+                            self.anchor_idx = None;
+                        }
                     }
                 }
                 if self.detail.show && self.grid_selected.len() != 1 {
@@ -822,19 +832,30 @@ impl App {
 
             Msg::DropCompleted => self.load_sidebar_task(),
 
-            Msg::ScanPickFolder => Task::perform(
-                async {
-                    rfd::AsyncFileDialog::new()
-                        .set_title("Choose folder to scan")
-                        .pick_folder()
-                        .await
-                        .map(|h| h.path().to_string_lossy().to_string())
-                },
-                |opt| match opt {
-                    Some(path) => Msg::ScanStart(path),
-                    None => Msg::NoOp,
-                },
-            ),
+            Msg::ScanPickFolder => {
+                if self.is_scanning || self.scan_pending {
+                    return Task::none();
+                }
+                self.scan_pending = true;
+                Task::perform(
+                    async {
+                        rfd::AsyncFileDialog::new()
+                            .set_title("Choose folder to scan")
+                            .pick_folder()
+                            .await
+                            .map(|h| h.path().to_string_lossy().to_string())
+                    },
+                    Msg::ScanDialogDone,
+                )
+            }
+
+            Msg::ScanDialogDone(opt) => {
+                self.scan_pending = false;
+                match opt {
+                    Some(path) => Task::done(Msg::ScanStart(path)),
+                    None => Task::none(),
+                }
+            }
 
             Msg::ScanStart(path) => {
                 self.is_scanning = true;
@@ -1044,6 +1065,16 @@ impl App {
 
             Msg::SortDirToggle => {
                 self.sort_asc = !self.sort_asc;
+                self.load_files_task()
+            }
+
+            Msg::SortCycleAll => {
+                if self.sort_asc {
+                    self.sort_asc = false;
+                } else {
+                    self.sort_by = next_sort_field(self.sort_by);
+                    self.sort_asc = true;
+                }
                 self.load_files_task()
             }
 
