@@ -1,0 +1,202 @@
+use std::collections::{HashMap, HashSet};
+
+use iced::{Point, keyboard};
+use isomfolio_core::models::{Album, AlbumId, AssetFile};
+
+pub const SIDEBAR_WIDTH: f32 = 220.0;
+pub const GRID_PADDING: f32 = 12.0;
+pub const TILE_GAP: f32 = 8.0;
+pub const ALBUM_ITEM_HEIGHT: f32 = 44.0;
+pub const DRAG_THRESHOLD: f32 = 6.0;
+pub const BUFFER_ROWS: usize = 2;
+pub const SIDEBAR_ALBUMS_BASE_Y: f32 = 184.0;
+pub const SEARCH_BAR_HEIGHT: f32 = 40.0;
+pub const CRITERIA_ROW_HEIGHT: f32 = 32.0;
+pub const CRITERIA_ROW_COUNT: usize = 3;
+pub const CRITERIA_PADDING: f32 = 18.0;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ViewMode {
+    Browse,
+    Loupe,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SidebarItem {
+    AllFiles,
+    Folder(String),
+    Album(AlbumId),
+}
+
+#[derive(Debug, Clone)]
+pub struct DragState {
+    pub origin_idx: usize,
+    pub start: Point,
+    pub cursor: Point,
+    pub active: bool,
+}
+
+#[derive(Debug)]
+pub enum ThumbnailEvent {
+    Ready(String, String),
+    Failed(String, String),
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum Msg {
+    CatalogReady,
+
+    SidebarItemClicked(SidebarItem),
+
+    FilesLoaded(Vec<AssetFile>),
+    SidebarLoaded {
+        folders: Vec<(String, usize)>,
+        albums: Vec<Album>,
+        album_counts: HashMap<String, usize>,
+    },
+
+    TileSizeUp,
+    TileSizeDown,
+
+    MouseMoved(Point),
+    MousePressed,
+    MouseReleased,
+    ModifiersChanged(keyboard::Modifiers),
+    EscapePressed,
+    Navigate { dx: i32, dy: i32 },
+    OpenLoupe,
+
+    Scrolled { y: f32, height: f32, width: f32 },
+
+    DroppedToAlbum(AlbumId),
+    DropCompleted,
+
+    ScanPickFolder,
+    ScanStart(String),
+    ScanComplete(usize),
+
+    StartCreateAlbum,
+    CreateAlbumInputChanged(String),
+    ConfirmCreateAlbum,
+    CancelCreateAlbum,
+    AlbumCreated,
+    AlbumRenamed,
+    SmartAlbumUpdated,
+    FilesRemovedFromAlbum,
+
+    StartRenameAlbum(AlbumId),
+    RenameAlbumInputChanged(String),
+    ConfirmRenameAlbum,
+
+    DeleteAlbum(AlbumId),
+    AlbumDeleted,
+
+    RemoveFolder(String),
+    FolderRemoved,
+
+    RemoveFromAlbum,
+
+    SortFieldCycle,
+    SortDirToggle,
+
+    SearchChanged(String),
+
+    ToggleCriteria,
+    CriteriaTagInputChanged(String),
+    AddCriteriaTag,
+    RemoveCriteriaTag(String),
+    CriteriaDateFromChanged(String),
+    CriteriaDateToChanged(String),
+    ToggleCriteriaExt(String),
+    ClearCriteria,
+
+    SaveAsSmartAlbum,
+    SmartAlbumNameChanged(String),
+    ConfirmSmartAlbum,
+    UpdateSmartAlbum,
+
+    ToggleDetail,
+    DetailLoaded {
+        file_id: String,
+        tags: Vec<String>,
+        rating: Option<i32>,
+        label: Option<String>,
+        title: Option<String>,
+    },
+    DetailTagInputChanged(String),
+    AddDetailTag,
+    RemoveDetailTag(String),
+    SetDetailRating(i32),
+
+    Reload,
+    DbError(String),
+    Tick,
+    DragHoverAlbum(Option<AlbumId>),
+    SidebarScrolled(f32),
+
+    PickOpenCatalog,
+    OpenCatalogPicked(String),
+    PickNewCatalogDir,
+    NewCatalogDirPicked(String),
+    NewCatalogNameChanged(String),
+    ConfirmNewCatalog,
+    OpenCatalog(String),
+
+    RequestDeleteAlbum(AlbumId),
+    CancelDeleteAlbum,
+    RequestRemoveFolder(String),
+    CancelRemoveFolder,
+
+    ScanDialogDone(Option<String>),
+    SortCycleAll,
+    NoOp,
+}
+
+pub struct CriteriaState {
+    pub show: bool,
+    pub tags: Vec<String>,
+    pub tag_input: String,
+    pub date_from: String,
+    pub date_to: String,
+    pub exts: HashSet<String>,
+    pub save_smart_input: Option<String>,
+}
+
+impl Default for CriteriaState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            tags: Vec::new(),
+            tag_input: String::new(),
+            date_from: String::new(),
+            date_to: String::new(),
+            exts: HashSet::new(),
+            save_smart_input: None,
+        }
+    }
+}
+
+pub struct DetailState {
+    pub show: bool,
+    pub file_id: Option<String>,
+    pub tags: Vec<String>,
+    pub tag_input: String,
+    pub rating: Option<i32>,
+    pub label: Option<String>,
+    pub title: Option<String>,
+}
+
+impl Default for DetailState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            file_id: None,
+            tags: Vec::new(),
+            tag_input: String::new(),
+            rating: None,
+            label: None,
+            title: None,
+        }
+    }
+}
