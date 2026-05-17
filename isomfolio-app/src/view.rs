@@ -31,6 +31,10 @@ const ERR: Color          = Color { r: 0.95, g: 0.35, b: 0.35, a: 1.0 };
 
 impl App {
     pub fn view(&self) -> Element<'_, Msg> {
+        if self.show_welcome {
+            return self.view_welcome();
+        }
+
         if matches!(self.view_mode, ViewMode::Loupe) {
             return self.view_loupe();
         }
@@ -52,7 +56,7 @@ impl App {
         } else if !self.status.is_empty() {
             self.status.clone()
         } else {
-            "Click to select · Cmd+click multi-select · Drag to album".to_string()
+            "Click to select · Cmd+click multi-select · Enter for loupe · Drag to album".to_string()
         };
 
         let scan_label = if self.is_scanning { "Scanning…" } else { "Scan Folder" };
@@ -93,13 +97,19 @@ impl App {
                     .on_press(scan_msg)
                     .style(ghost_btn_style),
             )
-            .push(
-                button(text("Filters").size(12))
+            .push({
+                let criteria_active = self.criteria_has_any();
+                let filter_label = if criteria_active {
+                    format!("Filters ●")
+                } else {
+                    "Filters".to_string()
+                };
+                button(text(filter_label).size(12))
                     .on_press(Msg::ToggleCriteria)
                     .style(move |t: &Theme, s| {
                         if show_criteria { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
-                    }),
-            )
+                    })
+            })
             .push(
                 button(text("Info").size(12))
                     .on_press(Msg::ToggleDetail)
@@ -233,6 +243,21 @@ impl App {
     fn view_sidebar(&self) -> Element<'_, Msg> {
         let drag_hover = self.drag_hover_album.clone();
 
+        let catalog_name = std::path::Path::new(&self.catalog_dir)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Catalog");
+
+        let catalog_header: Element<Msg> = row![
+            text(catalog_name).size(11).color(FG_DIM),
+            Space::new().width(Length::Fill),
+            button(text("Open…").size(11))
+                .on_press(Msg::PickOpenCatalog)
+                .style(ghost_btn_style),
+        ]
+        .align_y(Alignment::Center)
+        .into();
+
         let all_sel = self.selected_item == SidebarItem::AllFiles;
         let all_row = sidebar_row_button(
             "All Photos".to_string(),
@@ -240,19 +265,6 @@ impl App {
             false,
             Msg::SidebarItemClicked(SidebarItem::AllFiles),
         );
-
-        let folder_section: Vec<Element<Msg>> = self
-            .folders
-            .iter()
-            .map(|(path, count)| {
-                let name = std::path::Path::new(path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(path.as_str());
-                let sel = self.selected_item == SidebarItem::Folder(path.clone());
-                folder_sidebar_row(name.to_string(), path.clone(), *count, sel)
-            })
-            .collect();
 
         let albums_header: Element<Msg> = row![
             text("Albums").size(11).color(FG_DIM),
@@ -265,6 +277,8 @@ impl App {
         .into();
 
         let mut content = column![
+            catalog_header,
+            Space::new().height(6),
             text("Library").size(11).color(FG_DIM),
             all_row,
         ]
@@ -274,8 +288,22 @@ impl App {
             content = content
                 .push(Space::new().height(8))
                 .push(text("Folders").size(11).color(FG_DIM));
-            for row in folder_section {
-                content = content.push(row);
+            for (path, count) in &self.folders {
+                let name = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path.as_str())
+                    .to_string();
+                let sel = self.selected_item == SidebarItem::Folder(path.clone());
+                if self.folder_pending_remove.as_deref() == Some(path.as_str()) {
+                    content = content.push(confirm_action_row(
+                        "Remove folder? Indexed data deleted.".to_string(),
+                        Msg::RemoveFolder(path.clone()),
+                        Msg::CancelRemoveFolder,
+                    ));
+                } else {
+                    content = content.push(folder_sidebar_row(name, path.clone(), *count, sel));
+                }
             }
         }
 
@@ -289,7 +317,13 @@ impl App {
             let count = self.album_counts.get(&album.id).copied().unwrap_or(0);
             let is_smart = matches!(album.kind, isomfolio_core::models::AlbumKind::Smart(_));
 
-            if self.rename_album_id.as_deref() == Some(album.id.as_str()) {
+            if self.album_pending_delete.as_deref() == Some(album.id.as_str()) {
+                content = content.push(confirm_action_row(
+                    format!("Delete \"{}\"?", album.name),
+                    Msg::DeleteAlbum(album.id.clone()),
+                    Msg::CancelDeleteAlbum,
+                ));
+            } else if self.rename_album_id.as_deref() == Some(album.id.as_str()) {
                 content = content.push(
                     container(
                         text_input(&album.name, &self.rename_album_input)
@@ -416,7 +450,7 @@ fn folder_sidebar_row<'a>(
     });
 
     let remove_btn = button(text("×").size(11).color(FG_DIM))
-        .on_press(Msg::RemoveFolder(path))
+        .on_press(Msg::RequestRemoveFolder(path))
         .style(|_: &Theme, _| button::Style {
             background: Some(Background::Color(Color::TRANSPARENT)),
             text_color: FG_DIM,
@@ -459,12 +493,6 @@ fn album_sidebar_row<'a>(
     };
     let border_color = if drop_hover || selected { ACCENT } else { Color::TRANSPARENT };
 
-    let name_press = if selected {
-        Msg::StartRenameAlbum(album_id.clone())
-    } else {
-        Msg::SidebarItemClicked(SidebarItem::Album(album_id.clone()))
-    };
-
     let smart_indicator = if is_smart { "⚡ " } else { "" };
     let count_str = if count > 0 { format!("  {count}") } else { String::new() };
     let name_btn = button(
@@ -474,7 +502,7 @@ fn album_sidebar_row<'a>(
         ]
         .align_y(Alignment::Center),
     )
-    .on_press(name_press)
+    .on_press(Msg::SidebarItemClicked(SidebarItem::Album(album_id.clone())))
     .width(Length::Fill)
     .style(|_: &Theme, _| button::Style {
         background: Some(Background::Color(Color::TRANSPARENT)),
@@ -484,8 +512,24 @@ fn album_sidebar_row<'a>(
         snap: false,
     });
 
+    let rename_btn = if selected {
+        Some(
+            button(text("✎").size(11).color(FG_DIM))
+                .on_press(Msg::StartRenameAlbum(album_id.clone()))
+                .style(|_: &Theme, _| button::Style {
+                    background: Some(Background::Color(Color::TRANSPARENT)),
+                    text_color: FG_DIM,
+                    border: Border::default(),
+                    shadow: iced::Shadow::default(),
+                    snap: false,
+                }),
+        )
+    } else {
+        None
+    };
+
     let delete_btn = button(text("×").size(11).color(FG_DIM))
-        .on_press(Msg::DeleteAlbum(album_id))
+        .on_press(Msg::RequestDeleteAlbum(album_id))
         .style(|_: &Theme, _| button::Style {
             background: Some(Background::Color(Color::TRANSPARENT)),
             text_color: FG_DIM,
@@ -494,9 +538,13 @@ fn album_sidebar_row<'a>(
             snap: false,
         });
 
-    container(
-        row![name_btn, delete_btn].align_y(Alignment::Center),
-    )
+    let mut row_content = row![name_btn].align_y(Alignment::Center);
+    if let Some(btn) = rename_btn {
+        row_content = row_content.push(btn);
+    }
+    row_content = row_content.push(delete_btn);
+
+    container(row_content)
     .height(ALBUM_ITEM_HEIGHT)
     .align_y(Alignment::Center)
     .padding([0, 4])
@@ -855,11 +903,7 @@ impl App {
                 .content_fit(iced::ContentFit::Cover)
                 .into(),
             _ => {
-                let bg = if dragging {
-                    Color { r: 0.3, g: 0.3, b: 0.35, a: 0.5 }
-                } else {
-                    Color { r: 0.20, g: 0.20, b: 0.25, a: 1.0 }
-                };
+                let bg = Color { r: 0.20, g: 0.20, b: 0.25, a: 1.0 };
                 container(text(&file.name).size(10).color(FG_DIM))
                     .width(self.tile_px)
                     .height(self.tile_px)
@@ -881,18 +925,33 @@ impl App {
             (Color::TRANSPARENT, 0.0)
         };
 
-        container(tile_content)
-            .width(self.tile_px)
-            .height(self.tile_px)
-            .style(move |_: &Theme| container::Style {
-                border: Border {
-                    color: border_color,
-                    width: border_width,
-                    radius: TILE_CORNER.into(),
-                },
-                ..Default::default()
-            })
-            .into()
+        let drag_overlay_color = if dragging {
+            Color { r: 0.0, g: 0.0, b: 0.0, a: 0.45 }
+        } else {
+            Color::TRANSPARENT
+        };
+
+        container(
+            container(tile_content)
+                .width(self.tile_px)
+                .height(self.tile_px)
+                .style(move |_: &Theme| container::Style {
+                    border: Border {
+                        color: border_color,
+                        width: border_width,
+                        radius: TILE_CORNER.into(),
+                    },
+                    ..Default::default()
+                }),
+        )
+        .width(self.tile_px)
+        .height(self.tile_px)
+        .style(move |_: &Theme| container::Style {
+            background: Some(Background::Color(drag_overlay_color)),
+            border: Border { radius: TILE_CORNER.into(), ..Default::default() },
+            ..Default::default()
+        })
+        .into()
     }
 }
 
@@ -923,5 +982,107 @@ fn inactive_chip_style(_theme: &Theme, _status: button::Status) -> button::Style
         border: Border { radius: 4.0.into(), ..Default::default() },
         shadow: iced::Shadow::default(),
         snap: false,
+    }
+}
+
+fn danger_btn_style(_theme: &Theme, _status: button::Status) -> button::Style {
+    button::Style {
+        background: Some(Background::Color(Color { r: 0.65, g: 0.12, b: 0.12, a: 1.0 })),
+        text_color: Color::WHITE,
+        border: Border { radius: 4.0.into(), ..Default::default() },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn confirm_action_row<'a>(prompt: String, confirm_msg: Msg, cancel_msg: Msg) -> Element<'a, Msg> {
+    container(
+        row![
+            text(prompt).size(11).color(ERR),
+            Space::new().width(Length::Fill),
+            button(text("Cancel").size(11))
+                .on_press(cancel_msg)
+                .style(ghost_btn_style),
+            button(text("Confirm").size(11))
+                .on_press(confirm_msg)
+                .style(danger_btn_style),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center),
+    )
+    .height(ALBUM_ITEM_HEIGHT)
+    .align_y(Alignment::Center)
+    .padding([0, 4])
+    .into()
+}
+
+impl App {
+    fn view_welcome(&self) -> Element<'_, Msg> {
+        let mut col = column![
+            text("IsomFolio").size(36).color(FG),
+            Space::new().height(4),
+            text("Photo library manager").size(14).color(FG_DIM),
+            Space::new().height(32),
+            button(text("Open Existing Catalog…").size(14))
+                .on_press(Msg::PickOpenCatalog)
+                .style(ghost_btn_style),
+            Space::new().height(8),
+        ]
+        .spacing(0)
+        .align_x(Alignment::Center);
+
+        if let Some(_) = &self.new_catalog_dir {
+            col = col.push(
+                row![
+                    text_input("Catalog name…", &self.new_catalog_name)
+                        .on_input(Msg::NewCatalogNameChanged)
+                        .on_submit(Msg::ConfirmNewCatalog)
+                        .size(13)
+                        .width(180),
+                    button(text("Create").size(13))
+                        .on_press(Msg::ConfirmNewCatalog)
+                        .style(ghost_btn_style),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        } else {
+            col = col.push(
+                button(text("New Catalog…").size(14))
+                    .on_press(Msg::PickNewCatalogDir)
+                    .style(ghost_btn_style),
+            );
+        }
+
+        if !self.recent_catalogs.is_empty() {
+            col = col
+                .push(Space::new().height(32))
+                .push(text("Recent").size(11).color(FG_DIM))
+                .push(Space::new().height(6));
+            for path in &self.recent_catalogs {
+                let name = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path.as_str())
+                    .to_string();
+                let path_clone = path.clone();
+                col = col.push(
+                    button(text(name).size(13))
+                        .on_press(Msg::OpenCatalog(path_clone))
+                        .style(ghost_btn_style),
+                );
+            }
+        }
+
+        container(col)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_GRID)),
+                ..Default::default()
+            })
+            .into()
     }
 }
