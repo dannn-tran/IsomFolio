@@ -152,6 +152,8 @@ pub enum Msg {
     Reload,
     DbError(String),
     Tick,
+    DragHoverAlbum(Option<AlbumId>),
+
     NoOp,
 }
 
@@ -496,15 +498,6 @@ impl App {
         )
     }
 
-    pub fn album_section_top(&self) -> f32 {
-        let base = 102.0_f32;
-        if self.folders.is_empty() {
-            base
-        } else {
-            base + 27.0 + self.folders.len() as f32 * (ALBUM_ITEM_HEIGHT + 2.0)
-        }
-    }
-
     pub fn tile_index_at(&self, pos: Point) -> Option<usize> {
         let rel_x = pos.x - SIDEBAR_WIDTH - GRID_PADDING;
         let criteria_h = self.criteria_panel_height();
@@ -526,19 +519,6 @@ impl App {
         }
         let idx = row * cols + col;
         if idx < self.files.len() { Some(idx) } else { None }
-    }
-
-    pub fn album_at(&self, pos: Point) -> Option<AlbumId> {
-        if pos.x > SIDEBAR_WIDTH {
-            return None;
-        }
-        let top = self.album_section_top();
-        let rel_y = pos.y - top;
-        if rel_y < 0.0 {
-            return None;
-        }
-        let idx = (rel_y / (ALBUM_ITEM_HEIGHT + 2.0)) as usize;
-        self.albums.get(idx).map(|a| a.id.clone())
     }
 
     pub fn update(&mut self, msg: Msg) -> Task<Msg> {
@@ -662,13 +642,6 @@ impl App {
                             };
                         }
                     }
-                    if let Some(ref d) = self.drag {
-                        self.drag_hover_album = if d.active {
-                            self.album_at(d.cursor)
-                        } else {
-                            None
-                        };
-                    }
                 }
                 Task::none()
             }
@@ -719,16 +692,8 @@ impl App {
             }
 
             Msg::MouseReleased => {
-                let drop_task = if let Some(ref d) = self.drag {
-                    if d.active {
-                        if let Some(album_id) = self.album_at(d.cursor) {
-                            Some(Task::done(Msg::DroppedToAlbum(album_id)))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
+                let drop_task = if self.drag.as_ref().map_or(false, |d| d.active) {
+                    self.drag_hover_album.clone().map(|id| Task::done(Msg::DroppedToAlbum(id)))
                 } else {
                     None
                 };
@@ -1261,6 +1226,13 @@ impl App {
 
             Msg::DbError(e) => {
                 self.status = format!("Error: {e}");
+                Task::none()
+            }
+
+            Msg::DragHoverAlbum(opt_id) => {
+                if self.drag.as_ref().map_or(false, |d| d.active) {
+                    self.drag_hover_album = opt_id;
+                }
                 Task::none()
             }
 
