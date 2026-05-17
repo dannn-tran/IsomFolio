@@ -60,8 +60,8 @@ impl App {
 
         let sort_label = format!("{} {}", sort_field_label(self.sort_by), if self.sort_asc { "▲" } else { "▼" });
 
-        let show_criteria = self.show_criteria;
-        let show_detail = self.show_detail;
+        let show_criteria = self.criteria.show;
+        let show_detail = self.detail.show;
 
         let remove_btn: Option<Element<Msg>> =
             if matches!(self.selected_item, SidebarItem::Album(_)) && !self.grid_selected.is_empty() {
@@ -139,7 +139,7 @@ impl App {
 
         let mut main_row = row![self.view_sidebar(), self.view_grid()]
             .height(Length::Fill);
-        if self.show_detail {
+        if self.detail.show {
             main_row = main_row.push(self.view_detail());
         }
 
@@ -518,7 +518,7 @@ impl App {
 
         // Tags row: active tag chips + input
         let mut tags_row = row![].spacing(6).align_y(Alignment::Center);
-        for tag in &self.criteria_tags {
+        for tag in &self.criteria.tags {
             tags_row = tags_row.push(
                 button(text(format!("{tag} ×")).size(11))
                     .on_press(Msg::RemoveCriteriaTag(tag.clone()))
@@ -526,7 +526,7 @@ impl App {
             );
         }
         tags_row = tags_row.push(
-            text_input("+ tag", &self.criteria_tag_input)
+            text_input("+ tag", &self.criteria.tag_input)
                 .on_input(Msg::CriteriaTagInputChanged)
                 .on_submit(Msg::AddCriteriaTag)
                 .padding([3, 6])
@@ -536,16 +536,16 @@ impl App {
         col = col.push(tags_row);
 
         // Date range row
-        let from_err = !self.criteria_date_from.is_empty()
-            && parse_date_str(&self.criteria_date_from).is_none();
-        let to_err = !self.criteria_date_to.is_empty()
-            && parse_date_str(&self.criteria_date_to).is_none();
+        let from_err = !self.criteria.date_from.is_empty()
+            && parse_date_str(&self.criteria.date_from).is_none();
+        let to_err = !self.criteria.date_to.is_empty()
+            && parse_date_str(&self.criteria.date_to).is_none();
         let mut date_row = row![]
             .spacing(6)
             .align_y(Alignment::Center);
         date_row = date_row.push(text("From").size(11).color(FG_DIM));
         date_row = date_row.push(
-            text_input("YYYY-MM-DD", &self.criteria_date_from)
+            text_input("YYYY-MM-DD", &self.criteria.date_from)
                 .on_input(Msg::CriteriaDateFromChanged)
                 .padding([3, 6])
                 .size(11)
@@ -556,7 +556,7 @@ impl App {
         }
         date_row = date_row.push(text("To").size(11).color(FG_DIM));
         date_row = date_row.push(
-            text_input("YYYY-MM-DD", &self.criteria_date_to)
+            text_input("YYYY-MM-DD", &self.criteria.date_to)
                 .on_input(Msg::CriteriaDateToChanged)
                 .padding([3, 6])
                 .size(11)
@@ -572,7 +572,7 @@ impl App {
             .spacing(4)
             .align_y(Alignment::Center);
         for ext in ["jpg", "png", "webp", "gif"] {
-            let active = self.criteria_exts.contains(ext);
+            let active = self.criteria.exts.contains(ext);
             ext_row = ext_row.push(
                 button(text(ext).size(11))
                     .on_press(Msg::ToggleCriteriaExt(ext.to_string()))
@@ -599,7 +599,7 @@ impl App {
                         .on_press(Msg::UpdateSmartAlbum)
                         .style(ghost_btn_style),
                 );
-            } else if let Some(ref name_input) = self.save_smart_input {
+            } else if let Some(ref name_input) = self.criteria.save_smart_input {
                 action_row = action_row
                     .push(
                         text_input("Album name…", name_input)
@@ -660,7 +660,7 @@ impl App {
             col = col.push(Space::new().height(4));
             let mut stars_row = row![].spacing(2);
             for star in 1..=5i32 {
-                let filled = self.detail_rating.map(|r| r >= star).unwrap_or(false);
+                let filled = self.detail.rating.map(|r| r >= star).unwrap_or(false);
                 stars_row = stars_row.push(
                     button(
                         text(if filled { "★" } else { "☆" })
@@ -683,7 +683,7 @@ impl App {
             col = col.push(Space::new().height(4));
             col = col.push(text("Tags").size(11).color(FG_DIM));
 
-            for tag in &self.detail_tags {
+            for tag in &self.detail.tags {
                 col = col.push(
                     container(
                         row![
@@ -711,7 +711,7 @@ impl App {
             }
 
             col = col.push(
-                text_input("Add tag…", &self.detail_tag_input)
+                text_input("Add tag…", &self.detail.tag_input)
                     .on_input(Msg::DetailTagInputChanged)
                     .on_submit(Msg::AddDetailTag)
                     .padding([4, 6])
@@ -719,13 +719,13 @@ impl App {
                     .width(Length::Fill),
             );
 
-            if let Some(title) = &self.detail_title {
+            if let Some(title) = &self.detail.title {
                 col = col.push(Space::new().height(4));
                 col = col.push(text("Title").size(11).color(FG_DIM));
                 col = col.push(text(title).size(12));
             }
 
-            if let Some(label) = &self.detail_label {
+            if let Some(label) = &self.detail.label {
                 col = col.push(
                     text(format!("Label  {label}")).size(11).color(FG_DIM),
                 );
@@ -826,7 +826,7 @@ impl App {
         };
 
         let mut grid_col = column![search_bar];
-        if self.show_criteria {
+        if self.criteria.show {
             grid_col = grid_col.push(self.view_criteria_panel());
         }
         grid_col = grid_col.push(empty_or_grid);
