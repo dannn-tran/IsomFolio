@@ -1483,6 +1483,10 @@ impl App {
                 ..
             }) => Some(Msg::OpenLoupe),
             Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Character(ref c),
+                ..
+            }) if c.as_str() == "i" => Some(Msg::ToggleDetail),
+            Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
                 ..
             }) => Some(Msg::Navigate { dx: -1, dy: 0 }),

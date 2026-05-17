@@ -55,6 +55,8 @@ impl App {
             }
         } else if !self.status.is_empty() {
             self.status.clone()
+        } else if self.grid_selected.len() == 1 && !self.detail.show {
+            "1 photo selected · Enter for loupe · I for info · Drag to album".to_string()
         } else {
             "Click to select · Cmd+click multi-select · Enter for loupe · Drag to album".to_string()
         };
@@ -601,7 +603,7 @@ impl App {
                 .width(100),
         );
         if from_err {
-            date_row = date_row.push(text("✕").size(10).color(ERR));
+            date_row = date_row.push(text("✕ bad date").size(10).color(ERR));
         }
         date_row = date_row.push(text("To").size(11).color(FG_DIM));
         date_row = date_row.push(
@@ -612,9 +614,12 @@ impl App {
                 .width(100),
         );
         if to_err {
-            date_row = date_row.push(text("✕").size(10).color(ERR));
+            date_row = date_row.push(text("✕ bad date").size(10).color(ERR));
         }
         col = col.push(date_row);
+        if from_err || to_err {
+            col = col.push(text("Format: YYYY-MM-DD  e.g. 2024-06-15").size(10).color(ERR));
+        }
 
         // Extension toggles
         let mut ext_row = row![text("Type").size(11).color(FG_DIM)]
