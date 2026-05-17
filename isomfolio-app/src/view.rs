@@ -1,7 +1,7 @@
 use iced::{
     Alignment, Background, Border, Color, Element, Length, Padding,
     widget::{
-        column, container, image, row, scrollable, text, text_input, Space,
+        column, container, image, mouse_area, row, scrollable, text, text_input, Space,
         button,
     },
     Theme,
@@ -303,14 +303,19 @@ impl App {
                     .padding([0, 4]),
                 );
             } else {
-                content = content.push(album_sidebar_row(
-                    album.name.clone(),
-                    album.id.clone(),
-                    count,
-                    sel,
-                    hovered,
-                    is_smart,
-                ));
+                let album_id = album.id.clone();
+                content = content.push(
+                    mouse_area(album_sidebar_row(
+                        album.name.clone(),
+                        album.id.clone(),
+                        count,
+                        sel,
+                        hovered,
+                        is_smart,
+                    ))
+                    .on_enter(Msg::DragHoverAlbum(Some(album_id)))
+                    .on_exit(Msg::DragHoverAlbum(None)),
+                );
             }
         }
 
