@@ -16,12 +16,13 @@ use crate::app::{
     parse_date_str,
 };
 
-const BG_SIDEBAR: Color   = Color { r: 0.11, g: 0.11, b: 0.14, a: 1.0 };
-const BG_GRID: Color      = Color { r: 0.08, g: 0.08, b: 0.10, a: 1.0 };
-const BG_STATUSBAR: Color = Color { r: 0.07, g: 0.07, b: 0.09, a: 1.0 };
-const BG_CRITERIA: Color  = Color { r: 0.10, g: 0.10, b: 0.13, a: 1.0 };
-const FG: Color           = Color { r: 0.90, g: 0.90, b: 0.92, a: 1.0 };
-const FG_DIM: Color       = Color { r: 0.55, g: 0.55, b: 0.60, a: 1.0 };
+const BG_SIDEBAR: Color   = Color { r: 0.12, g: 0.12, b: 0.16, a: 1.0 };
+const BG_GRID: Color      = Color { r: 0.09, g: 0.09, b: 0.12, a: 1.0 };
+const BG_STATUSBAR: Color = Color { r: 0.08, g: 0.08, b: 0.10, a: 1.0 };
+const BG_CRITERIA: Color  = Color { r: 0.14, g: 0.14, b: 0.18, a: 1.0 };
+const FG: Color           = Color { r: 0.93, g: 0.93, b: 0.95, a: 1.0 };
+const FG_DIM: Color       = Color { r: 0.70, g: 0.70, b: 0.75, a: 1.0 };
+const FG_MUTED: Color     = Color { r: 0.45, g: 0.45, b: 0.50, a: 1.0 };
 const ACCENT: Color       = Color { r: 0.20, g: 0.55, b: 0.95, a: 1.0 };
 const ALBUM_HOVER: Color  = Color { r: 0.10, g: 0.25, b: 0.50, a: 1.0 };
 const SEL_RING: Color     = Color::WHITE;
@@ -80,7 +81,7 @@ impl App {
             };
 
         let mut status_row = row![
-            text(status).size(12).color(FG_DIM),
+            text(status).size(12).color(FG),
             Space::new().width(Length::Fill),
         ]
         .spacing(8)
@@ -121,7 +122,7 @@ impl App {
                     .on_press(Msg::TileSizeDown)
                     .style(ghost_btn_style),
             )
-            .push(text(format!("{}px", self.tile_px as u32)).size(12).color(FG_DIM))
+            .push(text(format!("{}px", self.tile_px as u32)).size(12).color(FG_MUTED))
             .push(
                 button(text("+").size(14))
                     .on_press(Msg::TileSizeUp)
@@ -501,7 +502,7 @@ fn album_sidebar_row<'a>(
     let name_btn = button(
         row![
             text(format!("{smart_indicator}{label}")).size(13).color(text_color),
-            text(count_str).size(11).color(FG_DIM),
+            text(count_str).size(11).color(FG_MUTED),
         ]
         .align_y(Alignment::Center),
     )
@@ -683,7 +684,7 @@ impl App {
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_CRITERIA)),
                 border: Border {
-                    color: Color { r: 0.20, g: 0.20, b: 0.26, a: 1.0 },
+                    color: Color { r: 0.28, g: 0.28, b: 0.34, a: 1.0 },
                     width: 1.0,
                     radius: 0.0.into(),
                 },
@@ -981,7 +982,7 @@ fn ghost_btn_style(_theme: &Theme, status: button::Status) -> button::Style {
     };
     button::Style {
         background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: alpha })),
-        text_color: FG_DIM,
+        text_color: FG,
         border: Border { radius: 4.0.into(), ..Default::default() },
         shadow: iced::Shadow::default(),
         snap: false,
@@ -1011,7 +1012,7 @@ fn inactive_chip_style(_theme: &Theme, status: button::Status) -> button::Style 
     };
     button::Style {
         background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: alpha })),
-        text_color: FG_DIM,
+        text_color: FG,
         border: Border { radius: 4.0.into(), ..Default::default() },
         shadow: iced::Shadow::default(),
         snap: false,
@@ -1033,7 +1034,7 @@ fn sidebar_divider<'a>() -> Element<'a, Msg> {
         .width(Length::Fill)
         .height(1.0)
         .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(Color { r: 0.22, g: 0.22, b: 0.27, a: 1.0 })),
+            background: Some(Background::Color(Color { r: 0.28, g: 0.28, b: 0.34, a: 1.0 })),
             ..Default::default()
         })
         .into()
