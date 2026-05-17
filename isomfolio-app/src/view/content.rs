@@ -13,18 +13,49 @@ use super::styles::{
     TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
 };
 use crate::app::{
-    format_file_size, parse_date_str, unix_to_date_str, App, Msg, BUFFER_ROWS, GRID_PADDING,
-    TILE_GAP,
+    format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, Msg, BUFFER_ROWS,
+    GRID_PADDING, TILE_GAP,
 };
 
 impl App {
     pub(super) fn view_grid(&self) -> Element<'_, Msg> {
-        let search_bar = container(
-            text_input("Search photos…", &self.search_text)
-                .on_input(Msg::SearchChanged)
-                .padding([SPACE_1_5, SPACE_2_5])
-                .size(TEXT_BASE)
-                .width(Length::Fill),
+        let show_criteria = self.criteria.show;
+        let criteria_active = self.criteria_has_any();
+        let sort_label = format!(
+            "{} {}",
+            sort_field_label(self.sort_by),
+            if self.sort_asc { "▲" } else { "▼" }
+        );
+
+        let filter_toolbar = container(
+            row![
+                text_input("Search photos…", &self.search_text)
+                    .on_input(Msg::SearchChanged)
+                    .padding([SPACE_1_5, SPACE_2_5])
+                    .size(TEXT_BASE)
+                    .width(Length::Fill),
+                button(
+                    text(if criteria_active {
+                        "Filters ●"
+                    } else {
+                        "Filters"
+                    })
+                    .size(TEXT_MD)
+                )
+                .on_press(Msg::ToggleCriteria)
+                .style(move |t: &Theme, s| {
+                    if show_criteria {
+                        active_chip_style(t, s)
+                    } else {
+                        ghost_btn_style(t, s)
+                    }
+                }),
+                button(text(sort_label).size(TEXT_MD))
+                    .on_press(Msg::SortCycleAll)
+                    .style(ghost_btn_style),
+            ]
+            .spacing(SPACE_2)
+            .align_y(Alignment::Center),
         )
         .padding([SPACE_1_5, SPACE_3])
         .width(Length::Fill);
@@ -87,7 +118,7 @@ impl App {
                 .into()
         };
 
-        let mut grid_col = column![search_bar];
+        let mut grid_col = column![filter_toolbar];
         if self.criteria.show {
             grid_col = grid_col.push(self.view_criteria_panel());
         }
@@ -252,6 +283,11 @@ impl App {
             .align_y(Alignment::Center);
 
             if is_smart {
+                if self.smart_album_dirty {
+                    action_row = action_row.push(
+                        text("Unsaved changes").size(TEXT_SM).color(ERR),
+                    );
+                }
                 action_row = action_row.push(
                     button(text("Update Smart Album").size(TEXT_SM))
                         .on_press(Msg::UpdateSmartAlbum)

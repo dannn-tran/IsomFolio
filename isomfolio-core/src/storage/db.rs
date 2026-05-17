@@ -523,6 +523,20 @@ pub fn set_file_rating(conn: &Connection, file_id: &str, rating: Option<i32>) ->
     Ok(())
 }
 
+pub fn copy_album_files(
+    conn: &Connection,
+    src_album_id: &str,
+    dst_album_id: &str,
+) -> Result<(), AppError> {
+    let now = now_unix();
+    conn.execute(
+        "INSERT OR IGNORE INTO album_files (album_id, file_id, added_at) \
+         SELECT ?1, file_id, ?2 FROM album_files WHERE album_id = ?3",
+        params![dst_album_id, now, src_album_id],
+    )?;
+    Ok(())
+}
+
 pub fn count_album_files(conn: &Connection, album_id: &str) -> Result<usize, AppError> {
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM album_files WHERE album_id = ?1",

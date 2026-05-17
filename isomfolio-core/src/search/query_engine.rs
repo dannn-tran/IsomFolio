@@ -136,14 +136,84 @@ pub fn execute_search(conn: &Connection, query: &SearchQuery) -> Result<Vec<Asse
 pub fn execute_manual_album_search(
     conn: &Connection,
     album_id: &AlbumId,
+    query: &SearchQuery,
 ) -> Result<Vec<AssetFile>, AppError> {
-    let mut stmt = conn.prepare(&format!(
+    let fts_ids: Option<Vec<String>> = match &query.text {
+        Some(txt) if !txt.trim().is_empty() => {
+            let ids = fts::search_fts5(conn, txt)?;
+            if ids.is_empty() {
+                return Ok(Vec::new());
+            }
+            Some(ids)
+        }
+        _ => None,
+    };
+
+    let mut sql = format!(
         "SELECT {FILE_COLS} FROM files f \
-         JOIN album_files af ON f.id = af.file_id \
-         WHERE af.album_id = ?1 \
-         ORDER BY af.added_at ASC"
-    ))?;
-    let rows = stmt.query_map([album_id], read_asset_file)?;
+         JOIN album_files af ON f.id = af.file_id"
+    );
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut param_idx = 1usize;
+
+    for (i, tag) in query.tags.iter().enumerate() {
+        sql.push_str(&format!(
+            " JOIN tags t{i} ON f.id = t{i}.file_id AND t{i}.tag = ?{param_idx}"
+        ));
+        params.push(Box::new(tag.clone()));
+        param_idx += 1;
+    }
+
+    sql.push_str(&format!(" WHERE af.album_id = ?{param_idx}"));
+    params.push(Box::new(album_id.clone()));
+    param_idx += 1;
+
+    if let Some(ids) = &fts_ids {
+        let placeholders: Vec<String> = ids
+            .iter()
+            .map(|id| {
+                let p = format!("?{param_idx}");
+                params.push(Box::new(id.clone()));
+                param_idx += 1;
+                p
+            })
+            .collect();
+        sql.push_str(&format!(" AND f.id IN ({})", placeholders.join(",")));
+    }
+
+    if !query.extensions.is_empty() {
+        let placeholders: Vec<String> = query
+            .extensions
+            .iter()
+            .map(|ext| {
+                let p = format!("?{param_idx}");
+                params.push(Box::new(ext.trim_start_matches('.').to_lowercase()));
+                param_idx += 1;
+                p
+            })
+            .collect();
+        sql.push_str(&format!(" AND f.extension IN ({})", placeholders.join(",")));
+    }
+
+    if let Some(from) = query.date_from {
+        sql.push_str(&format!(" AND f.modified_time >= ?{param_idx}"));
+        params.push(Box::new(from));
+        param_idx += 1;
+    }
+    if let Some(to) = query.date_to {
+        sql.push_str(&format!(" AND f.modified_time <= ?{param_idx}"));
+        params.push(Box::new(to));
+        param_idx += 1;
+    }
+
+    let dir = if query.sort_asc { "ASC" } else { "DESC" };
+    sql.push_str(&format!(" ORDER BY f.{} {}", sort_column(query.sort_by), dir));
+
+    let _ = param_idx;
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt.query_map(param_refs.as_slice(), read_asset_file)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
@@ -211,16 +281,53 @@ mod tests {
         assert_eq!(results[0].id, "b");
     }
 
-    #[test]
-    fn manual_album_search() {
-        let (conn, _f) = open_temp();
-        insert(&conn, "f1", "f1.jpg", "/p", "jpg", 0);
-        insert(&conn, "f2", "f2.jpg", "/p", "jpg", 0);
-        let album = Album { id: "a1".into(), name: "A".into(), kind: AlbumKind::Manual, sort_order: 0 };
-        db::create_album(&conn, &album).unwrap();
-        db::add_file_to_album(&conn, "a1", "f1").unwrap();
-        let results = execute_manual_album_search(&conn, &"a1".to_string()).unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].id, "f1");
+    mod manual_album {
+        use super::*;
+
+        fn setup() -> (Connection, NamedTempFile) {
+            let (conn, f) = open_temp();
+            insert(&conn, "f1", "alpha.jpg", "/p", "jpg", 100);
+            insert(&conn, "f2", "beta.png", "/p", "png", 200);
+            insert(&conn, "f3", "gamma.jpg", "/p", "jpg", 300);
+            let album = Album {
+                id: "a1".into(),
+                name: "A".into(),
+                kind: AlbumKind::Manual,
+                sort_order: 0,
+            };
+            db::create_album(&conn, &album).unwrap();
+            db::add_file_to_album(&conn, "a1", "f1").unwrap();
+            db::add_file_to_album(&conn, "a1", "f2").unwrap();
+            (conn, f)
+        }
+
+        #[test]
+        fn returns_only_album_files() {
+            let (conn, _f) = setup();
+            let q = SearchQuery::default();
+            let results = execute_manual_album_search(&conn, &"a1".to_string(), &q).unwrap();
+            assert_eq!(results.len(), 2);
+            let ids: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+            assert!(ids.contains(&"f1"));
+            assert!(ids.contains(&"f2"));
+        }
+
+        #[test]
+        fn sort_by_date_desc() {
+            let (conn, _f) = setup();
+            let q = SearchQuery { sort_by: SortField::Date, sort_asc: false, ..Default::default() };
+            let results = execute_manual_album_search(&conn, &"a1".to_string(), &q).unwrap();
+            assert_eq!(results[0].id, "f2");
+            assert_eq!(results[1].id, "f1");
+        }
+
+        #[test]
+        fn ext_filter() {
+            let (conn, _f) = setup();
+            let q = SearchQuery { extensions: vec!["jpg".into()], ..Default::default() };
+            let results = execute_manual_album_search(&conn, &"a1".to_string(), &q).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "f1");
+        }
     }
 }

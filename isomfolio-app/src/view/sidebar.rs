@@ -1,5 +1,5 @@
 use iced::{
-    widget::{button, column, container, row, scrollable, text, text_input, Space},
+    widget::{button, column, container, mouse_area, row, scrollable, text, text_input, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
@@ -48,7 +48,7 @@ impl App {
         let scan_btn_label = if is_scan_active {
             "Scanning…"
         } else {
-            "Scan"
+            "Add Folder…"
         };
         let folders_header: Element<Msg> = row![
             text("Folders").size(TEXT_SM).color(FG_DIM),
@@ -83,6 +83,8 @@ impl App {
                 .unwrap_or(path.as_str())
                 .to_string();
             let sel = self.selected_item == SidebarItem::Folder(path.clone());
+            let folder_hovered = self.hovered_sidebar_entity
+                == Some(SidebarItem::Folder(path.clone()));
             if self.folder_pending_remove.as_deref() == Some(path.as_str()) {
                 content = content.push(confirm_action_row(
                     "Remove folder? Indexed data deleted.".to_string(),
@@ -90,7 +92,13 @@ impl App {
                     Msg::CancelRemoveFolder,
                 ));
             } else {
-                content = content.push(folder_sidebar_row(name, path.clone(), *count, sel));
+                content = content.push(folder_sidebar_row(
+                    name,
+                    path.clone(),
+                    *count,
+                    sel,
+                    folder_hovered,
+                ));
             }
         }
 
@@ -126,6 +134,8 @@ impl App {
                     .padding([0.0, SPACE_1]),
                 );
             } else {
+                let album_hovered = self.hovered_sidebar_entity
+                    == Some(SidebarItem::Album(album.id.clone()));
                 content = content.push(album_sidebar_row(
                     album.name.clone(),
                     album.id.clone(),
@@ -133,6 +143,7 @@ impl App {
                     sel,
                     hovered,
                     is_smart,
+                    album_hovered,
                 ));
             }
         }
@@ -241,6 +252,7 @@ fn folder_sidebar_row<'a>(
     path: String,
     count: usize,
     selected: bool,
+    hovered: bool,
 ) -> Element<'a, Msg> {
     let bg = if selected {
         Color {
@@ -276,17 +288,19 @@ fn folder_sidebar_row<'a>(
         snap: false,
     });
 
-    let remove_btn = button(text("×").size(TEXT_SM).color(FG_DIM))
-        .on_press(Msg::RequestRemoveFolder(path))
-        .style(|_: &Theme, _| button::Style {
-            background: Some(Background::Color(Color::TRANSPARENT)),
-            text_color: FG_DIM,
-            border: Border::default(),
-            shadow: iced::Shadow::default(),
-            snap: false,
-        });
+    let overflow_btn: Element<Msg> = if hovered {
+        button(text("•••").size(TEXT_SM).color(FG_DIM))
+            .on_press(Msg::OpenContextMenu(
+                iced::Point::ORIGIN,
+                crate::app::ContextMenuTarget::Folder(path.clone()),
+            ))
+            .style(ghost_btn_style)
+            .into()
+    } else {
+        Space::new().width(24).into()
+    };
 
-    container(row![label_btn, remove_btn].align_y(Alignment::Center))
+    let inner = container(row![label_btn, overflow_btn].align_y(Alignment::Center))
         .height(ALBUM_ITEM_HEIGHT)
         .align_y(Alignment::Center)
         .padding([0.0, SPACE_1])
@@ -298,7 +312,12 @@ fn folder_sidebar_row<'a>(
                 radius: 6.0.into(),
             },
             ..Default::default()
-        })
+        });
+
+    let entity = SidebarItem::Folder(path.clone());
+    mouse_area(inner)
+        .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
+        .on_exit(Msg::HoverSidebarEntityEnd(entity))
         .into()
 }
 
@@ -309,6 +328,7 @@ fn album_sidebar_row<'a>(
     selected: bool,
     drop_hover: bool,
     is_smart: bool,
+    hovered: bool,
 ) -> Element<'a, Msg> {
     let text_color = if selected || drop_hover {
         Color::WHITE
@@ -360,39 +380,24 @@ fn album_sidebar_row<'a>(
         snap: false,
     });
 
-    let rename_btn = if selected {
-        Some(
-            button(text("✎").size(TEXT_SM).color(FG_DIM))
-                .on_press(Msg::StartRenameAlbum(album_id.clone()))
-                .style(|_: &Theme, _| button::Style {
-                    background: Some(Background::Color(Color::TRANSPARENT)),
-                    text_color: FG_DIM,
-                    border: Border::default(),
-                    shadow: iced::Shadow::default(),
-                    snap: false,
-                }),
-        )
+    let target = if is_smart {
+        crate::app::ContextMenuTarget::SmartAlbum(album_id.clone())
     } else {
-        None
+        crate::app::ContextMenuTarget::ManualAlbum(album_id.clone())
     };
 
-    let delete_btn = button(text("×").size(TEXT_SM).color(FG_DIM))
-        .on_press(Msg::RequestDeleteAlbum(album_id))
-        .style(|_: &Theme, _| button::Style {
-            background: Some(Background::Color(Color::TRANSPARENT)),
-            text_color: FG_DIM,
-            border: Border::default(),
-            shadow: iced::Shadow::default(),
-            snap: false,
-        });
+    let overflow_btn: Element<Msg> = if hovered {
+        button(text("•••").size(TEXT_SM).color(FG_DIM))
+            .on_press(Msg::OpenContextMenu(iced::Point::ORIGIN, target))
+            .style(ghost_btn_style)
+            .into()
+    } else {
+        Space::new().width(24).into()
+    };
 
-    let mut row_content = row![name_btn].align_y(Alignment::Center);
-    if let Some(btn) = rename_btn {
-        row_content = row_content.push(btn);
-    }
-    row_content = row_content.push(delete_btn);
+    let row_content = row![name_btn, overflow_btn].align_y(Alignment::Center);
 
-    container(row_content)
+    let inner = container(row_content)
         .height(ALBUM_ITEM_HEIGHT)
         .align_y(Alignment::Center)
         .padding([0.0, SPACE_1])
@@ -404,6 +409,11 @@ fn album_sidebar_row<'a>(
                 radius: 6.0.into(),
             },
             ..Default::default()
-        })
+        });
+
+    let entity = SidebarItem::Album(album_id.clone());
+    mouse_area(inner)
+        .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
+        .on_exit(Msg::HoverSidebarEntityEnd(entity))
         .into()
 }

@@ -82,6 +82,15 @@ pub struct App {
     pub album_pending_delete: Option<AlbumId>,
     pub folder_pending_remove: Option<String>,
     pub sidebar_scroll_y: f32,
+
+    pub last_click_time: Option<Instant>,
+    pub pending_album_select: Option<AlbumId>,
+    pub last_scanned_path: Option<String>,
+    pub remove_from_album_pending: bool,
+    pub smart_album_dirty: bool,
+    pub context_menu: Option<ContextMenuState>,
+    pub hovered_sidebar_entity: Option<SidebarItem>,
+    pub loupe_full_res: Option<(usize, iced::widget::image::Handle)>,
 }
 
 impl App {
@@ -156,6 +165,14 @@ impl App {
             album_pending_delete: None,
             folder_pending_remove: None,
             sidebar_scroll_y: 0.0,
+            last_click_time: None,
+            pending_album_select: None,
+            last_scanned_path: None,
+            remove_from_album_pending: false,
+            smart_album_dirty: false,
+            context_menu: None,
+            hovered_sidebar_entity: None,
+            loupe_full_res: None,
         };
 
         (app, task)
@@ -322,7 +339,8 @@ impl App {
                         if is_smart {
                             execute_search(&guard, &query).unwrap_or_default()
                         } else {
-                            execute_manual_album_search(&guard, &album_id).unwrap_or_default()
+                            execute_manual_album_search(&guard, &album_id, &query)
+                                .unwrap_or_default()
                         }
                     }
                 }
@@ -428,6 +446,9 @@ impl App {
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 Some(Msg::MouseReleased)
             }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                Some(Msg::MouseRightClicked)
+            }
             Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::ModifiersChanged(m)),
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
@@ -437,6 +458,16 @@ impl App {
                 key: keyboard::Key::Named(keyboard::key::Named::Enter),
                 ..
             }) => Some(Msg::OpenLoupe),
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Character(ref c),
+                modifiers,
+                ..
+            }) if modifiers.command() && c.as_str() == "=" => Some(Msg::TileSizeUp),
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Character(ref c),
+                modifiers,
+                ..
+            }) if modifiers.command() && c.as_str() == "-" => Some(Msg::TileSizeDown),
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Character(ref c),
                 ..

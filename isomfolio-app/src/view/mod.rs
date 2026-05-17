@@ -1,18 +1,18 @@
 mod content;
+mod context_menu;
 mod sidebar;
 pub mod styles;
 mod welcome;
 
 use iced::{
-    widget::{button, column, container, image, row, text, Space},
+    widget::{button, column, container, image, row, stack, text, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
-use crate::app::{sort_field_label, App, Msg, SidebarItem, ViewMode};
+use crate::app::{App, Msg, SidebarItem, ViewMode};
 use styles::{
-    active_chip_style, ghost_btn_style, BG_STATUSBAR, FG, FG_DIM, FG_MUTED,
-    SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
-    TEXT_BASE, TEXT_LG, TEXT_MD,
+    active_chip_style, danger_btn_style, ghost_btn_style, BG_STATUSBAR, ERR, FG, FG_DIM, FG_MUTED,
+    SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD,
 };
 
 impl App {
@@ -43,19 +43,14 @@ impl App {
             }
         } else if !self.status.is_empty() {
             self.status.clone()
-        } else if self.grid_selected.len() == 1 && !self.detail.show {
-            "1 photo selected · Enter for loupe · I for info · Drag to album".to_string()
         } else {
-            "Click to select · Cmd+click multi-select · Enter for loupe · Drag to album".to_string()
+            match self.grid_selected.len() {
+                0 => "Click to select".to_string(),
+                1 => "Enter for loupe · I for info · Drag to add to album".to_string(),
+                n => format!("{n} photos selected · Drag to album"),
+            }
         };
 
-        let sort_label = format!(
-            "{} {}",
-            sort_field_label(self.sort_by),
-            if self.sort_asc { "▲" } else { "▼" }
-        );
-
-        let show_criteria = self.criteria.show;
         let show_detail = self.detail.show;
 
         let remove_btn: Option<Element<Msg>> = if matches!(
@@ -64,12 +59,31 @@ impl App {
         ) && !self.grid_selected.is_empty()
         {
             let n = self.grid_selected.len();
-            Some(
-                button(text(format!("Remove {n}")).size(TEXT_MD))
-                    .on_press(Msg::RemoveFromAlbum)
-                    .style(ghost_btn_style)
+            if self.remove_from_album_pending {
+                Some(
+                    row![
+                        text(format!("Remove {n} from album?"))
+                            .size(TEXT_MD)
+                            .color(ERR),
+                        button(text("Cancel").size(TEXT_MD))
+                            .on_press(Msg::CancelRemoveFromAlbum)
+                            .style(ghost_btn_style),
+                        button(text("Remove").size(TEXT_MD))
+                            .on_press(Msg::ConfirmRemoveFromAlbum)
+                            .style(danger_btn_style),
+                    ]
+                    .spacing(SPACE_1_5)
+                    .align_y(Alignment::Center)
                     .into(),
-            )
+                )
+            } else {
+                Some(
+                    button(text(format!("Remove {n}")).size(TEXT_MD))
+                        .on_press(Msg::RemoveFromAlbum)
+                        .style(ghost_btn_style)
+                        .into(),
+                )
+            }
         } else {
             None
         };
@@ -86,23 +100,6 @@ impl App {
         }
 
         status_row = status_row
-            .push({
-                let criteria_active = self.criteria_has_any();
-                let filter_label = if criteria_active {
-                    format!("Filters ●")
-                } else {
-                    "Filters".to_string()
-                };
-                button(text(filter_label).size(TEXT_MD))
-                    .on_press(Msg::ToggleCriteria)
-                    .style(move |t: &Theme, s| {
-                        if show_criteria {
-                            active_chip_style(t, s)
-                        } else {
-                            ghost_btn_style(t, s)
-                        }
-                    })
-            })
             .push(
                 button(text("Info").size(TEXT_MD))
                     .on_press(Msg::ToggleDetail)
@@ -113,11 +110,6 @@ impl App {
                             ghost_btn_style(t, s)
                         }
                     }),
-            )
-            .push(
-                button(text(sort_label).size(TEXT_MD))
-                    .on_press(Msg::SortCycleAll)
-                    .style(ghost_btn_style),
             )
             .push(
                 button(text("−").size(TEXT_LG))
@@ -148,21 +140,59 @@ impl App {
             main_row = main_row.push(self.view_detail());
         }
 
-        column![main_row, status_bar].into()
+        let base: Element<Msg> = column![main_row, status_bar].into();
+
+        if let Some(cm_overlay) = self.view_context_menu() {
+            stack([base, cm_overlay]).into()
+        } else {
+            base
+        }
     }
 
     fn view_loupe(&self) -> Element<'_, Msg> {
         let total = self.files.len();
         let idx = self.loupe_idx.min(total.saturating_sub(1));
 
-        let img_element: Element<Msg> = if let Some(file) = self.files.get(idx) {
-            image(image::Handle::from_path(&file.path))
+        let img_handle: Option<image::Handle> = if let Some((full_idx, handle)) = &self.loupe_full_res {
+            if *full_idx == idx {
+                Some(handle.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let img_element: Element<Msg> = match img_handle {
+            Some(handle) => image(handle)
                 .content_fit(iced::ContentFit::Contain)
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .into()
-        } else {
-            Space::new().width(Length::Fill).height(Length::Fill).into()
+                .into(),
+            None => {
+                if let Some(file) = self.files.get(idx) {
+                    let thumb = self
+                        .thumbnails
+                        .get(&file.id)
+                        .and_then(|s| {
+                            if let isomfolio_core::models::ThumbnailState::Ready(p) = s {
+                                Some(p.clone())
+                            } else {
+                                None
+                            }
+                        });
+                    match thumb {
+                        Some(path) => image(image::Handle::from_path(path))
+                            .content_fit(iced::ContentFit::Contain)
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                            .into(),
+                        None => Space::new().width(Length::Fill).height(Length::Fill).into(),
+                    }
+                } else {
+                    Space::new().width(Length::Fill).height(Length::Fill).into()
+                }
+            }
         };
 
         let filename = self.files.get(idx).map(|f| f.name.as_str()).unwrap_or("");
@@ -242,7 +272,60 @@ impl App {
             ..Default::default()
         });
 
-        container(column![top_bar, img_element, bottom_bar])
+        let hud_bar = {
+            let mut rating_row = row![].spacing(SPACE_1);
+            if let Some(file) = self.files.get(idx) {
+                let rating = self
+                    .loupe_full_res
+                    .as_ref()
+                    .and_then(|_| self.detail.rating)
+                    .or(self.detail.rating);
+                for star in 1..=5i32 {
+                    let filled = rating.map_or(false, |r| r >= star);
+                    rating_row = rating_row.push(
+                        text(if filled { "★" } else { "☆" })
+                            .size(TEXT_BASE)
+                            .color(if filled {
+                                STAR_GOLD
+                            } else {
+                                Color { r: FG.r, g: FG.g, b: FG.b, a: 0.4 }
+                            }),
+                    );
+                }
+                let _ = file;
+            }
+
+            container(
+                row![
+                    Space::new().width(Length::Fill),
+                    rating_row,
+                    Space::new().width(Length::Fill),
+                ]
+                .align_y(Alignment::Center)
+                .spacing(SPACE_2),
+            )
+            .padding([SPACE_1_5, SPACE_3])
+            .width(Length::Fill)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.55,
+                })),
+                ..Default::default()
+            })
+        };
+
+        let main_col: Element<Msg> = column![top_bar, img_element, bottom_bar].into();
+        let hud_overlay: Element<Msg> = container(
+            column![Space::new().height(Length::Fill), hud_bar],
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into();
+
+        container(stack([main_col, hud_overlay]))
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {

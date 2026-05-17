@@ -3,6 +3,21 @@ use std::collections::{HashMap, HashSet};
 use iced::{keyboard, Point};
 use isomfolio_core::models::{Album, AlbumId, AssetFile};
 
+#[derive(Debug, Clone)]
+pub enum ContextMenuTarget {
+    Folder(String),
+    ManualAlbum(AlbumId),
+    SmartAlbum(AlbumId),
+    GridTiles,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContextMenuState {
+    pub position: Point,
+    pub target: ContextMenuTarget,
+    pub submenu_open: bool,
+}
+
 pub const SIDEBAR_WIDTH: f32 = 220.0;
 pub const GRID_PADDING: f32 = 12.0;
 pub const TILE_GAP: f32 = 8.0;
@@ -62,6 +77,7 @@ pub enum Msg {
     MouseMoved(Point),
     MousePressed,
     MouseReleased,
+    MouseRightClicked,
     ModifiersChanged(keyboard::Modifiers),
     EscapePressed,
     Navigate {
@@ -103,6 +119,8 @@ pub enum Msg {
     FolderRemoved,
 
     RemoveFromAlbum,
+    ConfirmRemoveFromAlbum,
+    CancelRemoveFromAlbum,
 
     SortFieldCycle,
     SortDirToggle,
@@ -162,6 +180,17 @@ pub enum Msg {
     ScanDialogDone(Option<String>),
     SortCycleAll,
     NoOp,
+
+    OpenContextMenu(Point, ContextMenuTarget),
+    CloseContextMenu,
+    RescanFolder(String),
+    DuplicateAlbum(AlbumId),
+    ShowInFinder(String),
+    AddSelectionToAlbum(AlbumId),
+    HoverSidebarEntityStart(SidebarItem),
+    HoverSidebarEntityEnd(SidebarItem),
+    ToggleAddToAlbumSubmenu,
+    LoupeFullResLoaded { idx: usize, handle: iced::widget::image::Handle },
 }
 
 pub struct CriteriaState {

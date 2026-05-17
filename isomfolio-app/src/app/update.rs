@@ -11,8 +11,8 @@ use isomfolio_core::path_utils::normalize_path;
 use isomfolio_core::storage::db;
 
 use super::{
-    unix_to_date_str, App, CriteriaState, DetailState, DragState, Msg, SidebarItem, ViewMode,
-    ALBUM_ITEM_HEIGHT, SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_WIDTH,
+    unix_to_date_str, App, ContextMenuState, ContextMenuTarget, CriteriaState, DetailState,
+    DragState, Msg, SidebarItem, ViewMode, ALBUM_ITEM_HEIGHT, SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_WIDTH,
 };
 use isomfolio_core::app_paths::db_path;
 
@@ -50,6 +50,8 @@ impl App {
                 self.dragging_ids.clear();
                 self.criteria.save_smart_input = None;
                 self.detail.file_id = None;
+                self.remove_from_album_pending = false;
+                self.smart_album_dirty = false;
                 self.load_files_task()
             }
 
@@ -69,7 +71,11 @@ impl App {
                 self.albums = albums;
                 self.album_counts = album_counts;
                 self.start_watchers_for_folders();
-                Task::none()
+                if let Some(id) = self.pending_album_select.take() {
+                    Task::done(Msg::SidebarItemClicked(SidebarItem::Album(id)))
+                } else {
+                    Task::none()
+                }
             }
 
             Msg::TileSizeUp => {
@@ -91,7 +97,8 @@ impl App {
                     let delta = dx + dy;
                     self.loupe_idx =
                         (self.loupe_idx as i32 + delta).rem_euclid(total as i32) as usize;
-                    return Task::none();
+                    self.loupe_full_res = None;
+                    return self.load_loupe_full_res();
                 }
                 let cols = self.cols().max(1) as i32;
                 let total = self.files.len() as i32;
@@ -116,11 +123,15 @@ impl App {
                 match self.view_mode {
                     ViewMode::Loupe => {
                         self.view_mode = ViewMode::Browse;
+                        self.loupe_full_res = None;
                     }
                     ViewMode::Browse => {
                         if !self.files.is_empty() {
-                            self.loupe_idx = self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
+                            self.loupe_idx =
+                                self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
                             self.view_mode = ViewMode::Loupe;
+                            self.loupe_full_res = None;
+                            return self.load_loupe_full_res();
                         }
                     }
                 }
@@ -166,7 +177,57 @@ impl App {
                 Task::none()
             }
 
+            Msg::MouseRightClicked => {
+                let pos = self.cursor;
+                if pos.x < SIDEBAR_WIDTH {
+                    // Determine which sidebar entity is under cursor via hovered state
+                    if let Some(ref entity) = self.hovered_sidebar_entity.clone() {
+                        let target = match entity {
+                            SidebarItem::Folder(path) => {
+                                Some(ContextMenuTarget::Folder(path.clone()))
+                            }
+                            SidebarItem::Album(id) => {
+                                let is_smart = self
+                                    .albums
+                                    .iter()
+                                    .find(|a| &a.id == id)
+                                    .map(|a| {
+                                        matches!(
+                                            a.kind,
+                                            isomfolio_core::models::AlbumKind::Smart(_)
+                                        )
+                                    })
+                                    .unwrap_or(false);
+                                if is_smart {
+                                    Some(ContextMenuTarget::SmartAlbum(id.clone()))
+                                } else {
+                                    Some(ContextMenuTarget::ManualAlbum(id.clone()))
+                                }
+                            }
+                            SidebarItem::AllFiles => None,
+                        };
+                        if let Some(t) = target {
+                            self.context_menu = Some(ContextMenuState {
+                                position: pos,
+                                target: t,
+                                submenu_open: false,
+                            });
+                        }
+                    }
+                } else if !self.grid_selected.is_empty() {
+                    self.context_menu = Some(ContextMenuState {
+                        position: pos,
+                        target: ContextMenuTarget::GridTiles,
+                        submenu_open: false,
+                    });
+                } else {
+                    self.context_menu = None;
+                }
+                Task::none()
+            }
+
             Msg::MousePressed => {
+                self.context_menu = None;
                 let pos = self.cursor;
                 if matches!(self.view_mode, ViewMode::Browse) {
                     if let Some(idx) = self.tile_index_at(pos) {
@@ -218,22 +279,47 @@ impl App {
             }
 
             Msg::MouseReleased => {
-                let drop_task = if self.drag.as_ref().map_or(false, |d| d.active) {
+                let was_drag_active = self.drag.as_ref().map_or(false, |d| d.active);
+                let drop_task = if was_drag_active {
                     self.drag_hover_album
                         .clone()
                         .map(|id| Task::done(Msg::DroppedToAlbum(id)))
                 } else {
                     None
                 };
+
+                let loupe_task: Option<Task<Msg>> =
+                    if !was_drag_active && matches!(self.view_mode, ViewMode::Browse) {
+                        if self.tile_index_at(self.cursor).is_some() {
+                            if self
+                                .last_click_time
+                                .map_or(false, |t| t.elapsed().as_millis() < 300)
+                            {
+                                self.last_click_time = None;
+                                Some(Task::done(Msg::OpenLoupe))
+                            } else {
+                                self.last_click_time = Some(Instant::now());
+                                None
+                            }
+                        } else {
+                            self.last_click_time = None;
+                            None
+                        }
+                    } else {
+                        self.last_click_time = None;
+                        None
+                    };
+
                 self.drag = None;
                 self.dragging_ids.clear();
                 self.drag_hover_album = None;
 
                 let detail_task = self.maybe_load_detail();
-                match drop_task {
-                    Some(t) => Task::batch([t, detail_task]),
-                    None => detail_task,
-                }
+                Task::batch(
+                    [drop_task, loupe_task, Some(detail_task)]
+                        .into_iter()
+                        .flatten(),
+                )
             }
 
             Msg::ModifiersChanged(m) => {
@@ -242,6 +328,10 @@ impl App {
             }
 
             Msg::EscapePressed => {
+                if self.context_menu.is_some() {
+                    self.context_menu = None;
+                    return Task::none();
+                }
                 if matches!(self.view_mode, ViewMode::Loupe) {
                     self.view_mode = ViewMode::Browse;
                     return Task::none();
@@ -249,6 +339,7 @@ impl App {
                 self.create_album_input = None;
                 self.rename_album_id = None;
                 self.criteria.save_smart_input = None;
+                self.remove_from_album_pending = false;
                 Task::none()
             }
 
@@ -315,6 +406,7 @@ impl App {
             }
 
             Msg::ScanStart(path) => {
+                self.last_scanned_path = Some(path.clone());
                 self.is_scanning = true;
                 self.status = "Scanning…".to_string();
                 let Some(conn) = self.conn.clone() else {
@@ -341,9 +433,14 @@ impl App {
             Msg::ScanComplete(count) => {
                 self.is_scanning = false;
                 self.status = format!("Scanned {count} photo(s)");
+                let path = self.last_scanned_path.take();
                 let t1 = self.load_sidebar_task();
-                let t2 = self.load_files_task();
-                Task::batch([t1, t2])
+                if let Some(p) = path {
+                    Task::batch([t1, Task::done(Msg::SidebarItemClicked(SidebarItem::Folder(p)))])
+                } else {
+                    let t2 = self.load_files_task();
+                    Task::batch([t1, t2])
+                }
             }
 
             Msg::RequestRemoveFolder(path) => {
@@ -407,6 +504,7 @@ impl App {
                     kind: AlbumKind::Manual,
                     sort_order: 0,
                 };
+                self.pending_album_select = Some(album.id.clone());
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap();
@@ -421,7 +519,7 @@ impl App {
                 Task::none()
             }
 
-            Msg::AlbumCreated | Msg::AlbumRenamed | Msg::SmartAlbumUpdated => {
+            Msg::AlbumCreated | Msg::AlbumRenamed => {
                 self.load_sidebar_task()
             }
 
@@ -503,6 +601,17 @@ impl App {
             }
 
             Msg::RemoveFromAlbum => {
+                self.remove_from_album_pending = true;
+                Task::none()
+            }
+
+            Msg::CancelRemoveFromAlbum => {
+                self.remove_from_album_pending = false;
+                Task::none()
+            }
+
+            Msg::ConfirmRemoveFromAlbum => {
+                self.remove_from_album_pending = false;
                 let SidebarItem::Album(ref album_id) = self.selected_item else {
                     return Task::none();
                 };
@@ -552,6 +661,7 @@ impl App {
             }
 
             Msg::SearchChanged(text) => {
+                self.mark_smart_dirty();
                 self.pending_search = Some((text, Instant::now()));
                 Task::none()
             }
@@ -572,21 +682,25 @@ impl App {
                 if !tag.is_empty() && !self.criteria.tags.contains(&tag) {
                     self.criteria.tags.push(tag);
                 }
+                self.mark_smart_dirty();
                 self.load_files_task()
             }
 
             Msg::RemoveCriteriaTag(tag) => {
                 self.criteria.tags.retain(|t| t != &tag);
+                self.mark_smart_dirty();
                 self.load_files_task()
             }
 
             Msg::CriteriaDateFromChanged(s) => {
                 self.criteria.date_from = s;
+                self.mark_smart_dirty();
                 self.load_files_task()
             }
 
             Msg::CriteriaDateToChanged(s) => {
                 self.criteria.date_to = s;
+                self.mark_smart_dirty();
                 self.load_files_task()
             }
 
@@ -596,6 +710,7 @@ impl App {
                 } else {
                     self.criteria.exts.insert(ext);
                 }
+                self.mark_smart_dirty();
                 self.load_files_task()
             }
 
@@ -604,6 +719,7 @@ impl App {
                 self.criteria.date_from.clear();
                 self.criteria.date_to.clear();
                 self.criteria.exts.clear();
+                self.mark_smart_dirty();
                 self.load_files_task()
             }
 
@@ -640,6 +756,11 @@ impl App {
                     },
                     |()| Msg::AlbumCreated,
                 )
+            }
+
+            Msg::SmartAlbumUpdated => {
+                self.smart_album_dirty = false;
+                self.load_sidebar_task()
             }
 
             Msg::UpdateSmartAlbum => {
@@ -994,8 +1115,161 @@ impl App {
                 Task::done(Msg::CatalogReady)
             }
 
+            Msg::OpenContextMenu(pos, target) => {
+                self.context_menu = Some(ContextMenuState {
+                    position: pos,
+                    target,
+                    submenu_open: false,
+                });
+                Task::none()
+            }
+
+            Msg::ToggleAddToAlbumSubmenu => {
+                if let Some(ref mut cm) = self.context_menu {
+                    cm.submenu_open = !cm.submenu_open;
+                }
+                Task::none()
+            }
+
+            Msg::CloseContextMenu => {
+                self.context_menu = None;
+                Task::none()
+            }
+
+            Msg::HoverSidebarEntityStart(item) => {
+                self.hovered_sidebar_entity = Some(item);
+                Task::none()
+            }
+
+            Msg::HoverSidebarEntityEnd(item) => {
+                if self.hovered_sidebar_entity.as_ref() == Some(&item) {
+                    self.hovered_sidebar_entity = None;
+                }
+                Task::none()
+            }
+
+            Msg::RescanFolder(path) => {
+                self.context_menu = None;
+                self.is_scanning = true;
+                self.status = "Scanning…".to_string();
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                let wtx = self.watcher_tx.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let guard = conn.lock().unwrap();
+                            scanner::scan_folder(&guard, &path, &|_| {}, &|prog| {
+                                let _ = wtx.try_send(FileEvent::ScanProgress(prog));
+                            })
+                            .map(|r| r.total_count)
+                            .unwrap_or(0)
+                        })
+                        .await
+                        .unwrap_or(0)
+                    },
+                    Msg::ScanComplete,
+                )
+            }
+
+            Msg::DuplicateAlbum(album_id) => {
+                self.context_menu = None;
+                let Some(src) = self.albums.iter().find(|a| a.id == album_id).cloned() else {
+                    return Task::none();
+                };
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                let new_id = new_album_id();
+                self.pending_album_select = Some(new_id.clone());
+                Task::perform(
+                    async move {
+                        let guard = conn.lock().unwrap();
+                        let new_album = Album {
+                            id: new_id.clone(),
+                            name: format!("{} copy", src.name),
+                            kind: src.kind.clone(),
+                            sort_order: 0,
+                        };
+                        let _ = db::create_album(&guard, &new_album);
+                        if matches!(src.kind, AlbumKind::Manual) {
+                            let _ = db::copy_album_files(&guard, &album_id, &new_id);
+                        }
+                    },
+                    |()| Msg::AlbumCreated,
+                )
+            }
+
+            Msg::ShowInFinder(path) => {
+                self.context_menu = None;
+                let _ = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+                Task::none()
+            }
+
+            Msg::AddSelectionToAlbum(album_id) => {
+                self.context_menu = None;
+                let ids: Vec<String> = self.grid_selected.iter().cloned().collect();
+                let count = ids.len();
+                let name = self
+                    .albums
+                    .iter()
+                    .find(|a| a.id == album_id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_default();
+                self.status = format!("Added {count} photo(s) to \"{name}\"");
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let guard = conn.lock().unwrap();
+                        for fid in &ids {
+                            let _ = db::add_file_to_album(&guard, &album_id, fid);
+                        }
+                    },
+                    |()| Msg::DropCompleted,
+                )
+            }
+
+            Msg::LoupeFullResLoaded { idx, handle } => {
+                if self.loupe_idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
+                    self.loupe_full_res = Some((idx, handle));
+                }
+                Task::none()
+            }
+
             Msg::NoOp => Task::none(),
         }
+    }
+}
+
+impl App {
+    fn mark_smart_dirty(&mut self) {
+        if self.current_album_is_smart() {
+            self.smart_album_dirty = true;
+        }
+    }
+
+    pub(crate) fn load_loupe_full_res(&self) -> Task<Msg> {
+        let idx = self.loupe_idx;
+        let Some(file) = self.files.get(idx) else {
+            return Task::none();
+        };
+        let path = file.path.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    iced::widget::image::Handle::from_path(&path)
+                })
+                .await
+                .ok()
+            },
+            move |handle_opt| match handle_opt {
+                Some(handle) => Msg::LoupeFullResLoaded { idx, handle },
+                None => Msg::NoOp,
+            },
+        )
     }
 }
 
