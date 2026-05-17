@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
@@ -191,8 +191,6 @@ pub struct App {
     pub watcher_rx: mpsc::Receiver<FileEvent>,
     pub watchers: Vec<(String, FileWatcher)>,
 
-    pub scan_count: Arc<AtomicUsize>,
-    pub scan_folder_name: String,
 
     pub search_text: String,
     pub pending_search: Option<(String, Instant)>,
@@ -270,8 +268,6 @@ impl App {
             watcher_tx: wtx,
             watcher_rx: wrx,
             watchers: Vec::new(),
-            scan_count: Arc::new(AtomicUsize::new(0)),
-            scan_folder_name: String::new(),
             search_text: String::new(),
             pending_search: None,
             create_album_input: None,
@@ -812,21 +808,15 @@ impl App {
 
             Msg::ScanStart(path) => {
                 self.is_scanning = true;
-                self.scan_folder_name = std::path::Path::new(&path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(&path)
-                    .to_string();
-                self.scan_count.store(0, Ordering::Relaxed);
-                self.status = format!("Scanning {}…", self.scan_folder_name);
+                self.status = "Scanning…".to_string();
                 let Some(conn) = self.conn.clone() else { return Task::none(); };
-                let count = Arc::clone(&self.scan_count);
+                let wtx = self.watcher_tx.clone();
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             let guard = conn.lock().unwrap();
                             scanner::scan_folder(&guard, &path, &|_| {}, &|prog| {
-                                count.store(prog.total_found, Ordering::Relaxed);
+                                let _ = wtx.try_send(FileEvent::ScanProgress(prog));
                             })
                             .map(|r| r.total_count)
                             .unwrap_or(0)
@@ -1208,14 +1198,6 @@ impl App {
                         }
                     }
                 }
-                // Update scan progress
-                if self.is_scanning {
-                    let n = self.scan_count.load(Ordering::Relaxed);
-                    if n > 0 {
-                        self.status = format!("Scanning {}… {} found", self.scan_folder_name, n);
-                    }
-                }
-
                 let mut tasks: Vec<Task<Msg>> = Vec::new();
 
                 // Flush search debounce after 300ms idle
@@ -1233,7 +1215,12 @@ impl App {
                 // Drain file watcher events
                 let mut file_events: Vec<FileEvent> = Vec::new();
                 while let Ok(ev) = self.watcher_rx.try_recv() {
-                    file_events.push(ev);
+                    match ev {
+                        FileEvent::ScanProgress(prog) => {
+                            self.status = format!("Scanning {}… {} found", prog.folder_name, prog.total_found);
+                        }
+                        other => file_events.push(other),
+                    }
                 }
                 if !file_events.is_empty() {
                     if let Some(conn) = self.conn.clone() {
@@ -1260,6 +1247,7 @@ impl App {
                                             let _ = scanner::resync_sidecar_files(&guard, &[path]);
                                         }
                                         FileEvent::SidecarRemoved(_) => {}
+                                        FileEvent::ScanProgress(_) => {}
                                     }
                                 }
                             },

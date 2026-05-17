@@ -168,6 +168,7 @@ where
                     | FileEvent::Modified(p) | FileEvent::SidecarChanged(p)
                     | FileEvent::SidecarRemoved(p) => p.clone(),
                     FileEvent::Renamed { new_path, .. } => new_path.clone(),
+                    FileEvent::ScanProgress(_) => continue,
                 };
                 let mut map = pending.lock().unwrap();
                 map.insert(debounce_key, (file_event, Instant::now()));
