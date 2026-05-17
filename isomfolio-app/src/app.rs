@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
 
 use iced::{
     Event, Point, Subscription, Task,
@@ -194,6 +195,7 @@ pub struct App {
     pub scan_folder_name: String,
 
     pub search_text: String,
+    pub pending_search: Option<(String, Instant)>,
     pub create_album_input: Option<String>,
     pub rename_album_id: Option<AlbumId>,
     pub rename_album_input: String,
@@ -271,6 +273,7 @@ impl App {
             scan_count: Arc::new(AtomicUsize::new(0)),
             scan_folder_name: String::new(),
             search_text: String::new(),
+            pending_search: None,
             create_album_input: None,
             rename_album_id: None,
             rename_album_input: String::new(),
@@ -1003,11 +1006,8 @@ impl App {
             }
 
             Msg::SearchChanged(text) => {
-                self.search_text = text;
-                self.scroll_y = 0.0;
-                self.files.clear();
-                self.grid_selected.clear();
-                self.load_files_task()
+                self.pending_search = Some((text, Instant::now()));
+                Task::none()
             }
 
             // Criteria panel
@@ -1217,6 +1217,21 @@ impl App {
                         self.status = format!("Scanning {}… {} found", self.scan_folder_name, n);
                     }
                 }
+
+                let mut tasks: Vec<Task<Msg>> = Vec::new();
+
+                // Flush search debounce after 300ms idle
+                if let Some((_, ts)) = &self.pending_search {
+                    if ts.elapsed() >= Duration::from_millis(300) {
+                        let (text, _) = self.pending_search.take().unwrap();
+                        self.search_text = text;
+                        self.scroll_y = 0.0;
+                        self.files.clear();
+                        self.grid_selected.clear();
+                        tasks.push(self.load_files_task());
+                    }
+                }
+
                 // Drain file watcher events
                 let mut file_events: Vec<FileEvent> = Vec::new();
                 if let Ok(rx) = self.watcher_rx.lock() {
@@ -1224,38 +1239,40 @@ impl App {
                         file_events.push(ev);
                     }
                 }
-                if file_events.is_empty() {
-                    return Task::none();
+                if !file_events.is_empty() {
+                    if let Some(conn) = self.conn.clone() {
+                        tasks.push(Task::perform(
+                            async move {
+                                let guard = conn.lock().unwrap();
+                                for event in file_events {
+                                    match event {
+                                        FileEvent::Created(path) | FileEvent::Modified(path) => {
+                                            let _ = scanner::resync_files(&guard, &[path]);
+                                        }
+                                        FileEvent::Deleted(path) => {
+                                            let norm = normalize_path(&path);
+                                            let fid = compute_file_id(&norm);
+                                            let _ = db::mark_orphaned(&guard, &fid);
+                                        }
+                                        FileEvent::Renamed { old_path, new_path } => {
+                                            let norm = normalize_path(&old_path);
+                                            let old_fid = compute_file_id(&norm);
+                                            let _ = db::mark_orphaned(&guard, &old_fid);
+                                            let _ = scanner::resync_files(&guard, &[new_path]);
+                                        }
+                                        FileEvent::SidecarChanged(path) => {
+                                            let _ = scanner::resync_sidecar_files(&guard, &[path]);
+                                        }
+                                        FileEvent::SidecarRemoved(_) => {}
+                                    }
+                                }
+                            },
+                            |()| Msg::Reload,
+                        ));
+                    }
                 }
-                let Some(conn) = self.conn.clone() else { return Task::none(); };
-                Task::perform(
-                    async move {
-                        let guard = conn.lock().unwrap();
-                        for event in file_events {
-                            match event {
-                                FileEvent::Created(path) | FileEvent::Modified(path) => {
-                                    let _ = scanner::resync_files(&guard, &[path]);
-                                }
-                                FileEvent::Deleted(path) => {
-                                    let norm = normalize_path(&path);
-                                    let fid = compute_file_id(&norm);
-                                    let _ = db::mark_orphaned(&guard, &fid);
-                                }
-                                FileEvent::Renamed { old_path, new_path } => {
-                                    let norm = normalize_path(&old_path);
-                                    let old_fid = compute_file_id(&norm);
-                                    let _ = db::mark_orphaned(&guard, &old_fid);
-                                    let _ = scanner::resync_files(&guard, &[new_path]);
-                                }
-                                FileEvent::SidecarChanged(path) => {
-                                    let _ = scanner::resync_sidecar_files(&guard, &[path]);
-                                }
-                                FileEvent::SidecarRemoved(_) => {}
-                            }
-                        }
-                    },
-                    |()| Msg::Reload,
-                )
+
+                Task::batch(tasks)
             }
 
             Msg::DbError(e) => {
