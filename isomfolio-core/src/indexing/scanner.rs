@@ -143,54 +143,63 @@ pub fn reconcile_folder(
     let mut fs_files: HashMap<String, fs::Metadata> = HashMap::new();
     let mut sidecar_files: HashMap<String, (String, u64)> = HashMap::new(); // img_path → (xmp_path, mtime)
 
-    match fs::read_dir(root_path) {
-        Ok(entries) => {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = match entry.path().to_str() {
-                    Some(p) => p.to_string(),
-                    None => continue,
-                };
-                let meta = match entry.metadata() {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-                if !meta.is_file() {
-                    continue;
-                }
-                let ext = Path::new(&path)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
+    let mut dirs = vec![root_path.to_string()];
+    while let Some(dir) = dirs.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("Reconcile: cannot enumerate {dir} — {e}");
+                continue;
+            }
+        };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = match entry.path().to_str() {
+                Some(p) => p.to_string(),
+                None => continue,
+            };
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if meta.is_dir() {
+                dirs.push(path);
+                continue;
+            }
+            if !meta.is_file() {
+                continue;
+            }
+            let ext = Path::new(&path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
 
-                if ext == "xmp" {
-                    let base = Path::new(&path).with_extension("");
-                    let resolved = ["jpg", "jpeg", "png", "webp", "gif"].iter().find_map(|e| {
-                        let candidate = normalize_path(&format!("{}.{}", base.display(), e));
-                        if indexed.contains_key(&candidate) {
-                            Some(candidate)
-                        } else {
-                            None
-                        }
-                    });
-                    if let Some(img_path) = resolved {
-                        let mtime = meta
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
-                        let entry = sidecar_files.entry(img_path).or_insert((path.clone(), 0));
-                        if mtime > entry.1 {
-                            *entry = (path, mtime);
-                        }
+            if ext == "xmp" {
+                let base = Path::new(&path).with_extension("");
+                let resolved = ["jpg", "jpeg", "png", "webp", "gif"].iter().find_map(|e| {
+                    let candidate = normalize_path(&format!("{}.{}", base.display(), e));
+                    if indexed.contains_key(&candidate) {
+                        Some(candidate)
+                    } else {
+                        None
                     }
-                } else if is_supported_extension(&ext) {
-                    fs_files.insert(normalize_path(&path), meta);
+                });
+                if let Some(img_path) = resolved {
+                    let mtime = meta
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let entry = sidecar_files.entry(img_path).or_insert((path.clone(), 0));
+                    if mtime > entry.1 {
+                        *entry = (path, mtime);
+                    }
                 }
+            } else if is_supported_extension(&ext) {
+                fs_files.insert(normalize_path(&path), meta);
             }
         }
-        Err(e) => eprintln!("Reconcile: cannot enumerate {root_path} — {e}"),
     }
 
     let new_or_modified: Vec<String> = fs_files
