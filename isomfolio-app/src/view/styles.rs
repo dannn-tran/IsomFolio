@@ -95,6 +95,30 @@ pub const DANGER: Color = Color {
     b: 0.12,
     a: 1.0,
 };
+pub const ACCENT_HOVER: Color = Color {
+    r: 0.28,
+    g: 0.62,
+    b: 1.0,
+    a: 1.0,
+};
+pub const ACCENT_PRESSED: Color = Color {
+    r: 0.15,
+    g: 0.45,
+    b: 0.82,
+    a: 1.0,
+};
+pub const DANGER_HOVER: Color = Color {
+    r: 0.75,
+    g: 0.18,
+    b: 0.18,
+    a: 1.0,
+};
+pub const DANGER_PRESSED: Color = Color {
+    r: 0.52,
+    g: 0.08,
+    b: 0.08,
+    a: 1.0,
+};
 
 pub const TEXT_XS: f32 = 10.0;
 pub const TEXT_SM: f32 = 11.0;
@@ -139,21 +163,11 @@ pub fn ghost_btn_style(_theme: &Theme, status: button::Status) -> button::Style 
     }
 }
 
-pub fn active_chip_style(_theme: &Theme, status: button::Status) -> button::Style {
+fn solid_btn(base: Color, hover: Color, pressed: Color, status: button::Status) -> button::Style {
     let bg = match status {
-        button::Status::Hovered => Color {
-            r: 0.28,
-            g: 0.62,
-            b: 1.0,
-            a: 1.0,
-        },
-        button::Status::Pressed => Color {
-            r: 0.15,
-            g: 0.45,
-            b: 0.82,
-            a: 1.0,
-        },
-        _ => ACCENT,
+        button::Status::Hovered => hover,
+        button::Status::Pressed => pressed,
+        _ => base,
     };
     button::Style {
         background: Some(Background::Color(bg)),
@@ -167,40 +181,12 @@ pub fn active_chip_style(_theme: &Theme, status: button::Status) -> button::Styl
     }
 }
 
-pub fn inactive_chip_style(_theme: &Theme, status: button::Status) -> button::Style {
-    let alpha = match status {
-        button::Status::Hovered => 0.15,
-        button::Status::Pressed => 0.22,
-        _ => 0.08,
-    };
-    button::Style {
-        background: Some(Background::Color(Color {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-            a: alpha,
-        })),
-        text_color: FG,
-        border: Border {
-            radius: 4.0.into(),
-            ..Default::default()
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
+pub fn active_chip_style(_theme: &Theme, status: button::Status) -> button::Style {
+    solid_btn(ACCENT, ACCENT_HOVER, ACCENT_PRESSED, status)
 }
 
-pub fn danger_btn_style(_theme: &Theme, _status: button::Status) -> button::Style {
-    button::Style {
-        background: Some(Background::Color(DANGER)),
-        text_color: Color::WHITE,
-        border: Border {
-            radius: 4.0.into(),
-            ..Default::default()
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
+pub fn danger_btn_style(_theme: &Theme, status: button::Status) -> button::Style {
+    solid_btn(DANGER, DANGER_HOVER, DANGER_PRESSED, status)
 }
 
 pub fn sidebar_divider<'a>() -> Element<'a, Msg> {
@@ -225,12 +211,12 @@ pub fn confirm_action_row<'a>(
 
     container(
         row![
-            text(prompt).size(11).color(ERR),
+            text(prompt).size(TEXT_SM).color(ERR),
             Space::new().width(Length::Fill),
-            button(text("Cancel").size(11))
+            button(text("Cancel").size(TEXT_SM))
                 .on_press(cancel_msg)
                 .style(ghost_btn_style),
-            button(text("Confirm").size(11))
+            button(text("Confirm").size(TEXT_SM))
                 .on_press(confirm_msg)
                 .style(danger_btn_style),
         ]

@@ -7,7 +7,7 @@ use iced::{
 use isomfolio_core::models::ThumbnailState;
 
 use super::styles::{
-    active_chip_style, ghost_btn_style, inactive_chip_style, ACCENT, BG_CRITERIA, BG_GRID,
+    active_chip_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID,
     BG_TILE_LOADING, BORDER, ERR, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1,
     SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE,
     TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
@@ -235,7 +235,7 @@ impl App {
             ext_row = ext_row.push(
                 button(text(format!(".{}", ext.to_uppercase())).size(TEXT_SM))
                     .on_press(Msg::ToggleCriteriaExt(ext.to_string()))
-                    .style(if active { active_chip_style } else { inactive_chip_style }),
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
             );
         }
         col = col.push(ext_row);

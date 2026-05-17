@@ -5,7 +5,7 @@ use iced::{
 
 use super::styles::{
     active_chip_style, ghost_btn_style, ACCENT, BG_GRID, BG_MODAL, BORDER, ERR, FG, FG_DIM,
-    FG_MUTED, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, SPACE_4, SPACE_5, SPACE_6,
+    FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, SPACE_4, SPACE_6,
     TEXT_BASE, TEXT_DISPLAY, TEXT_LG, TEXT_MD, TEXT_SM, TEXT_TITLE,
 };
 use crate::app::{App, Msg};
@@ -93,11 +93,11 @@ impl App {
 
         let mut base = column![
             text("IsomFolio").size(TEXT_DISPLAY).color(FG),
-            Space::new().height(SPACE_1),
+            Space::new().height(SPACE_0_5),
             text("Photo library manager").size(TEXT_LG).color(FG_DIM),
-            Space::new().height(SPACE_6),
+            Space::new().height(SPACE_3),
             recent_section,
-            Space::new().height(SPACE_4),
+            Space::new().height(SPACE_2),
             actions,
         ]
         .align_x(Alignment::Start)
@@ -114,7 +114,7 @@ impl App {
         let base_layer: Element<'_, Msg> = container(base)
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding([SPACE_5, SPACE_6])
+            .padding([SPACE_3, SPACE_4])
             .align_x(Alignment::Center)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_GRID)),
