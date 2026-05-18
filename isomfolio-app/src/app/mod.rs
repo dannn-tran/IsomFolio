@@ -484,57 +484,60 @@ impl App {
     pub fn subscription(&self) -> Subscription<Msg> {
         let tick_sub = iced::time::every(std::time::Duration::from_millis(50)).map(|_| Msg::Tick);
 
-        let event_sub = event::listen_with(|event, _status, _id| match event {
-            Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::MouseMoved(position)),
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                Some(Msg::MousePressed)
+        let event_sub = event::listen_with(|event, status, _id| {
+            let ignored = status == iced::event::Status::Ignored;
+            match event {
+                Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::MouseMoved(position)),
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                    Some(Msg::MousePressed)
+                }
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                    Some(Msg::MouseReleased)
+                }
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                    Some(Msg::MouseRightClicked)
+                }
+                Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::ModifiersChanged(m)),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                    ..
+                }) => Some(Msg::EscapePressed),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::Enter),
+                    ..
+                }) if ignored => Some(Msg::OpenLoupe),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    modifiers,
+                    ..
+                }) if ignored && modifiers.command() && c.as_str() == "=" => Some(Msg::TileSizeUp),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    modifiers,
+                    ..
+                }) if ignored && modifiers.command() && c.as_str() == "-" => Some(Msg::TileSizeDown),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "i" => Some(Msg::ToggleDetail),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
+                    ..
+                }) if ignored => Some(Msg::Navigate { dx: -1, dy: 0 }),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::ArrowRight),
+                    ..
+                }) if ignored => Some(Msg::Navigate { dx: 1, dy: 0 }),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+                    ..
+                }) if ignored => Some(Msg::Navigate { dx: 0, dy: -1 }),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::ArrowDown),
+                    ..
+                }) if ignored => Some(Msg::Navigate { dx: 0, dy: 1 }),
+                _ => None,
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                Some(Msg::MouseReleased)
-            }
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
-                Some(Msg::MouseRightClicked)
-            }
-            Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::ModifiersChanged(m)),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Named(keyboard::key::Named::Escape),
-                ..
-            }) => Some(Msg::EscapePressed),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Named(keyboard::key::Named::Enter),
-                ..
-            }) => Some(Msg::OpenLoupe),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Character(ref c),
-                modifiers,
-                ..
-            }) if modifiers.command() && c.as_str() == "=" => Some(Msg::TileSizeUp),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Character(ref c),
-                modifiers,
-                ..
-            }) if modifiers.command() && c.as_str() == "-" => Some(Msg::TileSizeDown),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Character(ref c),
-                ..
-            }) if c.as_str() == "i" => Some(Msg::ToggleDetail),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
-                ..
-            }) => Some(Msg::Navigate { dx: -1, dy: 0 }),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Named(keyboard::key::Named::ArrowRight),
-                ..
-            }) => Some(Msg::Navigate { dx: 1, dy: 0 }),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Named(keyboard::key::Named::ArrowUp),
-                ..
-            }) => Some(Msg::Navigate { dx: 0, dy: -1 }),
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Named(keyboard::key::Named::ArrowDown),
-                ..
-            }) => Some(Msg::Navigate { dx: 0, dy: 1 }),
-            _ => None,
         });
 
         Subscription::batch([tick_sub, event_sub])

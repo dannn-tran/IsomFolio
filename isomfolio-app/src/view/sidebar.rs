@@ -37,32 +37,35 @@ impl App {
         let albums_header: Element<Msg> = row![
             text("Albums").size(TEXT_SM).color(FG_DIM),
             Space::new().width(Length::Fill),
+            button(text("⚡").size(TEXT_MD))
+                .on_press(Msg::ToggleCriteria)
+                .style(ghost_btn_style),
             button(text("+").size(TEXT_BASE))
                 .on_press(Msg::StartCreateAlbum)
                 .style(ghost_btn_style),
         ]
+        .spacing(SPACE_0_5)
         .align_y(Alignment::Center)
         .into();
 
         let is_scan_active = self.is_scanning || self.scan_pending;
-        let scan_btn_label = if is_scan_active {
-            "Scanning…"
-        } else {
-            "Add Folder…"
-        };
-        let folders_header: Element<Msg> = row![
+        let mut folders_header_row = row![
             text("Folders").size(TEXT_SM).color(FG_DIM),
-            Space::new().width(Length::Fill),
-            button(text(scan_btn_label).size(TEXT_SM))
-                .on_press(if is_scan_active {
-                    Msg::NoOp
-                } else {
-                    Msg::ScanPickFolder
-                })
-                .style(ghost_btn_style),
-        ]
-        .align_y(Alignment::Center)
-        .into();
+        ];
+        if is_scan_active {
+            folders_header_row = folders_header_row
+                .push(Space::new().width(SPACE_1))
+                .push(text("Scanning…").size(TEXT_SM).color(FG_DIM));
+        }
+        let folders_header: Element<Msg> = folders_header_row
+            .push(Space::new().width(Length::Fill))
+            .push(
+                button(text("+").size(TEXT_BASE))
+                    .on_press(if is_scan_active { Msg::NoOp } else { Msg::ScanPickFolder })
+                    .style(ghost_btn_style),
+            )
+            .align_y(Alignment::Center)
+            .into();
 
         let mut content = column![
             catalog_header,
@@ -108,6 +111,32 @@ impl App {
             .push(Space::new().height(SPACE_1))
             .push(albums_header);
 
+        if let Some(ref input_val) = self.create_album_input {
+            content = content.push(
+                container(
+                    row![
+                        text_input("Album name…", input_val)
+                            .on_input(Msg::CreateAlbumInputChanged)
+                            .on_submit(Msg::ConfirmCreateAlbum)
+                            .padding([SPACE_1_5, SPACE_2])
+                            .size(TEXT_BASE)
+                            .width(Length::Fill),
+                        button(text("✓").size(TEXT_SM).color(FG))
+                            .on_press(Msg::ConfirmCreateAlbum)
+                            .style(ghost_btn_style),
+                        button(text("✕").size(TEXT_SM).color(FG_DIM))
+                            .on_press(Msg::EscapePressed)
+                            .style(ghost_btn_style),
+                    ]
+                    .spacing(SPACE_1)
+                    .align_y(Alignment::Center),
+                )
+                .height(ALBUM_ITEM_HEIGHT)
+                .align_y(Alignment::Center)
+                .padding([0.0, SPACE_1]),
+            );
+        }
+
         for album in &self.albums {
             let sel = self.selected_item == SidebarItem::Album(album.id.clone());
             let hovered = drag_hover.as_deref() == Some(album.id.as_str());
@@ -123,11 +152,22 @@ impl App {
             } else if self.rename_album_id.as_deref() == Some(album.id.as_str()) {
                 content = content.push(
                     container(
-                        text_input(&album.name, &self.rename_album_input)
-                            .on_input(Msg::RenameAlbumInputChanged)
-                            .on_submit(Msg::ConfirmRenameAlbum)
-                            .padding([SPACE_1_5, SPACE_2])
-                            .size(TEXT_BASE),
+                        row![
+                            text_input(&album.name, &self.rename_album_input)
+                                .on_input(Msg::RenameAlbumInputChanged)
+                                .on_submit(Msg::ConfirmRenameAlbum)
+                                .padding([SPACE_1_5, SPACE_2])
+                                .size(TEXT_BASE)
+                                .width(Length::Fill),
+                            button(text("✓").size(TEXT_SM).color(FG))
+                                .on_press(Msg::ConfirmRenameAlbum)
+                                .style(ghost_btn_style),
+                            button(text("✕").size(TEXT_SM).color(FG_DIM))
+                                .on_press(Msg::EscapePressed)
+                                .style(ghost_btn_style),
+                        ]
+                        .spacing(SPACE_1)
+                        .align_y(Alignment::Center),
                     )
                     .height(ALBUM_ITEM_HEIGHT)
                     .align_y(Alignment::Center)
@@ -146,16 +186,6 @@ impl App {
                     album_hovered,
                 ));
             }
-        }
-
-        if let Some(ref input_val) = self.create_album_input {
-            content = content.push(
-                text_input("Album name…", input_val)
-                    .on_input(Msg::CreateAlbumInputChanged)
-                    .on_submit(Msg::ConfirmCreateAlbum)
-                    .padding([SPACE_1_5, SPACE_2])
-                    .size(TEXT_BASE),
-            );
         }
 
         let sidebar_scroll = scrollable(content.spacing(SPACE_0_5).padding(SPACE_3))
