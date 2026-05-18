@@ -92,7 +92,7 @@ pub enum Msg {
         width: f32,
     },
 
-    DroppedToAlbum(AlbumId),
+    DroppedToAlbum(AlbumId, Vec<String>),
     DropCompleted,
 
     ScanPickFolder,

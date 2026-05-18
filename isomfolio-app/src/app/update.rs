@@ -167,7 +167,13 @@ impl App {
                         let row_h = ALBUM_ITEM_HEIGHT + 2.0;
                         self.drag_hover_album = if y_in_content >= 0.0 {
                             let idx = (y_in_content / row_h) as usize;
-                            self.albums.get(idx).map(|a| a.id.clone())
+                            self.albums.get(idx).and_then(|a| {
+                                if matches!(a.kind, AlbumKind::Manual) {
+                                    Some(a.id.clone())
+                                } else {
+                                    None
+                                }
+                            })
                         } else {
                             None
                         };
@@ -282,9 +288,10 @@ impl App {
             Msg::MouseReleased => {
                 let was_drag_active = self.drag.as_ref().map_or(false, |d| d.active);
                 let drop_task = if was_drag_active {
-                    self.drag_hover_album
-                        .clone()
-                        .map(|id| Task::done(Msg::DroppedToAlbum(id)))
+                    self.drag_hover_album.clone().map(|id| {
+                        let ids: Vec<String> = self.dragging_ids.iter().cloned().collect();
+                        Task::done(Msg::DroppedToAlbum(id, ids))
+                    })
                 } else {
                     None
                 };
@@ -355,8 +362,7 @@ impl App {
                 Task::none()
             }
 
-            Msg::DroppedToAlbum(album_id) => {
-                let ids: Vec<String> = self.dragging_ids.iter().cloned().collect();
+            Msg::DroppedToAlbum(album_id, ids) => {
                 self.drag = None;
                 self.dragging_ids.clear();
                 self.drag_hover_album = None;
