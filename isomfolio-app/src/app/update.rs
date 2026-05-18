@@ -1162,7 +1162,7 @@ impl App {
                 self.show_welcome = false;
                 self.tag_browser = None;
                 self.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
-                Task::done(Msg::CatalogReady)
+                Task::batch([Task::done(Msg::CatalogReady), App::resize_to_main()])
             }
 
             Msg::OpenContextMenu(pos, target) => {

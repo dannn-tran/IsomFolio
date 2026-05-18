@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
 
-use iced::{event, keyboard, mouse, Event, Point, Subscription, Task};
+use iced::{event, keyboard, mouse, Event, Point, Size, Subscription, Task};
 
 use isomfolio_core::app_paths::db_path;
 use isomfolio_core::indexing::thumbnail::{
@@ -114,7 +114,7 @@ impl App {
                 };
                 (dir, conn, status, false, Task::done(Msg::CatalogReady))
             }
-            None => (String::new(), None, String::new(), true, Task::none()),
+            None => (String::new(), None, String::new(), true, Self::resize_to_welcome()),
         };
 
         let app = App {
@@ -178,6 +178,20 @@ impl App {
         };
 
         (app, task)
+    }
+
+    pub(crate) fn resize_to_welcome() -> Task<Msg> {
+        iced::window::oldest().then(|opt_id| match opt_id {
+            Some(id) => iced::window::resize(id, Size::new(720.0, 520.0)),
+            None => Task::none(),
+        })
+    }
+
+    pub(crate) fn resize_to_main() -> Task<Msg> {
+        iced::window::oldest().then(|opt_id| match opt_id {
+            Some(id) => iced::window::resize(id, Size::new(1280.0, 800.0)),
+            None => Task::none(),
+        })
     }
 
     pub fn window_title(&self) -> String {
