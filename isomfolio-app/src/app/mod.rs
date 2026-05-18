@@ -91,6 +91,7 @@ pub struct App {
     pub context_menu: Option<ContextMenuState>,
     pub hovered_sidebar_entity: Option<SidebarItem>,
     pub loupe_full_res: Option<(usize, iced::widget::image::Handle)>,
+    pub tag_browser: Option<TagBrowserState>,
 }
 
 impl App {
@@ -173,6 +174,7 @@ impl App {
             context_menu: None,
             hovered_sidebar_entity: None,
             loupe_full_res: None,
+            tag_browser: None,
         };
 
         (app, task)
@@ -405,6 +407,36 @@ impl App {
                 label,
                 title,
             },
+        )
+    }
+
+    pub(crate) fn load_all_tags_task(&self) -> Task<Msg> {
+        let Some(conn) = self.conn.clone() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let g = conn.lock().unwrap();
+                db::get_all_tags(&g)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(t, _)| t)
+                    .collect()
+            },
+            Msg::AllTagsLoaded,
+        )
+    }
+
+    pub(crate) fn load_tag_browser_task(&self) -> Task<Msg> {
+        let Some(conn) = self.conn.clone() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let g = conn.lock().unwrap();
+                db::get_all_tags(&g).unwrap_or_default()
+            },
+            Msg::TagBrowserLoaded,
         )
     }
 

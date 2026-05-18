@@ -2,6 +2,7 @@ mod content;
 mod context_menu;
 mod sidebar;
 pub mod styles;
+mod tag_browser;
 mod welcome;
 
 use iced::{
@@ -142,10 +143,17 @@ impl App {
 
         let base: Element<Msg> = column![main_row, status_bar].into();
 
-        if let Some(cm_overlay) = self.view_context_menu() {
-            stack([base, cm_overlay]).into()
+        let mut layers: Vec<Element<Msg>> = vec![base];
+        if let Some(cm) = self.view_context_menu() {
+            layers.push(cm);
+        }
+        if let Some(tb) = self.view_tag_browser() {
+            layers.push(tb);
+        }
+        if layers.len() == 1 {
+            layers.remove(0)
         } else {
-            base
+            stack(layers).into()
         }
     }
 

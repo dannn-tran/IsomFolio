@@ -12,7 +12,8 @@ use isomfolio_core::storage::db;
 
 use super::{
     unix_to_date_str, App, ContextMenuState, ContextMenuTarget, CriteriaState, DetailState,
-    DragState, Msg, SidebarItem, ViewMode, ALBUM_ITEM_HEIGHT, SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_WIDTH,
+    DragState, Msg, SidebarItem, TagBrowserState, ViewMode, ALBUM_ITEM_HEIGHT,
+    SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_WIDTH,
 };
 use isomfolio_core::app_paths::db_path;
 
@@ -328,6 +329,10 @@ impl App {
             }
 
             Msg::EscapePressed => {
+                if self.tag_browser.is_some() {
+                    self.tag_browser = None;
+                    return Task::none();
+                }
                 if self.context_menu.is_some() {
                     self.context_menu = None;
                     return Task::none();
@@ -803,7 +808,7 @@ impl App {
                 self.detail.rating = rating;
                 self.detail.label = label;
                 self.detail.title = title;
-                Task::none()
+                self.load_all_tags_task()
             }
 
             Msg::DetailTagInputChanged(s) => {
@@ -830,8 +835,42 @@ impl App {
                     async move {
                         let g = conn.lock().unwrap();
                         let _ = db::upsert_tags(&g, &fid, &tags);
+                        db::get_all_tags(&g)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|(t, _)| t)
+                            .collect::<Vec<_>>()
                     },
-                    |()| Msg::NoOp,
+                    Msg::AllTagsLoaded,
+                )
+            }
+
+            Msg::AddDetailTagDirect(tag) => {
+                let tag = tag.trim().to_string();
+                if tag.is_empty() || self.detail.tags.contains(&tag) {
+                    return Task::none();
+                }
+                self.detail.tags.push(tag);
+                self.detail.tag_input.clear();
+                let Some(ref fid) = self.detail.file_id else {
+                    return Task::none();
+                };
+                let fid = fid.clone();
+                let tags = self.detail.tags.clone();
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap();
+                        let _ = db::upsert_tags(&g, &fid, &tags);
+                        db::get_all_tags(&g)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|(t, _)| t)
+                            .collect::<Vec<_>>()
+                    },
+                    Msg::AllTagsLoaded,
                 )
             }
 
@@ -849,9 +888,19 @@ impl App {
                     async move {
                         let g = conn.lock().unwrap();
                         let _ = db::upsert_tags(&g, &fid, &tags);
+                        db::get_all_tags(&g)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|(t, _)| t)
+                            .collect::<Vec<_>>()
                     },
-                    |()| Msg::NoOp,
+                    Msg::AllTagsLoaded,
                 )
+            }
+
+            Msg::AllTagsLoaded(tags) => {
+                self.detail.all_tags = tags;
+                Task::none()
             }
 
             Msg::SetDetailRating(n) => {
@@ -1111,6 +1160,7 @@ impl App {
                 };
                 self.catalog_dir = path;
                 self.show_welcome = false;
+                self.tag_browser = None;
                 self.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
                 Task::done(Msg::CatalogReady)
             }
@@ -1237,6 +1287,130 @@ impl App {
                     self.loupe_full_res = Some((idx, handle));
                 }
                 Task::none()
+            }
+
+            Msg::OpenTagBrowser => {
+                self.tag_browser = Some(TagBrowserState::default());
+                self.load_tag_browser_task()
+            }
+
+            Msg::CloseTagBrowser => {
+                self.tag_browser = None;
+                Task::none()
+            }
+
+            Msg::TagBrowserLoaded(tags) => {
+                if let Some(ref mut tb) = self.tag_browser {
+                    tb.tags = tags;
+                }
+                Task::none()
+            }
+
+            Msg::TagBrowserFilterChanged(s) => {
+                if let Some(ref mut tb) = self.tag_browser {
+                    tb.filter = s;
+                }
+                Task::none()
+            }
+
+            Msg::TagBrowserRenameStart(tag) => {
+                if let Some(ref mut tb) = self.tag_browser {
+                    tb.rename = Some((tag.clone(), tag));
+                    tb.delete_armed = None;
+                }
+                Task::none()
+            }
+
+            Msg::TagBrowserRenameChanged(s) => {
+                if let Some(ref mut tb) = self.tag_browser {
+                    if let Some((_, ref mut input)) = tb.rename {
+                        *input = s;
+                    }
+                }
+                Task::none()
+            }
+
+            Msg::TagBrowserRenameConfirm => {
+                let Some(ref tb) = self.tag_browser else {
+                    return Task::none();
+                };
+                let Some((ref old, ref new_name)) = tb.rename else {
+                    return Task::none();
+                };
+                let old = old.clone();
+                let new_name = new_name.trim().to_string();
+                if new_name.is_empty() || new_name == old {
+                    if let Some(ref mut tb) = self.tag_browser {
+                        tb.rename = None;
+                    }
+                    return Task::none();
+                }
+                if let Some(ref mut tb) = self.tag_browser {
+                    tb.rename = None;
+                }
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap();
+                        let _ = db::rename_prefixed_tags(&g, &old, &new_name);
+                    },
+                    |()| Msg::TagBrowserTagRenamed,
+                )
+            }
+
+            Msg::TagBrowserRenameCancel => {
+                if let Some(ref mut tb) = self.tag_browser {
+                    tb.rename = None;
+                }
+                Task::none()
+            }
+
+            Msg::TagBrowserDeleteArm(tag) => {
+                if let Some(ref mut tb) = self.tag_browser {
+                    tb.delete_armed = Some(tag);
+                    tb.rename = None;
+                }
+                Task::none()
+            }
+
+            Msg::TagBrowserDeleteConfirm => {
+                let Some(ref tb) = self.tag_browser else {
+                    return Task::none();
+                };
+                let Some(ref tag) = tb.delete_armed else {
+                    return Task::none();
+                };
+                let tag = tag.clone();
+                if let Some(ref mut tb) = self.tag_browser {
+                    tb.delete_armed = None;
+                }
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap();
+                        let _ = db::delete_tag_with_descendants(&g, &tag);
+                    },
+                    |()| Msg::TagBrowserTagDeleted,
+                )
+            }
+
+            Msg::TagBrowserDeleteCancel => {
+                if let Some(ref mut tb) = self.tag_browser {
+                    tb.delete_armed = None;
+                }
+                Task::none()
+            }
+
+            Msg::TagBrowserTagRenamed | Msg::TagBrowserTagDeleted => {
+                self.detail.file_id = None;
+                let t1 = self.load_tag_browser_task();
+                let t2 = self.load_all_tags_task();
+                let t3 = self.maybe_load_detail();
+                Task::batch([t1, t2, t3])
             }
 
             Msg::NoOp => Task::none(),

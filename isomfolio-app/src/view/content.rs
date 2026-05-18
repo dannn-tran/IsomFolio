@@ -7,10 +7,9 @@ use iced::{
 use isomfolio_core::models::ThumbnailState;
 
 use super::styles::{
-    active_chip_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID,
-    BG_TILE_LOADING, BORDER, ERR, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1,
-    SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE,
-    TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
+    active_chip_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID, BG_TILE_LOADING, BORDER,
+    ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
+    STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
 };
 use crate::app::{
     format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, Msg, BUFFER_ROWS,
@@ -380,13 +379,22 @@ impl App {
             col = col.push(stars_row);
 
             col = col.push(Space::new().height(SPACE_1));
-            col = col.push(text("Tags").size(TEXT_SM).color(FG_DIM));
+            col = col.push(
+                row![
+                    text("Tags").size(TEXT_SM).color(FG_DIM),
+                    Space::new().width(Length::Fill),
+                    button(text("Browse").size(TEXT_XS).color(FG_DIM))
+                        .on_press(Msg::OpenTagBrowser)
+                        .style(ghost_btn_style),
+                ]
+                .align_y(Alignment::Center),
+            );
 
             for tag in &self.detail.tags {
                 col = col.push(
                     container(
                         row![
-                            text(tag).size(TEXT_SM),
+                            render_tag_name(tag.as_str()),
                             Space::new().width(Length::Fill),
                             button(text("×").size(TEXT_XS).color(FG_DIM))
                                 .on_press(Msg::RemoveDetailTag(tag.clone()))
@@ -412,6 +420,32 @@ impl App {
                         ..Default::default()
                     }),
                 );
+            }
+
+            if !self.detail.tag_input.is_empty() {
+                let input_lower = self.detail.tag_input.to_lowercase();
+                let suggestions: Vec<&String> = self
+                    .detail
+                    .all_tags
+                    .iter()
+                    .filter(|t| {
+                        !self.detail.tags.contains(t)
+                            && t.to_lowercase().contains(&input_lower)
+                    })
+                    .take(5)
+                    .collect();
+                if !suggestions.is_empty() {
+                    let chips: Vec<Element<Msg>> = suggestions
+                        .into_iter()
+                        .map(|tag| {
+                            button(text(tag.as_str()).size(TEXT_XS))
+                                .on_press(Msg::AddDetailTagDirect(tag.clone()))
+                                .style(ghost_btn_style)
+                                .into()
+                        })
+                        .collect();
+                    col = col.push(row(chips).spacing(SPACE_1).wrap());
+                }
             }
 
             col = col.push(
@@ -473,4 +507,21 @@ impl App {
         })
         .into()
     }
+}
+
+fn render_tag_name<'a>(tag: &'a str) -> Element<'a, Msg> {
+    let parts: Vec<&str> = tag.split('/').collect();
+    let n = parts.len();
+    if n == 1 {
+        return text(tag).size(TEXT_SM).color(FG).into();
+    }
+    let mut r = row![].spacing(0);
+    for (i, part) in parts.iter().enumerate() {
+        if i > 0 {
+            r = r.push(text("/").size(TEXT_SM).color(FG_DIM));
+        }
+        let color = if i == n - 1 { FG } else { FG_DIM };
+        r = r.push(text(*part).size(TEXT_SM).color(color));
+    }
+    r.into()
 }

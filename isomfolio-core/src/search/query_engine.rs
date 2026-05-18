@@ -220,7 +220,7 @@ pub fn execute_manual_album_search(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Album, AlbumKind};
+    use rusqlite::Connection;
     use crate::storage::db;
     use tempfile::NamedTempFile;
 
@@ -283,6 +283,10 @@ mod tests {
 
     mod manual_album {
         use super::*;
+        use rusqlite::Connection;
+        use crate::models::{Album, AlbumKind};
+        use crate::storage::db;
+        use tempfile::NamedTempFile;
 
         fn setup() -> (Connection, NamedTempFile) {
             let (conn, f) = open_temp();

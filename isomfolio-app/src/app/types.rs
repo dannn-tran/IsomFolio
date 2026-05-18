@@ -153,6 +153,22 @@ pub enum Msg {
     AddDetailTag,
     RemoveDetailTag(String),
     SetDetailRating(i32),
+    AllTagsLoaded(Vec<String>),
+    AddDetailTagDirect(String),
+
+    OpenTagBrowser,
+    CloseTagBrowser,
+    TagBrowserLoaded(Vec<(String, usize)>),
+    TagBrowserFilterChanged(String),
+    TagBrowserRenameStart(String),
+    TagBrowserRenameChanged(String),
+    TagBrowserRenameConfirm,
+    TagBrowserRenameCancel,
+    TagBrowserDeleteArm(String),
+    TagBrowserDeleteConfirm,
+    TagBrowserDeleteCancel,
+    TagBrowserTagRenamed,
+    TagBrowserTagDeleted,
 
     Reload,
     DbError(String),
@@ -222,6 +238,7 @@ pub struct DetailState {
     pub file_id: Option<String>,
     pub tags: Vec<String>,
     pub tag_input: String,
+    pub all_tags: Vec<String>,
     pub rating: Option<i32>,
     pub label: Option<String>,
     pub title: Option<String>,
@@ -234,9 +251,28 @@ impl Default for DetailState {
             file_id: None,
             tags: Vec::new(),
             tag_input: String::new(),
+            all_tags: Vec::new(),
             rating: None,
             label: None,
             title: None,
+        }
+    }
+}
+
+pub struct TagBrowserState {
+    pub tags: Vec<(String, usize)>,
+    pub filter: String,
+    pub rename: Option<(String, String)>,
+    pub delete_armed: Option<String>,
+}
+
+impl Default for TagBrowserState {
+    fn default() -> Self {
+        Self {
+            tags: Vec::new(),
+            filter: String::new(),
+            rename: None,
+            delete_armed: None,
         }
     }
 }
