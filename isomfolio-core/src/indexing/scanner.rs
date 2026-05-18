@@ -33,7 +33,13 @@ fn discover_paths(root_path: &str) -> Vec<String> {
                 None => continue,
             };
             if ft.is_dir() {
-                dirs.push(path);
+                let is_catalog = Path::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map_or(false, |n| n.ends_with(".isomfolio"));
+                if !is_catalog {
+                    dirs.push(path);
+                }
             } else if ft.is_file()
                 && Path::new(&path)
                     .extension()

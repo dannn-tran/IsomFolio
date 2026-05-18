@@ -39,6 +39,12 @@ pub fn is_under_catalog_dir(path: &str) -> bool {
         .any(|c| c.as_os_str().to_string_lossy().ends_with(".isomfolio"))
 }
 
+pub fn is_catalog_dir(path: &str) -> bool {
+    let p = Path::new(path);
+    p.extension().map_or(false, |ext| ext == "isomfolio")
+        && p.join("catalog.db").exists()
+}
+
 pub fn descendant_like_prefix(root_folder: &str) -> String {
     let trimmed = root_folder.trim_end_matches(MAIN_SEPARATOR);
     format!("{}{}{}", trimmed, MAIN_SEPARATOR, "%")

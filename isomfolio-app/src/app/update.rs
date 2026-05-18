@@ -7,7 +7,7 @@ use isomfolio_core::file_index::compute_file_id;
 use isomfolio_core::indexing::scanner;
 use isomfolio_core::indexing::types::FileEvent;
 use isomfolio_core::models::{Album, AlbumKind, SortField};
-use isomfolio_core::path_utils::normalize_path;
+use isomfolio_core::path_utils::{is_catalog_dir, is_under_catalog_dir, normalize_path};
 use isomfolio_core::storage::db;
 
 use super::{
@@ -411,8 +411,19 @@ impl App {
             Msg::ScanDialogDone(opt) => {
                 self.scan_pending = false;
                 match opt {
-                    Some(path) => Task::done(Msg::ScanStart(path)),
                     None => Task::none(),
+                    Some(path) => {
+                        if is_under_catalog_dir(&path) {
+                            let name = std::path::Path::new(&path)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or(path.as_str())
+                                .to_string();
+                            self.status = format!("\"{}\" is inside a catalog — choose a regular folder", name);
+                            return Task::none();
+                        }
+                        Task::done(Msg::ScanStart(path))
+                    }
                 }
             }
 
@@ -1071,8 +1082,7 @@ impl App {
             }
 
             Msg::OpenCatalogPicked(path) => {
-                let db = isomfolio_core::app_paths::db_path(&path);
-                if !std::path::Path::new(&db).exists() {
+                if !is_catalog_dir(&path) {
                     let name = std::path::Path::new(&path)
                         .file_name()
                         .and_then(|n| n.to_str())
