@@ -68,6 +68,13 @@ impl App {
         .height(Length::Fill);
 
         let actions = row![
+            button(text("New Catalog...").size(TEXT_LG))
+                .on_press(Msg::ShowNewCatalogModal)
+                .style(ghost_btn_style),
+            button(text("Browse...").size(TEXT_LG))
+                .on_press(Msg::PickOpenCatalog)
+                .style(ghost_btn_style),
+            Space::new().width(Length::Fill),
             {
                 let btn = button(text("Open").size(TEXT_LG)).style(if can_open_selected {
                     active_chip_style
@@ -80,12 +87,6 @@ impl App {
                     btn
                 }
             },
-            button(text("New Catalog...").size(TEXT_LG))
-                .on_press(Msg::ShowNewCatalogModal)
-                .style(ghost_btn_style),
-            button(text("Browse...").size(TEXT_LG))
-                .on_press(Msg::PickOpenCatalog)
-                .style(ghost_btn_style),
         ]
         .spacing(SPACE_2_5)
         .width(Length::Fill)
