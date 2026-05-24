@@ -109,7 +109,9 @@ pub fn scan_folder(
         });
     }
 
-    let _ = db::detect_and_store_bursts(conn, root_path);
+    if let Err(e) = db::detect_and_store_bursts(conn, root_path) {
+        eprintln!("[db] detect_and_store_bursts failed: {e}");
+    }
     Ok(ScanResult { total_count: total })
 }
 
