@@ -1,8 +1,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use iced::Task;
 
+use isomfolio_core::addon::{discover_addons, AddonProcess};
+use isomfolio_core::app_paths::addons_dir;
 use isomfolio_core::file_index::compute_file_id;
 use isomfolio_core::indexing::scanner;
 use isomfolio_core::indexing::types::FileEvent;
@@ -22,7 +25,62 @@ impl App {
         match msg {
             Msg::CatalogReady => {
                 self.start_thumbnail_pool();
-                self.load_sidebar_task()
+                let sidebar_task = self.load_sidebar_task();
+                let addon_task = Task::perform(
+                    async move {
+                        let dir = addons_dir();
+                        let manifests = discover_addons(&dir);
+                        manifests
+                            .into_iter()
+                            .filter_map(|m| {
+                                AddonProcess::launch(m)
+                                    .map(Arc::new)
+                                    .map_err(|e| eprintln!("[addon] launch failed: {e}"))
+                                    .ok()
+                            })
+                            .collect::<Vec<_>>()
+                    },
+                    Msg::AddonsDiscovered,
+                );
+                Task::batch([sidebar_task, addon_task])
+            }
+
+            Msg::AddonsDiscovered(addons) => {
+                let count = addons.len();
+                self.addons = addons;
+                if count > 0 {
+                    self.status = format!("{count} addon{} loaded", if count == 1 { "" } else { "s" });
+                }
+                Task::none()
+            }
+
+            Msg::RunAddon { addon_idx, method, file_ids } => {
+                let Some(addon) = self.addons.get(addon_idx).cloned() else {
+                    return Task::none();
+                };
+                let total = file_ids.len();
+                self.status = format!("Running {}… (0/{})", addon.manifest.name, total);
+                let method_clone = method.clone();
+                Task::perform(
+                    async move {
+                        let mut applied = 0usize;
+                        for file_id in &file_ids {
+                            let params = serde_json::json!({ "file_id": file_id });
+                            if addon.call(&method_clone, params).is_ok() {
+                                applied += 1;
+                            }
+                        }
+                        applied
+                    },
+                    move |applied| Msg::AddonBatchDone { method: method.clone(), applied },
+                )
+            }
+
+            Msg::AddonProgress { .. } => Task::none(),
+
+            Msg::AddonBatchDone { method, applied } => {
+                self.status = format!("{method} done — {applied} file{} updated", if applied == 1 { "" } else { "s" });
+                Task::none()
             }
 
             Msg::SidebarItemClicked(item) => {

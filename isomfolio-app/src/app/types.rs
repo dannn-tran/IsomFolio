@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use iced::{keyboard, Point};
+use isomfolio_core::addon::AddonProcess;
 use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag};
 
 #[derive(Debug, Clone)]
@@ -205,6 +207,11 @@ pub enum Msg {
     ToggleHideRejects,
     SetFlagFilter(FlagFilter),
     SetRatingFilter(Option<i32>),
+
+    AddonsDiscovered(Vec<Arc<AddonProcess>>),
+    RunAddon { addon_idx: usize, method: String, file_ids: Vec<String> },
+    AddonProgress { addon_idx: usize, file_id: String, percent: u8 },
+    AddonBatchDone { method: String, applied: usize },
 
     SortCycleAll,
     NoOp,

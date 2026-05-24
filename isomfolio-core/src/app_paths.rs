@@ -1,21 +1,19 @@
 use std::path::{Path, PathBuf};
 
 fn app_data_root() -> PathBuf {
-    dirs_or_fallback().join("IsomFolio")
+    directories::ProjectDirs::from("", "", "IsomFolio")
+        .map(|d| d.data_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn dirs_or_fallback() -> PathBuf {
-    // Use standard config dir; fall back to home dir
-    if let Some(d) = std::env::var_os("HOME") {
-        #[cfg(target_os = "macos")]
-        return PathBuf::from(d)
-            .join("Library")
-            .join("Application Support");
-        #[cfg(not(target_os = "macos"))]
-        return PathBuf::from(d).join(".config");
-    }
-    PathBuf::from(".")
+pub fn addons_dir() -> PathBuf {
+    app_data_root().join("addons")
 }
+
+pub fn models_dir() -> PathBuf {
+    app_data_root().join("models")
+}
+
 
 pub fn db_path(catalog_dir: &str) -> String {
     Path::new(catalog_dir)

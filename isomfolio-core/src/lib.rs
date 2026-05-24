@@ -1,3 +1,4 @@
+pub mod addon;
 pub mod app_paths;
 pub mod file_index;
 pub mod indexing;

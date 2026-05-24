@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use iced::{event, keyboard, mouse, Event, Point, Size, Subscription, Task};
 
+use isomfolio_core::addon::AddonProcess;
 use isomfolio_core::app_paths::db_path;
 use isomfolio_core::indexing::thumbnail::{
     create_worker_pool, thumbnail_cache_path, ThumbnailPool,
@@ -103,6 +104,8 @@ pub struct App {
 
     pub sidebar_width: f32,
     pub sidebar_resizing: bool,
+
+    pub addons: Vec<Arc<AddonProcess>>,
 }
 
 impl App {
@@ -195,6 +198,7 @@ impl App {
             tag_browser: None,
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_resizing: false,
+            addons: Vec::new(),
         };
 
         (app, task)
