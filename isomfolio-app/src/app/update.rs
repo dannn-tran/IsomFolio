@@ -1791,30 +1791,48 @@ impl App {
                 Task::none()
             }
 
+            Msg::OpenTagBrowser
+            | Msg::CloseTagBrowser
+            | Msg::TagBrowserLoaded(_)
+            | Msg::TagBrowserFilterChanged(_)
+            | Msg::TagBrowserRenameStart(_)
+            | Msg::TagBrowserRenameChanged(_)
+            | Msg::TagBrowserRenameConfirm
+            | Msg::TagBrowserRenameCancel
+            | Msg::TagBrowserDeleteArm(_)
+            | Msg::TagBrowserDeleteConfirm
+            | Msg::TagBrowserDeleteCancel
+            | Msg::TagBrowserTagRenamed
+            | Msg::TagBrowserTagDeleted => self.handle_tag_browser(msg),
+
+            Msg::NoOp => Task::none(),
+        }
+    }
+}
+
+impl App {
+    fn handle_tag_browser(&mut self, msg: Msg) -> Task<Msg> {
+        match msg {
             Msg::OpenTagBrowser => {
                 self.tag_browser = Some(TagBrowserState::default());
                 self.load_tag_browser_task()
             }
-
             Msg::CloseTagBrowser => {
                 self.tag_browser = None;
                 Task::none()
             }
-
             Msg::TagBrowserLoaded(tags) => {
                 if let Some(ref mut tb) = self.tag_browser {
                     tb.tags = tags;
                 }
                 Task::none()
             }
-
             Msg::TagBrowserFilterChanged(s) => {
                 if let Some(ref mut tb) = self.tag_browser {
                     tb.filter = s;
                 }
                 Task::none()
             }
-
             Msg::TagBrowserRenameStart(tag) => {
                 if let Some(ref mut tb) = self.tag_browser {
                     tb.rename = Some((tag.clone(), tag));
@@ -1822,7 +1840,6 @@ impl App {
                 }
                 Task::none()
             }
-
             Msg::TagBrowserRenameChanged(s) => {
                 if let Some(ref mut tb) = self.tag_browser {
                     if let Some((_, ref mut input)) = tb.rename {
@@ -1831,7 +1848,6 @@ impl App {
                 }
                 Task::none()
             }
-
             Msg::TagBrowserRenameConfirm => {
                 let Some(ref tb) = self.tag_browser else {
                     return Task::none();
@@ -1863,14 +1879,12 @@ impl App {
                     |()| Msg::TagBrowserTagRenamed,
                 )
             }
-
             Msg::TagBrowserRenameCancel => {
                 if let Some(ref mut tb) = self.tag_browser {
                     tb.rename = None;
                 }
                 Task::none()
             }
-
             Msg::TagBrowserDeleteArm(tag) => {
                 if let Some(ref mut tb) = self.tag_browser {
                     tb.delete_armed = Some(tag);
@@ -1878,7 +1892,6 @@ impl App {
                 }
                 Task::none()
             }
-
             Msg::TagBrowserDeleteConfirm => {
                 let Some(ref tb) = self.tag_browser else {
                     return Task::none();
@@ -1903,14 +1916,12 @@ impl App {
                     |()| Msg::TagBrowserTagDeleted,
                 )
             }
-
             Msg::TagBrowserDeleteCancel => {
                 if let Some(ref mut tb) = self.tag_browser {
                     tb.delete_armed = None;
                 }
                 Task::none()
             }
-
             Msg::TagBrowserTagRenamed | Msg::TagBrowserTagDeleted => {
                 self.detail.file_id = None;
                 let t1 = self.load_tag_browser_task();
@@ -1918,13 +1929,10 @@ impl App {
                 let t3 = self.maybe_load_detail();
                 Task::batch([t1, t2, t3])
             }
-
-            Msg::NoOp => Task::none(),
+            _ => Task::none(),
         }
     }
-}
 
-impl App {
     fn mark_smart_dirty(&mut self) {
         if self.current_album_is_smart() {
             self.smart_album_dirty = true;
