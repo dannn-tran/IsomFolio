@@ -2,6 +2,26 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfigFieldKind {
+    #[default]
+    Text,
+    Secret,
+    Select,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfigField {
+    pub key: String,
+    pub label: String,
+    #[serde(default)]
+    pub kind: ConfigFieldKind,
+    pub default: Option<String>,
+    #[serde(default)]
+    pub options: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AddonManifest {
     pub name: String,
@@ -9,6 +29,8 @@ pub struct AddonManifest {
     pub addon_api_version: u32,
     pub capabilities: Vec<String>,
     pub description: String,
+    #[serde(default)]
+    pub config_schema: Vec<ConfigField>,
     #[serde(skip)]
     pub executable: PathBuf,
 }
@@ -27,11 +49,10 @@ pub fn discover_addons(dir: &Path) -> Vec<AddonManifest> {
 fn load_manifest_from_dir(dir: &Path) -> Option<AddonManifest> {
     let text = std::fs::read_to_string(dir.join("isomfolio-addon.json")).ok()?;
     let mut manifest: AddonManifest = serde_json::from_str(&text).ok()?;
-    let dir_name = dir.file_name()?.to_str()?;
     let exe = if cfg!(windows) {
-        dir.join(format!("{}.exe", dir_name))
+        dir.join(format!("{}.exe", manifest.name))
     } else {
-        dir.join(dir_name)
+        dir.join(&manifest.name)
     };
     if is_executable(&exe) {
         manifest.executable = exe;
@@ -62,12 +83,12 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
 
-    fn make_addon_dir(parent: &Path, name: &str, manifest_json: &str, make_exe: bool) {
-        let dir = parent.join(name);
+    fn make_addon_dir(parent: &Path, dir_name: &str, manifest_name: &str, manifest_json: &str, make_exe: bool) {
+        let dir = parent.join(dir_name);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("isomfolio-addon.json"), manifest_json).unwrap();
         if make_exe {
-            let exe = dir.join(name);
+            let exe = dir.join(manifest_name);
             fs::write(&exe, b"#!/bin/sh\n").unwrap();
             let mut perms = fs::metadata(&exe).unwrap().permissions();
             perms.set_mode(0o755);
@@ -86,7 +107,7 @@ mod tests {
     #[test]
     fn discovers_valid_addon() {
         let tmp = TempDir::new().unwrap();
-        make_addon_dir(tmp.path(), "isomfolio-test", VALID_MANIFEST, true);
+        make_addon_dir(tmp.path(), "test-addon", "test-addon", VALID_MANIFEST, true);
         let addons = discover_addons(tmp.path());
         assert_eq!(addons.len(), 1);
         assert_eq!(addons[0].name, "test-addon");
@@ -96,21 +117,21 @@ mod tests {
     #[test]
     fn skips_missing_executable() {
         let tmp = TempDir::new().unwrap();
-        make_addon_dir(tmp.path(), "isomfolio-test", VALID_MANIFEST, false);
+        make_addon_dir(tmp.path(), "test-addon", "test-addon", VALID_MANIFEST, false);
         assert!(discover_addons(tmp.path()).is_empty());
     }
 
     #[test]
     fn skips_invalid_manifest() {
         let tmp = TempDir::new().unwrap();
-        make_addon_dir(tmp.path(), "isomfolio-test", "not json", true);
+        make_addon_dir(tmp.path(), "test-addon", "test-addon", "not json", true);
         assert!(discover_addons(tmp.path()).is_empty());
     }
 
     #[test]
     fn skips_missing_manifest() {
         let tmp = TempDir::new().unwrap();
-        fs::create_dir_all(tmp.path().join("isomfolio-test")).unwrap();
+        fs::create_dir_all(tmp.path().join("test-addon")).unwrap();
         assert!(discover_addons(tmp.path()).is_empty());
     }
 

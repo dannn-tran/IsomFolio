@@ -6,15 +6,16 @@ mod tag_browser;
 mod welcome;
 
 use iced::{
-    widget::{button, column, container, image, mouse_area, row, stack, text, Space},
+    widget::{button, column, container, image, mouse_area, row, stack, text, text_input, Space},
     Alignment, Background, Border, Color, Element, Length, Shadow, Theme, Vector,
 };
 
 use crate::app::{App, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
 use styles::{
-    active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_STATUSBAR, BORDER, ERR, FG,
-    FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD,
-    TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM, TEXT_STAR,
+    active_chip_style, danger_btn_style, ghost_btn_style, icon_btn_style, ACCENT, BG_MODAL,
+    BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
+    SPACE_2_5, SPACE_3, SPACE_4, SPACE_6, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
+    TEXT_STAR, TEXT_TITLE,
 };
 
 impl App {
@@ -127,6 +128,11 @@ impl App {
                 button(text("+").size(TEXT_LG))
                     .on_press(Msg::TileSizeUp)
                     .style(ghost_btn_style),
+            )
+            .push(
+                button(text("⚙").size(TEXT_LG))
+                    .on_press(Msg::OpenSettings)
+                    .style(icon_btn_style),
             );
 
         let status_bar = container(status_row)
@@ -173,6 +179,9 @@ impl App {
         }
         if self.thumbnail_total > 0 {
             layers.push(self.view_thumbnail_progress_panel());
+        }
+        if self.settings.show {
+            layers.push(self.view_settings_modal());
         }
         let root: Element<Msg> = if layers.len() == 1 {
             layers.remove(0)
@@ -492,5 +501,183 @@ impl App {
                 ..Default::default()
             })
             .into()
+    }
+
+    fn view_settings_modal(&self) -> Element<'_, Msg> {
+        use isomfolio_core::addon::ConfigFieldKind;
+
+        let mut body = column![
+            text("Settings").size(TEXT_TITLE).color(FG),
+            Space::new().height(SPACE_4),
+            text("Extensions").size(TEXT_SM).color(FG_DIM),
+            Space::new().height(SPACE_2),
+        ]
+        .spacing(0)
+        .width(440);
+
+        if self.addons.is_empty() {
+            body = body.push(text("No addons installed.").size(TEXT_MD).color(FG_MUTED));
+            body = body.push(Space::new().height(SPACE_2));
+        }
+
+        for addon in &self.addons {
+            let name = addon.manifest.name.clone();
+            let desc = addon.manifest.description.clone();
+
+            // Header row: name + uninstall button
+            body = body.push(
+                row![
+                    column![
+                        text(name.clone()).size(TEXT_BASE).color(FG),
+                        text(desc).size(TEXT_SM).color(FG_DIM),
+                    ]
+                    .spacing(SPACE_0_5),
+                    Space::new().width(Length::Fill),
+                    button(text("Remove").size(TEXT_SM))
+                        .on_press(Msg::UninstallAddon(name.clone()))
+                        .style(|_: &Theme, s| {
+                            let alpha = match s {
+                                iced::widget::button::Status::Hovered => 0.13,
+                                _ => 0.0,
+                            };
+                            iced::widget::button::Style {
+                                background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: alpha })),
+                                text_color: styles::ERR,
+                                border: Border { radius: 4.0.into(), ..Default::default() },
+                                shadow: iced::Shadow::default(),
+                                snap: false,
+                            }
+                        }),
+                ]
+                .align_y(Alignment::Center)
+                .spacing(SPACE_2),
+            );
+
+            // Config fields
+            let empty_map = std::collections::HashMap::new();
+            let field_values = self.settings.addon_configs.get(&name).unwrap_or(&empty_map);
+
+            for field in &addon.manifest.config_schema {
+                let current = field_values.get(&field.key).cloned().unwrap_or_default();
+                let key = field.key.clone();
+                let addon_name = name.clone();
+
+                body = body.push(Space::new().height(SPACE_2));
+                body = body.push(text(&field.label).size(TEXT_MD).color(FG_DIM));
+                body = body.push(Space::new().height(SPACE_1_5));
+
+                match field.kind {
+                    ConfigFieldKind::Select => {
+                        let mut option_row = row![].spacing(SPACE_1_5);
+                        for opt in &field.options {
+                            let selected = current == *opt;
+                            let opt_val = opt.clone();
+                            let k = key.clone();
+                            let an = addon_name.clone();
+                            option_row = option_row.push(
+                                button(text(opt.as_str()).size(TEXT_MD))
+                                    .on_press(Msg::SettingsConfigChanged {
+                                        addon_name: an,
+                                        key: k,
+                                        value: opt_val,
+                                    })
+                                    .style(move |t: &Theme, st| {
+                                        if selected { active_chip_style(t, st) } else { ghost_btn_style(t, st) }
+                                    }),
+                            );
+                        }
+                        body = body.push(option_row);
+                    }
+                    ConfigFieldKind::Secret => {
+                        body = body.push(
+                            text_input(field.default.as_deref().unwrap_or(""), &current)
+                                .on_input(move |v| Msg::SettingsConfigChanged {
+                                    addon_name: addon_name.clone(),
+                                    key: key.clone(),
+                                    value: v,
+                                })
+                                .secure(true)
+                                .padding([SPACE_2, SPACE_2_5])
+                                .size(TEXT_BASE)
+                                .width(Length::Fill),
+                        );
+                    }
+                    ConfigFieldKind::Text => {
+                        body = body.push(
+                            text_input(field.default.as_deref().unwrap_or(""), &current)
+                                .on_input(move |v| Msg::SettingsConfigChanged {
+                                    addon_name: addon_name.clone(),
+                                    key: key.clone(),
+                                    value: v,
+                                })
+                                .padding([SPACE_2, SPACE_2_5])
+                                .size(TEXT_BASE)
+                                .width(Length::Fill),
+                        );
+                    }
+                }
+            }
+
+            body = body.push(Space::new().height(SPACE_3));
+        }
+
+        body = body.push(
+            button(text("Install from file…").size(TEXT_BASE))
+                .on_press(Msg::InstallAddonPickFile)
+                .style(ghost_btn_style),
+        );
+
+        if let Some(ref err) = self.settings.install_error {
+            body = body.push(Space::new().height(SPACE_2));
+            body = body.push(text(err.as_str()).size(TEXT_SM).color(ERR));
+        }
+
+        body = body.push(Space::new().height(SPACE_6)).push(
+            row![
+                button(text("Cancel").size(TEXT_BASE))
+                    .on_press(Msg::CloseSettings)
+                    .style(ghost_btn_style),
+                button(text("Save").size(TEXT_BASE))
+                    .on_press(Msg::SaveSettings)
+                    .style(active_chip_style),
+            ]
+            .spacing(SPACE_2_5)
+            .align_y(Alignment::Center),
+        );
+
+        let modal = container(body)
+            .padding(SPACE_6)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_MODAL)),
+                border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
+                shadow: Shadow {
+                    color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.5 },
+                    offset: Vector::new(0.0, 4.0),
+                    blur_radius: 20.0,
+                },
+                ..Default::default()
+            });
+
+        stack(vec![
+            container(Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.55 })),
+                    ..Default::default()
+                })
+                .into(),
+            container(
+                container(modal)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(Alignment::Center)
+                    .align_y(Alignment::Center),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into(),
+        ])
+        .into()
     }
 }

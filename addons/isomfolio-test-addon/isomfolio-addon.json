@@ -1,5 +1,5 @@
 {
-  "name": "isomfolio-test-addon",
+  "name": "test-addon",
   "protocol_version": 1,
   "addon_api_version": 1,
   "capabilities": ["classify"],

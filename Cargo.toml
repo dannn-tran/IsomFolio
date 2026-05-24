@@ -1,3 +1,9 @@
 [workspace]
-members = ["isomfolio-core", "isomfolio-app", "addons/isomfolio-test-addon"]
+members = [
+    "isomfolio-core",
+    "isomfolio-app",
+    "addons/isomfolio-test-addon",
+    "addons/isomfolio-autotag-clip",
+    "addons/isomfolio-autotag-openai",
+]
 resolver = "2"

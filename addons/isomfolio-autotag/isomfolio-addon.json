@@ -1,0 +1,7 @@
+{
+  "name": "isomfolio-autotag",
+  "protocol_version": 1,
+  "addon_api_version": 1,
+  "capabilities": ["classify"],
+  "description": "CLIP-based auto-tagger using ViT-B/32. Assigns photo scene and subject tags."
+}

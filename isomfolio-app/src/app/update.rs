@@ -4,8 +4,13 @@ use std::time::{Duration, Instant};
 
 use iced::Task;
 
-use isomfolio_core::addon::{discover_addons, AddonProcess};
+use isomfolio_core::addon::{
+    discover_addons, install_addon_package, load_addon_config, save_addon_config,
+    uninstall_addon, AddonProcess,
+};
 use isomfolio_core::app_paths::addons_dir;
+use isomfolio_core::indexing::thumbnail::thumbnail_cache_path;
+use isomfolio_core::models::ThumbnailState;
 use isomfolio_core::file_index::compute_file_id;
 use isomfolio_core::indexing::scanner;
 use isomfolio_core::indexing::types::FileEvent;
@@ -15,7 +20,7 @@ use isomfolio_core::storage::db;
 
 use super::{
     unix_to_date_str, App, ContextMenuState, ContextMenuTarget, CriteriaState, DetailState,
-    DragState, Msg, SidebarItem, TagBrowserState, ViewMode, ALBUM_ITEM_HEIGHT,
+    DragState, Msg, SettingsState, SidebarItem, TagBrowserState, ViewMode, ALBUM_ITEM_HEIGHT,
     SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_HANDLE_WIDTH,
 };
 use isomfolio_core::app_paths::db_path;
@@ -58,16 +63,48 @@ impl App {
                 let Some(addon) = self.addons.get(addon_idx).cloned() else {
                     return Task::none();
                 };
+                let Some(conn) = self.conn.clone() else { return Task::none() };
+                let catalog_dir = self.catalog_dir.clone();
                 let total = file_ids.len();
-                self.status = format!("Running {}… (0/{})", addon.manifest.name, total);
+                self.status = format!("{}… (0/{})", addon.manifest.name, total);
+
+                // Build (file_id, thumbnail_path) pairs — use cached path if ready, else compute
+                let file_tasks: Vec<(String, String)> = file_ids
+                    .into_iter()
+                    .map(|id| {
+                        let thumb = match self.thumbnails.get(&id) {
+                            Some(ThumbnailState::Ready(path)) => path.clone(),
+                            _ => thumbnail_cache_path(&catalog_dir, &id),
+                        };
+                        (id, thumb)
+                    })
+                    .collect();
+
                 let method_clone = method.clone();
                 Task::perform(
                     async move {
                         let mut applied = 0usize;
-                        for file_id in &file_ids {
-                            let params = serde_json::json!({ "file_id": file_id });
-                            if addon.call(&method_clone, params).is_ok() {
-                                applied += 1;
+                        for (file_id, thumbnail_path) in &file_tasks {
+                            let params = serde_json::json!({
+                                "file_id": file_id,
+                                "thumbnail_path": thumbnail_path,
+                            });
+                            if let Ok(result) = addon.call(&method_clone, params) {
+                                let tags: Vec<String> = result
+                                    .get("tags")
+                                    .and_then(|t| t.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|t| t.get("tag")?.as_str())
+                                            .map(|s| s.to_string())
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+                                if !tags.is_empty() {
+                                    let g = conn.lock().unwrap();
+                                    let _ = db::add_tags_merge(&g, file_id, &tags);
+                                    applied += 1;
+                                }
                             }
                         }
                         applied
@@ -80,6 +117,139 @@ impl App {
 
             Msg::AddonBatchDone { method, applied } => {
                 self.status = format!("{method} done — {applied} file{} updated", if applied == 1 { "" } else { "s" });
+                Task::none()
+            }
+
+            Msg::AddonRestarted { idx, process } => {
+                if let Some(p) = process {
+                    if idx < self.addons.len() {
+                        self.addons[idx] = p;
+                    } else {
+                        self.addons.push(p);
+                    }
+                    self.status = "Addon restarted".to_string();
+                } else {
+                    self.status = "Addon restart failed — check logs".to_string();
+                }
+                Task::none()
+            }
+
+            Msg::OpenSettings => {
+                let mut addon_configs = std::collections::HashMap::new();
+                for addon in &self.addons {
+                    if addon.manifest.config_schema.is_empty() {
+                        continue;
+                    }
+                    let stored = load_addon_config(&addon.manifest.name);
+                    let mut fields = std::collections::HashMap::new();
+                    for field in &addon.manifest.config_schema {
+                        let val = stored
+                            .get(&field.key)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(field.default.as_deref().unwrap_or(""))
+                            .to_string();
+                        fields.insert(field.key.clone(), val);
+                    }
+                    addon_configs.insert(addon.manifest.name.clone(), fields);
+                }
+                self.settings = SettingsState { show: true, addon_configs, install_error: None };
+                Task::none()
+            }
+
+            Msg::CloseSettings => {
+                self.settings.show = false;
+                Task::none()
+            }
+
+            Msg::SettingsConfigChanged { addon_name, key, value } => {
+                self.settings
+                    .addon_configs
+                    .entry(addon_name)
+                    .or_default()
+                    .insert(key, value);
+                Task::none()
+            }
+
+            Msg::SaveSettings => {
+                self.settings.show = false;
+                let mut restart_tasks = Vec::new();
+                for (addon_name, fields) in &self.settings.addon_configs {
+                    let config: serde_json::Value = fields
+                        .iter()
+                        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                        .collect::<serde_json::Map<_, _>>()
+                        .into();
+                    if let Err(e) = save_addon_config(addon_name, &config) {
+                        self.status = format!("Settings save failed: {e}");
+                        return Task::none();
+                    }
+                    let idx = self.addons.iter().position(|a| &a.manifest.name == addon_name);
+                    if let Some(idx) = idx {
+                        let manifest = self.addons[idx].manifest.clone();
+                        restart_tasks.push(Task::perform(
+                            async move { AddonProcess::launch(manifest).map(Arc::new).ok() },
+                            move |p| Msg::AddonRestarted { idx, process: p },
+                        ));
+                    }
+                }
+                if restart_tasks.is_empty() {
+                    Task::none()
+                } else {
+                    self.status = "Restarting addons…".to_string();
+                    Task::batch(restart_tasks)
+                }
+            }
+
+            Msg::InstallAddonPickFile => Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .add_filter("Folio Addon", &["faddon"])
+                        .pick_file()
+                        .await
+                        .map(|f| f.path().to_string_lossy().into_owned())
+                },
+                Msg::AddonPackagePicked,
+            ),
+
+            Msg::AddonPackagePicked(None) => Task::none(),
+
+            Msg::AddonPackagePicked(Some(path)) => {
+                self.settings.install_error = None;
+                self.status = "Installing addon…".to_string();
+                Task::perform(
+                    async move {
+                        let path = std::path::PathBuf::from(path);
+                        install_addon_package(&path)
+                            .and_then(|m| AddonProcess::launch(m).map(Arc::new).map_err(|e| e.to_string()))
+                    },
+                    |result| match result {
+                        Ok(p) => Msg::AddonInstalled(p),
+                        Err(e) => Msg::AddonInstallFailed(e),
+                    },
+                )
+            }
+
+            Msg::AddonInstalled(process) => {
+                self.status = format!("Addon '{}' installed", process.manifest.name);
+                self.settings.install_error = None;
+                self.addons.push(process);
+                Task::none()
+            }
+
+            Msg::AddonInstallFailed(e) => {
+                self.settings.install_error = Some(e);
+                Task::none()
+            }
+
+            Msg::UninstallAddon(name) => {
+                if let Some(idx) = self.addons.iter().position(|a| a.manifest.name == name) {
+                    self.addons.remove(idx); // kills process via Drop
+                }
+                if let Err(e) = uninstall_addon(&name) {
+                    self.status = format!("Uninstall failed: {e}");
+                } else {
+                    self.status = format!("Addon '{name}' removed");
+                }
                 Task::none()
             }
 

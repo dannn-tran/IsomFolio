@@ -1,0 +1,16 @@
+{
+  "name": "autotag-clip",
+  "protocol_version": 1,
+  "addon_api_version": 1,
+  "capabilities": ["classify"],
+  "description": "Auto-tag photos using CLIP (local inference, offline after first download)",
+  "config_schema": [
+    {
+      "key": "variant",
+      "label": "Model",
+      "kind": "select",
+      "options": ["clip-vit-b32", "clip-vit-l14"],
+      "default": "clip-vit-b32"
+    }
+  ]
+}

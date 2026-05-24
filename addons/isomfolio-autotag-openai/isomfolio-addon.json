@@ -1,0 +1,20 @@
+{
+  "name": "autotag-openai",
+  "protocol_version": 1,
+  "addon_api_version": 1,
+  "capabilities": ["classify"],
+  "description": "Auto-tag photos via OpenAI Vision API (or compatible endpoint)",
+  "config_schema": [
+    {
+      "key": "api_key",
+      "label": "API key",
+      "kind": "secret"
+    },
+    {
+      "key": "api_endpoint",
+      "label": "Endpoint",
+      "kind": "text",
+      "default": "https://api.openai.com/v1/chat/completions"
+    }
+  ]
+}

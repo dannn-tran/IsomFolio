@@ -38,11 +38,13 @@ struct HelloData {
 
 impl AddonProcess {
     pub fn launch(mut manifest: AddonManifest) -> Result<Self, AppError> {
+        let config_path = crate::addon::config::addon_config_path(&manifest.name);
         let mut child = Command::new(&manifest.executable)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .env("ISOMFOLIO_MODELS_DIR", models_dir())
+            .env("ISOMFOLIO_ADDON_CONFIG", config_path)
             .spawn()
             .map_err(|e| AppError::Addon(format!("failed to spawn {}: {}", manifest.name, e)))?;
 
@@ -130,6 +132,12 @@ impl AddonProcess {
     }
 }
 
+impl Drop for AddonProcess {
+    fn drop(&mut self) {
+        let _ = self._child.kill();
+    }
+}
+
 fn reader_loop(reader: BufReader<impl std::io::Read>, pending: PendingMap) {
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -186,6 +194,7 @@ mod tests {
             addon_api_version: 1,
             capabilities: vec!["echo".to_string()],
             description: "test addon".to_string(),
+            config_schema: vec![],
             executable: exe,
         }
     }

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-fn app_data_root() -> PathBuf {
+pub fn app_data_root() -> PathBuf {
     directories::ProjectDirs::from("", "", "IsomFolio")
         .map(|d| d.data_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."))

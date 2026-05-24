@@ -106,6 +106,7 @@ pub struct App {
     pub sidebar_resizing: bool,
 
     pub addons: Vec<Arc<AddonProcess>>,
+    pub settings: SettingsState,
 }
 
 impl App {
@@ -199,6 +200,7 @@ impl App {
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_resizing: false,
             addons: Vec::new(),
+            settings: SettingsState::default(),
         };
 
         (app, task)

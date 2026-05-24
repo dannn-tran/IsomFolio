@@ -231,6 +231,19 @@ pub fn upsert_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Result<
     Ok(())
 }
 
+/// Add tags without deleting existing ones — used for AI-generated tags to preserve manual tags.
+pub fn add_tags_merge(conn: &Connection, file_id: &str, tags: &[String]) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    for tag in tags {
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (file_id, tag) VALUES (?1, ?2)",
+            params![file_id, tag],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn get_tags_for_file(conn: &Connection, file_id: &str) -> Result<Vec<String>, AppError> {
     let mut stmt = conn.prepare("SELECT tag FROM tags WHERE file_id = ?1 ORDER BY tag")?;
     let rows = stmt.query_map([file_id], |r| r.get::<_, String>(0))?;

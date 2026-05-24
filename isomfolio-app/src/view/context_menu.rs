@@ -23,7 +23,7 @@ impl App {
             acc + if item.is_none() { SEPARATOR_HEIGHT } else { ITEM_HEIGHT }
         }) + SPACE_2 * 2.0;
 
-        let menu_col = self.build_menu_column(&items);
+        let menu_col = self.build_menu_column(items);
 
         let mut menu_layers: Vec<Element<Msg>> = vec![menu_panel(menu_col, MENU_WIDTH)];
 
@@ -80,44 +80,68 @@ impl App {
         Some(overlay.into())
     }
 
-    fn context_menu_items<'a>(
-        &self,
-        target: &'a ContextMenuTarget,
-    ) -> Vec<Option<(&'a str, Msg, bool)>> {
+    fn context_menu_items(&self, target: &ContextMenuTarget) -> Vec<Option<(String, Msg, bool)>> {
         match target {
             ContextMenuTarget::Folder(path) => vec![
-                Some(("Rescan", Msg::RescanFolder(path.clone()), false)),
+                Some(("Rescan".into(), Msg::RescanFolder(path.clone()), false)),
                 None,
-                Some((
-                    "Remove from Library…",
-                    Msg::RequestRemoveFolder(path.clone()),
-                    true,
-                )),
+                Some(("Remove from Library…".into(), Msg::RequestRemoveFolder(path.clone()), true)),
             ],
             ContextMenuTarget::ManualAlbum(id) => vec![
-                Some(("Rename", Msg::StartRenameAlbum(id.clone()), false)),
-                Some(("Duplicate", Msg::DuplicateAlbum(id.clone()), false)),
+                Some(("Rename".into(), Msg::StartRenameAlbum(id.clone()), false)),
+                Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),
                 None,
-                Some(("Delete…", Msg::RequestDeleteAlbum(id.clone()), true)),
+                Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
             ],
             ContextMenuTarget::SmartAlbum(id) => vec![
-                Some(("Rename", Msg::StartRenameAlbum(id.clone()), false)),
-                Some(("Duplicate", Msg::DuplicateAlbum(id.clone()), false)),
+                Some(("Rename".into(), Msg::StartRenameAlbum(id.clone()), false)),
+                Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),
                 Some((
-                    "Edit Criteria",
+                    "Edit Criteria".into(),
                     Msg::SidebarItemClicked(crate::app::SidebarItem::Album(id.clone())),
                     false,
                 )),
                 None,
-                Some(("Delete…", Msg::RequestDeleteAlbum(id.clone()), true)),
+                Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
             ],
             ContextMenuTarget::GridTiles => {
                 let n = self.grid_selected.len();
-                let mut items: Vec<Option<(&'a str, Msg, bool)>> = Vec::new();
+                let mut items: Vec<Option<(String, Msg, bool)>> = Vec::new();
                 if n == 1 {
-                    items.push(Some(("Open in Loupe", Msg::OpenLoupe, false)));
+                    items.push(Some(("Open in Loupe".into(), Msg::OpenLoupe, false)));
                 }
-                items.push(Some(("Add to Album ▶", Msg::ToggleAddToAlbumSubmenu, false)));
+                items.push(Some(("Add to Album ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)));
+
+                let classify_addons: Vec<(usize, &str)> = self
+                    .addons
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, a)| a.manifest.capabilities.iter().any(|c| c == "classify"))
+                    .map(|(i, a)| (i, a.manifest.name.as_str()))
+                    .collect();
+
+                if !classify_addons.is_empty() {
+                    items.push(None);
+                    let file_ids: Vec<String> = self.grid_selected.iter().cloned().collect();
+                    let multiple = classify_addons.len() > 1;
+                    for (idx, name) in classify_addons {
+                        let label = if multiple {
+                            format!("Auto-tag with {name}")
+                        } else {
+                            "Auto-tag".into()
+                        };
+                        items.push(Some((
+                            label,
+                            Msg::RunAddon {
+                                addon_idx: idx,
+                                method: "classify".to_string(),
+                                file_ids: file_ids.clone(),
+                            },
+                            false,
+                        )));
+                    }
+                }
+
                 if n == 1 {
                     let path = self
                         .grid_selected
@@ -127,17 +151,14 @@ impl App {
                         .map(|f| f.path.clone())
                         .unwrap_or_default();
                     items.push(None);
-                    items.push(Some(("Show in Finder", Msg::ShowInFinder(path), false)));
+                    items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(path), false)));
                 }
                 items
             }
         }
     }
 
-    fn build_menu_column<'a>(
-        &self,
-        items: &[Option<(&'a str, Msg, bool)>],
-    ) -> Element<'a, Msg> {
+    fn build_menu_column(&self, items: Vec<Option<(String, Msg, bool)>>) -> Element<'_, Msg> {
         let mut col = column![].spacing(0).padding([SPACE_1, 0.0]);
         for item in items {
             match item {
@@ -155,10 +176,10 @@ impl App {
                     col = col.push(Space::new().height(SPACE_1));
                 }
                 Some((label, msg, is_destructive)) => {
-                    let color = if *is_destructive { ERR } else { FG };
+                    let color = if is_destructive { ERR } else { FG };
                     col = col.push(
                         button(
-                            row![text(*label).size(TEXT_MD).color(color)]
+                            row![text(label).size(TEXT_MD).color(color)]
                                 .padding([0.0, SPACE_1_5])
                                 .align_y(Alignment::Center),
                         )

@@ -212,6 +212,17 @@ pub enum Msg {
     RunAddon { addon_idx: usize, method: String, file_ids: Vec<String> },
     AddonProgress { addon_idx: usize, file_id: String, percent: u8 },
     AddonBatchDone { method: String, applied: usize },
+    AddonRestarted { idx: usize, process: Option<Arc<AddonProcess>> },
+
+    OpenSettings,
+    CloseSettings,
+    SettingsConfigChanged { addon_name: String, key: String, value: String },
+    SaveSettings,
+    InstallAddonPickFile,
+    AddonPackagePicked(Option<String>),
+    AddonInstalled(Arc<AddonProcess>),
+    AddonInstallFailed(String),
+    UninstallAddon(String),
 
     SortCycleAll,
     NoOp,
@@ -287,6 +298,23 @@ impl Default for DetailState {
             label: None,
             title: None,
             exif_tech: None,
+        }
+    }
+}
+
+pub struct SettingsState {
+    pub show: bool,
+    /// addon_name -> key -> current edited value
+    pub addon_configs: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    pub install_error: Option<String>,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            addon_configs: std::collections::HashMap::new(),
+            install_error: None,
         }
     }
 }
