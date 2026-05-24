@@ -477,7 +477,7 @@ impl App {
 
             Msg::RemoveFolder(path) => {
                 self.folder_pending_remove = None;
-                self.folders.retain(|(p, _)| p != &path);
+                self.folders.retain(|(p, _, _)| p != &path);
                 self.watchers.retain(|(p, _)| p != &path);
                 if self.selected_item == SidebarItem::Folder(path.clone()) {
                     self.selected_item = SidebarItem::AllFiles;
@@ -955,10 +955,12 @@ impl App {
                         super::ThumbnailEvent::Ready(fid, path) => {
                             self.thumbnails
                                 .insert(fid, isomfolio_core::models::ThumbnailState::Ready(path));
+                            self.thumbnail_pending = self.thumbnail_pending.saturating_sub(1);
                         }
                         super::ThumbnailEvent::Failed(fid, _err) => {
                             self.thumbnails
                                 .insert(fid, isomfolio_core::models::ThumbnailState::Failed(0));
+                            self.thumbnail_pending = self.thumbnail_pending.saturating_sub(1);
                         }
                     }
                 }
@@ -1143,6 +1145,7 @@ impl App {
                 isomfolio_core::app_paths::save_recent_catalog(&path);
                 self.watchers.clear();
                 self.thumbnail_pool = None;
+                self.thumbnail_pending = 0;
                 self.files.clear();
                 self.thumbnails.clear();
                 self.folders.clear();

@@ -28,7 +28,7 @@ pub struct App {
     pub view_mode: ViewMode,
     pub loupe_idx: usize,
 
-    pub folders: Vec<(String, usize)>,
+    pub folders: Vec<(String, String, usize)>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
     pub selected_item: SidebarItem,
@@ -68,6 +68,8 @@ pub struct App {
 
     pub criteria: CriteriaState,
     pub detail: DetailState,
+
+    pub thumbnail_pending: usize,
 
     pub status: String,
     pub is_scanning: bool,
@@ -154,6 +156,7 @@ impl App {
             sort_asc: true,
             criteria: CriteriaState::default(),
             detail: DetailState::default(),
+            thumbnail_pending: 0,
             status: initial_status,
             is_scanning: false,
             scan_pending: false,
@@ -297,6 +300,7 @@ impl App {
                         .insert(file.id.clone(), ThumbnailState::Ready(cache));
                 } else {
                     pool.enqueue(&file.id, &file.path, priority as i32);
+                    self.thumbnail_pending += 1;
                 }
             }
         }
@@ -307,8 +311,8 @@ impl App {
         let new_paths: Vec<String> = self
             .folders
             .iter()
-            .filter(|(p, _)| !current.contains(p.as_str()))
-            .map(|(p, _)| p.clone())
+            .filter(|(p, _, _)| !current.contains(p.as_str()))
+            .map(|(p, _, _)| p.clone())
             .collect();
         for path in new_paths {
             let tx = self.watcher_tx.clone();
@@ -318,7 +322,7 @@ impl App {
                 self.watchers.push((path, w));
             }
         }
-        let folder_set: HashSet<&str> = self.folders.iter().map(|(p, _)| p.as_str()).collect();
+        let folder_set: HashSet<&str> = self.folders.iter().map(|(p, _, _)| p.as_str()).collect();
         self.watchers
             .retain(|(p, _)| folder_set.contains(p.as_str()));
     }
@@ -365,9 +369,28 @@ impl App {
         Task::perform(
             async move {
                 let g = conn.lock().unwrap();
-                let folders = db::get_folder_counts(&g).unwrap_or_default();
+                let raw_folders = db::get_folder_counts(&g).unwrap_or_default();
                 let albums = db::get_all_albums(&g).unwrap_or_default();
                 let album_counts = db::get_all_album_file_counts(&g).unwrap_or_default();
+                drop(g);
+                let folders = raw_folders
+                    .into_iter()
+                    .map(|(path, count)| {
+                        let display = std::fs::canonicalize(&path)
+                            .ok()
+                            .and_then(|p| {
+                                p.file_name().map(|n| n.to_string_lossy().into_owned())
+                            })
+                            .unwrap_or_else(|| {
+                                std::path::Path::new(&path)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or(&path)
+                                    .to_string()
+                            });
+                        (path, display, count)
+                    })
+                    .collect();
                 (folders, albums, album_counts)
             },
             |(folders, albums, album_counts)| Msg::SidebarLoaded {

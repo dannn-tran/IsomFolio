@@ -44,7 +44,7 @@ pub fn generate_thumbnail(
     let new_w = ((w as f64 * scale).round() as u32).max(1);
     let new_h = ((h as f64 * scale).round() as u32).max(1);
 
-    let resized = img.resize_exact(new_w, new_h, FilterType::Lanczos3);
+    let resized = img.resize_exact(new_w, new_h, FilterType::Triangle);
 
     let tmp = format!("{dest}.tmp");
     {
@@ -131,12 +131,25 @@ impl PoolState {
     }
 }
 
+fn sweep_tmp_files(catalog_dir: &str) {
+    let dir = thumbnail_cache_dir(catalog_dir);
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("tmp") {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+}
+
 pub fn create_worker_pool(
     catalog_dir: &str,
     concurrency: usize,
     on_ready: impl Fn(String, String) + Send + Sync + 'static,
     on_failed: impl Fn(String, String) + Send + Sync + 'static,
 ) -> ThumbnailPool {
+    sweep_tmp_files(catalog_dir);
     let catalog_dir = catalog_dir.to_string();
     let (tx, rx) = std::sync::mpsc::sync_channel::<ThumbnailMsg>(concurrency * 4);
     let on_ready = Arc::new(on_ready);

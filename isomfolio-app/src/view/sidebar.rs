@@ -79,12 +79,8 @@ impl App {
         ]
         .spacing(SPACE_0_5);
 
-        for (path, count) in &self.folders {
-            let name = std::path::Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(path.as_str())
-                .to_string();
+        for (path, display_name, count) in &self.folders {
+            let name = display_name.clone();
             let sel = self.selected_item == SidebarItem::Folder(path.clone());
             let folder_hovered = self.hovered_sidebar_entity
                 == Some(SidebarItem::Folder(path.clone()));

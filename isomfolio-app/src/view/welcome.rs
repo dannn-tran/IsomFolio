@@ -1,5 +1,5 @@
 use iced::{
-    widget::{button, column, container, row, scrollable, stack, text, text_input, Space},
+    widget::{button, column, container, mouse_area, row, scrollable, stack, text, text_input, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
@@ -151,16 +151,16 @@ impl App {
                 Space::new().height(SPACE_4),
                 text("Location").size(TEXT_MD).color(FG_DIM),
                 Space::new().height(SPACE_1_5),
-                container(text(location_display).size(TEXT_BASE).color(
-                    if self.new_catalog_dir.is_some() { FG } else { FG_MUTED }
-                ))
-                .width(Length::Fill)
-                .padding([SPACE_2_5, SPACE_3])
-                .style(field_style),
-                Space::new().height(SPACE_2_5),
-                button(text("Choose Location…").size(TEXT_BASE))
-                    .on_press(Msg::PickNewCatalogDir)
-                    .style(ghost_btn_style),
+                mouse_area(
+                    container(text(location_display).size(TEXT_BASE).color(
+                        if self.new_catalog_dir.is_some() { FG } else { FG_MUTED }
+                    ))
+                    .width(Length::Fill)
+                    .padding([SPACE_2_5, SPACE_3])
+                    .style(field_style),
+                )
+                .on_press(Msg::PickNewCatalogDir)
+                .interaction(iced::mouse::Interaction::Pointer),
                 Space::new().height(SPACE_4),
                 row![
                     button(text("Cancel").size(TEXT_BASE))

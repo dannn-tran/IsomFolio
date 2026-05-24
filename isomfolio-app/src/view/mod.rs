@@ -89,8 +89,23 @@ impl App {
             None
         };
 
+        let pending = self.thumbnail_pending;
+        let status_left: Element<Msg> = if pending > 0 {
+            row![
+                text(status).size(TEXT_MD).color(FG),
+                text(format!("Generating {pending} thumbnails…"))
+                    .size(TEXT_MD)
+                    .color(FG_DIM),
+            ]
+            .spacing(SPACE_2)
+            .align_y(Alignment::Center)
+            .into()
+        } else {
+            text(status).size(TEXT_MD).color(FG).into()
+        };
+
         let mut status_row = row![
-            text(status).size(TEXT_MD).color(FG),
+            status_left,
             Space::new().width(Length::Fill),
         ]
         .spacing(SPACE_2)

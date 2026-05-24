@@ -66,7 +66,7 @@ pub enum Msg {
 
     FilesLoaded(Vec<AssetFile>),
     SidebarLoaded {
-        folders: Vec<(String, usize)>,
+        folders: Vec<(String, String, usize)>,
         albums: Vec<Album>,
         album_counts: HashMap<String, usize>,
     },
