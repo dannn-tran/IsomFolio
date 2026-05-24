@@ -40,7 +40,7 @@ pub fn open_database(db_path: &str) -> Result<Connection, AppError> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
+pub fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
     use crate::models::Flag;
     Ok(AssetFile {
         id: row.get(0)?,
@@ -60,9 +60,16 @@ fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
     })
 }
 
-const FILE_COLS: &str =
+pub const FILE_COLS_BARE: &str =
     "id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, \
      created_at_unix, flag, exif_date_unix, gps_lat, gps_lon";
+
+pub const FILE_COLS_PREFIXED: &str =
+    "f.id, f.path, f.filename, f.folder, f.extension, f.size, f.modified_time, \
+     f.is_orphaned, f.orphaned_at, f.created_at_unix, f.flag, \
+     f.exif_date_unix, f.gps_lat, f.gps_lon";
+
+const FILE_COLS: &str = FILE_COLS_BARE;
 
 // ---------------------------------------------------------------------------
 // Files
@@ -804,7 +811,7 @@ pub fn get_files_in_face_cluster(
     cluster_id: &str,
 ) -> Result<Vec<crate::models::AssetFile>, AppError> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT DISTINCT f.{FILE_COLS}
+        "SELECT DISTINCT {FILE_COLS_PREFIXED}
          FROM files f
          JOIN face_clusters fc ON fc.file_id = f.id
          WHERE fc.cluster_id = ?1 AND f.is_orphaned = 0

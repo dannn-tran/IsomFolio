@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 use crate::models::{AlbumId, AppError, AssetFile, Flag, FlagFilter, SearchQuery, SortField};
 use crate::search::fts;
+use crate::storage::db::{read_asset_file, FILE_COLS_PREFIXED as FILE_COLS};
 
 fn sort_column(f: SortField) -> &'static str {
     match f {
@@ -10,30 +11,6 @@ fn sort_column(f: SortField) -> &'static str {
         SortField::Ext => "f.extension",
     }
 }
-
-fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
-    Ok(AssetFile {
-        id: row.get(0)?,
-        path: row.get(1)?,
-        name: row.get(2)?,
-        folder: row.get(3)?,
-        ext: row.get(4)?,
-        size_bytes: row.get(5)?,
-        mtime_unix: row.get(6)?,
-        is_orphaned: row.get::<_, i32>(7)? == 1,
-        orphaned_at: row.get(8)?,
-        created_at_unix: row.get(9)?,
-        flag: Flag::from_i64(row.get::<_, i64>(10).unwrap_or(0)),
-        exif_date_unix: row.get(11)?,
-        gps_lat: row.get(12)?,
-        gps_lon: row.get(13)?,
-    })
-}
-
-const FILE_COLS: &str =
-    "f.id, f.path, f.filename, f.folder, f.extension, f.size, f.modified_time, \
-     f.is_orphaned, f.orphaned_at, f.created_at_unix, f.flag, \
-     f.exif_date_unix, f.gps_lat, f.gps_lon";
 
 fn append_flag_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, flag_filter: FlagFilter) {
     match flag_filter {
