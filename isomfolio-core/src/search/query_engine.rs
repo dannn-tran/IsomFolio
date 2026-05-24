@@ -63,125 +63,9 @@ fn append_rating_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToS
     *param_idx += 1;
 }
 
-pub fn execute_search(conn: &Connection, query: &SearchQuery) -> Result<Vec<AssetFile>, AppError> {
-    // FTS candidate set
-    let fts_ids: Option<Vec<String>> = match &query.text {
-        Some(txt) if !txt.trim().is_empty() => {
-            let ids = fts::search_fts5(conn, txt)?;
-            if ids.is_empty() {
-                return Ok(Vec::new());
-            }
-            Some(ids)
-        }
-        _ => None,
-    };
-
-    // Build SQL dynamically with boxed params
-    let needs_meta = query.rating_min.is_some();
-    let mut sql = format!("SELECT {FILE_COLS} FROM files f");
-    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-    let mut param_idx = 1usize;
-
-    // Tag JOINs
-    for (i, tag) in query.tags.iter().enumerate() {
-        sql.push_str(&format!(
-            " JOIN tags t{i} ON f.id = t{i}.file_id AND t{i}.tag = ?{param_idx}"
-        ));
-        params.push(Box::new(tag.clone()));
-        param_idx += 1;
-    }
-
-    if needs_meta {
-        sql.push_str(" LEFT JOIN metadata m ON f.id = m.file_id");
-    }
-
-    sql.push_str(" WHERE 1=1");
-
-    // FTS id filter
-    if let Some(ids) = &fts_ids {
-        let placeholders: Vec<String> = ids
-            .iter()
-            .map(|id| {
-                let p = format!("?{param_idx}");
-                params.push(Box::new(id.clone()));
-                param_idx += 1;
-                p
-            })
-            .collect();
-        sql.push_str(&format!(" AND f.id IN ({})", placeholders.join(",")));
-    }
-
-    // Folder filter
-    if let Some(folder_path) = &query.folder_path {
-        if !folder_path.trim().is_empty() {
-            if query.folder_recursive {
-                let prefix = crate::path_utils::descendant_like_prefix(folder_path);
-                sql.push_str(&format!(
-                    " AND (f.folder = ?{param_idx} OR f.folder LIKE ?{})",
-                    param_idx + 1
-                ));
-                params.push(Box::new(folder_path.clone()));
-                params.push(Box::new(prefix));
-                param_idx += 2;
-            } else {
-                sql.push_str(&format!(" AND f.folder = ?{param_idx}"));
-                params.push(Box::new(folder_path.clone()));
-                param_idx += 1;
-            }
-        }
-    }
-
-    // Extension filter
-    if !query.extensions.is_empty() {
-        let placeholders: Vec<String> = query
-            .extensions
-            .iter()
-            .map(|ext| {
-                let p = format!("?{param_idx}");
-                params.push(Box::new(
-                    ext.trim_start_matches('.').to_lowercase(),
-                ));
-                param_idx += 1;
-                p
-            })
-            .collect();
-        sql.push_str(&format!(" AND f.extension IN ({})", placeholders.join(",")));
-    }
-
-    // Date range filter
-    if let Some(from) = query.date_from {
-        sql.push_str(&format!(" AND f.modified_time >= ?{param_idx}"));
-        params.push(Box::new(from));
-        param_idx += 1;
-    }
-    if let Some(to) = query.date_to {
-        sql.push_str(&format!(" AND f.modified_time <= ?{param_idx}"));
-        params.push(Box::new(to));
-        param_idx += 1;
-    }
-
-    // Flag filter
-    append_flag_filter(&mut sql, &mut params, &mut param_idx, query.flag_filter);
-
-    // Rating filter
-    if let Some(min) = query.rating_min {
-        append_rating_filter(&mut sql, &mut params, &mut param_idx, min);
-    }
-
-    let dir = if query.sort_asc { "ASC" } else { "DESC" };
-    sql.push_str(&format!(" ORDER BY f.{} {}", sort_column(query.sort_by), dir));
-
-    let _ = param_idx; // suppress unused warning
-
-    let mut stmt = conn.prepare(&sql)?;
-    let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-    let rows = stmt.query_map(param_refs.as_slice(), read_asset_file)?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-}
-
-pub fn execute_manual_album_search(
+fn execute_query_inner(
     conn: &Connection,
-    album_id: &AlbumId,
+    album_id: Option<&AlbumId>,
     query: &SearchQuery,
 ) -> Result<Vec<AssetFile>, AppError> {
     let fts_ids: Option<Vec<String>> = match &query.text {
@@ -196,12 +80,13 @@ pub fn execute_manual_album_search(
     };
 
     let needs_meta = query.rating_min.is_some();
-    let mut sql = format!(
-        "SELECT {FILE_COLS} FROM files f \
-         JOIN album_files af ON f.id = af.file_id"
-    );
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1usize;
+
+    let mut sql = match album_id {
+        Some(_) => format!("SELECT {FILE_COLS} FROM files f JOIN album_files af ON f.id = af.file_id"),
+        None => format!("SELECT {FILE_COLS} FROM files f"),
+    };
 
     for (i, tag) in query.tags.iter().enumerate() {
         sql.push_str(&format!(
@@ -215,9 +100,13 @@ pub fn execute_manual_album_search(
         sql.push_str(" LEFT JOIN metadata m ON f.id = m.file_id");
     }
 
-    sql.push_str(&format!(" WHERE af.album_id = ?{param_idx}"));
-    params.push(Box::new(album_id.clone()));
-    param_idx += 1;
+    if let Some(aid) = album_id {
+        sql.push_str(&format!(" WHERE af.album_id = ?{param_idx}"));
+        params.push(Box::new(aid.clone()));
+        param_idx += 1;
+    } else {
+        sql.push_str(" WHERE 1=1");
+    }
 
     if let Some(ids) = &fts_ids {
         let placeholders: Vec<String> = ids
@@ -230,6 +119,26 @@ pub fn execute_manual_album_search(
             })
             .collect();
         sql.push_str(&format!(" AND f.id IN ({})", placeholders.join(",")));
+    }
+
+    if let (None, Some(folder_path)) = (
+        album_id,
+        query.folder_path.as_deref().filter(|p| !p.trim().is_empty()),
+    ) {
+        if query.folder_recursive {
+            let prefix = crate::path_utils::descendant_like_prefix(folder_path);
+            sql.push_str(&format!(
+                " AND (f.folder = ?{param_idx} OR f.folder LIKE ?{})",
+                param_idx + 1
+            ));
+            params.push(Box::new(folder_path.to_string()));
+            params.push(Box::new(prefix));
+            param_idx += 2;
+        } else {
+            sql.push_str(&format!(" AND f.folder = ?{param_idx}"));
+            params.push(Box::new(folder_path.to_string()));
+            param_idx += 1;
+        }
     }
 
     if !query.extensions.is_empty() {
@@ -257,10 +166,8 @@ pub fn execute_manual_album_search(
         param_idx += 1;
     }
 
-    // Flag filter
     append_flag_filter(&mut sql, &mut params, &mut param_idx, query.flag_filter);
 
-    // Rating filter
     if let Some(min) = query.rating_min {
         append_rating_filter(&mut sql, &mut params, &mut param_idx, min);
     }
@@ -274,6 +181,18 @@ pub fn execute_manual_album_search(
     let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     let rows = stmt.query_map(param_refs.as_slice(), read_asset_file)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn execute_search(conn: &Connection, query: &SearchQuery) -> Result<Vec<AssetFile>, AppError> {
+    execute_query_inner(conn, None, query)
+}
+
+pub fn execute_manual_album_search(
+    conn: &Connection,
+    album_id: &AlbumId,
+    query: &SearchQuery,
+) -> Result<Vec<AssetFile>, AppError> {
+    execute_query_inner(conn, Some(album_id), query)
 }
 
 #[cfg(test)]
@@ -303,7 +222,7 @@ mod tests {
                 created_at_unix: 0,
                 is_orphaned: false,
                 orphaned_at: None,
-                flag: crate::models::Flag::Unflagged,
+                flag: Flag::Unflagged,
             }],
         )
         .unwrap();
@@ -311,6 +230,10 @@ mod tests {
 
     mod flag_filter {
         use super::*;
+        use rusqlite::Connection;
+        use crate::models::Flag;
+        use crate::storage::db;
+        use tempfile::NamedTempFile;
 
         fn setup() -> (Connection, NamedTempFile) {
             let (conn, f) = open_temp();
@@ -318,9 +241,9 @@ mod tests {
             insert(&conn, "pick2", "pick2.jpg", "/p", "jpg", 2);
             insert(&conn, "reject1", "reject1.jpg", "/p", "jpg", 3);
             insert(&conn, "plain1", "plain1.jpg", "/p", "jpg", 4);
-            db::set_file_flag(&conn, "pick1", crate::models::Flag::Pick).unwrap();
-            db::set_file_flag(&conn, "pick2", crate::models::Flag::Pick).unwrap();
-            db::set_file_flag(&conn, "reject1", crate::models::Flag::Reject).unwrap();
+            db::set_file_flag(&conn, "pick1", Flag::Pick).unwrap();
+            db::set_file_flag(&conn, "pick2", Flag::Pick).unwrap();
+            db::set_file_flag(&conn, "reject1", Flag::Reject).unwrap();
             (conn, f)
         }
 
@@ -330,7 +253,7 @@ mod tests {
             let q = SearchQuery { flag_filter: FlagFilter::Picks, ..Default::default() };
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 2);
-            assert!(results.iter().all(|r| r.flag == crate::models::Flag::Pick));
+            assert!(results.iter().all(|r| r.flag == Flag::Pick));
         }
 
         #[test]
@@ -348,7 +271,7 @@ mod tests {
             let q = SearchQuery { flag_filter: FlagFilter::NotReject, ..Default::default() };
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 3);
-            assert!(results.iter().all(|r| r.flag != crate::models::Flag::Reject));
+            assert!(results.iter().all(|r| r.flag != Flag::Reject));
         }
 
         #[test]
