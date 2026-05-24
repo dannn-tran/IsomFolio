@@ -964,6 +964,18 @@ impl App {
                         }
                     }
                 }
+                if self.thumbnail_pending == 0
+                    && self.thumbnail_total > 0
+                    && self.thumbnail_done_at.is_none()
+                {
+                    self.thumbnail_done_at = Some(Instant::now());
+                }
+                if let Some(done_at) = self.thumbnail_done_at {
+                    if done_at.elapsed() >= Duration::from_secs(2) {
+                        self.thumbnail_total = 0;
+                        self.thumbnail_done_at = None;
+                    }
+                }
                 let mut tasks: Vec<Task<Msg>> = Vec::new();
 
                 if let Some((_, ts)) = &self.pending_search {
@@ -1146,6 +1158,8 @@ impl App {
                 self.watchers.clear();
                 self.thumbnail_pool = None;
                 self.thumbnail_pending = 0;
+                self.thumbnail_total = 0;
+                self.thumbnail_done_at = None;
                 self.files.clear();
                 self.thumbnails.clear();
                 self.folders.clear();

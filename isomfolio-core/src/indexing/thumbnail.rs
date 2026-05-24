@@ -25,6 +25,104 @@ pub fn is_cache_valid(catalog_dir: &str, file_id: &str) -> bool {
     Path::new(&thumbnail_cache_path(catalog_dir, file_id)).exists()
 }
 
+fn resize_and_save(img: image::DynamicImage, dest: &str, file_id: &str) -> Result<(), AppError> {
+    let (w, h) = (img.width(), img.height());
+    let scale = TARGET_SIZE as f64 / w.max(h) as f64;
+    let new_w = ((w as f64 * scale).round() as u32).max(1);
+    let new_h = ((h as f64 * scale).round() as u32).max(1);
+    let resized = img.resize_exact(new_w, new_h, FilterType::Triangle);
+    let tmp = format!("{dest}.tmp");
+    {
+        let file = fs::File::create(&tmp)
+            .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
+        let mut writer = BufWriter::new(file);
+        JpegEncoder::new_with_quality(&mut writer, JPEG_QUALITY)
+            .encode_image(&resized.to_rgb8())
+            .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
+    }
+    fs::rename(&tmp, dest).map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))
+}
+
+// Extract the embedded JPEG thumbnail from a JPEG file's EXIF APP1 segment.
+// Returns None if absent or malformed. No external dependencies — pure byte parsing.
+fn read_exif_jpeg_thumbnail(file_path: &str) -> Option<Vec<u8>> {
+    let data = fs::read(file_path).ok()?;
+    if !data.starts_with(&[0xFF, 0xD8]) {
+        return None;
+    }
+    let mut pos = 2usize;
+    while pos + 4 <= data.len() {
+        if data[pos] != 0xFF {
+            break;
+        }
+        let marker = data[pos + 1];
+        if marker == 0xD8 || marker == 0xD9 {
+            pos += 2;
+            continue;
+        }
+        let seg_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+        if seg_len < 2 || pos + 2 + seg_len > data.len() {
+            break;
+        }
+        if marker == 0xE1 {
+            let seg = &data[pos + 4..pos + 2 + seg_len];
+            if seg.starts_with(b"Exif\0\0") {
+                if let Some(thumb) = extract_tiff_jpeg_thumbnail(&seg[6..]) {
+                    return Some(thumb);
+                }
+            }
+        }
+        if marker == 0xDA {
+            break;
+        }
+        pos += 2 + seg_len;
+    }
+    None
+}
+
+fn extract_tiff_jpeg_thumbnail(tiff: &[u8]) -> Option<Vec<u8>> {
+    if tiff.len() < 8 {
+        return None;
+    }
+    let le = match &tiff[0..2] {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let u16_at = |off: usize| -> Option<u16> {
+        if off + 2 > tiff.len() { return None; }
+        Some(if le { u16::from_le_bytes([tiff[off], tiff[off+1]]) }
+             else  { u16::from_be_bytes([tiff[off], tiff[off+1]]) })
+    };
+    let u32_at = |off: usize| -> Option<u32> {
+        if off + 4 > tiff.len() { return None; }
+        Some(if le { u32::from_le_bytes([tiff[off], tiff[off+1], tiff[off+2], tiff[off+3]]) }
+             else  { u32::from_be_bytes([tiff[off], tiff[off+1], tiff[off+2], tiff[off+3]]) })
+    };
+    if u16_at(2)? != 42 { return None; }
+    let ifd0_off = u32_at(4)? as usize;
+    let ifd0_count = u16_at(ifd0_off)? as usize;
+    let ifd1_off = u32_at(ifd0_off + 2 + ifd0_count * 12)? as usize;
+    if ifd1_off == 0 || ifd1_off + 2 > tiff.len() { return None; }
+    let ifd1_count = u16_at(ifd1_off)? as usize;
+    let (mut off, mut len) = (None::<u32>, None::<u32>);
+    for i in 0..ifd1_count {
+        let e = ifd1_off + 2 + i * 12;
+        if e + 12 > tiff.len() { break; }
+        match u16_at(e)? {
+            0x0201 => off = Some(u32_at(e + 8)?),
+            0x0202 => len = Some(u32_at(e + 8)?),
+            _ => {}
+        }
+    }
+    let off = off? as usize;
+    let len = len? as usize;
+    if len == 0 || off + len > tiff.len() { return None; }
+    let thumb = &tiff[off..off + len];
+    if !thumb.starts_with(&[0xFF, 0xD8]) { return None; }
+    Some(thumb.to_vec())
+}
+
 pub fn generate_thumbnail(
     catalog_dir: &str,
     file_id: &str,
@@ -36,31 +134,28 @@ pub fn generate_thumbnail(
     }
     ensure_directories(catalog_dir);
 
-    let img = image::open(file_path)
-        .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
+    // Fast path for JPEG: try the embedded EXIF thumbnail first.
+    // Only use it when large enough to avoid upscaling artefacts.
+    let is_jpeg = Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_lowercase().as_str(), "jpg" | "jpeg"))
+        .unwrap_or(false);
 
-    let (w, h) = (img.width(), img.height());
-    let scale = TARGET_SIZE as f64 / (w.max(h)) as f64;
-    let new_w = ((w as f64 * scale).round() as u32).max(1);
-    let new_h = ((h as f64 * scale).round() as u32).max(1);
-
-    let resized = img.resize_exact(new_w, new_h, FilterType::Triangle);
-
-    let tmp = format!("{dest}.tmp");
-    {
-        let file = fs::File::create(&tmp)
-            .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
-        let mut writer = BufWriter::new(file);
-        let encoder = JpegEncoder::new_with_quality(&mut writer, JPEG_QUALITY);
-        resized
-            .to_rgb8()
-            .write_with_encoder(encoder)
-            .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
+    if is_jpeg {
+        if let Some(thumb_bytes) = read_exif_jpeg_thumbnail(file_path) {
+            if let Ok(img) = image::load_from_memory(&thumb_bytes) {
+                if img.width().max(img.height()) >= TARGET_SIZE {
+                    resize_and_save(img, &dest, file_id)?;
+                    return Ok(dest);
+                }
+            }
+        }
     }
 
-    fs::rename(&tmp, &dest)
+    let img = image::open(file_path)
         .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
-
+    resize_and_save(img, &dest, file_id)?;
     Ok(dest)
 }
 
@@ -76,12 +171,12 @@ pub enum ThumbnailMsg {
 }
 
 pub struct ThumbnailPool {
-    sender: std::sync::mpsc::SyncSender<ThumbnailMsg>,
+    sender: std::sync::mpsc::Sender<ThumbnailMsg>,
 }
 
 impl ThumbnailPool {
     pub fn enqueue(&self, file_id: &str, file_path: &str, priority: i32) {
-        let _ = self.sender.try_send(ThumbnailMsg::Enqueue {
+        let _ = self.sender.send(ThumbnailMsg::Enqueue {
             file_id: file_id.to_string(),
             file_path: file_path.to_string(),
             priority,
@@ -90,11 +185,11 @@ impl ThumbnailPool {
     }
 
     pub fn cancel_all(&self) {
-        let _ = self.sender.try_send(ThumbnailMsg::CancelAll);
+        let _ = self.sender.send(ThumbnailMsg::CancelAll);
     }
 
     pub fn shutdown(&self) {
-        let _ = self.sender.try_send(ThumbnailMsg::Shutdown);
+        let _ = self.sender.send(ThumbnailMsg::Shutdown);
     }
 }
 
@@ -151,7 +246,7 @@ pub fn create_worker_pool(
 ) -> ThumbnailPool {
     sweep_tmp_files(catalog_dir);
     let catalog_dir = catalog_dir.to_string();
-    let (tx, rx) = std::sync::mpsc::sync_channel::<ThumbnailMsg>(concurrency * 4);
+    let (tx, rx) = std::sync::mpsc::channel::<ThumbnailMsg>();
     let on_ready = Arc::new(on_ready);
     let on_failed = Arc::new(on_failed);
     let tx_clone = tx.clone();
@@ -224,7 +319,7 @@ pub fn create_worker_pool(
                                         let fp = file_path.clone();
                                         std::thread::spawn(move || {
                                             std::thread::sleep(Duration::from_secs(RETRY_DELAY_SECS));
-                                            let _ = tx_retry.try_send(ThumbnailMsg::Enqueue {
+                                            let _ = tx_retry.send(ThumbnailMsg::Enqueue {
                                                 file_id: fid,
                                                 file_path: fp,
                                                 priority: 99,

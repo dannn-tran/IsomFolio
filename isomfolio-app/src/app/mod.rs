@@ -70,6 +70,8 @@ pub struct App {
     pub detail: DetailState,
 
     pub thumbnail_pending: usize,
+    pub thumbnail_total: usize,
+    pub thumbnail_done_at: Option<Instant>,
 
     pub status: String,
     pub is_scanning: bool,
@@ -157,6 +159,8 @@ impl App {
             criteria: CriteriaState::default(),
             detail: DetailState::default(),
             thumbnail_pending: 0,
+            thumbnail_total: 0,
+            thumbnail_done_at: None,
             status: initial_status,
             is_scanning: false,
             scan_pending: false,
@@ -273,9 +277,12 @@ impl App {
         let tx_ready = self.thumbnail_tx.clone();
         let tx_failed = self.thumbnail_tx.clone();
         let catalog_dir = self.catalog_dir.clone();
+        let concurrency = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
         self.thumbnail_pool = Some(create_worker_pool(
             &catalog_dir,
-            4,
+            concurrency,
             move |fid, path| {
                 let _ = tx_ready.try_send(ThumbnailEvent::Ready(fid, path));
             },
@@ -290,19 +297,27 @@ impl App {
             return;
         };
         let catalog_dir = self.catalog_dir.clone();
+        let mut newly_enqueued = 0usize;
         for (priority, file) in self.files.iter().enumerate() {
             if !self.thumbnails.contains_key(&file.id) {
-                self.thumbnails
-                    .insert(file.id.clone(), ThumbnailState::Pending);
+                self.thumbnails.insert(file.id.clone(), ThumbnailState::Pending);
                 let cache = thumbnail_cache_path(&catalog_dir, &file.id);
                 if std::path::Path::new(&cache).exists() {
-                    self.thumbnails
-                        .insert(file.id.clone(), ThumbnailState::Ready(cache));
+                    self.thumbnails.insert(file.id.clone(), ThumbnailState::Ready(cache));
                 } else {
                     pool.enqueue(&file.id, &file.path, priority as i32);
-                    self.thumbnail_pending += 1;
+                    newly_enqueued += 1;
                 }
             }
+        }
+        if newly_enqueued > 0 {
+            if self.thumbnail_pending == 0 {
+                self.thumbnail_total = newly_enqueued;
+                self.thumbnail_done_at = None;
+            } else {
+                self.thumbnail_total += newly_enqueued;
+            }
+            self.thumbnail_pending += newly_enqueued;
         }
     }
 
@@ -498,7 +513,7 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Msg> {
-        let tick_sub = iced::time::every(std::time::Duration::from_millis(50)).map(|_| Msg::Tick);
+        let tick_sub = iced::time::every(std::time::Duration::from_millis(41)).map(|_| Msg::Tick);
 
         let event_sub = event::listen_with(|event, status, _id| {
             let ignored = status == iced::event::Status::Ignored;

@@ -6,14 +6,15 @@ mod tag_browser;
 mod welcome;
 
 use iced::{
-    widget::{button, column, container, image, row, stack, text, Space},
-    Alignment, Background, Border, Color, Element, Length, Theme,
+    widget::{button, column, container, image, progress_bar, row, stack, text, Space},
+    Alignment, Background, Border, Color, Element, Length, Shadow, Theme, Vector,
 };
 
 use crate::app::{App, Msg, SidebarItem, ViewMode};
 use styles::{
-    active_chip_style, danger_btn_style, ghost_btn_style, BG_STATUSBAR, ERR, FG, FG_DIM, FG_MUTED,
-    SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD,
+    active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_STATUSBAR, BORDER, ERR, FG,
+    FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD,
+    TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
 };
 
 impl App {
@@ -89,23 +90,8 @@ impl App {
             None
         };
 
-        let pending = self.thumbnail_pending;
-        let status_left: Element<Msg> = if pending > 0 {
-            row![
-                text(status).size(TEXT_MD).color(FG),
-                text(format!("Generating {pending} thumbnails…"))
-                    .size(TEXT_MD)
-                    .color(FG_DIM),
-            ]
-            .spacing(SPACE_2)
-            .align_y(Alignment::Center)
-            .into()
-        } else {
-            text(status).size(TEXT_MD).color(FG).into()
-        };
-
         let mut status_row = row![
-            status_left,
+            text(status).size(TEXT_MD).color(FG),
             Space::new().width(Length::Fill),
         ]
         .spacing(SPACE_2)
@@ -165,11 +151,60 @@ impl App {
         if let Some(tb) = self.view_tag_browser() {
             layers.push(tb);
         }
+        if self.thumbnail_total > 0 {
+            layers.push(self.view_thumbnail_progress_panel());
+        }
         if layers.len() == 1 {
             layers.remove(0)
         } else {
             stack(layers).into()
         }
+    }
+
+    fn view_thumbnail_progress_panel(&self) -> Element<'_, Msg> {
+        let total = self.thumbnail_total;
+        let done = total.saturating_sub(self.thumbnail_pending);
+        let ratio = done as f32 / total.max(1) as f32;
+
+        let panel = container(
+            column![
+                row![
+                    text("Generating thumbnails").size(TEXT_MD).color(FG),
+                    Space::new().width(Length::Fill),
+                    text(format!("{done} / {total}")).size(TEXT_SM).color(FG_DIM),
+                ]
+                .align_y(Alignment::Center),
+                Space::new().height(SPACE_0_5),
+                progress_bar(0.0f32..=1.0f32, ratio)
+                    .style(|_: &Theme| progress_bar::Style {
+                        background: Background::Color(Color { r: 0.22, g: 0.22, b: 0.25, a: 1.0 }),
+                        bar: Background::Color(ACCENT),
+                        border: Border { radius: 2.0.into(), ..Default::default() },
+                    }),
+            ]
+            .spacing(SPACE_1),
+        )
+        .width(280)
+        .padding([SPACE_2, SPACE_2_5])
+        .style(|_: &Theme| container::Style {
+            background: Some(Background::Color(Color { r: 0.13, g: 0.13, b: 0.16, a: 0.96 })),
+            border: Border { color: BORDER, width: 1.0, radius: 8.0.into() },
+            shadow: Shadow {
+                color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.45 },
+                offset: Vector::new(0.0, 4.0),
+                blur_radius: 14.0,
+            },
+            ..Default::default()
+        });
+
+        // Status bar height ~26px + 12px margin
+        container(panel)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::End)
+            .align_y(Alignment::End)
+            .padding(iced::Padding { top: 0.0, right: SPACE_3, bottom: 38.0, left: 0.0 })
+            .into()
     }
 
     fn view_loupe(&self) -> Element<'_, Msg> {
