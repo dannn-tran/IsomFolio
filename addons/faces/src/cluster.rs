@@ -2,6 +2,13 @@ use std::collections::VecDeque;
 
 pub fn dbscan(embeddings: &[Vec<f32>], eps: f32, min_pts: usize) -> Vec<i32> {
     let n = embeddings.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    // Precompute neighbor lists: O(n²/2) distance computations total
+    let neighbors = precompute_neighbors(embeddings, eps);
+
     let mut labels = vec![-1i32; n];
     let mut visited = vec![false; n];
     let mut cluster_id = 0i32;
@@ -12,13 +19,12 @@ pub fn dbscan(embeddings: &[Vec<f32>], eps: f32, min_pts: usize) -> Vec<i32> {
         }
         visited[i] = true;
 
-        let neighbors = region_query(embeddings, i, eps);
-        if neighbors.len() < min_pts {
+        if neighbors[i].len() < min_pts {
             continue;
         }
 
         labels[i] = cluster_id;
-        let mut queue: VecDeque<usize> = neighbors.into_iter().filter(|&j| j != i).collect();
+        let mut queue: VecDeque<usize> = neighbors[i].iter().copied().filter(|&j| j != i).collect();
 
         while let Some(j) = queue.pop_front() {
             if labels[j] == -1 {
@@ -28,9 +34,8 @@ pub fn dbscan(embeddings: &[Vec<f32>], eps: f32, min_pts: usize) -> Vec<i32> {
                 continue;
             }
             visited[j] = true;
-            let new_neighbors = region_query(embeddings, j, eps);
-            if new_neighbors.len() >= min_pts {
-                for nb in new_neighbors {
+            if neighbors[j].len() >= min_pts {
+                for &nb in &neighbors[j] {
                     if !visited[nb] {
                         queue.push_back(nb);
                     }
@@ -44,17 +49,22 @@ pub fn dbscan(embeddings: &[Vec<f32>], eps: f32, min_pts: usize) -> Vec<i32> {
     labels
 }
 
-fn region_query(embeddings: &[Vec<f32>], i: usize, eps: f32) -> Vec<usize> {
-    embeddings
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| cosine_distance(&embeddings[i], e) <= eps)
-        .map(|(j, _)| j)
-        .collect()
-}
+fn precompute_neighbors(embeddings: &[Vec<f32>], eps: f32) -> Vec<Vec<usize>> {
+    let n = embeddings.len();
+    let mut neighbors: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
+    let threshold = 1.0 - eps;
 
-fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
-    1.0 - a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>()
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let dot: f32 = embeddings[i].iter().zip(&embeddings[j]).map(|(a, b)| a * b).sum();
+            if dot >= threshold {
+                neighbors[i].push(j);
+                neighbors[j].push(i);
+            }
+        }
+    }
+
+    neighbors
 }
 
 #[cfg(test)]
