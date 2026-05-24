@@ -700,6 +700,35 @@ pub fn save_face_clusters(
     clusters: &[(String, String, f64, f64, f64, f64)],
 ) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
+
+    // Collect old cluster→name mappings before wiping
+    let old_names: HashMap<String, String> = {
+        let mut stmt = conn.prepare(
+            "SELECT cluster_id, name FROM face_cluster_names",
+        )?;
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows.into_iter().collect()
+    };
+
+    // Collect old cluster→file_ids for matching names to new clusters
+    let old_members: HashMap<String, Vec<String>> = {
+        let mut stmt = conn.prepare(
+            "SELECT cluster_id, file_id FROM face_clusters",
+        )?;
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for (cid, fid) in rows {
+            map.entry(cid).or_default().push(fid);
+        }
+        map
+    };
+
     conn.execute_batch("DELETE FROM face_clusters")?;
     for (cluster_id, file_id, x, y, w, h) in clusters {
         conn.execute(
@@ -708,6 +737,44 @@ pub fn save_face_clusters(
             params![cluster_id, file_id, x, y, w, h],
         )?;
     }
+
+    // Build new cluster→file_ids
+    let mut new_members: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (cluster_id, file_id, _, _, _, _) in clusters {
+        new_members.entry(cluster_id.as_str()).or_default().push(file_id.as_str());
+    }
+
+    // Re-associate names: for each old named cluster, find the new cluster with max overlap
+    conn.execute_batch("DELETE FROM face_cluster_names")?;
+    let mut assigned_names: HashMap<String, String> = HashMap::new();
+    for (old_cid, name) in &old_names {
+        let old_fids: std::collections::HashSet<&str> = old_members
+            .get(old_cid)
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+        if old_fids.is_empty() {
+            continue;
+        }
+        let best = new_members.iter().max_by_key(|(new_cid, new_fids)| {
+            if assigned_names.contains_key(**new_cid) {
+                return 0;
+            }
+            new_fids.iter().filter(|f| old_fids.contains(**f)).count()
+        });
+        if let Some((&new_cid, new_fids)) = best {
+            let overlap = new_fids.iter().filter(|f| old_fids.contains(**f)).count();
+            if overlap > 0 && !assigned_names.contains_key(new_cid) {
+                assigned_names.insert(new_cid.to_string(), name.clone());
+            }
+        }
+    }
+    for (cid, name) in &assigned_names {
+        conn.execute(
+            "INSERT OR REPLACE INTO face_cluster_names (cluster_id, name) VALUES (?1, ?2)",
+            params![cid, name],
+        )?;
+    }
+
     tx.commit()?;
     Ok(())
 }

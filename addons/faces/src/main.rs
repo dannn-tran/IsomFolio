@@ -271,17 +271,17 @@ fn handle_cluster_faces(
         }));
     }
 
-    // Sort by cluster size desc, then re-number
+    // Sort by cluster size desc, generate stable IDs from member content
     let mut clusters: Vec<Vec<Value>> =
         cluster_members.into_iter().filter(|m| !m.is_empty()).collect();
     clusters.sort_by(|a, b| b.len().cmp(&a.len()));
 
     let result: Vec<Value> = clusters
         .into_iter()
-        .enumerate()
-        .map(|(i, members)| {
+        .map(|members| {
+            let id = stable_cluster_id(&members);
             serde_json::json!({
-                "id": format!("person-{i}"),
+                "id": id,
                 "members": members,
             })
         })
@@ -291,6 +291,29 @@ fn handle_cluster_faces(
     emit_log(out, "info", &format!("found {} people", result.len()));
 
     Ok(serde_json::json!({"clusters": result}))
+}
+
+fn stable_cluster_id(members: &[Value]) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut keys: Vec<String> = members
+        .iter()
+        .map(|m| {
+            let fid = m.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
+            let bbox = m.get("bbox").unwrap_or(&Value::Null);
+            let x = bbox.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let y = bbox.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            format!("{fid}:{x:.1}:{y:.1}")
+        })
+        .collect();
+    keys.sort();
+
+    let mut hasher = DefaultHasher::new();
+    for k in &keys {
+        k.hash(&mut hasher);
+    }
+    format!("face-{:016x}", hasher.finish())
 }
 
 fn is_cached(db: &SqliteConn, file_id: &str, file_mtime: i64) -> bool {
