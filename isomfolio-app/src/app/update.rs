@@ -187,46 +187,46 @@ impl App {
 
             Msg::FaceClusteringDone(summaries) => {
                 let count = summaries.len();
-                self.face_clusters = summaries;
+                self.faces.clusters = summaries;
                 self.status = format!("Face clustering done — {count} people found");
                 Task::none()
             }
 
             Msg::FaceClustersLoaded(summaries) => {
-                self.face_clusters = summaries;
+                self.faces.clusters = summaries;
                 Task::none()
             }
 
             Msg::RenameFaceCluster(cluster_id) => {
                 let current_name = self
-                    .face_clusters
+                    .faces.clusters
                     .iter()
                     .find(|c| c.cluster_id == cluster_id)
                     .and_then(|c| c.name.clone())
                     .unwrap_or_default();
-                self.rename_face_cluster_id = Some(cluster_id);
-                self.rename_face_cluster_input = current_name;
+                self.faces.rename_cluster_id = Some(cluster_id);
+                self.faces.rename_input = current_name;
                 Task::none()
             }
 
             Msg::RenameFaceClusterInputChanged(s) => {
-                self.rename_face_cluster_input = s;
+                self.faces.rename_input = s;
                 Task::none()
             }
 
             Msg::ConfirmRenameFaceCluster => {
-                let Some(cluster_id) = self.rename_face_cluster_id.take() else {
+                let Some(cluster_id) = self.faces.rename_cluster_id.take() else {
                     return Task::none();
                 };
-                let name = self.rename_face_cluster_input.trim().to_string();
-                self.rename_face_cluster_input = String::new();
+                let name = self.faces.rename_input.trim().to_string();
+                self.faces.rename_input = String::new();
                 if name.is_empty() {
                     return Task::none();
                 }
                 let Some(conn) = self.conn.clone() else {
                     return Task::none();
                 };
-                if let Some(c) = self.face_clusters.iter_mut().find(|c| c.cluster_id == cluster_id) {
+                if let Some(c) = self.faces.clusters.iter_mut().find(|c| c.cluster_id == cluster_id) {
                     c.name = Some(name.clone());
                 }
                 Task::perform(
@@ -392,10 +392,10 @@ impl App {
                 self.files.clear();
                 self.file_ratings.clear();
                 self.scroll_y = 0.0;
-                self.loupe_idx = 0;
+                self.loupe.idx = 0;
                 self.grid_selected.clear();
-                self.drag = None;
-                self.dragging_ids.clear();
+                self.drag.state = None;
+                self.drag.ids.clear();
                 self.criteria.save_smart_input = None;
                 self.detail.file_id = None;
                 self.remove_from_album_pending = false;
@@ -454,16 +454,16 @@ impl App {
                     }
                     let delta = dx + dy;
                     let new_idx =
-                        (self.loupe_idx as i32 + delta).rem_euclid(total as i32) as usize;
-                    self.loupe_idx = new_idx;
-                    self.loupe_prefetch.retain(|&k, _| {
+                        (self.loupe.idx as i32 + delta).rem_euclid(total as i32) as usize;
+                    self.loupe.idx = new_idx;
+                    self.loupe.prefetch.retain(|&k, _| {
                         (k as i32 - new_idx as i32).unsigned_abs() as usize <= 2
                     });
-                    if let Some(handle) = self.loupe_prefetch.remove(&new_idx) {
-                        self.loupe_full_res = Some((new_idx, handle));
+                    if let Some(handle) = self.loupe.prefetch.remove(&new_idx) {
+                        self.loupe.full_res = Some((new_idx, handle));
                         return self.load_loupe_prefetch();
                     }
-                    self.loupe_full_res = None;
+                    self.loupe.full_res = None;
                     return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
                 }
                 let cols = self.cols().max(1) as i32;
@@ -489,19 +489,19 @@ impl App {
                 match self.view_mode {
                     ViewMode::Loupe => {
                         self.view_mode = ViewMode::Browse;
-                        self.loupe_full_res = None;
-                        self.loupe_prefetch.clear();
+                        self.loupe.full_res = None;
+                        self.loupe.prefetch.clear();
                     }
                     ViewMode::Browse => {
                         if !self.files.is_empty() {
                             let idx = self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
-                            self.loupe_idx = idx;
+                            self.loupe.idx = idx;
                             self.view_mode = ViewMode::Loupe;
-                            if let Some(handle) = self.loupe_prefetch.remove(&idx) {
-                                self.loupe_full_res = Some((idx, handle));
+                            if let Some(handle) = self.loupe.prefetch.remove(&idx) {
+                                self.loupe.full_res = Some((idx, handle));
                                 return self.load_loupe_prefetch();
                             }
-                            self.loupe_full_res = None;
+                            self.loupe.full_res = None;
                             return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
                         }
                     }
@@ -520,7 +520,7 @@ impl App {
                     self.sidebar_width = pos.x.clamp(140.0, 400.0);
                     return Task::none();
                 }
-                if let Some(ref mut d) = self.drag {
+                if let Some(ref mut d) = self.drag.state {
                     d.cursor = pos;
                     if !d.active {
                         let dx = pos.x - d.start.x;
@@ -529,7 +529,7 @@ impl App {
                             d.active = true;
                             let origin_idx = d.origin_idx;
                             let origin_id = self.files[origin_idx].id.clone();
-                            self.dragging_ids = if self.grid_selected.contains(&origin_id) {
+                            self.drag.ids = if self.grid_selected.contains(&origin_id) {
                                 self.grid_selected.clone()
                             } else {
                                 [origin_id].into()
@@ -537,14 +537,14 @@ impl App {
                         }
                     }
                 }
-                if self.drag.as_ref().map_or(false, |d| d.active) {
+                if self.drag.state.as_ref().map_or(false, |d| d.active) {
                     if pos.x < self.sidebar_width + SIDEBAR_HANDLE_WIDTH {
                         let n_folders = self.folders.len();
                         let albums_top =
                             SIDEBAR_ALBUMS_BASE_Y + n_folders as f32 * (ALBUM_ITEM_HEIGHT + 2.0);
                         let y_in_content = pos.y + self.sidebar_scroll_y - albums_top;
                         let row_h = ALBUM_ITEM_HEIGHT + 2.0;
-                        self.drag_hover_album = if y_in_content >= 0.0 {
+                        self.drag.hover_album = if y_in_content >= 0.0 {
                             let idx = (y_in_content / row_h) as usize;
                             self.albums.get(idx).and_then(|a| {
                                 if matches!(a.kind, AlbumKind::Manual) {
@@ -557,7 +557,7 @@ impl App {
                             None
                         };
                     } else {
-                        self.drag_hover_album = None;
+                        self.drag.hover_album = None;
                     }
                 }
                 Task::none()
@@ -643,7 +643,7 @@ impl App {
                             self.grid_selected.insert(file_id);
                             self.anchor_idx = Some(idx);
                         }
-                        self.drag = Some(DragState {
+                        self.drag.state = Some(DragState {
                             origin_idx: idx,
                             start: pos,
                             cursor: pos,
@@ -673,10 +673,10 @@ impl App {
                     self.sidebar_resizing = false;
                     return Task::none();
                 }
-                let was_drag_active = self.drag.as_ref().map_or(false, |d| d.active);
+                let was_drag_active = self.drag.state.as_ref().map_or(false, |d| d.active);
                 let drop_task = if was_drag_active {
-                    self.drag_hover_album.clone().map(|id| {
-                        let ids: Vec<String> = self.dragging_ids.iter().cloned().collect();
+                    self.drag.hover_album.clone().map(|id| {
+                        let ids: Vec<String> = self.drag.ids.iter().cloned().collect();
                         Task::done(Msg::DroppedToAlbum(id, ids))
                     })
                 } else {
@@ -705,9 +705,9 @@ impl App {
                         None
                     };
 
-                self.drag = None;
-                self.dragging_ids.clear();
-                self.drag_hover_album = None;
+                self.drag.state = None;
+                self.drag.ids.clear();
+                self.drag.hover_album = None;
 
                 let detail_task = self.maybe_load_detail();
                 Task::batch(
@@ -737,7 +737,7 @@ impl App {
                 }
                 self.create_album_input = None;
                 self.rename_album_id = None;
-                self.rename_face_cluster_id = None;
+                self.faces.rename_cluster_id = None;
                 self.criteria.save_smart_input = None;
                 self.remove_from_album_pending = false;
                 Task::none()
@@ -751,9 +751,9 @@ impl App {
             }
 
             Msg::DroppedToAlbum(album_id, ids) => {
-                self.drag = None;
-                self.dragging_ids.clear();
-                self.drag_hover_album = None;
+                self.drag.state = None;
+                self.drag.ids.clear();
+                self.drag.hover_album = None;
                 let name = self
                     .albums
                     .iter()
@@ -1280,7 +1280,7 @@ impl App {
 
             Msg::SetFlag(flag) => {
                 let ids: Vec<String> = if matches!(self.view_mode, ViewMode::Loupe) {
-                    self.files.get(self.loupe_idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
+                    self.files.get(self.loupe.idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
                 } else {
                     self.grid_selected.iter().cloned().collect()
                 };
@@ -1318,7 +1318,7 @@ impl App {
 
             Msg::SetRating(rating) => {
                 let ids: Vec<String> = if matches!(self.view_mode, ViewMode::Loupe) {
-                    self.files.get(self.loupe_idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
+                    self.files.get(self.loupe.idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
                 } else {
                     self.grid_selected.iter().cloned().collect()
                 };
@@ -1387,14 +1387,14 @@ impl App {
 
             Msg::Tick => {
                 let mut tasks: Vec<Task<Msg>> = Vec::new();
-                while let Ok(ev) = self.thumbnail_rx.try_recv() {
+                while let Ok(ev) = self.thumb_ctx.rx.try_recv() {
                     match ev {
                         super::ThumbnailEvent::Ready(fid, path) => {
                             self.thumbnails.insert(
                                 fid.clone(),
                                 isomfolio_core::models::ThumbnailState::Ready(path.clone()),
                             );
-                            self.thumbnail_pending = self.thumbnail_pending.saturating_sub(1);
+                            self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
                             let fid2 = fid.clone();
                             tasks.push(Task::perform(
                                 async move {
@@ -1418,20 +1418,20 @@ impl App {
                         super::ThumbnailEvent::Failed(fid, _err) => {
                             self.thumbnails
                                 .insert(fid, isomfolio_core::models::ThumbnailState::Failed(0));
-                            self.thumbnail_pending = self.thumbnail_pending.saturating_sub(1);
+                            self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
                         }
                     }
                 }
-                if self.thumbnail_pending == 0
-                    && self.thumbnail_total > 0
-                    && self.thumbnail_done_at.is_none()
+                if self.thumb_ctx.pending == 0
+                    && self.thumb_ctx.total > 0
+                    && self.thumb_ctx.done_at.is_none()
                 {
-                    self.thumbnail_done_at = Some(Instant::now());
+                    self.thumb_ctx.done_at = Some(Instant::now());
                 }
-                if let Some(done_at) = self.thumbnail_done_at {
+                if let Some(done_at) = self.thumb_ctx.done_at {
                     if done_at.elapsed() >= Duration::from_secs(2) {
-                        self.thumbnail_total = 0;
-                        self.thumbnail_done_at = None;
+                        self.thumb_ctx.total = 0;
+                        self.thumb_ctx.done_at = None;
                     }
                 }
 
@@ -1505,8 +1505,8 @@ impl App {
             }
 
             Msg::DragHoverAlbum(opt_id) => {
-                if self.drag.as_ref().map_or(false, |d| d.active) {
-                    self.drag_hover_album = opt_id;
+                if self.drag.state.as_ref().map_or(false, |d| d.active) {
+                    self.drag.hover_album = opt_id;
                 }
                 Task::none()
             }
@@ -1526,28 +1526,28 @@ impl App {
             ),
 
             Msg::SelectRecentCatalog(path) => {
-                self.selected_recent_catalog = Some(path);
+                self.welcome.selected_recent_catalog = Some(path);
                 Task::none()
             }
 
             Msg::OpenSelectedRecentCatalog => {
-                let Some(path) = self.selected_recent_catalog.clone() else {
+                let Some(path) = self.welcome.selected_recent_catalog.clone() else {
                     return Task::none();
                 };
                 Task::done(Msg::OpenCatalog(path))
             }
 
             Msg::ShowNewCatalogModal => {
-                self.show_new_catalog_modal = true;
-                self.new_catalog_dir = None;
-                self.new_catalog_name.clear();
+                self.welcome.show_new_catalog_modal = true;
+                self.welcome.new_catalog_dir = None;
+                self.welcome.new_catalog_name.clear();
                 Task::none()
             }
 
             Msg::HideNewCatalogModal => {
-                self.show_new_catalog_modal = false;
-                self.new_catalog_dir = None;
-                self.new_catalog_name.clear();
+                self.welcome.show_new_catalog_modal = false;
+                self.welcome.new_catalog_dir = None;
+                self.welcome.new_catalog_name.clear();
                 Task::none()
             }
 
@@ -1584,24 +1584,24 @@ impl App {
             ),
 
             Msg::NewCatalogDirPicked(dir) => {
-                self.new_catalog_dir = Some(dir);
+                self.welcome.new_catalog_dir = Some(dir);
                 Task::none()
             }
 
             Msg::NewCatalogNameChanged(s) => {
-                self.new_catalog_name = s;
+                self.welcome.new_catalog_name = s;
                 Task::none()
             }
 
             Msg::ConfirmNewCatalog => {
-                let Some(dir) = self.new_catalog_dir.clone() else {
+                let Some(dir) = self.welcome.new_catalog_dir.clone() else {
                     return Task::none();
                 };
-                let name = self.new_catalog_name.trim().to_string();
+                let name = self.welcome.new_catalog_name.trim().to_string();
                 if name.is_empty() {
                     return Task::none();
                 }
-                self.show_new_catalog_modal = false;
+                self.welcome.show_new_catalog_modal = false;
                 Task::perform(
                     async move {
                         isomfolio_core::app_paths::create_catalog(&dir, &name)
@@ -1617,11 +1617,11 @@ impl App {
             Msg::OpenCatalog(path) => {
                 isomfolio_core::app_paths::save_recent_catalog(&path);
                 self.watchers.clear();
-                self.thumbnail_pool = None;
-                self.thumbnail_pending = 0;
-                self.thumbnail_total = 0;
-                self.thumbnail_start_at = None;
-                self.thumbnail_done_at = None;
+                self.thumb_ctx.pool = None;
+                self.thumb_ctx.pending = 0;
+                self.thumb_ctx.total = 0;
+                self.thumb_ctx.start_at = None;
+                self.thumb_ctx.done_at = None;
                 self.files.clear();
                 self.file_ratings.clear();
                 self.thumbnails.clear();
@@ -1629,25 +1629,25 @@ impl App {
                 self.albums.clear();
                 self.album_counts.clear();
                 self.grid_selected.clear();
-                self.drag = None;
-                self.dragging_ids.clear();
+                self.drag.state = None;
+                self.drag.ids.clear();
                 self.pending_search = None;
                 self.search_text.clear();
                 self.criteria = CriteriaState::default();
                 self.detail = DetailState::default();
                 self.selected_item = SidebarItem::AllFiles;
                 self.scroll_y = 0.0;
-                self.loupe_idx = 0;
+                self.loupe.idx = 0;
                 self.view_mode = ViewMode::Browse;
-                self.loupe_full_res = None;
-                self.loupe_prefetch.clear();
-                self.thumbnail_handles.clear();
+                self.loupe.full_res = None;
+                self.loupe.prefetch.clear();
+                self.thumb_ctx.handles.clear();
                 self.album_pending_delete = None;
                 self.folder_pending_remove = None;
-                self.selected_recent_catalog = Some(path.clone());
-                self.show_new_catalog_modal = false;
-                self.new_catalog_dir = None;
-                self.new_catalog_name.clear();
+                self.welcome.selected_recent_catalog = Some(path.clone());
+                self.welcome.show_new_catalog_modal = false;
+                self.welcome.new_catalog_dir = None;
+                self.welcome.new_catalog_name.clear();
                 isomfolio_core::app_paths::ensure_directories(&path);
                 self.conn = db::open_database(&db_path(&path))
                     .ok()
@@ -1658,9 +1658,9 @@ impl App {
                     String::new()
                 };
                 self.catalog_dir = path;
-                self.show_welcome = false;
+                self.welcome.show = false;
                 self.tag_browser = None;
-                self.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
+                self.welcome.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
                 Task::batch([Task::done(Msg::CatalogReady), App::resize_to_main()])
             }
 
@@ -1770,24 +1770,24 @@ impl App {
             }
 
             Msg::LoupeFullResLoaded { idx, handle } => {
-                if self.loupe_idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
-                    self.loupe_full_res = Some((idx, handle));
+                if self.loupe.idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
+                    self.loupe.full_res = Some((idx, handle));
                 }
                 Task::none()
             }
 
             Msg::LoupePrefetchLoaded { idx, handle } => {
                 if matches!(self.view_mode, ViewMode::Loupe) {
-                    let dist = (idx as i32 - self.loupe_idx as i32).unsigned_abs() as usize;
+                    let dist = (idx as i32 - self.loupe.idx as i32).unsigned_abs() as usize;
                     if dist <= 2 {
-                        self.loupe_prefetch.insert(idx, handle);
+                        self.loupe.prefetch.insert(idx, handle);
                     }
                 }
                 Task::none()
             }
 
             Msg::ThumbnailHandleReady { file_id, handle } => {
-                self.thumbnail_handles.insert(file_id, handle);
+                self.thumb_ctx.handles.insert(file_id, handle);
                 Task::none()
             }
 
@@ -1987,7 +1987,7 @@ impl App {
     }
 
     pub(crate) fn load_loupe_full_res(&self) -> Task<Msg> {
-        let idx = self.loupe_idx;
+        let idx = self.loupe.idx;
         let Some(file) = self.files.get(idx) else {
             return Task::none();
         };
@@ -2017,14 +2017,14 @@ impl App {
         if total == 0 {
             return Task::none();
         }
-        let current = self.loupe_idx;
+        let current = self.loupe.idx;
         let mut tasks = Vec::new();
         for delta in [-1i32, 1] {
             let idx = (current as i32 + delta).rem_euclid(total as i32) as usize;
-            if self.loupe_prefetch.contains_key(&idx) {
+            if self.loupe.prefetch.contains_key(&idx) {
                 continue;
             }
-            if self.loupe_full_res.as_ref().map_or(false, |(i, _)| *i == idx) {
+            if self.loupe.full_res.as_ref().map_or(false, |(i, _)| *i == idx) {
                 continue;
             }
             if let Some(file) = self.files.get(idx) {

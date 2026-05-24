@@ -22,18 +22,73 @@ use isomfolio_core::search::query_engine::{execute_manual_album_search, execute_
 use isomfolio_core::storage::db;
 use isomfolio_core::Connection;
 
+pub struct LoupeState {
+    pub idx: usize,
+    pub full_res: Option<(usize, iced::widget::image::Handle)>,
+    pub prefetch: HashMap<usize, iced::widget::image::Handle>,
+}
+
+impl Default for LoupeState {
+    fn default() -> Self {
+        Self { idx: 0, full_res: None, prefetch: HashMap::new() }
+    }
+}
+
+pub struct ThumbnailContext {
+    pub pool: Option<ThumbnailPool>,
+    pub tx: mpsc::SyncSender<ThumbnailEvent>,
+    pub rx: mpsc::Receiver<ThumbnailEvent>,
+    pub pending: usize,
+    pub total: usize,
+    pub start_at: Option<Instant>,
+    pub done_at: Option<Instant>,
+    pub handles: HashMap<String, iced::widget::image::Handle>,
+}
+
+pub struct DragContext {
+    pub state: Option<DragState>,
+    pub ids: HashSet<String>,
+    pub hover_album: Option<AlbumId>,
+}
+
+impl Default for DragContext {
+    fn default() -> Self {
+        Self { state: None, ids: HashSet::new(), hover_album: None }
+    }
+}
+
+pub struct WelcomeState {
+    pub show: bool,
+    pub recent_catalogs: Vec<String>,
+    pub selected_recent_catalog: Option<String>,
+    pub show_new_catalog_modal: bool,
+    pub new_catalog_dir: Option<String>,
+    pub new_catalog_name: String,
+}
+
+pub struct FaceState {
+    pub clusters: Vec<isomfolio_core::models::FaceClusterSummary>,
+    pub rename_cluster_id: Option<String>,
+    pub rename_input: String,
+}
+
+impl Default for FaceState {
+    fn default() -> Self {
+        Self { clusters: Vec::new(), rename_cluster_id: None, rename_input: String::new() }
+    }
+}
+
 pub struct App {
     pub conn: Option<Arc<Mutex<Connection>>>,
     pub catalog_dir: String,
 
     pub view_mode: ViewMode,
-    pub loupe_idx: usize,
+    pub loupe: LoupeState,
 
     pub folders: Vec<(String, String, usize)>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
     pub selected_item: SidebarItem,
-    pub drag_hover_album: Option<AlbumId>,
 
     pub files: Vec<AssetFile>,
     pub file_ratings: HashMap<String, i32>,
@@ -47,13 +102,10 @@ pub struct App {
     pub viewport_width: f32,
 
     pub cursor: Point,
-    pub drag: Option<DragState>,
-    pub dragging_ids: HashSet<String>,
+    pub drag: DragContext,
     pub modifiers: keyboard::Modifiers,
 
-    pub thumbnail_pool: Option<ThumbnailPool>,
-    pub thumbnail_tx: mpsc::SyncSender<ThumbnailEvent>,
-    pub thumbnail_rx: mpsc::Receiver<ThumbnailEvent>,
+    pub thumb_ctx: ThumbnailContext,
 
     pub watcher_tx: mpsc::SyncSender<FileEvent>,
     pub watcher_rx: mpsc::Receiver<FileEvent>,
@@ -71,21 +123,11 @@ pub struct App {
     pub criteria: CriteriaState,
     pub detail: DetailState,
 
-    pub thumbnail_pending: usize,
-    pub thumbnail_total: usize,
-    pub thumbnail_start_at: Option<Instant>,
-    pub thumbnail_done_at: Option<Instant>,
-
     pub status: String,
     pub is_scanning: bool,
     pub scan_pending: bool,
 
-    pub show_welcome: bool,
-    pub recent_catalogs: Vec<String>,
-    pub selected_recent_catalog: Option<String>,
-    pub show_new_catalog_modal: bool,
-    pub new_catalog_dir: Option<String>,
-    pub new_catalog_name: String,
+    pub welcome: WelcomeState,
     pub album_pending_delete: Option<AlbumId>,
     pub folder_pending_remove: Option<String>,
     pub sidebar_scroll_y: f32,
@@ -97,9 +139,6 @@ pub struct App {
     pub smart_album_dirty: bool,
     pub context_menu: Option<ContextMenuState>,
     pub hovered_sidebar_entity: Option<SidebarItem>,
-    pub loupe_full_res: Option<(usize, iced::widget::image::Handle)>,
-    pub loupe_prefetch: HashMap<usize, iced::widget::image::Handle>,
-    pub thumbnail_handles: HashMap<String, iced::widget::image::Handle>,
     pub tag_browser: Option<TagBrowserState>,
 
     pub sidebar_width: f32,
@@ -108,9 +147,7 @@ pub struct App {
     pub addons: Vec<Arc<AddonProcess>>,
     pub settings: SettingsState,
 
-    pub face_clusters: Vec<isomfolio_core::models::FaceClusterSummary>,
-    pub rename_face_cluster_id: Option<String>,
-    pub rename_face_cluster_input: String,
+    pub faces: FaceState,
 }
 
 impl App {
@@ -140,12 +177,11 @@ impl App {
             conn,
             catalog_dir: catalog_dir_str,
             view_mode: ViewMode::Browse,
-            loupe_idx: 0,
+            loupe: LoupeState::default(),
             folders: Vec::new(),
             albums: Vec::new(),
             album_counts: HashMap::new(),
             selected_item: SidebarItem::AllFiles,
-            drag_hover_album: None,
             files: Vec::new(),
             file_ratings: HashMap::new(),
             thumbnails: HashMap::new(),
@@ -156,12 +192,18 @@ impl App {
             viewport_height: 600.0,
             viewport_width: 1060.0,
             cursor: Point::ORIGIN,
-            drag: None,
-            dragging_ids: HashSet::new(),
+            drag: DragContext::default(),
             modifiers: keyboard::Modifiers::default(),
-            thumbnail_pool: None,
-            thumbnail_tx: tx,
-            thumbnail_rx: rx,
+            thumb_ctx: ThumbnailContext {
+                pool: None,
+                tx,
+                rx,
+                pending: 0,
+                total: 0,
+                start_at: None,
+                done_at: None,
+                handles: HashMap::new(),
+            },
             watcher_tx: wtx,
             watcher_rx: wrx,
             watchers: Vec::new(),
@@ -174,19 +216,17 @@ impl App {
             sort_asc: true,
             criteria: CriteriaState::default(),
             detail: DetailState::default(),
-            thumbnail_pending: 0,
-            thumbnail_total: 0,
-            thumbnail_start_at: None,
-            thumbnail_done_at: None,
             status: initial_status,
             is_scanning: false,
             scan_pending: false,
-            show_welcome,
-            recent_catalogs,
-            selected_recent_catalog: None,
-            show_new_catalog_modal: false,
-            new_catalog_dir: None,
-            new_catalog_name: String::new(),
+            welcome: WelcomeState {
+                show: show_welcome,
+                recent_catalogs,
+                selected_recent_catalog: None,
+                show_new_catalog_modal: false,
+                new_catalog_dir: None,
+                new_catalog_name: String::new(),
+            },
             album_pending_delete: None,
             folder_pending_remove: None,
             sidebar_scroll_y: 0.0,
@@ -197,17 +237,12 @@ impl App {
             smart_album_dirty: false,
             context_menu: None,
             hovered_sidebar_entity: None,
-            loupe_full_res: None,
-            loupe_prefetch: HashMap::new(),
-            thumbnail_handles: HashMap::new(),
             tag_browser: None,
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_resizing: false,
             addons: Vec::new(),
             settings: SettingsState::default(),
-            face_clusters: Vec::new(),
-            rename_face_cluster_id: None,
-            rename_face_cluster_input: String::new(),
+            faces: FaceState::default(),
         };
 
         (app, task)
@@ -309,16 +344,16 @@ impl App {
     }
 
     pub(crate) fn start_thumbnail_pool(&mut self) {
-        if self.thumbnail_pool.is_some() {
+        if self.thumb_ctx.pool.is_some() {
             return;
         }
-        let tx_ready = self.thumbnail_tx.clone();
-        let tx_failed = self.thumbnail_tx.clone();
+        let tx_ready = self.thumb_ctx.tx.clone();
+        let tx_failed = self.thumb_ctx.tx.clone();
         let catalog_dir = self.catalog_dir.clone();
         let concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
-        self.thumbnail_pool = Some(create_worker_pool(
+        self.thumb_ctx.pool = Some(create_worker_pool(
             &catalog_dir,
             concurrency,
             move |fid, path| {
@@ -331,7 +366,7 @@ impl App {
     }
 
     pub(crate) fn enqueue_thumbnails(&mut self) {
-        let Some(pool) = &self.thumbnail_pool else {
+        let Some(pool) = &self.thumb_ctx.pool else {
             return;
         };
         let catalog_dir = self.catalog_dir.clone();
@@ -349,14 +384,14 @@ impl App {
             }
         }
         if newly_enqueued > 0 {
-            if self.thumbnail_pending == 0 {
-                self.thumbnail_total = newly_enqueued;
-                self.thumbnail_start_at = Some(Instant::now());
-                self.thumbnail_done_at = None;
+            if self.thumb_ctx.pending == 0 {
+                self.thumb_ctx.total = newly_enqueued;
+                self.thumb_ctx.start_at = Some(Instant::now());
+                self.thumb_ctx.done_at = None;
             } else {
-                self.thumbnail_total += newly_enqueued;
+                self.thumb_ctx.total += newly_enqueued;
             }
-            self.thumbnail_pending += newly_enqueued;
+            self.thumb_ctx.pending += newly_enqueued;
         }
     }
 

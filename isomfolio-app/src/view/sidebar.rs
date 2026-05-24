@@ -15,7 +15,7 @@ use crate::app::{App, Msg, SidebarItem, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT};
 
 impl App {
     pub(super) fn view_sidebar(&self) -> Element<'_, Msg> {
-        let drag_hover = self.drag_hover_album.clone();
+        let drag_hover = self.drag.hover_album.clone();
 
         let catalog_name = std::path::Path::new(&self.catalog_dir)
             .file_name()
@@ -175,7 +175,7 @@ impl App {
         }
 
         // People section
-        if !self.face_clusters.is_empty() || self
+        if !self.faces.clusters.is_empty() || self
             .addons
             .iter()
             .any(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
@@ -197,7 +197,7 @@ impl App {
                 .push(Space::new().height(SPACE_1))
                 .push(people_header);
 
-            for cluster in &self.face_clusters {
+            for cluster in &self.faces.clusters {
                 let cluster_id = cluster.cluster_id.clone();
                 let display = cluster
                     .name
@@ -206,11 +206,11 @@ impl App {
                 let count = cluster.file_count;
                 let sel = self.selected_item == SidebarItem::FaceCluster(cluster_id.clone());
 
-                if self.rename_face_cluster_id.as_deref() == Some(cluster_id.as_str()) {
+                if self.faces.rename_cluster_id.as_deref() == Some(cluster_id.as_str()) {
                     content = content.push(
                         container(
                             row![
-                                text_input(&display, &self.rename_face_cluster_input)
+                                text_input(&display, &self.faces.rename_input)
                                     .on_input(Msg::RenameFaceClusterInputChanged)
                                     .on_submit(Msg::ConfirmRenameFaceCluster)
                                     .padding([SPACE_1_5, SPACE_2])

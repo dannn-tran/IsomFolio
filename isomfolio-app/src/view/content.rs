@@ -136,13 +136,13 @@ impl App {
     pub(super) fn view_tile(&self, idx: usize) -> Element<'_, Msg> {
         let file = &self.files[idx];
         let selected = self.grid_selected.contains(&file.id);
-        let dragging = self.dragging_ids.contains(&file.id);
+        let dragging = self.drag.ids.contains(&file.id);
 
         let thumb_state = self.thumbnails.get(&file.id);
 
         let tile_content: Element<Msg> = match thumb_state {
             Some(ThumbnailState::Ready(_)) => {
-                if let Some(handle) = self.thumbnail_handles.get(&file.id).cloned() {
+                if let Some(handle) = self.thumb_ctx.handles.get(&file.id).cloned() {
                     image(handle)
                         .width(self.tile_px)
                         .height(self.tile_px)

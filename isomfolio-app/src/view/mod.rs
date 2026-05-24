@@ -21,7 +21,7 @@ use styles::{
 
 impl App {
     pub fn view(&self) -> Element<'_, Msg> {
-        if self.show_welcome {
+        if self.welcome.show {
             return self.view_welcome();
         }
 
@@ -29,10 +29,10 @@ impl App {
             return self.view_loupe();
         }
 
-        let dragging = self.drag.as_ref().map(|d| d.active).unwrap_or(false);
-        let drag_hover = self.drag_hover_album.clone();
+        let dragging = self.drag.state.as_ref().map(|d| d.active).unwrap_or(false);
+        let drag_hover = self.drag.hover_album.clone();
         let status = if dragging {
-            let count = self.dragging_ids.len();
+            let count = self.drag.ids.len();
             match &drag_hover {
                 Some(id) => {
                     let name = self
@@ -176,7 +176,7 @@ impl App {
         if let Some(tb) = self.view_tag_browser() {
             layers.push(tb);
         }
-        if self.thumbnail_total > 0 {
+        if self.thumb_ctx.total > 0 {
             layers.push(self.view_thumbnail_progress_panel());
         }
         if self.settings.show {
@@ -198,15 +198,15 @@ impl App {
     }
 
     fn view_thumbnail_progress_panel(&self) -> Element<'_, Msg> {
-        let total = self.thumbnail_total;
-        let done = total.saturating_sub(self.thumbnail_pending);
+        let total = self.thumb_ctx.total;
+        let done = total.saturating_sub(self.thumb_ctx.pending);
         let ratio = done as f32 / total.max(1) as f32;
 
         let eta_str = if done >= 3 {
-            if let Some(start) = self.thumbnail_start_at {
+            if let Some(start) = self.thumb_ctx.start_at {
                 let elapsed = start.elapsed().as_secs_f64();
                 let rate = done as f64 / elapsed;
-                let secs_left = (self.thumbnail_pending as f64 / rate).ceil() as u64;
+                let secs_left = (self.thumb_ctx.pending as f64 / rate).ceil() as u64;
                 if secs_left < 60 {
                     format!("~{secs_left}s")
                 } else {
@@ -284,9 +284,9 @@ impl App {
 
     fn view_loupe(&self) -> Element<'_, Msg> {
         let total = self.files.len();
-        let idx = self.loupe_idx.min(total.saturating_sub(1));
+        let idx = self.loupe.idx.min(total.saturating_sub(1));
 
-        let img_handle: Option<image::Handle> = if let Some((full_idx, handle)) = &self.loupe_full_res {
+        let img_handle: Option<image::Handle> = if let Some((full_idx, handle)) = &self.loupe.full_res {
             if *full_idx == idx {
                 Some(handle.clone())
             } else {

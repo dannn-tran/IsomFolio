@@ -12,24 +12,24 @@ use crate::app::{App, Msg};
 
 impl App {
     pub(super) fn view_welcome(&self) -> Element<'_, Msg> {
-        let can_open_selected = self.selected_recent_catalog.is_some();
-        let can_create = self.new_catalog_dir.is_some() && !self.new_catalog_name.trim().is_empty();
+        let can_open_selected = self.welcome.selected_recent_catalog.is_some();
+        let can_create = self.welcome.new_catalog_dir.is_some() && !self.welcome.new_catalog_name.trim().is_empty();
 
         let mut recent_list = column![].spacing(SPACE_2).align_x(Alignment::Start);
-        if self.recent_catalogs.is_empty() {
+        if self.welcome.recent_catalogs.is_empty() {
             recent_list = recent_list.push(
                 text("No recent catalogues yet. Create one or browse for an existing catalogue.")
                     .size(TEXT_BASE)
                     .color(FG_MUTED),
             );
         } else {
-            for path in &self.recent_catalogs {
+            for path in &self.welcome.recent_catalogs {
                 let name = std::path::Path::new(path)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(path.as_str())
                     .to_string();
-                let selected = self.selected_recent_catalog.as_deref() == Some(path.as_str());
+                let selected = self.welcome.selected_recent_catalog.as_deref() == Some(path.as_str());
                 let path_clone = path.clone();
 
                 let content = container(
@@ -123,12 +123,12 @@ impl App {
             })
             .into();
 
-        if !self.show_new_catalog_modal {
+        if !self.welcome.show_new_catalog_modal {
             return base_layer;
         }
 
         let location_display = self
-            .new_catalog_dir
+            .welcome.new_catalog_dir
             .as_deref()
             .unwrap_or("Choose a folder for the new catalogue");
 
@@ -142,7 +142,7 @@ impl App {
                 Space::new().height(SPACE_4),
                 text("Catalog name").size(TEXT_MD).color(FG_DIM),
                 Space::new().height(SPACE_1_5),
-                text_input("My Photos", &self.new_catalog_name)
+                text_input("My Photos", &self.welcome.new_catalog_name)
                     .on_input(Msg::NewCatalogNameChanged)
                     .on_submit(Msg::ConfirmNewCatalog)
                     .padding([SPACE_2, SPACE_2_5])
@@ -153,7 +153,7 @@ impl App {
                 Space::new().height(SPACE_1_5),
                 mouse_area(
                     container(text(location_display).size(TEXT_BASE).color(
-                        if self.new_catalog_dir.is_some() { FG } else { FG_MUTED }
+                        if self.welcome.new_catalog_dir.is_some() { FG } else { FG_MUTED }
                     ))
                     .width(Length::Fill)
                     .padding([SPACE_2_5, SPACE_3])
