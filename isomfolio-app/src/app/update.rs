@@ -821,25 +821,7 @@ impl App {
                 self.last_scanned_path = Some(path.clone());
                 self.is_scanning = true;
                 self.status = "Scanning…".to_string();
-                let Some(conn) = self.conn.clone() else {
-                    return Task::none();
-                };
-                let wtx = self.watcher_tx.clone();
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let guard = conn.lock().unwrap();
-                            scanner::scan_folder(&guard, &path, &|_| {}, &|prog| {
-                                let _ = wtx.try_send(FileEvent::ScanProgress(prog));
-                            })
-                            .map(|r| r.total_count)
-                            .unwrap_or(0)
-                        })
-                        .await
-                        .unwrap_or(0)
-                    },
-                    Msg::ScanComplete,
-                )
+                self.scan_folder_task(path)
             }
 
             Msg::ScanComplete(count) => {
@@ -1248,28 +1230,7 @@ impl App {
                     return Task::none();
                 }
                 self.detail.tags.push(tag);
-                let Some(ref fid) = self.detail.file_id else {
-                    return Task::none();
-                };
-                let fid = fid.clone();
-                let tags = self.detail.tags.clone();
-                let Some(conn) = self.conn.clone() else {
-                    return Task::none();
-                };
-                Task::perform(
-                    async move {
-                        let g = conn.lock().unwrap();
-                        if let Err(e) = db::upsert_tags(&g, &fid, &tags) {
-                            eprintln!("[db] upsert_tags failed: {e}");
-                        }
-                        db::get_all_tags(&g)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|(t, _)| t)
-                            .collect::<Vec<_>>()
-                    },
-                    Msg::AllTagsLoaded,
-                )
+                self.save_detail_tags_task()
             }
 
             Msg::AddDetailTagDirect(tag) => {
@@ -1279,54 +1240,12 @@ impl App {
                 }
                 self.detail.tags.push(tag);
                 self.detail.tag_input.clear();
-                let Some(ref fid) = self.detail.file_id else {
-                    return Task::none();
-                };
-                let fid = fid.clone();
-                let tags = self.detail.tags.clone();
-                let Some(conn) = self.conn.clone() else {
-                    return Task::none();
-                };
-                Task::perform(
-                    async move {
-                        let g = conn.lock().unwrap();
-                        if let Err(e) = db::upsert_tags(&g, &fid, &tags) {
-                            eprintln!("[db] upsert_tags failed: {e}");
-                        }
-                        db::get_all_tags(&g)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|(t, _)| t)
-                            .collect::<Vec<_>>()
-                    },
-                    Msg::AllTagsLoaded,
-                )
+                self.save_detail_tags_task()
             }
 
             Msg::RemoveDetailTag(tag) => {
                 self.detail.tags.retain(|t| t != &tag);
-                let Some(ref fid) = self.detail.file_id else {
-                    return Task::none();
-                };
-                let fid = fid.clone();
-                let tags = self.detail.tags.clone();
-                let Some(conn) = self.conn.clone() else {
-                    return Task::none();
-                };
-                Task::perform(
-                    async move {
-                        let g = conn.lock().unwrap();
-                        if let Err(e) = db::upsert_tags(&g, &fid, &tags) {
-                            eprintln!("[db] upsert_tags failed: {e}");
-                        }
-                        db::get_all_tags(&g)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|(t, _)| t)
-                            .collect::<Vec<_>>()
-                    },
-                    Msg::AllTagsLoaded,
-                )
+                self.save_detail_tags_task()
             }
 
             Msg::AllTagsLoaded(tags) => {
@@ -1782,25 +1701,7 @@ impl App {
                 self.context_menu = None;
                 self.is_scanning = true;
                 self.status = "Scanning…".to_string();
-                let Some(conn) = self.conn.clone() else {
-                    return Task::none();
-                };
-                let wtx = self.watcher_tx.clone();
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let guard = conn.lock().unwrap();
-                            scanner::scan_folder(&guard, &path, &|_| {}, &|prog| {
-                                let _ = wtx.try_send(FileEvent::ScanProgress(prog));
-                            })
-                            .map(|r| r.total_count)
-                            .unwrap_or(0)
-                        })
-                        .await
-                        .unwrap_or(0)
-                    },
-                    Msg::ScanComplete,
-                )
+                self.scan_folder_task(path)
             }
 
             Msg::DuplicateAlbum(album_id) => {
@@ -2028,6 +1929,53 @@ impl App {
         if self.current_album_is_smart() {
             self.smart_album_dirty = true;
         }
+    }
+
+    fn save_detail_tags_task(&self) -> Task<Msg> {
+        let Some(ref fid) = self.detail.file_id else {
+            return Task::none();
+        };
+        let fid = fid.clone();
+        let tags = self.detail.tags.clone();
+        let Some(conn) = self.conn.clone() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let g = conn.lock().unwrap();
+                if let Err(e) = db::upsert_tags(&g, &fid, &tags) {
+                    eprintln!("[db] upsert_tags failed: {e}");
+                }
+                db::get_all_tags(&g)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(t, _)| t)
+                    .collect::<Vec<_>>()
+            },
+            Msg::AllTagsLoaded,
+        )
+    }
+
+    fn scan_folder_task(&self, path: String) -> Task<Msg> {
+        let Some(conn) = self.conn.clone() else {
+            return Task::none();
+        };
+        let wtx = self.watcher_tx.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let guard = conn.lock().unwrap();
+                    scanner::scan_folder(&guard, &path, &|_| {}, &|prog| {
+                        let _ = wtx.try_send(FileEvent::ScanProgress(prog));
+                    })
+                    .map(|r| r.total_count)
+                    .unwrap_or(0)
+                })
+                .await
+                .unwrap_or(0)
+            },
+            Msg::ScanComplete,
+        )
     }
 
     pub(crate) fn load_loupe_full_res(&self) -> Task<Msg> {
