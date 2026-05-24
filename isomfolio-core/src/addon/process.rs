@@ -151,7 +151,15 @@ impl AddonProcess {
 
 impl Drop for AddonProcess {
     fn drop(&mut self) {
-        let _ = self._child.kill();
+        // Drop the writer to close stdin — addon sees EOF and can flush/exit
+        if let Ok(mut w) = self.writer.lock() {
+            let _ = w.flush();
+        }
+        // Give the process a short grace period to exit before killing
+        std::thread::sleep(Duration::from_millis(200));
+        if self._child.try_wait().ok().flatten().is_none() {
+            let _ = self._child.kill();
+        }
     }
 }
 
