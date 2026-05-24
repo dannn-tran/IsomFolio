@@ -45,6 +45,7 @@ pub enum SidebarItem {
     AllFiles,
     Folder(String),
     Album(AlbumId),
+    FaceCluster(String),
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +224,13 @@ pub enum Msg {
     AddonInstalled(Arc<AddonProcess>),
     AddonInstallFailed(String),
     UninstallAddon(String),
+
+    RunFaceClustering,
+    FaceClusteringDone(Vec<isomfolio_core::models::FaceClusterSummary>),
+    FaceClustersLoaded(Vec<isomfolio_core::models::FaceClusterSummary>),
+    RenameFaceCluster(String),
+    RenameFaceClusterInputChanged(String),
+    ConfirmRenameFaceCluster,
 
     SortCycleAll,
     NoOp,

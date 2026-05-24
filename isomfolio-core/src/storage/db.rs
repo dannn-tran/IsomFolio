@@ -692,6 +692,86 @@ pub fn count_album_files(conn: &Connection, album_id: &str) -> Result<usize, App
 }
 
 // ---------------------------------------------------------------------------
+// Face clustering
+// ---------------------------------------------------------------------------
+
+pub fn save_face_clusters(
+    conn: &Connection,
+    clusters: &[(String, String, f64, f64, f64, f64)],
+) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    conn.execute_batch("DELETE FROM face_clusters")?;
+    for (cluster_id, file_id, x, y, w, h) in clusters {
+        conn.execute(
+            "INSERT OR IGNORE INTO face_clusters (cluster_id, file_id, bbox_x, bbox_y, bbox_w, bbox_h)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![cluster_id, file_id, x, y, w, h],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn get_face_cluster_summaries(
+    conn: &Connection,
+) -> Result<Vec<crate::models::FaceClusterSummary>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT fc.cluster_id, fcn.name, COUNT(DISTINCT fc.file_id)
+         FROM face_clusters fc
+         LEFT JOIN face_cluster_names fcn ON fc.cluster_id = fcn.cluster_id
+         GROUP BY fc.cluster_id
+         ORDER BY COUNT(DISTINCT fc.file_id) DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(crate::models::FaceClusterSummary {
+            cluster_id: row.get(0)?,
+            name: row.get(1)?,
+            file_count: row.get::<_, i64>(2)? as usize,
+        })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+pub fn get_files_in_face_cluster(
+    conn: &Connection,
+    cluster_id: &str,
+) -> Result<Vec<crate::models::AssetFile>, AppError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT DISTINCT f.{FILE_COLS}
+         FROM files f
+         JOIN face_clusters fc ON fc.file_id = f.id
+         WHERE fc.cluster_id = ?1 AND f.is_orphaned = 0
+         ORDER BY f.modified_time DESC",
+    ))?;
+    let rows = stmt.query_map([cluster_id], read_asset_file)?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+pub fn get_all_file_paths_with_mtimes(
+    conn: &Connection,
+) -> Result<Vec<(String, String, i64)>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, path, modified_time FROM files WHERE is_orphaned = 0",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+pub fn rename_face_cluster(
+    conn: &Connection,
+    cluster_id: &str,
+    name: &str,
+) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO face_cluster_names (cluster_id, name) VALUES (?1, ?2)",
+        params![cluster_id, name],
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

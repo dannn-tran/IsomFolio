@@ -1,0 +1,8 @@
+{
+  "name": "faces",
+  "protocol_version": 1,
+  "addon_api_version": 1,
+  "capabilities": ["cluster_faces"],
+  "description": "Local face detection and clustering using InsightFace ONNX models",
+  "config_schema": []
+}

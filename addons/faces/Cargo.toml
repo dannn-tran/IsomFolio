@@ -1,0 +1,16 @@
+[package]
+name = "faces"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "faces"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff", "webp"] }
+tract-onnx = "0.21"
+ureq = { version = "3.3.0" }
+rusqlite = { version = "0.39.0", features = ["bundled"] }

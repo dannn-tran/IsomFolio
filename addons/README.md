@@ -115,7 +115,7 @@ let config: MyConfig = std::fs::read_to_string(&path)
 
 ## Building
 
-Use any language. Rust example (see `isomfolio-autotag-clip/` and `isomfolio-autotag-openai/` for full working addons):
+Use any language. Rust example (see `autotag-clip/` and `autotag-openai/` for full working addons):
 
 ```bash
 cargo build --release -p my-addon
@@ -164,6 +164,7 @@ Restart the app (or re-open a catalog) to discover the addon.
 
 | Addon | Description |
 |---|---|
-| `isomfolio-autotag-clip/` | CLIP local inference via `tract-onnx`. Downloads model weights on first run. Produces binary `autotag-clip`. |
-| `isomfolio-autotag-openai/` | OpenAI Vision API (or any compatible endpoint). Requires `api_key` in config. Produces binary `autotag-openai`. |
-| `isomfolio-test-addon/` | Minimal echo addon for testing the host protocol. Produces binary `test-addon`. |
+| `autotag-clip/` | CLIP local inference via `tract-onnx`. Downloads model weights on first run. Produces binary `autotag-clip`. |
+| `autotag-openai/` | OpenAI Vision API (or any compatible endpoint). Requires `api_key` in config. Produces binary `autotag-openai`. |
+| `faces/` | InsightFace SCRFD detection + ArcFace recognition, local ONNX inference. Downloads model weights on first run. Produces binary `faces`. |
+| `test-addon/` | Minimal echo addon for testing the host protocol. Produces binary `test-addon`. |

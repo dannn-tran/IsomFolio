@@ -123,6 +123,13 @@ pub struct Album {
     pub sort_order: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FaceClusterSummary {
+    pub cluster_id: String,
+    pub name: Option<String>,
+    pub file_count: usize,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("database error: {0}")]

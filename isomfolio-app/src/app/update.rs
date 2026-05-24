@@ -47,7 +47,18 @@ impl App {
                     },
                     Msg::AddonsDiscovered,
                 );
-                Task::batch([sidebar_task, addon_task])
+                let face_task = if let Some(conn) = self.conn.clone() {
+                    Task::perform(
+                        async move {
+                            let g = conn.lock().unwrap();
+                            db::get_face_cluster_summaries(&g).unwrap_or_default()
+                        },
+                        Msg::FaceClustersLoaded,
+                    )
+                } else {
+                    Task::none()
+                };
+                Task::batch([sidebar_task, addon_task, face_task])
             }
 
             Msg::AddonsDiscovered(addons) => {
@@ -118,6 +129,109 @@ impl App {
             Msg::AddonBatchDone { method, applied } => {
                 self.status = format!("{method} done — {applied} file{} updated", if applied == 1 { "" } else { "s" });
                 Task::none()
+            }
+
+            Msg::RunFaceClustering => {
+                let Some(addon) = self
+                    .addons
+                    .iter()
+                    .find(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
+                    .cloned()
+                else {
+                    self.status = "No face clustering addon installed".to_string();
+                    return Task::none();
+                };
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                self.status = "Clustering faces… (this may take a while)".to_string();
+
+                Task::perform(
+                    async move {
+                        let files = {
+                            let g = conn.lock().unwrap();
+                            db::get_all_file_paths_with_mtimes(&g).unwrap_or_default()
+                        };
+                        let file_params: Vec<serde_json::Value> = files
+                            .iter()
+                            .map(|(id, path, mtime)| {
+                                serde_json::json!({
+                                    "file_id": id,
+                                    "image_path": path,
+                                    "file_mtime": mtime,
+                                })
+                            })
+                            .collect();
+                        let params = serde_json::json!({"files": file_params});
+
+                        let result = addon.call_long("cluster_faces", params);
+                        let clusters = match result {
+                            Ok(v) => parse_cluster_response(&v),
+                            Err(e) => {
+                                eprintln!("[faces] cluster_faces error: {e}");
+                                return Vec::new();
+                            }
+                        };
+
+                        let g = conn.lock().unwrap();
+                        let _ = db::save_face_clusters(&g, &clusters);
+                        db::get_face_cluster_summaries(&g).unwrap_or_default()
+                    },
+                    Msg::FaceClusteringDone,
+                )
+            }
+
+            Msg::FaceClusteringDone(summaries) => {
+                let count = summaries.len();
+                self.face_clusters = summaries;
+                self.status = format!("Face clustering done — {count} people found");
+                Task::none()
+            }
+
+            Msg::FaceClustersLoaded(summaries) => {
+                self.face_clusters = summaries;
+                Task::none()
+            }
+
+            Msg::RenameFaceCluster(cluster_id) => {
+                let current_name = self
+                    .face_clusters
+                    .iter()
+                    .find(|c| c.cluster_id == cluster_id)
+                    .and_then(|c| c.name.clone())
+                    .unwrap_or_default();
+                self.rename_face_cluster_id = Some(cluster_id);
+                self.rename_face_cluster_input = current_name;
+                Task::none()
+            }
+
+            Msg::RenameFaceClusterInputChanged(s) => {
+                self.rename_face_cluster_input = s;
+                Task::none()
+            }
+
+            Msg::ConfirmRenameFaceCluster => {
+                let Some(cluster_id) = self.rename_face_cluster_id.take() else {
+                    return Task::none();
+                };
+                let name = self.rename_face_cluster_input.trim().to_string();
+                self.rename_face_cluster_input = String::new();
+                if name.is_empty() {
+                    return Task::none();
+                }
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                if let Some(c) = self.face_clusters.iter_mut().find(|c| c.cluster_id == cluster_id) {
+                    c.name = Some(name.clone());
+                }
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap();
+                        let _ = db::rename_face_cluster(&g, &cluster_id, &name);
+                    },
+                    |_| Msg::NoOp,
+                )
             }
 
             Msg::AddonRestarted { idx, process } => {
@@ -470,7 +584,7 @@ impl App {
                                     Some(ContextMenuTarget::ManualAlbum(id.clone()))
                                 }
                             }
-                            SidebarItem::AllFiles => None,
+                            SidebarItem::AllFiles | SidebarItem::FaceCluster(_) => None,
                         };
                         if let Some(t) = target {
                             self.context_menu = Some(ContextMenuState {
@@ -617,6 +731,7 @@ impl App {
                 }
                 self.create_album_input = None;
                 self.rename_album_id = None;
+                self.rename_face_cluster_id = None;
                 self.criteria.save_smart_input = None;
                 self.remove_from_album_pending = false;
                 Task::none()
@@ -1951,4 +2066,33 @@ fn next_sort_field(f: SortField) -> SortField {
         SortField::Size => SortField::Ext,
         SortField::Ext => SortField::Name,
     }
+}
+
+// Parse the cluster_faces addon response into DB-insertable rows.
+fn parse_cluster_response(v: &serde_json::Value) -> Vec<(String, String, f64, f64, f64, f64)> {
+    let Some(clusters) = v.get("clusters").and_then(|c| c.as_array()) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for cluster in clusters {
+        let cluster_id = cluster.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if cluster_id.is_empty() {
+            continue;
+        }
+        if let Some(members) = cluster.get("members").and_then(|m| m.as_array()) {
+            for member in members {
+                let file_id = member.get("file_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if file_id.is_empty() {
+                    continue;
+                }
+                let bbox = member.get("bbox").unwrap_or(&serde_json::Value::Null);
+                let x = bbox.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let y = bbox.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let w = bbox.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let h = bbox.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                rows.push((cluster_id.clone(), file_id, x, y, w, h));
+            }
+        }
+    }
+    rows
 }

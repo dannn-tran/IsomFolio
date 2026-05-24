@@ -114,6 +114,28 @@ CREATE TABLE IF NOT EXISTS album_files (
 pub const CREATE_ALBUM_FILES_INDEX: &str =
     "CREATE INDEX IF NOT EXISTS idx_album_files_album ON album_files(album_id);";
 
+pub const CREATE_FACE_CLUSTERS: &str = "
+CREATE TABLE IF NOT EXISTS face_clusters (
+    cluster_id  TEXT NOT NULL,
+    file_id     TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    bbox_x      REAL NOT NULL,
+    bbox_y      REAL NOT NULL,
+    bbox_w      REAL NOT NULL,
+    bbox_h      REAL NOT NULL,
+    PRIMARY KEY (cluster_id, file_id, bbox_x, bbox_y)
+);
+";
+
+pub const CREATE_FACE_CLUSTER_NAMES: &str = "
+CREATE TABLE IF NOT EXISTS face_cluster_names (
+    cluster_id  TEXT PRIMARY KEY,
+    name        TEXT NOT NULL
+);
+";
+
+pub const CREATE_FACE_CLUSTER_IDX: &str =
+    "CREATE INDEX IF NOT EXISTS idx_fc_cluster ON face_clusters(cluster_id);";
+
 /// Run once per DB open; errors silently ignored (already applied).
 pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE files ADD COLUMN created_at_unix INTEGER NOT NULL DEFAULT 0",
@@ -148,4 +170,7 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_ALBUMS,
     CREATE_ALBUM_FILES,
     CREATE_ALBUM_FILES_INDEX,
+    CREATE_FACE_CLUSTERS,
+    CREATE_FACE_CLUSTER_NAMES,
+    CREATE_FACE_CLUSTER_IDX,
 ];

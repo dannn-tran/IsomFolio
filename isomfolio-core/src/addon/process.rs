@@ -110,6 +110,23 @@ impl AddonProcess {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, AppError> {
+        self.call_timeout(method, params, CALL_TIMEOUT)
+    }
+
+    pub fn call_long(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, AppError> {
+        self.call_timeout(method, params, Duration::from_secs(600))
+    }
+
+    fn call_timeout(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, AppError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = sync_channel(1);
         self.pending.lock().unwrap().insert(id, tx);
@@ -126,7 +143,7 @@ impl AddonProcess {
             }
         }
 
-        rx.recv_timeout(CALL_TIMEOUT)
+        rx.recv_timeout(timeout)
             .map_err(|_| AppError::Addon(format!("addon '{}' timed out", self.manifest.name)))?
             .map_err(AppError::Addon)
     }

@@ -107,6 +107,10 @@ pub struct App {
 
     pub addons: Vec<Arc<AddonProcess>>,
     pub settings: SettingsState,
+
+    pub face_clusters: Vec<isomfolio_core::models::FaceClusterSummary>,
+    pub rename_face_cluster_id: Option<String>,
+    pub rename_face_cluster_input: String,
 }
 
 impl App {
@@ -201,6 +205,9 @@ impl App {
             sidebar_resizing: false,
             addons: Vec::new(),
             settings: SettingsState::default(),
+            face_clusters: Vec::new(),
+            rename_face_cluster_id: None,
+            rename_face_cluster_input: String::new(),
         };
 
         (app, task)
@@ -402,6 +409,9 @@ impl App {
                             execute_manual_album_search(&guard, &album_id, &query)
                                 .unwrap_or_default()
                         }
+                    }
+                    SidebarItem::FaceCluster(cluster_id) => {
+                        db::get_files_in_face_cluster(&guard, &cluster_id).unwrap_or_default()
                     }
                 }
             },

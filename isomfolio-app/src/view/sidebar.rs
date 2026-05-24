@@ -174,6 +174,74 @@ impl App {
             }
         }
 
+        // People section
+        if !self.face_clusters.is_empty() || self
+            .addons
+            .iter()
+            .any(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
+        {
+            let people_header: Element<Msg> = row![
+                text("People").size(TEXT_SM).color(FG_DIM),
+                Space::new().width(Length::Fill),
+                button(text("⟳").size(TEXT_MD))
+                    .on_press(Msg::RunFaceClustering)
+                    .style(icon_btn_style),
+            ]
+            .spacing(SPACE_0_5)
+            .align_y(Alignment::Center)
+            .into();
+
+            content = content
+                .push(Space::new().height(SPACE_1))
+                .push(sidebar_divider())
+                .push(Space::new().height(SPACE_1))
+                .push(people_header);
+
+            for cluster in &self.face_clusters {
+                let cluster_id = cluster.cluster_id.clone();
+                let display = cluster
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| cluster.cluster_id.clone());
+                let count = cluster.file_count;
+                let sel = self.selected_item == SidebarItem::FaceCluster(cluster_id.clone());
+
+                if self.rename_face_cluster_id.as_deref() == Some(cluster_id.as_str()) {
+                    content = content.push(
+                        container(
+                            row![
+                                text_input(&display, &self.rename_face_cluster_input)
+                                    .on_input(Msg::RenameFaceClusterInputChanged)
+                                    .on_submit(Msg::ConfirmRenameFaceCluster)
+                                    .padding([SPACE_1_5, SPACE_2])
+                                    .size(TEXT_BASE)
+                                    .width(Length::Fill),
+                                button(text("✓").size(TEXT_SM).color(FG))
+                                    .on_press(Msg::ConfirmRenameFaceCluster)
+                                    .style(ghost_btn_style),
+                                button(text("✕").size(TEXT_SM).color(FG_DIM))
+                                    .on_press(Msg::EscapePressed)
+                                    .style(ghost_btn_style),
+                            ]
+                            .spacing(SPACE_1)
+                            .align_y(Alignment::Center),
+                        )
+                        .height(FOLDER_ITEM_HEIGHT)
+                        .align_y(Alignment::Center)
+                        .padding([0.0, SPACE_1]),
+                    );
+                } else {
+                    content = content.push(face_cluster_row(
+                        display,
+                        cluster_id,
+                        count,
+                        sel,
+                        max_chars,
+                    ));
+                }
+            }
+        }
+
         let sidebar_scroll = scrollable(content.spacing(SPACE_0_5).padding(SPACE_3))
             .direction(scrollable::Direction::Vertical(
                 scrollable::Scrollbar::new().width(4).scroller_width(4),
@@ -214,6 +282,70 @@ fn truncate_label(s: &str, max: usize) -> (String, bool) {
         (s.to_string(), false)
     } else {
         (format!("{}…", chars[..max].iter().collect::<String>()), true)
+    }
+}
+
+fn face_cluster_row<'a>(
+    label: String,
+    cluster_id: String,
+    count: usize,
+    selected: bool,
+    max_chars: usize,
+) -> Element<'a, Msg> {
+    let bg = if selected {
+        Color { r: ACCENT.r * 0.6, g: ACCENT.g * 0.6, b: ACCENT.b * 0.6, a: 0.4 }
+    } else {
+        Color::TRANSPARENT
+    };
+    let border_color = if selected { ACCENT } else { Color::TRANSPARENT };
+    let text_color = if selected { Color::WHITE } else { FG };
+
+    let (display_label, was_truncated) = truncate_label(&label, max_chars);
+    let count_str = if count > 0 { format!(" {count}") } else { String::new() };
+
+    let name_btn = button(
+        row![
+            container(
+                text(format!("👤 {display_label}"))
+                    .size(TEXT_BASE)
+                    .color(text_color)
+                    .wrapping(iced::widget::text::Wrapping::None),
+            )
+            .width(Length::Fill)
+            .clip(true),
+            text(count_str).size(TEXT_SM).color(FG_MUTED),
+        ]
+        .align_y(Alignment::Center),
+    )
+    .on_press(Msg::SidebarItemClicked(SidebarItem::FaceCluster(cluster_id.clone())))
+    .width(Length::Fill)
+    .style(|_: &Theme, _| button::Style {
+        background: Some(Background::Color(Color::TRANSPARENT)),
+        text_color: FG,
+        border: Border::default(),
+        shadow: iced::Shadow::default(),
+        snap: false,
+    });
+
+    let inner = container(name_btn)
+        .height(FOLDER_ITEM_HEIGHT)
+        .align_y(Alignment::Center)
+        .padding([0.0, SPACE_1])
+        .style(move |_: &Theme| container::Style {
+            background: Some(Background::Color(bg)),
+            border: Border { color: border_color, width: 0.0, radius: 4.0.into() },
+            ..Default::default()
+        });
+
+    let entity = SidebarItem::FaceCluster(cluster_id.clone());
+    let row_el = mouse_area(inner)
+        .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
+        .on_exit(Msg::HoverSidebarEntityEnd(entity));
+
+    if was_truncated {
+        tooltip(row_el, label_tooltip(label), tooltip::Position::Right).into()
+    } else {
+        row_el.into()
     }
 }
 

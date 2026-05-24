@@ -2,8 +2,9 @@
 members = [
     "isomfolio-core",
     "isomfolio-app",
-    "addons/isomfolio-test-addon",
-    "addons/isomfolio-autotag-clip",
-    "addons/isomfolio-autotag-openai",
+    "addons/test-addon",
+    "addons/autotag-clip",
+    "addons/autotag-openai",
+    "addons/faces",
 ]
 resolver = "2"
