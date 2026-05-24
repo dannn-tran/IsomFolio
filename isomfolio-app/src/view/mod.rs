@@ -14,7 +14,7 @@ use crate::app::{App, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
 use styles::{
     active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_STATUSBAR, BORDER, ERR, FG,
     FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD,
-    TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
+    TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM, TEXT_STAR,
 };
 
 impl App {
@@ -398,33 +398,62 @@ impl App {
         });
 
         let hud_bar = {
-            let mut rating_row = row![].spacing(SPACE_1);
-            if let Some(file) = self.files.get(idx) {
-                let rating = self
-                    .loupe_full_res
-                    .as_ref()
-                    .and_then(|_| self.detail.rating)
-                    .or(self.detail.rating);
-                for star in 1..=5i32 {
-                    let filled = rating.map_or(false, |r| r >= star);
-                    rating_row = rating_row.push(
+            use isomfolio_core::models::Flag as F;
+            let flag = self.files.get(idx).map(|f| f.flag).unwrap_or(F::Unflagged);
+            let rating = self.file_ratings.get(
+                self.files.get(idx).map(|f| f.id.as_str()).unwrap_or("")
+            ).copied().unwrap_or(0);
+
+            let flag_btn = |label: &'static str, f: F, active_color: Color, is_current: bool| -> Element<Msg> {
+                button(text(label).size(TEXT_MD))
+                    .on_press(Msg::SetFlag(f))
+                    .style(move |_: &Theme, _| button::Style {
+                        background: Some(Background::Color(if is_current {
+                            Color { r: active_color.r, g: active_color.g, b: active_color.b, a: 0.35 }
+                        } else {
+                            Color { r: 1.0, g: 1.0, b: 1.0, a: 0.08 }
+                        })),
+                        text_color: if is_current { Color::WHITE } else { FG_DIM },
+                        border: Border { radius: 4.0.into(), ..Default::default() },
+                        shadow: iced::Shadow::default(),
+                        snap: false,
+                    })
+                    .into()
+            };
+
+            let flag_row = row![
+                flag_btn("✓", F::Pick,      ACCENT, flag == F::Pick),
+                flag_btn("○", F::Unflagged, FG_DIM, flag == F::Unflagged),
+                flag_btn("✕", F::Reject,    ERR,    flag == F::Reject),
+            ]
+            .spacing(SPACE_1_5)
+            .align_y(Alignment::Center);
+
+            let mut rating_row = row![].spacing(SPACE_0_5);
+            for star in 1..=5i32 {
+                let filled = rating >= star;
+                rating_row = rating_row.push(
+                    button(
                         text(if filled { "★" } else { "☆" })
-                            .size(TEXT_BASE)
-                            .color(if filled {
-                                STAR_GOLD
-                            } else {
-                                Color { r: FG.r, g: FG.g, b: FG.b, a: 0.4 }
-                            }),
-                    );
-                }
-                let _ = file;
+                            .size(TEXT_STAR)
+                            .color(if filled { STAR_GOLD } else { Color { r: FG.r, g: FG.g, b: FG.b, a: 0.4 } }),
+                    )
+                    .on_press(Msg::SetRating(if rating == star { None } else { Some(star) }))
+                    .style(|_: &Theme, _| button::Style {
+                        background: None,
+                        text_color: FG,
+                        border: Border::default(),
+                        shadow: iced::Shadow::default(),
+                        snap: false,
+                    }),
+                );
             }
 
             container(
                 row![
+                    flag_row,
                     Space::new().width(Length::Fill),
                     rating_row,
-                    Space::new().width(Length::Fill),
                 ]
                 .align_y(Alignment::Center)
                 .spacing(SPACE_2),

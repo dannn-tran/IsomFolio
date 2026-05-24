@@ -67,5 +67,6 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
         created_at_unix,
         is_orphaned: false,
         orphaned_at: None,
+        flag: crate::models::Flag::Unflagged,
     })
 }

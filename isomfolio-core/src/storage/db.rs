@@ -41,6 +41,7 @@ pub fn open_database(db_path: &str) -> Result<Connection, AppError> {
 // ---------------------------------------------------------------------------
 
 fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
+    use crate::models::Flag;
     Ok(AssetFile {
         id: row.get(0)?,
         path: row.get(1)?,
@@ -52,11 +53,12 @@ fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
         is_orphaned: row.get::<_, i32>(7)? == 1,
         orphaned_at: row.get(8)?,
         created_at_unix: row.get(9)?,
+        flag: Flag::from_i64(row.get::<_, i64>(10).unwrap_or(0)),
     })
 }
 
 const FILE_COLS: &str =
-    "id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, created_at_unix";
+    "id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, created_at_unix, flag";
 
 // ---------------------------------------------------------------------------
 // Files
@@ -68,12 +70,13 @@ pub fn upsert_files(conn: &Connection, files: &[AssetFile]) -> Result<usize, App
         let tx = conn.unchecked_transaction()?;
         for f in chunk {
             conn.execute(
-                &format!("INSERT OR REPLACE INTO files ({FILE_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"),
+                &format!("INSERT OR REPLACE INTO files ({FILE_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)"),
                 params![
                     f.id, f.path, f.name, f.folder, f.ext,
                     f.size_bytes, f.mtime_unix,
                     if f.is_orphaned { 1i32 } else { 0i32 },
                     f.orphaned_at, f.created_at_unix,
+                    f.flag as i64,
                 ],
             )?;
             total += 1;
@@ -523,6 +526,39 @@ pub fn set_file_rating(conn: &Connection, file_id: &str, rating: Option<i32>) ->
     Ok(())
 }
 
+pub fn set_file_flag(conn: &Connection, file_id: &str, flag: crate::models::Flag) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE files SET flag = ?1 WHERE id = ?2",
+        params![flag as i64, file_id],
+    )?;
+    Ok(())
+}
+
+pub fn set_files_flag(conn: &Connection, file_ids: &[String], flag: crate::models::Flag) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    for id in file_ids {
+        conn.execute(
+            "UPDATE files SET flag = ?1 WHERE id = ?2",
+            params![flag as i64, id.as_str()],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn set_files_rating(conn: &Connection, file_ids: &[String], rating: Option<i32>) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    for id in file_ids {
+        conn.execute(
+            "INSERT INTO metadata (file_id, rating) VALUES (?1, ?2) \
+             ON CONFLICT(file_id) DO UPDATE SET rating = excluded.rating",
+            params![id.as_str(), rating],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn copy_album_files(
     conn: &Connection,
     src_album_id: &str,
@@ -573,6 +609,7 @@ mod tests {
             created_at_unix: 900,
             is_orphaned: false,
             orphaned_at: None,
+            flag: crate::models::Flag::Unflagged,
         }
     }
 
@@ -629,6 +666,28 @@ mod tests {
         assert_eq!(albums2[0].name, "Best");
         delete_album(&conn, "al1").unwrap();
         assert!(get_all_albums(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn set_and_get_flag() {
+        let (conn, _f) = open_temp();
+        let file = make_file("f1", "/tmp/f1.jpg");
+        upsert_files(&conn, &[file]).unwrap();
+        set_file_flag(&conn, "f1", crate::models::Flag::Pick).unwrap();
+        let result = get_file_by_id(&conn, "f1").unwrap().unwrap();
+        assert_eq!(result.flag, crate::models::Flag::Pick);
+        set_file_flag(&conn, "f1", crate::models::Flag::Reject).unwrap();
+        let result2 = get_file_by_id(&conn, "f1").unwrap().unwrap();
+        assert_eq!(result2.flag, crate::models::Flag::Reject);
+    }
+
+    #[test]
+    fn set_files_flag_batch() {
+        let (conn, _f) = open_temp();
+        upsert_files(&conn, &[make_file("a", "/tmp/a.jpg"), make_file("b", "/tmp/b.jpg")]).unwrap();
+        set_files_flag(&conn, &["a".to_string(), "b".to_string()], crate::models::Flag::Pick).unwrap();
+        assert_eq!(get_file_by_id(&conn, "a").unwrap().unwrap().flag, crate::models::Flag::Pick);
+        assert_eq!(get_file_by_id(&conn, "b").unwrap().unwrap().flag, crate::models::Flag::Pick);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use crate::models::{AlbumId, AppError, AssetFile, SearchQuery, SortField};
+use crate::models::{AlbumId, AppError, AssetFile, Flag, FlagFilter, SearchQuery, SortField};
 use crate::search::fts;
 
 fn sort_column(f: SortField) -> &'static str {
@@ -23,12 +23,45 @@ fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
         is_orphaned: row.get::<_, i32>(7)? == 1,
         orphaned_at: row.get(8)?,
         created_at_unix: row.get(9)?,
+        flag: Flag::from_i64(row.get::<_, i64>(10).unwrap_or(0)),
     })
 }
 
 const FILE_COLS: &str =
     "f.id, f.path, f.filename, f.folder, f.extension, f.size, f.modified_time, \
-     f.is_orphaned, f.orphaned_at, f.created_at_unix";
+     f.is_orphaned, f.orphaned_at, f.created_at_unix, f.flag";
+
+fn append_flag_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, flag_filter: FlagFilter) {
+    match flag_filter {
+        FlagFilter::All => {}
+        FlagFilter::Picks => {
+            sql.push_str(&format!(" AND f.flag = ?{param_idx}"));
+            params.push(Box::new(Flag::Pick as i64));
+            *param_idx += 1;
+        }
+        FlagFilter::Rejects => {
+            sql.push_str(&format!(" AND f.flag = ?{param_idx}"));
+            params.push(Box::new(Flag::Reject as i64));
+            *param_idx += 1;
+        }
+        FlagFilter::Unflagged => {
+            sql.push_str(&format!(" AND f.flag = ?{param_idx}"));
+            params.push(Box::new(Flag::Unflagged as i64));
+            *param_idx += 1;
+        }
+        FlagFilter::NotReject => {
+            sql.push_str(&format!(" AND f.flag != ?{param_idx}"));
+            params.push(Box::new(Flag::Reject as i64));
+            *param_idx += 1;
+        }
+    }
+}
+
+fn append_rating_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, rating_min: i32) {
+    sql.push_str(&format!(" AND COALESCE(m.rating, 0) >= ?{param_idx}"));
+    params.push(Box::new(rating_min));
+    *param_idx += 1;
+}
 
 pub fn execute_search(conn: &Connection, query: &SearchQuery) -> Result<Vec<AssetFile>, AppError> {
     // FTS candidate set
@@ -44,6 +77,7 @@ pub fn execute_search(conn: &Connection, query: &SearchQuery) -> Result<Vec<Asse
     };
 
     // Build SQL dynamically with boxed params
+    let needs_meta = query.rating_min.is_some();
     let mut sql = format!("SELECT {FILE_COLS} FROM files f");
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1usize;
@@ -55,6 +89,10 @@ pub fn execute_search(conn: &Connection, query: &SearchQuery) -> Result<Vec<Asse
         ));
         params.push(Box::new(tag.clone()));
         param_idx += 1;
+    }
+
+    if needs_meta {
+        sql.push_str(" LEFT JOIN metadata m ON f.id = m.file_id");
     }
 
     sql.push_str(" WHERE 1=1");
@@ -122,6 +160,14 @@ pub fn execute_search(conn: &Connection, query: &SearchQuery) -> Result<Vec<Asse
         param_idx += 1;
     }
 
+    // Flag filter
+    append_flag_filter(&mut sql, &mut params, &mut param_idx, query.flag_filter);
+
+    // Rating filter
+    if let Some(min) = query.rating_min {
+        append_rating_filter(&mut sql, &mut params, &mut param_idx, min);
+    }
+
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
     sql.push_str(&format!(" ORDER BY f.{} {}", sort_column(query.sort_by), dir));
 
@@ -149,6 +195,7 @@ pub fn execute_manual_album_search(
         _ => None,
     };
 
+    let needs_meta = query.rating_min.is_some();
     let mut sql = format!(
         "SELECT {FILE_COLS} FROM files f \
          JOIN album_files af ON f.id = af.file_id"
@@ -162,6 +209,10 @@ pub fn execute_manual_album_search(
         ));
         params.push(Box::new(tag.clone()));
         param_idx += 1;
+    }
+
+    if needs_meta {
+        sql.push_str(" LEFT JOIN metadata m ON f.id = m.file_id");
     }
 
     sql.push_str(&format!(" WHERE af.album_id = ?{param_idx}"));
@@ -206,6 +257,14 @@ pub fn execute_manual_album_search(
         param_idx += 1;
     }
 
+    // Flag filter
+    append_flag_filter(&mut sql, &mut params, &mut param_idx, query.flag_filter);
+
+    // Rating filter
+    if let Some(min) = query.rating_min {
+        append_rating_filter(&mut sql, &mut params, &mut param_idx, min);
+    }
+
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
     sql.push_str(&format!(" ORDER BY f.{} {}", sort_column(query.sort_by), dir));
 
@@ -244,9 +303,62 @@ mod tests {
                 created_at_unix: 0,
                 is_orphaned: false,
                 orphaned_at: None,
+                flag: crate::models::Flag::Unflagged,
             }],
         )
         .unwrap();
+    }
+
+    mod flag_filter {
+        use super::*;
+
+        fn setup() -> (Connection, NamedTempFile) {
+            let (conn, f) = open_temp();
+            insert(&conn, "pick1", "pick1.jpg", "/p", "jpg", 1);
+            insert(&conn, "pick2", "pick2.jpg", "/p", "jpg", 2);
+            insert(&conn, "reject1", "reject1.jpg", "/p", "jpg", 3);
+            insert(&conn, "plain1", "plain1.jpg", "/p", "jpg", 4);
+            db::set_file_flag(&conn, "pick1", crate::models::Flag::Pick).unwrap();
+            db::set_file_flag(&conn, "pick2", crate::models::Flag::Pick).unwrap();
+            db::set_file_flag(&conn, "reject1", crate::models::Flag::Reject).unwrap();
+            (conn, f)
+        }
+
+        #[test]
+        fn filter_picks() {
+            let (conn, _f) = setup();
+            let q = SearchQuery { flag_filter: FlagFilter::Picks, ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 2);
+            assert!(results.iter().all(|r| r.flag == crate::models::Flag::Pick));
+        }
+
+        #[test]
+        fn filter_rejects() {
+            let (conn, _f) = setup();
+            let q = SearchQuery { flag_filter: FlagFilter::Rejects, ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "reject1");
+        }
+
+        #[test]
+        fn filter_not_reject() {
+            let (conn, _f) = setup();
+            let q = SearchQuery { flag_filter: FlagFilter::NotReject, ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 3);
+            assert!(results.iter().all(|r| r.flag != crate::models::Flag::Reject));
+        }
+
+        #[test]
+        fn filter_unflagged() {
+            let (conn, _f) = setup();
+            let q = SearchQuery { flag_filter: FlagFilter::Unflagged, ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "plain1");
+        }
     }
 
     #[test]

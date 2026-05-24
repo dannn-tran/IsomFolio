@@ -72,6 +72,7 @@ mod tests {
             created_at_unix: 0,
             is_orphaned: false,
             orphaned_at: None,
+            flag: crate::models::Flag::Unflagged,
         };
         db::upsert_files(conn, &[file]).unwrap();
     }

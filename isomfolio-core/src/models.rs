@@ -3,6 +3,24 @@ use serde::{Deserialize, Serialize};
 pub type FileId = String;
 pub type AlbumId = String;
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i64)]
+pub enum Flag {
+    Unflagged = 0,
+    Pick = 1,
+    Reject = -1,
+}
+
+impl Flag {
+    pub fn from_i64(v: i64) -> Self {
+        match v {
+            1 => Flag::Pick,
+            -1 => Flag::Reject,
+            _ => Flag::Unflagged,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AssetFile {
     pub id: FileId,
@@ -15,6 +33,7 @@ pub struct AssetFile {
     pub created_at_unix: i64,
     pub is_orphaned: bool,
     pub orphaned_at: Option<i64>,
+    pub flag: Flag,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -33,6 +52,15 @@ pub enum SortField {
     Ext,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum FlagFilter {
+    All,
+    Picks,
+    Rejects,
+    Unflagged,
+    NotReject,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SearchQuery {
     pub text: Option<String>,
@@ -44,6 +72,8 @@ pub struct SearchQuery {
     pub date_to: Option<i64>,
     pub sort_by: SortField,
     pub sort_asc: bool,
+    pub flag_filter: FlagFilter,
+    pub rating_min: Option<i32>,
 }
 
 impl Default for SearchQuery {
@@ -58,6 +88,8 @@ impl Default for SearchQuery {
             date_to: None,
             sort_by: SortField::Name,
             sort_asc: true,
+            flag_filter: FlagFilter::All,
+            rating_min: None,
         }
     }
 }

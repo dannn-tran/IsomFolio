@@ -42,6 +42,7 @@ impl App {
                 }
                 self.selected_item = item;
                 self.files.clear();
+                self.file_ratings.clear();
                 self.scroll_y = 0.0;
                 self.loupe_idx = 0;
                 self.grid_selected.clear();
@@ -58,7 +59,9 @@ impl App {
                 self.files = files;
                 self.enqueue_thumbnails();
                 self.status = format!("{} photo(s)", self.files.len());
-                self.maybe_load_detail()
+                let t1 = self.maybe_load_detail();
+                let t2 = self.load_ratings_task();
+                Task::batch([t1, t2])
             }
 
             Msg::SidebarLoaded {
@@ -776,6 +779,8 @@ impl App {
                 self.criteria.date_from.clear();
                 self.criteria.date_to.clear();
                 self.criteria.exts.clear();
+                self.criteria.flag_filter = isomfolio_core::models::FlagFilter::All;
+                self.criteria.rating_min = None;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
@@ -976,6 +981,103 @@ impl App {
                     },
                     |()| Msg::NoOp,
                 )
+            }
+
+            Msg::SetFlag(flag) => {
+                let ids: Vec<String> = if matches!(self.view_mode, ViewMode::Loupe) {
+                    self.files.get(self.loupe_idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
+                } else {
+                    self.grid_selected.iter().cloned().collect()
+                };
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                for id in &ids {
+                    if let Some(f) = self.files.iter_mut().find(|f| &f.id == id) {
+                        f.flag = flag;
+                    }
+                }
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                let flag_clone = flag;
+                let ids_clone = ids;
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap();
+                        let _ = db::set_files_flag(&g, &ids_clone, flag_clone);
+                    },
+                    |()| Msg::FlagsApplied,
+                )
+            }
+
+            Msg::FlagsApplied => {
+                if self.criteria.hide_rejects || self.criteria.flag_filter != isomfolio_core::models::FlagFilter::All {
+                    self.load_files_task()
+                } else {
+                    Task::none()
+                }
+            }
+
+            Msg::SetRating(rating) => {
+                let ids: Vec<String> = if matches!(self.view_mode, ViewMode::Loupe) {
+                    self.files.get(self.loupe_idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
+                } else {
+                    self.grid_selected.iter().cloned().collect()
+                };
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                for id in &ids {
+                    match rating {
+                        Some(r) if r > 0 => { self.file_ratings.insert(id.clone(), r); }
+                        _ => { self.file_ratings.remove(id); }
+                    }
+                }
+                if ids.len() == 1 && self.detail.file_id.as_deref() == Some(ids[0].as_str()) {
+                    self.detail.rating = rating;
+                }
+                let Some(conn) = self.conn.clone() else {
+                    return Task::none();
+                };
+                let ids_clone = ids;
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap();
+                        let _ = db::set_files_rating(&g, &ids_clone, rating);
+                    },
+                    |()| Msg::RatingsApplied,
+                )
+            }
+
+            Msg::RatingsApplied => {
+                if self.criteria.rating_min.is_some() {
+                    self.load_files_task()
+                } else {
+                    Task::none()
+                }
+            }
+
+            Msg::RatingsLoaded(map) => {
+                self.file_ratings = map;
+                Task::none()
+            }
+
+            Msg::ToggleHideRejects => {
+                self.criteria.hide_rejects = !self.criteria.hide_rejects;
+                self.load_files_task()
+            }
+
+            Msg::SetFlagFilter(filter) => {
+                self.criteria.flag_filter = filter;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::SetRatingFilter(min) => {
+                self.criteria.rating_min = min;
+                self.mark_smart_dirty();
+                self.load_files_task()
             }
 
             Msg::Reload => {
@@ -1218,6 +1320,7 @@ impl App {
                 self.thumbnail_start_at = None;
                 self.thumbnail_done_at = None;
                 self.files.clear();
+                self.file_ratings.clear();
                 self.thumbnails.clear();
                 self.folders.clear();
                 self.albums.clear();

@@ -4,7 +4,7 @@ use iced::{
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
-use isomfolio_core::models::ThumbnailState;
+use isomfolio_core::models::{Flag, FlagFilter, ThumbnailState};
 
 use super::styles::{
     active_chip_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID, BG_TILE_LOADING, BORDER,
@@ -180,8 +180,11 @@ impl App {
             (Color::TRANSPARENT, 0.0)
         };
 
+        let flag = file.flag;
+        let rating = self.file_ratings.get(&file.id).copied().unwrap_or(0);
         let tile_px = self.tile_px;
-        stack(vec![
+
+        let mut layers: Vec<Element<Msg>> = vec![
             container(tile_content)
                 .width(tile_px)
                 .height(tile_px)
@@ -203,8 +206,48 @@ impl App {
                     ..Default::default()
                 })
                 .into(),
-        ])
-        .into()
+        ];
+
+        if flag != Flag::Unflagged || rating > 0 {
+            let (flag_label, flag_color) = match flag {
+                Flag::Pick => ("✓", ACCENT),
+                Flag::Reject => ("✕", ERR),
+                Flag::Unflagged => ("", Color::TRANSPARENT),
+            };
+            let scrim = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.55 };
+            let badge_style = move |_: &Theme| container::Style {
+                background: Some(Background::Color(scrim)),
+                border: Border { radius: 3.0.into(), ..Default::default() },
+                ..Default::default()
+            };
+            let mut badge_col: Vec<Element<Msg>> = Vec::new();
+            if flag != Flag::Unflagged {
+                badge_col.push(
+                    container(text(flag_label).size(TEXT_SM).color(flag_color))
+                        .padding([2.0, 4.0])
+                        .style(badge_style)
+                        .into(),
+                );
+            }
+            badge_col.push(Space::new().height(Length::Fill).into());
+            if rating > 0 {
+                badge_col.push(
+                    container(text("★".repeat(rating as usize)).size(TEXT_SM).color(STAR_GOLD))
+                        .padding([2.0, 4.0])
+                        .style(badge_style)
+                        .into(),
+                );
+            }
+            let badge_layer: Element<Msg> = container(column(badge_col))
+                .width(tile_px)
+                .height(tile_px)
+                .padding([4.0, 5.0])
+                .align_x(Alignment::Start)
+                .into();
+            layers.push(badge_layer);
+        }
+
+        stack(layers).into()
     }
 
     pub(super) fn view_criteria_panel(&self) -> Element<'_, Msg> {
@@ -276,6 +319,45 @@ impl App {
             );
         }
         col = col.push(ext_row);
+
+        let mut flag_row = row![text("Flag").size(TEXT_SM).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for (label, filter) in [
+            ("All", FlagFilter::All),
+            ("Picks", FlagFilter::Picks),
+            ("Rejects", FlagFilter::Rejects),
+            ("Unflagged", FlagFilter::Unflagged),
+        ] {
+            let active = self.criteria.flag_filter == filter;
+            flag_row = flag_row.push(
+                button(text(label).size(TEXT_SM))
+                    .on_press(Msg::SetFlagFilter(filter))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+        let hide_rejects_active = self.criteria.hide_rejects;
+        flag_row = flag_row
+            .push(Space::new().width(SPACE_2))
+            .push(
+                button(text(if hide_rejects_active { "Hide Rejects ●" } else { "Hide Rejects" }).size(TEXT_SM))
+                    .on_press(Msg::ToggleHideRejects)
+                    .style(if hide_rejects_active { active_chip_style } else { ghost_btn_style }),
+            );
+        col = col.push(flag_row);
+
+        let mut rating_row = row![text("Stars").size(TEXT_SM).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for (label, min) in [("Any", None), ("1+", Some(1)), ("2+", Some(2)), ("3+", Some(3)), ("4+", Some(4)), ("5", Some(5))] {
+            let active = self.criteria.rating_min == min;
+            rating_row = rating_row.push(
+                button(text(label).size(TEXT_SM))
+                    .on_press(Msg::SetRatingFilter(min))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+        col = col.push(rating_row);
 
         if self.criteria_has_any() {
             let is_smart = self.current_album_is_smart();

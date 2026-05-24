@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use iced::{keyboard, Point};
-use isomfolio_core::models::{Album, AlbumId, AssetFile};
+use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag};
 
 #[derive(Debug, Clone)]
 pub enum ContextMenuTarget {
@@ -29,7 +29,7 @@ pub const BUFFER_ROWS: usize = 2;
 pub const SIDEBAR_ALBUMS_BASE_Y: f32 = 184.0;
 pub const SEARCH_BAR_HEIGHT: f32 = 40.0;
 pub const CRITERIA_ROW_HEIGHT: f32 = 32.0;
-pub const CRITERIA_ROW_COUNT: usize = 3;
+pub const CRITERIA_ROW_COUNT: usize = 5;
 pub const CRITERIA_PADDING: f32 = 18.0;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -196,6 +196,15 @@ pub enum Msg {
     CancelRemoveFolder,
 
     ScanDialogDone(Option<String>),
+    SetFlag(Flag),
+    SetRating(Option<i32>),
+    FlagsApplied,
+    RatingsApplied,
+    RatingsLoaded(HashMap<String, i32>),
+    ToggleHideRejects,
+    SetFlagFilter(FlagFilter),
+    SetRatingFilter(Option<i32>),
+
     SortCycleAll,
     NoOp,
 
@@ -214,6 +223,8 @@ pub enum Msg {
     ThumbnailHandleReady { file_id: String, handle: iced::widget::image::Handle },
 }
 
+use isomfolio_core::models::FlagFilter;
+
 pub struct CriteriaState {
     pub show: bool,
     pub tags: Vec<String>,
@@ -222,6 +233,9 @@ pub struct CriteriaState {
     pub date_to: String,
     pub exts: HashSet<String>,
     pub save_smart_input: Option<String>,
+    pub flag_filter: FlagFilter,
+    pub rating_min: Option<i32>,
+    pub hide_rejects: bool,
 }
 
 impl Default for CriteriaState {
@@ -234,6 +248,9 @@ impl Default for CriteriaState {
             date_to: String::new(),
             exts: HashSet::new(),
             save_smart_input: None,
+            flag_filter: FlagFilter::All,
+            rating_min: None,
+            hide_rejects: false,
         }
     }
 }

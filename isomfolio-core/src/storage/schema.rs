@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS files (
     modified_time   INTEGER NOT NULL,
     is_orphaned     INTEGER NOT NULL DEFAULT 0,
     orphaned_at     INTEGER,
-    created_at_unix INTEGER NOT NULL DEFAULT 0
+    created_at_unix INTEGER NOT NULL DEFAULT 0,
+    flag            INTEGER NOT NULL DEFAULT 0
 );
 ";
 
@@ -108,6 +109,7 @@ pub const MIGRATIONS: &[&str] = &[
     "DROP TRIGGER IF EXISTS files_ad",
     "DROP TRIGGER IF EXISTS files_au",
     "DROP TABLE IF EXISTS file_index",
+    "ALTER TABLE files ADD COLUMN flag INTEGER NOT NULL DEFAULT 0",
 ];
 
 pub const ALL_DDL: &[&str] = &[

@@ -35,6 +35,7 @@ pub struct App {
     pub drag_hover_album: Option<AlbumId>,
 
     pub files: Vec<AssetFile>,
+    pub file_ratings: HashMap<String, i32>,
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
@@ -138,6 +139,7 @@ impl App {
             selected_item: SidebarItem::AllFiles,
             drag_hover_album: None,
             files: Vec::new(),
+            file_ratings: HashMap::new(),
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
@@ -237,10 +239,14 @@ impl App {
     }
 
     pub fn criteria_has_any(&self) -> bool {
+        use isomfolio_core::models::FlagFilter;
         !self.criteria.tags.is_empty()
             || !self.criteria.exts.is_empty()
             || !self.criteria.date_from.is_empty()
             || !self.criteria.date_to.is_empty()
+            || self.criteria.flag_filter != FlagFilter::All
+            || self.criteria.rating_min.is_some()
+            || self.criteria.hide_rejects
     }
 
     pub fn current_album_is_smart(&self) -> bool {
@@ -269,6 +275,12 @@ impl App {
                 Some(t.to_string())
             }
         };
+        use isomfolio_core::models::FlagFilter;
+        let effective_flag = if self.criteria.hide_rejects && self.criteria.flag_filter == FlagFilter::All {
+            FlagFilter::NotReject
+        } else {
+            self.criteria.flag_filter
+        };
         SearchQuery {
             text: text_opt,
             tags: self.criteria.tags.clone(),
@@ -277,6 +289,8 @@ impl App {
             date_to: parse_date_str(&self.criteria.date_to),
             sort_by: self.sort_by,
             sort_asc: self.sort_asc,
+            flag_filter: effective_flag,
+            rating_min: self.criteria.rating_min,
             ..Default::default()
         }
     }
@@ -484,6 +498,33 @@ impl App {
         )
     }
 
+    pub(crate) fn load_ratings_task(&self) -> Task<Msg> {
+        let Some(conn) = self.conn.clone() else {
+            return Task::none();
+        };
+        let file_ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
+        if file_ids.is_empty() {
+            return Task::done(Msg::RatingsLoaded(HashMap::new()));
+        }
+        Task::perform(
+            async move {
+                let g = conn.lock().unwrap();
+                let mut ratings = HashMap::new();
+                for id in &file_ids {
+                    if let Ok(Some(meta)) = isomfolio_core::storage::db::get_metadata(&g, id) {
+                        if let Some(r) = meta.xmp.as_ref().and_then(|x| x.core.rating) {
+                            if r > 0 {
+                                ratings.insert(id.clone(), r);
+                            }
+                        }
+                    }
+                }
+                ratings
+            },
+            Msg::RatingsLoaded,
+        )
+    }
+
     pub(crate) fn load_tag_browser_task(&self) -> Task<Msg> {
         let Some(conn) = self.conn.clone() else {
             return Task::none();
@@ -567,6 +608,46 @@ impl App {
                     key: keyboard::Key::Character(ref c),
                     ..
                 }) if ignored && c.as_str() == "i" => Some(Msg::ToggleDetail),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "p" => Some(Msg::SetFlag(isomfolio_core::models::Flag::Pick)),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "x" => Some(Msg::SetFlag(isomfolio_core::models::Flag::Reject)),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "u" => Some(Msg::SetFlag(isomfolio_core::models::Flag::Unflagged)),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "0" => Some(Msg::SetRating(None)),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "1" => Some(Msg::SetRating(Some(1))),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "2" => Some(Msg::SetRating(Some(2))),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "3" => Some(Msg::SetRating(Some(3))),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "4" => Some(Msg::SetRating(Some(4))),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "5" => Some(Msg::SetRating(Some(5))),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "\\" => Some(Msg::ToggleHideRejects),
                 Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
                     ..
