@@ -42,6 +42,18 @@ fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
+    let _ = writeln!(
+        out,
+        "{}",
+        serde_json::json!({
+            "type": "hello",
+            "protocol_version": 1,
+            "addon_api_version": 1,
+            "capabilities": ["cluster_faces"],
+        })
+    );
+    let _ = out.flush();
+
     let models_dir = std::env::var("ISOMFOLIO_MODELS_DIR").unwrap_or_else(|_| ".".to_string());
 
     emit_log(&mut out, "info", "loading face models…");
@@ -62,18 +74,6 @@ fn main() {
     };
 
     emit_log(&mut out, "info", "ready");
-
-    let _ = writeln!(
-        out,
-        "{}",
-        serde_json::json!({
-            "type": "hello",
-            "protocol_version": 1,
-            "addon_api_version": 1,
-            "capabilities": ["cluster_faces"],
-        })
-    );
-    let _ = out.flush();
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
