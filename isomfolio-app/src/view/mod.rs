@@ -13,7 +13,8 @@ use iced::{
 use crate::app::{App, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
 use styles::{
     active_chip_style, danger_btn_style, ghost_btn_style, icon_btn_style, ACCENT, BG_MODAL,
-    BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
+    BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
+    OVERLAY_HEAVY, OVERLAY_LIGHT, OVERLAY_MEDIUM, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
     SPACE_2_5, SPACE_3, SPACE_4, SPACE_6, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
     TEXT_STAR, TEXT_TITLE,
 };
@@ -150,10 +151,8 @@ impl App {
                 .height(Length::Fill)
                 .style(move |_: &Theme| container::Style {
                     background: Some(Background::Color(Color {
-                        r: 0.28,
-                        g: 0.28,
-                        b: 0.34,
                         a: if resizing { 0.9 } else { 0.15 },
+                        ..BORDER
                     })),
                     ..Default::default()
                 }),
@@ -235,7 +234,7 @@ impl App {
                 .width(Length::FillPortion(empty))
                 .height(3)
                 .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(Color { r: 0.25, g: 0.25, b: 0.28, a: 1.0 })),
+                    background: Some(Background::Color(BG_PROGRESS_TRACK)),
                     border: Border { radius: 1.5.into(), ..Default::default() },
                     ..Default::default()
                 }),
@@ -264,10 +263,10 @@ impl App {
             .width(220)
             .padding([SPACE_1_5, SPACE_2])
             .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(Color { r: 0.13, g: 0.13, b: 0.16, a: 0.96 })),
+                background: Some(Background::Color(BG_PANEL)),
                 border: Border { color: BORDER, width: 1.0, radius: 6.0.into() },
                 shadow: Shadow {
-                    color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.4 },
+                    color: OVERLAY_LIGHT,
                     offset: Vector::new(0.0, 3.0),
                     blur_radius: 10.0,
                 },
@@ -371,12 +370,7 @@ impl App {
         .padding([SPACE_1_5, SPACE_3])
         .width(Length::Fill)
         .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(Color {
-                r: 0.0,
-                g: 0.0,
-                b: 0.0,
-                a: 0.7,
-            })),
+            background: Some(Background::Color(OVERLAY_HEAVY)),
             ..Default::default()
         });
 
@@ -397,12 +391,7 @@ impl App {
         .padding([SPACE_2, SPACE_3])
         .width(Length::Fill)
         .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(Color {
-                r: 0.0,
-                g: 0.0,
-                b: 0.0,
-                a: 0.7,
-            })),
+            background: Some(Background::Color(OVERLAY_HEAVY)),
             ..Default::default()
         });
 
@@ -470,12 +459,7 @@ impl App {
             .padding([SPACE_1_5, SPACE_3])
             .width(Length::Fill)
             .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 0.55,
-                })),
+                background: Some(Background::Color(OVERLAY_MEDIUM)),
                 ..Default::default()
             })
         };
@@ -651,7 +635,7 @@ impl App {
                 background: Some(Background::Color(BG_MODAL)),
                 border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
                 shadow: Shadow {
-                    color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.5 },
+                    color: OVERLAY_LIGHT,
                     offset: Vector::new(0.0, 4.0),
                     blur_radius: 20.0,
                 },
@@ -663,7 +647,7 @@ impl App {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.55 })),
+                    background: Some(Background::Color(OVERLAY_MEDIUM)),
                     ..Default::default()
                 })
                 .into(),

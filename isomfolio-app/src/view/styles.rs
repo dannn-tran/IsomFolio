@@ -120,6 +120,37 @@ pub const DANGER_PRESSED: Color = Color {
     a: 1.0,
 };
 
+pub const BG_PANEL: Color = Color {
+    r: 0.13,
+    g: 0.13,
+    b: 0.16,
+    a: 0.96,
+};
+pub const BG_PROGRESS_TRACK: Color = Color {
+    r: 0.25,
+    g: 0.25,
+    b: 0.28,
+    a: 1.0,
+};
+pub const OVERLAY_LIGHT: Color = Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 0.4,
+};
+pub const OVERLAY_MEDIUM: Color = Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 0.55,
+};
+pub const OVERLAY_HEAVY: Color = Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 0.7,
+};
+
 pub const TEXT_XS: f32 = 10.0;
 pub const TEXT_SM: f32 = 11.0;
 pub const TEXT_MD: f32 = 12.0;
