@@ -114,7 +114,7 @@ impl App {
                 };
                 (dir, conn, status, false, Task::done(Msg::CatalogReady))
             }
-            None => (String::new(), None, String::new(), true, Self::resize_to_welcome()),
+            None => (String::new(), None, String::new(), true, Task::none()),
         };
 
         let app = App {
@@ -178,13 +178,6 @@ impl App {
         };
 
         (app, task)
-    }
-
-    pub(crate) fn resize_to_welcome() -> Task<Msg> {
-        iced::window::oldest().then(|opt_id| match opt_id {
-            Some(id) => iced::window::resize(id, Size::new(720.0, 520.0)),
-            None => Task::none(),
-        })
     }
 
     pub(crate) fn resize_to_main() -> Task<Msg> {
