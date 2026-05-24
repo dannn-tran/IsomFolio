@@ -71,6 +71,7 @@ pub struct App {
 
     pub thumbnail_pending: usize,
     pub thumbnail_total: usize,
+    pub thumbnail_start_at: Option<Instant>,
     pub thumbnail_done_at: Option<Instant>,
 
     pub status: String,
@@ -95,7 +96,12 @@ pub struct App {
     pub context_menu: Option<ContextMenuState>,
     pub hovered_sidebar_entity: Option<SidebarItem>,
     pub loupe_full_res: Option<(usize, iced::widget::image::Handle)>,
+    pub loupe_prefetch: HashMap<usize, iced::widget::image::Handle>,
+    pub thumbnail_handles: HashMap<String, iced::widget::image::Handle>,
     pub tag_browser: Option<TagBrowserState>,
+
+    pub sidebar_width: f32,
+    pub sidebar_resizing: bool,
 }
 
 impl App {
@@ -160,6 +166,7 @@ impl App {
             detail: DetailState::default(),
             thumbnail_pending: 0,
             thumbnail_total: 0,
+            thumbnail_start_at: None,
             thumbnail_done_at: None,
             status: initial_status,
             is_scanning: false,
@@ -181,7 +188,11 @@ impl App {
             context_menu: None,
             hovered_sidebar_entity: None,
             loupe_full_res: None,
+            loupe_prefetch: HashMap::new(),
+            thumbnail_handles: HashMap::new(),
             tag_browser: None,
+            sidebar_width: SIDEBAR_WIDTH,
+            sidebar_resizing: false,
         };
 
         (app, task)
@@ -313,6 +324,7 @@ impl App {
         if newly_enqueued > 0 {
             if self.thumbnail_pending == 0 {
                 self.thumbnail_total = newly_enqueued;
+                self.thumbnail_start_at = Some(Instant::now());
                 self.thumbnail_done_at = None;
             } else {
                 self.thumbnail_total += newly_enqueued;
@@ -486,7 +498,7 @@ impl App {
     }
 
     pub fn tile_index_at(&self, pos: Point) -> Option<usize> {
-        let rel_x = pos.x - SIDEBAR_WIDTH - GRID_PADDING;
+        let rel_x = pos.x - self.sidebar_width - SIDEBAR_HANDLE_WIDTH - GRID_PADDING;
         let criteria_h = self.criteria_panel_height();
         let rel_y = pos.y + self.scroll_y - SEARCH_BAR_HEIGHT - criteria_h - GRID_PADDING;
         if rel_x < 0.0 || rel_y < 0.0 {
@@ -535,6 +547,10 @@ impl App {
                 }) => Some(Msg::EscapePressed),
                 Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::Enter),
+                    ..
+                }) if ignored => Some(Msg::OpenLoupe),
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::Space),
                     ..
                 }) if ignored => Some(Msg::OpenLoupe),
                 Event::Keyboard(keyboard::Event::KeyPressed {

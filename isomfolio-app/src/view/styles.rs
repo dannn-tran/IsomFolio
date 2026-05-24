@@ -141,6 +141,21 @@ pub const SPACE_4: f32 = UNIT * 4.0;
 pub const SPACE_5: f32 = UNIT * 5.0;
 pub const SPACE_6: f32 = UNIT * 6.0;
 
+pub fn icon_btn_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let (text_color, alpha) = match status {
+        button::Status::Hovered => (Color::WHITE, 0.0),
+        button::Status::Pressed => (FG, 0.0),
+        _ => (FG_DIM, 0.0),
+    };
+    button::Style {
+        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: alpha })),
+        text_color,
+        border: Border::default(),
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
 pub fn ghost_btn_style(_theme: &Theme, status: button::Status) -> button::Style {
     let alpha = match status {
         button::Status::Hovered => 0.13,

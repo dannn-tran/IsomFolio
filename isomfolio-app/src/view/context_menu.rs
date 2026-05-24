@@ -66,7 +66,7 @@ impl App {
             menu_layers.remove(0)
         };
 
-        let x = pos.x.min(self.viewport_width + 220.0 - MENU_WIDTH - 8.0).max(4.0);
+        let x = pos.x.min(self.viewport_width + self.sidebar_width - MENU_WIDTH - 8.0).max(4.0);
         let y = pos.y.min(self.viewport_height - menu_h - 4.0).max(4.0);
 
         let overlay = container(

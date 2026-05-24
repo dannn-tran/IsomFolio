@@ -1,17 +1,17 @@
 use iced::{
-    widget::{button, column, container, mouse_area, row, scrollable, text, text_input, Space},
+    widget::{button, column, container, mouse_area, row, scrollable, text, text_input, tooltip, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
 use isomfolio_core::models::AlbumKind;
 
 use super::styles::{
-    confirm_action_row, ghost_btn_style, sidebar_divider, ACCENT, ALBUM_HOVER, BG_SIDEBAR,
-    BG_STATUSBAR, FG, FG_DIM, FG_MUTED,
+    confirm_action_row, ghost_btn_style, icon_btn_style, sidebar_divider, ACCENT, ALBUM_HOVER,
+    BG_SIDEBAR, BG_STATUSBAR, FG, FG_DIM, FG_MUTED,
     SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_3,
     TEXT_BASE, TEXT_MD, TEXT_SM,
 };
-use crate::app::{App, Msg, SidebarItem, ALBUM_ITEM_HEIGHT, SIDEBAR_WIDTH};
+use crate::app::{App, Msg, SidebarItem, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT};
 
 impl App {
     pub(super) fn view_sidebar(&self) -> Element<'_, Msg> {
@@ -26,23 +26,15 @@ impl App {
             .align_y(Alignment::Center)
             .into();
 
-        let all_sel = self.selected_item == SidebarItem::AllFiles;
-        let all_row = sidebar_row_button(
-            "All Photos".to_string(),
-            all_sel,
-            false,
-            Msg::SidebarItemClicked(SidebarItem::AllFiles),
-        );
-
         let albums_header: Element<Msg> = row![
             text("Albums").size(TEXT_SM).color(FG_DIM),
             Space::new().width(Length::Fill),
             button(text("⚡").size(TEXT_MD))
                 .on_press(Msg::ToggleCriteria)
-                .style(ghost_btn_style),
+                .style(icon_btn_style),
             button(text("+").size(TEXT_BASE))
                 .on_press(Msg::StartCreateAlbum)
-                .style(ghost_btn_style),
+                .style(icon_btn_style),
         ]
         .spacing(SPACE_0_5)
         .align_y(Alignment::Center)
@@ -62,19 +54,21 @@ impl App {
             .push(
                 button(text("+").size(TEXT_BASE))
                     .on_press(if is_scan_active { Msg::NoOp } else { Msg::ScanPickFolder })
-                    .style(ghost_btn_style),
+                    .style(icon_btn_style),
             )
             .align_y(Alignment::Center)
             .into();
 
+        // Estimate max label chars that fit the current sidebar width.
+        // Accounts for scroll padding (SPACE_3 × 2) + container padding (SPACE_1 × 2),
+        // ~28px for the muted count suffix, and a small margin so the "…" reliably fits
+        // before the clip boundary. Divisor 8.5 is conservative (system font ~7–8px/char).
+        let available_px = self.sidebar_width - (SPACE_3 + SPACE_1) * 2.0 - 28.0;
+        let max_chars = ((available_px / 8.5).floor() as usize).max(4);
+
         let mut content = column![
             catalog_header,
             Space::new().height(SPACE_1_5),
-            text("Library").size(TEXT_SM).color(FG_DIM),
-            all_row,
-            Space::new().height(SPACE_1),
-            sidebar_divider(),
-            Space::new().height(SPACE_1),
             folders_header,
         ]
         .spacing(SPACE_0_5);
@@ -82,8 +76,6 @@ impl App {
         for (path, display_name, count) in &self.folders {
             let name = display_name.clone();
             let sel = self.selected_item == SidebarItem::Folder(path.clone());
-            let folder_hovered = self.hovered_sidebar_entity
-                == Some(SidebarItem::Folder(path.clone()));
             if self.folder_pending_remove.as_deref() == Some(path.as_str()) {
                 content = content.push(confirm_action_row(
                     "Remove folder? Indexed data deleted.".to_string(),
@@ -96,7 +88,7 @@ impl App {
                     path.clone(),
                     *count,
                     sel,
-                    folder_hovered,
+                    max_chars,
                 ));
             }
         }
@@ -170,8 +162,6 @@ impl App {
                     .padding([0.0, SPACE_1]),
                 );
             } else {
-                let album_hovered = self.hovered_sidebar_entity
-                    == Some(SidebarItem::Album(album.id.clone()));
                 content = content.push(album_sidebar_row(
                     album.name.clone(),
                     album.id.clone(),
@@ -179,7 +169,7 @@ impl App {
                     sel,
                     hovered,
                     is_smart,
-                    album_hovered,
+                    max_chars,
                 ));
             }
         }
@@ -208,7 +198,7 @@ impl App {
         ];
 
         container(column![sidebar_scroll, bottom_strip])
-            .width(SIDEBAR_WIDTH)
+            .width(self.sidebar_width)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_SIDEBAR)),
@@ -218,59 +208,24 @@ impl App {
     }
 }
 
-fn sidebar_row_button<'a>(
-    label: String,
-    selected: bool,
-    drop_hover: bool,
-    msg: Msg,
-) -> Element<'a, Msg> {
-    let bg = if drop_hover {
-        ALBUM_HOVER
-    } else if selected {
-        Color {
-            r: ACCENT.r * 0.6,
-            g: ACCENT.g * 0.6,
-            b: ACCENT.b * 0.6,
-            a: 0.4,
-        }
+fn truncate_label(s: &str, max: usize) -> (String, bool) {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max {
+        (s.to_string(), false)
     } else {
-        Color::TRANSPARENT
-    };
-    let border_color = if drop_hover || selected {
-        ACCENT
-    } else {
-        Color::TRANSPARENT
-    };
+        (format!("{}…", chars[..max].iter().collect::<String>()), true)
+    }
+}
 
-    container(
-        button(text(label).size(TEXT_BASE).color(if selected || drop_hover {
-            Color::WHITE
-        } else {
-            FG
-        }))
-        .on_press(msg)
-        .style(move |_: &Theme, _| button::Style {
-            background: Some(Background::Color(Color::TRANSPARENT)),
-            text_color: FG,
-            border: Border::default(),
-            shadow: iced::Shadow::default(),
-            snap: false,
+fn label_tooltip<'a>(full_name: String) -> Element<'a, Msg> {
+    container(text(full_name).size(super::styles::TEXT_SM).color(super::styles::FG))
+        .padding([super::styles::SPACE_1, super::styles::SPACE_1_5])
+        .style(|_: &Theme| container::Style {
+            background: Some(Background::Color(Color { r: 0.12, g: 0.12, b: 0.15, a: 0.97 })),
+            border: Border { color: super::styles::BORDER, width: 1.0, radius: 4.0.into() },
+            ..Default::default()
         })
-        .width(Length::Fill),
-    )
-    .height(ALBUM_ITEM_HEIGHT)
-    .align_y(Alignment::Center)
-    .padding([0.0, SPACE_1])
-    .style(move |_: &Theme| container::Style {
-        background: Some(Background::Color(bg)),
-        border: Border {
-            color: border_color,
-            width: if drop_hover { 2.0 } else { 0.0 },
-            radius: 6.0.into(),
-        },
-        ..Default::default()
-    })
-    .into()
+        .into()
 }
 
 fn folder_sidebar_row<'a>(
@@ -278,7 +233,7 @@ fn folder_sidebar_row<'a>(
     path: String,
     count: usize,
     selected: bool,
-    hovered: bool,
+    max_chars: usize,
 ) -> Element<'a, Msg> {
     let bg = if selected {
         Color {
@@ -293,15 +248,23 @@ fn folder_sidebar_row<'a>(
     let border_color = if selected { ACCENT } else { Color::TRANSPARENT };
     let text_color = if selected { Color::WHITE } else { FG };
 
-    let count_str = if count > 0 {
-        format!("  {count}")
-    } else {
-        String::new()
-    };
+    let (display_name, was_truncated) = truncate_label(&name, max_chars);
     let label_btn = button(
-        row![text(format!("{name}{count_str}"))
-            .size(TEXT_BASE)
-            .color(text_color),]
+        row![
+            container(
+                text(display_name)
+                    .size(TEXT_BASE)
+                    .color(text_color)
+                    .wrapping(iced::widget::text::Wrapping::None),
+            )
+            .width(Length::Fill)
+            .clip(true),
+            if count > 0 {
+                text(format!(" {count}")).size(TEXT_SM).color(FG_MUTED)
+            } else {
+                text("").size(TEXT_SM).color(FG_MUTED)
+            },
+        ]
         .align_y(Alignment::Center),
     )
     .on_press(Msg::SidebarItemClicked(SidebarItem::Folder(path.clone())))
@@ -314,37 +277,26 @@ fn folder_sidebar_row<'a>(
         snap: false,
     });
 
-    let overflow_btn: Element<Msg> = if hovered {
-        button(text("•••").size(TEXT_SM).color(FG_DIM))
-            .on_press(Msg::OpenContextMenu(
-                iced::Point::ORIGIN,
-                crate::app::ContextMenuTarget::Folder(path.clone()),
-            ))
-            .style(ghost_btn_style)
-            .into()
-    } else {
-        Space::new().width(24).into()
-    };
-
-    let inner = container(row![label_btn, overflow_btn].align_y(Alignment::Center))
-        .height(ALBUM_ITEM_HEIGHT)
+    let inner = container(label_btn)
+        .height(FOLDER_ITEM_HEIGHT)
         .align_y(Alignment::Center)
         .padding([0.0, SPACE_1])
         .style(move |_: &Theme| container::Style {
             background: Some(Background::Color(bg)),
-            border: Border {
-                color: border_color,
-                width: 0.0,
-                radius: 6.0.into(),
-            },
+            border: Border { color: border_color, width: 0.0, radius: 4.0.into() },
             ..Default::default()
         });
 
     let entity = SidebarItem::Folder(path.clone());
-    mouse_area(inner)
+    let row_el = mouse_area(inner)
         .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
-        .on_exit(Msg::HoverSidebarEntityEnd(entity))
-        .into()
+        .on_exit(Msg::HoverSidebarEntityEnd(entity));
+
+    if was_truncated {
+        tooltip(row_el, label_tooltip(name), tooltip::Position::Right).into()
+    } else {
+        row_el.into()
+    }
 }
 
 fn album_sidebar_row<'a>(
@@ -354,7 +306,7 @@ fn album_sidebar_row<'a>(
     selected: bool,
     drop_hover: bool,
     is_smart: bool,
-    hovered: bool,
+    max_chars: usize,
 ) -> Element<'a, Msg> {
     let text_color = if selected || drop_hover {
         Color::WHITE
@@ -380,16 +332,18 @@ fn album_sidebar_row<'a>(
     };
 
     let smart_indicator = if is_smart { "⚡ " } else { "" };
-    let count_str = if count > 0 {
-        format!("  {count}")
-    } else {
-        String::new()
-    };
+    let (display_label, was_truncated) = truncate_label(&label, max_chars);
+    let count_str = if count > 0 { format!(" {count}") } else { String::new() };
     let name_btn = button(
         row![
-            text(format!("{smart_indicator}{label}"))
-                .size(TEXT_BASE)
-                .color(text_color),
+            container(
+                text(format!("{smart_indicator}{display_label}"))
+                    .size(TEXT_BASE)
+                    .color(text_color)
+                    .wrapping(iced::widget::text::Wrapping::None),
+            )
+            .width(Length::Fill)
+            .clip(true),
             text(count_str).size(TEXT_SM).color(FG_MUTED),
         ]
         .align_y(Alignment::Center),
@@ -406,24 +360,7 @@ fn album_sidebar_row<'a>(
         snap: false,
     });
 
-    let target = if is_smart {
-        crate::app::ContextMenuTarget::SmartAlbum(album_id.clone())
-    } else {
-        crate::app::ContextMenuTarget::ManualAlbum(album_id.clone())
-    };
-
-    let overflow_btn: Element<Msg> = if hovered {
-        button(text("•••").size(TEXT_SM).color(FG_DIM))
-            .on_press(Msg::OpenContextMenu(iced::Point::ORIGIN, target))
-            .style(ghost_btn_style)
-            .into()
-    } else {
-        Space::new().width(24).into()
-    };
-
-    let row_content = row![name_btn, overflow_btn].align_y(Alignment::Center);
-
-    let inner = container(row_content)
+    let inner = container(name_btn)
         .height(ALBUM_ITEM_HEIGHT)
         .align_y(Alignment::Center)
         .padding([0.0, SPACE_1])
@@ -438,8 +375,13 @@ fn album_sidebar_row<'a>(
         });
 
     let entity = SidebarItem::Album(album_id.clone());
-    mouse_area(inner)
+    let row_el = mouse_area(inner)
         .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
-        .on_exit(Msg::HoverSidebarEntityEnd(entity))
-        .into()
+        .on_exit(Msg::HoverSidebarEntityEnd(entity));
+
+    if was_truncated {
+        tooltip(row_el, label_tooltip(label), tooltip::Position::Right).into()
+    } else {
+        row_el.into()
+    }
 }

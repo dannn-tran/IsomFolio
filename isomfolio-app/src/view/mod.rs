@@ -6,11 +6,11 @@ mod tag_browser;
 mod welcome;
 
 use iced::{
-    widget::{button, column, container, image, progress_bar, row, stack, text, Space},
+    widget::{button, column, container, image, mouse_area, row, stack, text, Space},
     Alignment, Background, Border, Color, Element, Length, Shadow, Theme, Vector,
 };
 
-use crate::app::{App, Msg, SidebarItem, ViewMode};
+use crate::app::{App, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
 use styles::{
     active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_STATUSBAR, BORDER, ERR, FG,
     FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD,
@@ -48,7 +48,7 @@ impl App {
         } else {
             match self.grid_selected.len() {
                 0 => "Click to select".to_string(),
-                1 => "Enter for loupe · I for info · Drag to add to album".to_string(),
+                1 => "Enter/Space for loupe · I for info · Drag to add to album".to_string(),
                 n => format!("{n} photos selected · Drag to album"),
             }
         };
@@ -137,7 +137,27 @@ impl App {
                 ..Default::default()
             });
 
-        let mut main_row = row![self.view_sidebar(), self.view_grid()].height(Length::Fill);
+        let resizing = self.sidebar_resizing;
+        let resize_handle: Element<Msg> = mouse_area(
+            container(Space::new())
+                .width(SIDEBAR_HANDLE_WIDTH)
+                .height(Length::Fill)
+                .style(move |_: &Theme| container::Style {
+                    background: Some(Background::Color(Color {
+                        r: 0.28,
+                        g: 0.28,
+                        b: 0.34,
+                        a: if resizing { 0.9 } else { 0.15 },
+                    })),
+                    ..Default::default()
+                }),
+        )
+        .on_press(Msg::SidebarResizeStart)
+        .interaction(iced::mouse::Interaction::ResizingHorizontally)
+        .into();
+
+        let mut main_row = row![self.view_sidebar(), resize_handle, self.view_grid()]
+            .height(Length::Fill);
         if self.detail.show {
             main_row = main_row.push(self.view_detail());
         }
@@ -154,10 +174,18 @@ impl App {
         if self.thumbnail_total > 0 {
             layers.push(self.view_thumbnail_progress_panel());
         }
-        if layers.len() == 1 {
+        let root: Element<Msg> = if layers.len() == 1 {
             layers.remove(0)
         } else {
             stack(layers).into()
+        };
+
+        if resizing {
+            mouse_area(root)
+                .interaction(iced::mouse::Interaction::ResizingHorizontally)
+                .into()
+        } else {
+            root
         }
     }
 
@@ -166,38 +194,77 @@ impl App {
         let done = total.saturating_sub(self.thumbnail_pending);
         let ratio = done as f32 / total.max(1) as f32;
 
-        let panel = container(
-            column![
-                row![
-                    text("Generating thumbnails").size(TEXT_MD).color(FG),
-                    Space::new().width(Length::Fill),
-                    text(format!("{done} / {total}")).size(TEXT_SM).color(FG_DIM),
-                ]
-                .align_y(Alignment::Center),
-                Space::new().height(SPACE_0_5),
-                progress_bar(0.0f32..=1.0f32, ratio)
-                    .style(|_: &Theme| progress_bar::Style {
-                        background: Background::Color(Color { r: 0.22, g: 0.22, b: 0.25, a: 1.0 }),
-                        bar: Background::Color(ACCENT),
-                        border: Border { radius: 2.0.into(), ..Default::default() },
-                    }),
-            ]
-            .spacing(SPACE_1),
-        )
-        .width(280)
-        .padding([SPACE_2, SPACE_2_5])
-        .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(Color { r: 0.13, g: 0.13, b: 0.16, a: 0.96 })),
-            border: Border { color: BORDER, width: 1.0, radius: 8.0.into() },
-            shadow: Shadow {
-                color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.45 },
-                offset: Vector::new(0.0, 4.0),
-                blur_radius: 14.0,
-            },
-            ..Default::default()
-        });
+        let eta_str = if done >= 3 {
+            if let Some(start) = self.thumbnail_start_at {
+                let elapsed = start.elapsed().as_secs_f64();
+                let rate = done as f64 / elapsed;
+                let secs_left = (self.thumbnail_pending as f64 / rate).ceil() as u64;
+                if secs_left < 60 {
+                    format!("~{secs_left}s")
+                } else {
+                    format!("~{}m{}s", secs_left / 60, secs_left % 60)
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
 
-        // Status bar height ~26px + 12px margin
+        let filled = ((ratio * 1000.0) as u16).max(1);
+        let empty = (1000u16).saturating_sub(filled).max(1);
+        let progress_track = row![
+            container(Space::new())
+                .width(Length::FillPortion(filled))
+                .height(3)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(ACCENT)),
+                    border: Border { radius: 1.5.into(), ..Default::default() },
+                    ..Default::default()
+                }),
+            container(Space::new())
+                .width(Length::FillPortion(empty))
+                .height(3)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(Color { r: 0.25, g: 0.25, b: 0.28, a: 1.0 })),
+                    border: Border { radius: 1.5.into(), ..Default::default() },
+                    ..Default::default()
+                }),
+        ]
+        .width(Length::Fill);
+
+        let count_row = row![
+            text("Thumbnails").size(TEXT_SM).color(FG_DIM),
+            Space::new().width(Length::Fill),
+            text(format!("{done}/{total}")).size(TEXT_SM).color(FG_DIM),
+        ]
+        .align_y(Alignment::Center);
+
+        let mut col = column![count_row, Space::new().height(SPACE_0_5), progress_track]
+            .spacing(0);
+
+        if !eta_str.is_empty() {
+            col = col.push(
+                container(text(eta_str).size(TEXT_SM).color(FG_DIM))
+                    .align_x(Alignment::End)
+                    .width(Length::Fill),
+            );
+        }
+
+        let panel = container(col.spacing(SPACE_0_5))
+            .width(220)
+            .padding([SPACE_1_5, SPACE_2])
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(Color { r: 0.13, g: 0.13, b: 0.16, a: 0.96 })),
+                border: Border { color: BORDER, width: 1.0, radius: 6.0.into() },
+                shadow: Shadow {
+                    color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.4 },
+                    offset: Vector::new(0.0, 3.0),
+                    blur_radius: 10.0,
+                },
+                ..Default::default()
+            });
+
         container(panel)
             .width(Length::Fill)
             .height(Length::Fill)

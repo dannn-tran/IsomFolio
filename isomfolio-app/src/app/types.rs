@@ -19,9 +19,11 @@ pub struct ContextMenuState {
 }
 
 pub const SIDEBAR_WIDTH: f32 = 220.0;
+pub const SIDEBAR_HANDLE_WIDTH: f32 = 5.0;
 pub const GRID_PADDING: f32 = 12.0;
 pub const TILE_GAP: f32 = 8.0;
 pub const ALBUM_ITEM_HEIGHT: f32 = 44.0;
+pub const FOLDER_ITEM_HEIGHT: f32 = 28.0;
 pub const DRAG_THRESHOLD: f32 = 6.0;
 pub const BUFFER_ROWS: usize = 2;
 pub const SIDEBAR_ALBUMS_BASE_Y: f32 = 184.0;
@@ -197,6 +199,7 @@ pub enum Msg {
     SortCycleAll,
     NoOp,
 
+    SidebarResizeStart,
     OpenContextMenu(Point, ContextMenuTarget),
     CloseContextMenu,
     RescanFolder(String),
@@ -207,6 +210,8 @@ pub enum Msg {
     HoverSidebarEntityEnd(SidebarItem),
     ToggleAddToAlbumSubmenu,
     LoupeFullResLoaded { idx: usize, handle: iced::widget::image::Handle },
+    LoupePrefetchLoaded { idx: usize, handle: iced::widget::image::Handle },
+    ThumbnailHandleReady { file_id: String, handle: iced::widget::image::Handle },
 }
 
 pub struct CriteriaState {

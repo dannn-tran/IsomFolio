@@ -141,11 +141,18 @@ impl App {
         let thumb_state = self.thumbnails.get(&file.id);
 
         let tile_content: Element<Msg> = match thumb_state {
-            Some(ThumbnailState::Ready(path)) => image(image::Handle::from_path(path))
-                .width(self.tile_px)
-                .height(self.tile_px)
-                .content_fit(iced::ContentFit::Cover)
-                .into(),
+            Some(ThumbnailState::Ready(path)) => {
+                let handle = self
+                    .thumbnail_handles
+                    .get(&file.id)
+                    .cloned()
+                    .unwrap_or_else(|| image::Handle::from_path(path));
+                image(handle)
+                    .width(self.tile_px)
+                    .height(self.tile_px)
+                    .content_fit(iced::ContentFit::Cover)
+                    .into()
+            }
             _ => {
                 container(Space::new())
                     .width(self.tile_px)

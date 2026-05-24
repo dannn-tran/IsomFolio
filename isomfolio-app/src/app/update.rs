@@ -13,7 +13,7 @@ use isomfolio_core::storage::db;
 use super::{
     unix_to_date_str, App, ContextMenuState, ContextMenuTarget, CriteriaState, DetailState,
     DragState, Msg, SidebarItem, TagBrowserState, ViewMode, ALBUM_ITEM_HEIGHT,
-    SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_WIDTH,
+    SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_HANDLE_WIDTH,
 };
 use isomfolio_core::app_paths::db_path;
 
@@ -22,9 +22,7 @@ impl App {
         match msg {
             Msg::CatalogReady => {
                 self.start_thumbnail_pool();
-                let t1 = self.load_sidebar_task();
-                let t2 = self.load_files_task();
-                Task::batch([t1, t2])
+                self.load_sidebar_task()
             }
 
             Msg::SidebarItemClicked(item) => {
@@ -74,6 +72,14 @@ impl App {
                 self.start_watchers_for_folders();
                 if let Some(id) = self.pending_album_select.take() {
                     Task::done(Msg::SidebarItemClicked(SidebarItem::Album(id)))
+                } else if self.selected_item == SidebarItem::AllFiles {
+                    if let Some((path, _, _)) = self.folders.first() {
+                        Task::done(Msg::SidebarItemClicked(SidebarItem::Folder(path.clone())))
+                    } else if let Some(album) = self.albums.first() {
+                        Task::done(Msg::SidebarItemClicked(SidebarItem::Album(album.id.clone())))
+                    } else {
+                        self.load_files_task()
+                    }
                 } else {
                     Task::none()
                 }
@@ -96,10 +102,18 @@ impl App {
                         return Task::none();
                     }
                     let delta = dx + dy;
-                    self.loupe_idx =
+                    let new_idx =
                         (self.loupe_idx as i32 + delta).rem_euclid(total as i32) as usize;
+                    self.loupe_idx = new_idx;
+                    self.loupe_prefetch.retain(|&k, _| {
+                        (k as i32 - new_idx as i32).unsigned_abs() as usize <= 2
+                    });
+                    if let Some(handle) = self.loupe_prefetch.remove(&new_idx) {
+                        self.loupe_full_res = Some((new_idx, handle));
+                        return self.load_loupe_prefetch();
+                    }
                     self.loupe_full_res = None;
-                    return self.load_loupe_full_res();
+                    return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
                 }
                 let cols = self.cols().max(1) as i32;
                 let total = self.files.len() as i32;
@@ -125,22 +139,36 @@ impl App {
                     ViewMode::Loupe => {
                         self.view_mode = ViewMode::Browse;
                         self.loupe_full_res = None;
+                        self.loupe_prefetch.clear();
                     }
                     ViewMode::Browse => {
                         if !self.files.is_empty() {
-                            self.loupe_idx =
-                                self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
+                            let idx = self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
+                            self.loupe_idx = idx;
                             self.view_mode = ViewMode::Loupe;
+                            if let Some(handle) = self.loupe_prefetch.remove(&idx) {
+                                self.loupe_full_res = Some((idx, handle));
+                                return self.load_loupe_prefetch();
+                            }
                             self.loupe_full_res = None;
-                            return self.load_loupe_full_res();
+                            return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
                         }
                     }
                 }
                 Task::none()
             }
 
+            Msg::SidebarResizeStart => {
+                self.sidebar_resizing = true;
+                Task::none()
+            }
+
             Msg::MouseMoved(pos) => {
                 self.cursor = pos;
+                if self.sidebar_resizing {
+                    self.sidebar_width = pos.x.clamp(140.0, 400.0);
+                    return Task::none();
+                }
                 if let Some(ref mut d) = self.drag {
                     d.cursor = pos;
                     if !d.active {
@@ -159,7 +187,7 @@ impl App {
                     }
                 }
                 if self.drag.as_ref().map_or(false, |d| d.active) {
-                    if pos.x < SIDEBAR_WIDTH {
+                    if pos.x < self.sidebar_width + SIDEBAR_HANDLE_WIDTH {
                         let n_folders = self.folders.len();
                         let albums_top =
                             SIDEBAR_ALBUMS_BASE_Y + n_folders as f32 * (ALBUM_ITEM_HEIGHT + 2.0);
@@ -186,7 +214,7 @@ impl App {
 
             Msg::MouseRightClicked => {
                 let pos = self.cursor;
-                if pos.x < SIDEBAR_WIDTH {
+                if pos.x < self.sidebar_width + SIDEBAR_HANDLE_WIDTH {
                     // Determine which sidebar entity is under cursor via hovered state
                     if let Some(ref entity) = self.hovered_sidebar_entity.clone() {
                         let target = match entity {
@@ -234,6 +262,9 @@ impl App {
             }
 
             Msg::MousePressed => {
+                if self.modifiers.control() {
+                    return self.update(Msg::MouseRightClicked);
+                }
                 self.context_menu = None;
                 let pos = self.cursor;
                 if matches!(self.view_mode, ViewMode::Browse) {
@@ -267,7 +298,7 @@ impl App {
                             cursor: pos,
                             active: false,
                         });
-                    } else if pos.x > SIDEBAR_WIDTH {
+                    } else if pos.x > self.sidebar_width + SIDEBAR_HANDLE_WIDTH {
                         let mods = self.modifiers;
                         if !mods.command() && !mods.shift() {
                             self.grid_selected.clear();
@@ -286,6 +317,10 @@ impl App {
             }
 
             Msg::MouseReleased => {
+                if self.sidebar_resizing {
+                    self.sidebar_resizing = false;
+                    return Task::none();
+                }
                 let was_drag_active = self.drag.as_ref().map_or(false, |d| d.active);
                 let drop_task = if was_drag_active {
                     self.drag_hover_album.clone().map(|id| {
@@ -950,12 +985,34 @@ impl App {
             }
 
             Msg::Tick => {
+                let mut tasks: Vec<Task<Msg>> = Vec::new();
                 while let Ok(ev) = self.thumbnail_rx.try_recv() {
                     match ev {
                         super::ThumbnailEvent::Ready(fid, path) => {
-                            self.thumbnails
-                                .insert(fid, isomfolio_core::models::ThumbnailState::Ready(path));
+                            self.thumbnails.insert(
+                                fid.clone(),
+                                isomfolio_core::models::ThumbnailState::Ready(path.clone()),
+                            );
                             self.thumbnail_pending = self.thumbnail_pending.saturating_sub(1);
+                            let fid2 = fid.clone();
+                            tasks.push(Task::perform(
+                                async move {
+                                    tokio::task::spawn_blocking(move || {
+                                        image::open(&path).ok().map(|img| {
+                                            let rgba = img.into_rgba8();
+                                            let (w, h) = (rgba.width(), rgba.height());
+                                            (fid2, iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
+                                        })
+                                    })
+                                    .await
+                                    .ok()
+                                    .flatten()
+                                },
+                                |res| match res {
+                                    Some((fid, handle)) => Msg::ThumbnailHandleReady { file_id: fid, handle },
+                                    None => Msg::NoOp,
+                                },
+                            ));
                         }
                         super::ThumbnailEvent::Failed(fid, _err) => {
                             self.thumbnails
@@ -976,7 +1033,6 @@ impl App {
                         self.thumbnail_done_at = None;
                     }
                 }
-                let mut tasks: Vec<Task<Msg>> = Vec::new();
 
                 if let Some((_, ts)) = &self.pending_search {
                     if ts.elapsed() >= Duration::from_millis(300) {
@@ -1159,6 +1215,7 @@ impl App {
                 self.thumbnail_pool = None;
                 self.thumbnail_pending = 0;
                 self.thumbnail_total = 0;
+                self.thumbnail_start_at = None;
                 self.thumbnail_done_at = None;
                 self.files.clear();
                 self.thumbnails.clear();
@@ -1176,6 +1233,9 @@ impl App {
                 self.scroll_y = 0.0;
                 self.loupe_idx = 0;
                 self.view_mode = ViewMode::Browse;
+                self.loupe_full_res = None;
+                self.loupe_prefetch.clear();
+                self.thumbnail_handles.clear();
                 self.album_pending_delete = None;
                 self.folder_pending_remove = None;
                 self.selected_recent_catalog = Some(path.clone());
@@ -1319,6 +1379,21 @@ impl App {
                 if self.loupe_idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
                     self.loupe_full_res = Some((idx, handle));
                 }
+                Task::none()
+            }
+
+            Msg::LoupePrefetchLoaded { idx, handle } => {
+                if matches!(self.view_mode, ViewMode::Loupe) {
+                    let dist = (idx as i32 - self.loupe_idx as i32).unsigned_abs() as usize;
+                    if dist <= 2 {
+                        self.loupe_prefetch.insert(idx, handle);
+                    }
+                }
+                Task::none()
+            }
+
+            Msg::ThumbnailHandleReady { file_id, handle } => {
+                self.thumbnail_handles.insert(file_id, handle);
                 Task::none()
             }
 
@@ -1467,16 +1542,61 @@ impl App {
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    iced::widget::image::Handle::from_path(&path)
+                    image::open(&path).ok().map(|img| {
+                        let rgba = img.into_rgba8();
+                        let (w, h) = (rgba.width(), rgba.height());
+                        iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw())
+                    })
                 })
                 .await
                 .ok()
+                .flatten()
             },
             move |handle_opt| match handle_opt {
                 Some(handle) => Msg::LoupeFullResLoaded { idx, handle },
                 None => Msg::NoOp,
             },
         )
+    }
+
+    pub(crate) fn load_loupe_prefetch(&self) -> Task<Msg> {
+        let total = self.files.len();
+        if total == 0 {
+            return Task::none();
+        }
+        let current = self.loupe_idx;
+        let mut tasks = Vec::new();
+        for delta in [-1i32, 1] {
+            let idx = (current as i32 + delta).rem_euclid(total as i32) as usize;
+            if self.loupe_prefetch.contains_key(&idx) {
+                continue;
+            }
+            if self.loupe_full_res.as_ref().map_or(false, |(i, _)| *i == idx) {
+                continue;
+            }
+            if let Some(file) = self.files.get(idx) {
+                let path = file.path.clone();
+                tasks.push(Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            image::open(&path).ok().map(|img| {
+                                let rgba = img.into_rgba8();
+                                let (w, h) = (rgba.width(), rgba.height());
+                                iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw())
+                            })
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                    },
+                    move |handle_opt| match handle_opt {
+                        Some(handle) => Msg::LoupePrefetchLoaded { idx, handle },
+                        None => Msg::NoOp,
+                    },
+                ));
+            }
+        }
+        Task::batch(tasks)
     }
 }
 
