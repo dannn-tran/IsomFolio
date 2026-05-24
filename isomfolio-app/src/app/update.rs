@@ -50,7 +50,7 @@ impl App {
                 let face_task = if let Some(conn) = self.conn.clone() {
                     Task::perform(
                         async move {
-                            let g = conn.lock().unwrap();
+                            let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                             db::get_face_cluster_summaries(&g).unwrap_or_default()
                         },
                         Msg::FaceClustersLoaded,
@@ -112,7 +112,7 @@ impl App {
                                     })
                                     .unwrap_or_default();
                                 if !tags.is_empty() {
-                                    let g = conn.lock().unwrap();
+                                    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                                     if let Err(e) = db::add_tags_merge(&g, file_id, &tags) {
                                         eprintln!("[db] add_tags_merge failed: {e}");
                                     }
@@ -151,7 +151,7 @@ impl App {
                 Task::perform(
                     async move {
                         let files = {
-                            let g = conn.lock().unwrap();
+                            let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                             db::get_all_file_paths_with_mtimes(&g).unwrap_or_default()
                         };
                         let file_params: Vec<serde_json::Value> = files
@@ -175,7 +175,7 @@ impl App {
                             }
                         };
 
-                        let g = conn.lock().unwrap();
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::save_face_clusters(&g, &clusters) {
                             eprintln!("[db] save_face_clusters failed: {e}");
                         }
@@ -231,7 +231,7 @@ impl App {
                 }
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap();
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::rename_face_cluster(&g, &cluster_id, &name) {
                             eprintln!("[db] rename_face_cluster failed: {e}");
                         }
@@ -768,7 +768,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         for fid in &ids {
                             if let Err(e) = db::add_file_to_album(&guard, &album_id, fid) {
                                 eprintln!("[db] add_file_to_album failed: {e}");
@@ -860,7 +860,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::delete_files_by_root_folder(&guard, &path) {
                             eprintln!("[db] delete_files_by_root_folder failed: {e}");
                         }
@@ -903,7 +903,7 @@ impl App {
                 self.pending_album_select = Some(album.id.clone());
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::create_album(&guard, &album) {
                             eprintln!("[db] create_album failed: {e}");
                         }
@@ -957,7 +957,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::rename_album(&guard, &album_id, &name) {
                             eprintln!("[db] rename_album failed: {e}");
                         }
@@ -987,7 +987,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::delete_album(&guard, &album_id) {
                             eprintln!("[db] delete_album failed: {e}");
                         }
@@ -1033,7 +1033,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         for fid in &ids {
                             if let Err(e) = db::remove_file_from_album(&guard, &album_id, fid) {
                                 eprintln!("[db] remove_file_from_album failed: {e}");
@@ -1157,7 +1157,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::create_album(&guard, &album) {
                             eprintln!("[db] create_album failed: {e}");
                         }
@@ -1182,7 +1182,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::update_smart_album_query(&guard, &album_id, &query) {
                             eprintln!("[db] update_smart_album_query failed: {e}");
                         }
@@ -1269,7 +1269,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap();
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::set_file_rating(&g, &fid, new_rating) {
                             eprintln!("[db] set_file_rating failed: {e}");
                         }
@@ -1299,7 +1299,7 @@ impl App {
                 let ids_clone = ids;
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap();
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::set_files_flag(&g, &ids_clone, flag_clone) {
                             eprintln!("[db] set_files_flag failed: {e}");
                         }
@@ -1340,7 +1340,7 @@ impl App {
                 let ids_clone = ids;
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap();
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::set_files_rating(&g, &ids_clone, rating) {
                             eprintln!("[db] set_files_rating failed: {e}");
                         }
@@ -1462,7 +1462,7 @@ impl App {
                     if let Some(conn) = self.conn.clone() {
                         tasks.push(Task::perform(
                             async move {
-                                let guard = conn.lock().unwrap();
+                                let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                                 for event in file_events {
                                     match event {
                                         FileEvent::Created(path) | FileEvent::Modified(path) => {
@@ -1716,7 +1716,7 @@ impl App {
                 self.pending_album_select = Some(new_id.clone());
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         let new_album = Album {
                             id: new_id.clone(),
                             name: format!("{} copy", src.name),
@@ -1758,7 +1758,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap();
+                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         for fid in &ids {
                             if let Err(e) = db::add_file_to_album(&guard, &album_id, fid) {
                                 eprintln!("[db] add_file_to_album failed: {e}");
@@ -1871,7 +1871,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap();
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::rename_prefixed_tags(&g, &old, &new_name) {
                             eprintln!("[db] rename_prefixed_tags failed: {e}");
                         }
@@ -1908,7 +1908,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap();
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                         if let Err(e) = db::delete_tag_with_descendants(&g, &tag) {
                             eprintln!("[db] delete_tag_with_descendants failed: {e}");
                         }
@@ -1950,7 +1950,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap();
+                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                 if let Err(e) = db::upsert_tags(&g, &fid, &tags) {
                     eprintln!("[db] upsert_tags failed: {e}");
                 }
@@ -1972,7 +1972,7 @@ impl App {
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    let guard = conn.lock().unwrap();
+                    let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                     scanner::scan_folder(&guard, &path, &|_| {}, &|prog| {
                         let _ = wtx.try_send(FileEvent::ScanProgress(prog));
                     })

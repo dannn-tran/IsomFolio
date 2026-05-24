@@ -391,7 +391,7 @@ impl App {
 
         Task::perform(
             async move {
-                let guard = conn.lock().unwrap();
+                let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                 match item {
                     SidebarItem::AllFiles => execute_search(&guard, &query).unwrap_or_default(),
                     SidebarItem::Folder(path) => {
@@ -425,7 +425,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap();
+                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                 let raw_folders = db::get_folder_counts(&g).unwrap_or_default();
                 let albums = db::get_all_albums(&g).unwrap_or_default();
                 let album_counts = db::get_all_album_file_counts(&g).unwrap_or_default();
@@ -474,7 +474,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap();
+                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                 let tags = db::get_tags_for_file(&g, &file_id).unwrap_or_default();
                 let meta_opt = db::get_metadata(&g, &file_id).ok().flatten();
                 let (rating, label, title, exif_tech) = match meta_opt {
@@ -505,7 +505,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap();
+                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                 db::get_all_tags(&g)
                     .unwrap_or_default()
                     .into_iter()
@@ -526,7 +526,7 @@ impl App {
         }
         Task::perform(
             async move {
-                let g = conn.lock().unwrap();
+                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                 file_ids
                     .iter()
                     .filter_map(|id| {
@@ -546,7 +546,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap();
+                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
                 db::get_all_tags(&g).unwrap_or_default()
             },
             Msg::TagBrowserLoaded,

@@ -20,13 +20,13 @@ pub struct SelfWriteGuard {
 
 impl SelfWriteGuard {
     pub fn register(&self, xmp_path: &str) {
-        let mut map = self.registry.lock().unwrap();
+        let mut map = self.registry.lock().unwrap_or_else(|e| e.into_inner());
         map.insert(xmp_path.to_string(), Instant::now());
     }
 }
 
 fn is_self_write(registry: &Arc<Mutex<HashMap<String, Instant>>>, path: &str) -> bool {
-    let mut map = registry.lock().unwrap();
+    let mut map = registry.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(&ts) = map.get(path) {
         if ts.elapsed() < Duration::from_millis(SELF_WRITE_WINDOW_MS) {
             map.remove(path);
@@ -127,7 +127,7 @@ where
             if shutdown_thread.load(Ordering::Relaxed) {
                 break;
             }
-            let mut map = pending_dispatch.lock().unwrap();
+            let mut map = pending_dispatch.lock().unwrap_or_else(|e| e.into_inner());
             let now = Instant::now();
             let ready: Vec<(String, FileEvent)> = map
                 .iter()
@@ -170,7 +170,7 @@ where
                     FileEvent::Renamed { new_path, .. } => new_path.clone(),
                     FileEvent::ScanProgress(_) => continue,
                 };
-                let mut map = pending.lock().unwrap();
+                let mut map = pending.lock().unwrap_or_else(|e| e.into_inner());
                 map.insert(debounce_key, (file_event, Instant::now()));
             }
         }

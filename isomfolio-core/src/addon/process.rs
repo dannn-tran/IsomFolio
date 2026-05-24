@@ -129,16 +129,16 @@ impl AddonProcess {
     ) -> Result<serde_json::Value, AppError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = sync_channel(1);
-        self.pending.lock().unwrap().insert(id, tx);
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
 
         let req = AddonRequest { id, method: method.to_string(), params };
         let mut line = serde_json::to_string(&req).unwrap();
         line.push('\n');
 
         {
-            let mut w = self.writer.lock().unwrap();
+            let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
             if let Err(e) = w.write_all(line.as_bytes()).and_then(|_| w.flush()) {
-                self.pending.lock().unwrap().remove(&id);
+                self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
                 return Err(AppError::Addon(format!("write failed: {e}")));
             }
         }
@@ -168,7 +168,7 @@ fn reader_loop(reader: BufReader<impl std::io::Read>, pending: PendingMap) {
         let Ok(line) = line else { break };
         match serde_json::from_str::<StdoutLine>(&line) {
             Ok(StdoutLine::Response(resp)) => {
-                if let Some(tx) = pending.lock().unwrap().remove(&resp.id) {
+                if let Some(tx) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&resp.id) {
                     let result = match resp.body {
                         ResponseBody::Ok { result } => Ok(result),
                         ResponseBody::Err { error } => Err(error),
@@ -191,7 +191,7 @@ fn reader_loop(reader: BufReader<impl std::io::Read>, pending: PendingMap) {
         }
     }
     // Addon exited — unblock all pending callers
-    for (_, tx) in pending.lock().unwrap().drain() {
+    for (_, tx) in pending.lock().unwrap_or_else(|e| e.into_inner()).drain() {
         let _ = tx.send(Err("addon exited".to_string()));
     }
 }

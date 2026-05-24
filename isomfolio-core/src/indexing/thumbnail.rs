@@ -261,12 +261,12 @@ pub fn create_worker_pool(
                 match rx.try_recv() {
                     Ok(ThumbnailMsg::Shutdown) => return,
                     Ok(ThumbnailMsg::CancelAll) => {
-                        let mut s = state.lock().unwrap();
+                        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
                         s.queue.clear();
                         s.queued.clear();
                     }
                     Ok(ThumbnailMsg::Enqueue { file_id, file_path, priority, retry_count }) => {
-                        let mut s = state.lock().unwrap();
+                        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
                         s.enqueue(file_id, file_path, priority, retry_count);
                     }
                     Err(_) => break,
@@ -277,7 +277,7 @@ pub fn create_worker_pool(
             loop {
                 match done_rx.try_recv() {
                     Ok((file_id, success, msg)) => {
-                        let mut s = state.lock().unwrap();
+                        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
                         s.in_flight.remove(&file_id);
                         s.active_count = s.active_count.saturating_sub(1);
                         drop(s);
@@ -293,7 +293,7 @@ pub fn create_worker_pool(
 
             // Spawn workers up to concurrency limit
             loop {
-                let mut s = state.lock().unwrap();
+                let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
                 if s.active_count >= concurrency {
                     break;
                 }
