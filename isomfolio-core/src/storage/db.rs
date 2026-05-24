@@ -27,13 +27,43 @@ pub fn open_database(db_path: &str) -> Result<Connection, AppError> {
     for pragma in schema::PRAGMAS {
         conn.execute_batch(pragma)?;
     }
-    for migration in schema::MIGRATIONS {
-        let _ = conn.execute_batch(migration);
-    }
+    run_migrations(&conn)?;
     for ddl in schema::ALL_DDL {
         conn.execute_batch(ddl)?;
     }
     Ok(conn)
+}
+
+fn run_migrations(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)",
+    )?;
+    let current: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let total = schema::MIGRATIONS.len() as i64;
+    if current >= total {
+        return Ok(());
+    }
+    for (i, migration) in schema::MIGRATIONS.iter().enumerate() {
+        if (i as i64) < current {
+            continue;
+        }
+        let _ = conn.execute_batch(migration);
+    }
+    conn.execute(
+        "DELETE FROM schema_version",
+        [],
+    )?;
+    conn.execute(
+        "INSERT INTO schema_version (version) VALUES (?1)",
+        [total],
+    )?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
