@@ -20,20 +20,32 @@ CREATE TABLE IF NOT EXISTS files (
     is_orphaned     INTEGER NOT NULL DEFAULT 0,
     orphaned_at     INTEGER,
     created_at_unix INTEGER NOT NULL DEFAULT 0,
-    flag            INTEGER NOT NULL DEFAULT 0
+    flag            INTEGER NOT NULL DEFAULT 0,
+    exif_date_unix  INTEGER,
+    gps_lat         REAL,
+    gps_lon         REAL,
+    burst_id        TEXT
 );
 ";
 
 pub const CREATE_METADATA: &str = "
 CREATE TABLE IF NOT EXISTS metadata (
-    file_id     TEXT PRIMARY KEY,
-    rating      INTEGER,
-    label       TEXT,
-    title       TEXT,
-    description TEXT,
-    creator     TEXT,
-    subjects    TEXT,
-    apple_tags  TEXT,
+    file_id         TEXT PRIMARY KEY,
+    rating          INTEGER,
+    label           TEXT,
+    title           TEXT,
+    description     TEXT,
+    creator         TEXT,
+    subjects        TEXT,
+    apple_tags      TEXT,
+    camera_make     TEXT,
+    camera_model    TEXT,
+    lens_model      TEXT,
+    focal_length_mm REAL,
+    aperture        REAL,
+    shutter_speed   TEXT,
+    iso             INTEGER,
+    flash           INTEGER,
     FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
 );
 ";
@@ -110,6 +122,18 @@ pub const MIGRATIONS: &[&str] = &[
     "DROP TRIGGER IF EXISTS files_au",
     "DROP TABLE IF EXISTS file_index",
     "ALTER TABLE files ADD COLUMN flag INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE files ADD COLUMN exif_date_unix INTEGER",
+    "ALTER TABLE files ADD COLUMN gps_lat REAL",
+    "ALTER TABLE files ADD COLUMN gps_lon REAL",
+    "ALTER TABLE files ADD COLUMN burst_id TEXT",
+    "ALTER TABLE metadata ADD COLUMN camera_make TEXT",
+    "ALTER TABLE metadata ADD COLUMN camera_model TEXT",
+    "ALTER TABLE metadata ADD COLUMN lens_model TEXT",
+    "ALTER TABLE metadata ADD COLUMN focal_length_mm REAL",
+    "ALTER TABLE metadata ADD COLUMN aperture REAL",
+    "ALTER TABLE metadata ADD COLUMN shutter_speed TEXT",
+    "ALTER TABLE metadata ADD COLUMN iso INTEGER",
+    "ALTER TABLE metadata ADD COLUMN flash INTEGER",
 ];
 
 pub const ALL_DDL: &[&str] = &[

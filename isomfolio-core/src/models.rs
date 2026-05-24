@@ -21,6 +21,18 @@ impl Flag {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExifTechMeta {
+    pub camera_make: Option<String>,
+    pub camera_model: Option<String>,
+    pub lens_model: Option<String>,
+    pub focal_length_mm: Option<f64>,
+    pub aperture: Option<f64>,
+    pub shutter_speed: Option<String>,
+    pub iso: Option<i32>,
+    pub flash: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AssetFile {
     pub id: FileId,
@@ -34,6 +46,9 @@ pub struct AssetFile {
     pub is_orphaned: bool,
     pub orphaned_at: Option<i64>,
     pub flag: Flag,
+    pub exif_date_unix: Option<i64>,
+    pub gps_lat: Option<f64>,
+    pub gps_lon: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

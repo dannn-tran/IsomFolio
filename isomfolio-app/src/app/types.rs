@@ -150,6 +150,7 @@ pub enum Msg {
         rating: Option<i32>,
         label: Option<String>,
         title: Option<String>,
+        exif_tech: Option<isomfolio_core::models::ExifTechMeta>,
     },
     DetailTagInputChanged(String),
     AddDetailTag,
@@ -264,6 +265,7 @@ pub struct DetailState {
     pub rating: Option<i32>,
     pub label: Option<String>,
     pub title: Option<String>,
+    pub exif_tech: Option<isomfolio_core::models::ExifTechMeta>,
 }
 
 impl Default for DetailState {
@@ -277,6 +279,7 @@ impl Default for DetailState {
             rating: None,
             label: None,
             title: None,
+            exif_tech: None,
         }
     }
 }

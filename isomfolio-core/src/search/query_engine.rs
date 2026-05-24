@@ -4,10 +4,10 @@ use crate::search::fts;
 
 fn sort_column(f: SortField) -> &'static str {
     match f {
-        SortField::Name => "filename",
-        SortField::Date => "modified_time",
-        SortField::Size => "size",
-        SortField::Ext => "extension",
+        SortField::Name => "f.filename",
+        SortField::Date => "COALESCE(f.exif_date_unix, f.modified_time)",
+        SortField::Size => "f.size",
+        SortField::Ext => "f.extension",
     }
 }
 
@@ -24,12 +24,16 @@ fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
         orphaned_at: row.get(8)?,
         created_at_unix: row.get(9)?,
         flag: Flag::from_i64(row.get::<_, i64>(10).unwrap_or(0)),
+        exif_date_unix: row.get(11)?,
+        gps_lat: row.get(12)?,
+        gps_lon: row.get(13)?,
     })
 }
 
 const FILE_COLS: &str =
     "f.id, f.path, f.filename, f.folder, f.extension, f.size, f.modified_time, \
-     f.is_orphaned, f.orphaned_at, f.created_at_unix, f.flag";
+     f.is_orphaned, f.orphaned_at, f.created_at_unix, f.flag, \
+     f.exif_date_unix, f.gps_lat, f.gps_lon";
 
 fn append_flag_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, flag_filter: FlagFilter) {
     match flag_filter {
@@ -173,7 +177,7 @@ fn execute_query_inner(
     }
 
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
-    sql.push_str(&format!(" ORDER BY f.{} {}", sort_column(query.sort_by), dir));
+    sql.push_str(&format!(" ORDER BY {} {}", sort_column(query.sort_by), dir));
 
     let _ = param_idx;
 
@@ -223,6 +227,9 @@ mod tests {
                 is_orphaned: false,
                 orphaned_at: None,
                 flag: Flag::Unflagged,
+                exif_date_unix: None,
+                gps_lat: None,
+                gps_lon: None,
             }],
         )
         .unwrap();

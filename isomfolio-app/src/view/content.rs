@@ -434,11 +434,13 @@ impl App {
             col = col.push(text(&file.name).size(TEXT_BASE));
 
             let size_str = format_file_size(file.size_bytes);
-            let date_str = unix_to_date_str(file.mtime_unix);
+            let date_unix = file.exif_date_unix.unwrap_or(file.mtime_unix);
+            let date_str = unix_to_date_str(date_unix);
+            let date_label = if file.exif_date_unix.is_some() { "Taken" } else { "Date " };
 
             col = col
                 .push(text(format!("Size  {size_str}")).size(TEXT_SM).color(FG_DIM))
-                .push(text(format!("Date  {date_str}")).size(TEXT_SM).color(FG_DIM))
+                .push(text(format!("{date_label}  {date_str}")).size(TEXT_SM).color(FG_DIM))
                 .push(
                     text(format!("Type  .{}", file.ext.to_uppercase()))
                         .size(TEXT_SM)
@@ -568,6 +570,46 @@ impl App {
                     ]
                     .align_y(Alignment::Center),
                 );
+            }
+
+            if let Some(tech) = &self.detail.exif_tech {
+                col = col.push(Space::new().height(SPACE_2));
+                col = col.push(text("Camera").size(TEXT_SM).color(FG_DIM));
+
+                let camera = match (&tech.camera_make, &tech.camera_model) {
+                    (Some(make), Some(model)) => Some(format!("{make} {model}")),
+                    (None, Some(model)) => Some(model.clone()),
+                    (Some(make), None) => Some(make.clone()),
+                    _ => None,
+                };
+                if let Some(cam) = camera {
+                    col = col.push(text(cam).size(TEXT_SM).color(FG_MUTED));
+                }
+                if let Some(lens) = &tech.lens_model {
+                    col = col.push(text(lens).size(TEXT_SM).color(FG_MUTED));
+                }
+
+                let tech_str = [
+                    tech.focal_length_mm.map(|fl| format!("{:.0}mm", fl)),
+                    tech.aperture.map(|ap| format!("f/{:.1}", ap)),
+                    tech.shutter_speed.as_ref().map(|ss| format!("{}s", ss)),
+                    tech.iso.map(|iso| format!("ISO {iso}")),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join("  ");
+                if !tech_str.is_empty() {
+                    col = col.push(text(tech_str).size(TEXT_SM).color(FG_MUTED));
+                }
+
+                if let Some(flash) = tech.flash {
+                    col = col.push(
+                        text(if flash { "Flash fired" } else { "No flash" })
+                            .size(TEXT_SM)
+                            .color(FG_MUTED),
+                    );
+                }
             }
         } else {
             col = col.push(

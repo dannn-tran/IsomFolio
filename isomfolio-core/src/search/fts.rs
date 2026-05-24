@@ -73,6 +73,9 @@ mod tests {
             is_orphaned: false,
             orphaned_at: None,
             flag: crate::models::Flag::Unflagged,
+            exif_date_unix: None,
+            gps_lat: None,
+            gps_lon: None,
         };
         db::upsert_files(conn, &[file]).unwrap();
     }

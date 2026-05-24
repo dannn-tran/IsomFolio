@@ -109,6 +109,7 @@ pub fn scan_folder(
         });
     }
 
+    let _ = db::detect_and_store_bursts(conn, root_path);
     Ok(ScanResult { total_count: total })
 }
 

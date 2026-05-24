@@ -315,6 +315,7 @@ impl App {
                     self.detail.rating = None;
                     self.detail.label = None;
                     self.detail.title = None;
+                    self.detail.exif_tech = None;
                 }
                 Task::none()
             }
@@ -859,12 +860,14 @@ impl App {
                 rating,
                 label,
                 title,
+                exif_tech,
             } => {
                 self.detail.file_id = Some(file_id);
                 self.detail.tags = tags;
                 self.detail.rating = rating;
                 self.detail.label = label;
                 self.detail.title = title;
+                self.detail.exif_tech = exif_tech;
                 self.load_all_tags_task()
             }
 

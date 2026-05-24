@@ -54,11 +54,15 @@ fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
         orphaned_at: row.get(8)?,
         created_at_unix: row.get(9)?,
         flag: Flag::from_i64(row.get::<_, i64>(10).unwrap_or(0)),
+        exif_date_unix: row.get(11)?,
+        gps_lat: row.get(12)?,
+        gps_lon: row.get(13)?,
     })
 }
 
 const FILE_COLS: &str =
-    "id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, created_at_unix, flag";
+    "id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, \
+     created_at_unix, flag, exif_date_unix, gps_lat, gps_lon";
 
 // ---------------------------------------------------------------------------
 // Files
@@ -70,13 +74,14 @@ pub fn upsert_files(conn: &Connection, files: &[AssetFile]) -> Result<usize, App
         let tx = conn.unchecked_transaction()?;
         for f in chunk {
             conn.execute(
-                &format!("INSERT OR REPLACE INTO files ({FILE_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)"),
+                &format!("INSERT OR REPLACE INTO files ({FILE_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)"),
                 params![
                     f.id, f.path, f.name, f.folder, f.ext,
                     f.size_bytes, f.mtime_unix,
                     if f.is_orphaned { 1i32 } else { 0i32 },
                     f.orphaned_at, f.created_at_unix,
                     f.flag as i64,
+                    f.exif_date_unix, f.gps_lat, f.gps_lon,
                 ],
             )?;
             total += 1;
@@ -204,12 +209,9 @@ pub fn get_indexed_paths_in_folder(
         "SELECT {FILE_COLS} FROM files WHERE folder = ?1 OR folder LIKE ?2"
     ))?;
     let rows = stmt.query_map(params![root_folder, prefix], read_asset_file)?;
-    let mut map = std::collections::HashMap::new();
-    for row in rows {
-        let f = row?;
-        map.insert(f.path.clone(), f);
-    }
-    Ok(map)
+    rows.map(|r| r.map(|f| (f.path.clone(), f)))
+        .collect::<Result<_, _>>()
+        .map_err(Into::into)
 }
 
 // ---------------------------------------------------------------------------
@@ -317,11 +319,26 @@ pub fn upsert_metadata(
     let subjects_json = serde_json::to_string(&subjects).unwrap_or_default();
     let apple_json = serde_json::to_string(&apple_tags).unwrap_or_default();
 
+    let tech = meta.exif_tech.as_ref();
+    let flash_i: Option<i32> = tech.and_then(|t| t.flash).map(|b| b as i32);
+
     let tx = conn.unchecked_transaction()?;
     conn.execute(
-        "INSERT OR REPLACE INTO metadata (file_id, rating, label, title, description, creator, subjects, apple_tags) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![file_id, rating, label, title, description, creator_json, subjects_json, apple_json],
+        "INSERT OR REPLACE INTO metadata \
+         (file_id, rating, label, title, description, creator, subjects, apple_tags, \
+          camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+        params![
+            file_id, rating, label, title, description, creator_json, subjects_json, apple_json,
+            tech.and_then(|t| t.camera_make.as_deref()),
+            tech.and_then(|t| t.camera_model.as_deref()),
+            tech.and_then(|t| t.lens_model.as_deref()),
+            tech.and_then(|t| t.focal_length_mm),
+            tech.and_then(|t| t.aperture),
+            tech.and_then(|t| t.shutter_speed.as_deref()),
+            tech.and_then(|t| t.iso),
+            flash_i,
+        ],
     )?;
     tx.commit()?;
 
@@ -343,7 +360,8 @@ pub fn upsert_metadata(
 
 pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedMetadata>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT rating, label, title, description, creator, subjects, apple_tags \
+        "SELECT rating, label, title, description, creator, subjects, apple_tags, \
+                camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash \
          FROM metadata WHERE file_id = ?1",
     )?;
     let mut rows = stmt.query_map([file_id], |row| {
@@ -355,6 +373,14 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
             row.get::<_, Option<String>>(4)?,
             row.get::<_, Option<String>>(5)?,
             row.get::<_, Option<String>>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, Option<String>>(8)?,
+            row.get::<_, Option<String>>(9)?,
+            row.get::<_, Option<f64>>(10)?,
+            row.get::<_, Option<f64>>(11)?,
+            row.get::<_, Option<String>>(12)?,
+            row.get::<_, Option<i32>>(13)?,
+            row.get::<_, Option<i32>>(14)?,
         ))
     })?;
 
@@ -367,7 +393,8 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
         s.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
     };
 
-    let (rating, label, title, description, creator_json, subjects_json, apple_json) = row;
+    let (rating, label, title, description, creator_json, subjects_json, apple_json,
+         camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash_i) = row;
     let creator = parse_list(creator_json);
     let subjects = parse_list(subjects_json);
     let apple_tag_strings = parse_list(apple_json);
@@ -409,7 +436,76 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
         })
     };
 
-    Ok(Some(EmbeddedMetadata { xmp, apple }))
+    let has_tech = camera_make.is_some() || camera_model.is_some() || lens_model.is_some()
+        || focal_length_mm.is_some() || aperture.is_some() || shutter_speed.is_some()
+        || iso.is_some() || flash_i.is_some();
+
+    let exif_tech = if has_tech {
+        Some(crate::models::ExifTechMeta {
+            camera_make,
+            camera_model,
+            lens_model,
+            focal_length_mm,
+            aperture,
+            shutter_speed,
+            iso,
+            flash: flash_i.map(|n| n != 0),
+        })
+    } else {
+        None
+    };
+
+    Ok(Some(EmbeddedMetadata { xmp, apple, exif_tech }))
+}
+
+// ---------------------------------------------------------------------------
+// Burst detection
+// ---------------------------------------------------------------------------
+
+pub fn detect_and_store_bursts(conn: &Connection, folder: &str) -> Result<(), AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, COALESCE(exif_date_unix, modified_time) AS t \
+         FROM files WHERE folder = ?1 AND is_orphaned = 0 ORDER BY t",
+    )?;
+    let rows: Vec<(String, i64)> = stmt
+        .query_map([folder], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| AppError::Db(e.to_string()))?;
+
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut current: Vec<(String, i64)> = Vec::new();
+
+    for (id, t) in rows {
+        let same_burst = current.last().map_or(true, |(_, last_t)| (t - last_t).abs() <= 3);
+        if !same_burst {
+            groups.push(current.drain(..).map(|(id, _)| id).collect());
+        }
+        current.push((id, t));
+    }
+    if !current.is_empty() {
+        groups.push(current.into_iter().map(|(id, _)| id).collect());
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    for group in &groups {
+        let burst_id: Option<String> = if group.len() >= 2 {
+            use sha2::{Sha256, Digest};
+            let mut h = Sha256::new();
+            for id in group { h.update(id.as_bytes()); }
+            let hex: String = h.finalize().iter().take(6).map(|b| format!("{b:02x}")).collect();
+            Some(hex)
+        } else {
+            None
+        };
+        for id in group {
+            conn.execute(
+                "UPDATE files SET burst_id = ?1 WHERE id = ?2",
+                rusqlite::params![burst_id, id],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -609,7 +705,10 @@ mod tests {
             created_at_unix: 900,
             is_orphaned: false,
             orphaned_at: None,
-            flag: crate::models::Flag::Unflagged,
+            flag: Flag::Unflagged,
+            exif_date_unix: None,
+            gps_lat: None,
+            gps_lon: None,
         }
     }
 

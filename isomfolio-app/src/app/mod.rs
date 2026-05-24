@@ -461,22 +461,24 @@ impl App {
                 let g = conn.lock().unwrap();
                 let tags = db::get_tags_for_file(&g, &file_id).unwrap_or_default();
                 let meta_opt = db::get_metadata(&g, &file_id).ok().flatten();
-                let (rating, label, title) = match meta_opt {
+                let (rating, label, title, exif_tech) = match meta_opt {
                     Some(m) => (
                         m.xmp.as_ref().and_then(|x| x.core.rating),
                         m.xmp.as_ref().and_then(|x| x.core.label.clone()),
                         m.xmp.as_ref().and_then(|x| x.dublin_core.title.clone()),
+                        m.exif_tech,
                     ),
-                    None => (None, None, None),
+                    None => (None, None, None, None),
                 };
-                (file_id, tags, rating, label, title)
+                (file_id, tags, rating, label, title, exif_tech)
             },
-            |(file_id, tags, rating, label, title)| Msg::DetailLoaded {
+            |(file_id, tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
                 file_id,
                 tags,
                 rating,
                 label,
                 title,
+                exif_tech,
             },
         )
     }
@@ -509,17 +511,14 @@ impl App {
         Task::perform(
             async move {
                 let g = conn.lock().unwrap();
-                let mut ratings = HashMap::new();
-                for id in &file_ids {
-                    if let Ok(Some(meta)) = isomfolio_core::storage::db::get_metadata(&g, id) {
-                        if let Some(r) = meta.xmp.as_ref().and_then(|x| x.core.rating) {
-                            if r > 0 {
-                                ratings.insert(id.clone(), r);
-                            }
-                        }
-                    }
-                }
-                ratings
+                file_ids
+                    .iter()
+                    .filter_map(|id| {
+                        let meta = db::get_metadata(&g, id).ok()??;
+                        let r = meta.xmp.as_ref()?.core.rating?;
+                        (r > 0).then(|| (id.clone(), r))
+                    })
+                    .collect()
             },
             Msg::RatingsLoaded,
         )

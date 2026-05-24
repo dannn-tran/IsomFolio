@@ -1,9 +1,11 @@
 pub mod xmp;
+pub mod exif;
 
 #[cfg(target_os = "macos")]
 pub mod apple;
 
 use std::path::Path;
+use crate::models::ExifTechMeta;
 
 pub use xmp::{XmpCore, XmpMetadata, DublinCore};
 
@@ -22,6 +24,7 @@ pub struct AppleMetadata {
 pub struct EmbeddedMetadata {
     pub xmp: Option<XmpMetadata>,
     pub apple: Option<AppleMetadata>,
+    pub exif_tech: Option<ExifTechMeta>,
 }
 
 pub fn read_metadata(file_path: &str) -> EmbeddedMetadata {
@@ -41,5 +44,7 @@ pub fn read_metadata(file_path: &str) -> EmbeddedMetadata {
     #[cfg(not(target_os = "macos"))]
     let apple_meta = None;
 
-    EmbeddedMetadata { xmp, apple: apple_meta }
+    let exif_tech = exif::read_exif(file_path).map(|e| e.tech);
+
+    EmbeddedMetadata { xmp, apple: apple_meta, exif_tech }
 }

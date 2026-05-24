@@ -56,6 +56,8 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
+    let exif = crate::metadata::exif::read_exif(path);
+
     Some(AssetFile {
         id: compute_file_id(&normalized),
         path: normalized,
@@ -68,5 +70,8 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
         is_orphaned: false,
         orphaned_at: None,
         flag: crate::models::Flag::Unflagged,
+        exif_date_unix: exif.as_ref().and_then(|e| e.capture_date),
+        gps_lat: exif.as_ref().and_then(|e| e.gps_lat),
+        gps_lon: exif.as_ref().and_then(|e| e.gps_lon),
     })
 }
