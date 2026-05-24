@@ -141,17 +141,24 @@ impl App {
         let thumb_state = self.thumbnails.get(&file.id);
 
         let tile_content: Element<Msg> = match thumb_state {
-            Some(ThumbnailState::Ready(path)) => {
-                let handle = self
-                    .thumbnail_handles
-                    .get(&file.id)
-                    .cloned()
-                    .unwrap_or_else(|| image::Handle::from_path(path));
-                image(handle)
-                    .width(self.tile_px)
-                    .height(self.tile_px)
-                    .content_fit(iced::ContentFit::Cover)
-                    .into()
+            Some(ThumbnailState::Ready(_)) => {
+                if let Some(handle) = self.thumbnail_handles.get(&file.id).cloned() {
+                    image(handle)
+                        .width(self.tile_px)
+                        .height(self.tile_px)
+                        .content_fit(iced::ContentFit::Cover)
+                        .into()
+                } else {
+                    container(Space::new())
+                        .width(self.tile_px)
+                        .height(self.tile_px)
+                        .style(|_: &Theme| container::Style {
+                            background: Some(Background::Color(BG_TILE_LOADING)),
+                            border: Border { radius: TILE_CORNER.into(), ..Default::default() },
+                            ..Default::default()
+                        })
+                        .into()
+                }
             }
             _ => {
                 container(Space::new())
