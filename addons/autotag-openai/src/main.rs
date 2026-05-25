@@ -1,8 +1,9 @@
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead};
 use std::path::Path;
 
 use base64::Engine;
-use serde::{Deserialize, Serialize};
+use isomfolio_addon_sdk as sdk;
+use serde::Deserialize;
 use serde_json::Value;
 
 const DEFAULT_ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
@@ -34,66 +35,22 @@ struct Config {
     vocabulary_file: String,
 }
 
-fn default_detail() -> String {
-    "low".to_string()
-}
-
-fn default_endpoint() -> String {
-    DEFAULT_ENDPOINT.to_string()
-}
-
-#[derive(Deserialize)]
-struct Request {
-    id: u64,
-    method: String,
-    params: Value,
-}
-
-#[derive(Serialize)]
-struct Response {
-    id: u64,
-    result: Value,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    id: u64,
-    error: String,
-}
-
-fn emit_log(out: &mut impl Write, level: &str, msg: &str) {
-    let _ = writeln!(
-        out,
-        "{}",
-        serde_json::json!({ "type": "log", "level": level, "message": msg })
-    );
-    let _ = out.flush();
-}
+fn default_detail() -> String { "low".to_string() }
+fn default_endpoint() -> String { DEFAULT_ENDPOINT.to_string() }
 
 fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
-    let config = load_config(&mut out);
-
-    let vocab = load_vocabulary(&config, &mut out);
+    let config: Config = sdk::load_config(&mut out);
+    let vocab = sdk::load_vocabulary(&config.vocabulary_file, VOCABULARY, &mut out);
 
     if config.api_key.as_deref().unwrap_or("").is_empty() {
-        emit_log(&mut out, "error", "api_key not configured — open Settings to add it");
+        sdk::emit_log(&mut out, "error", "api_key not configured — open Settings to add it");
         return;
     }
 
-    let _ = writeln!(
-        out,
-        "{}",
-        serde_json::json!({
-            "type": "hello",
-            "protocol_version": 1,
-            "addon_api_version": 1,
-            "capabilities": ["classify"],
-        })
-    );
-    let _ = out.flush();
+    sdk::send_hello(&mut out, &["classify"]);
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -102,62 +59,19 @@ fn main() {
         if line.is_empty() {
             continue;
         }
-        match serde_json::from_str::<Request>(line) {
+        match serde_json::from_str::<sdk::Request>(line) {
             Ok(req) => {
-                let resp = match req.method.as_str() {
+                match req.method.as_str() {
                     "classify" => match classify_one(&config, &vocab, &req.params) {
-                        Ok(r) => serde_json::to_string(&Response { id: req.id, result: r }).unwrap(),
-                        Err(e) => serde_json::to_string(&ErrorResponse { id: req.id, error: e }).unwrap(),
+                        Ok(r) => sdk::send_response(&mut out, req.id, r),
+                        Err(e) => sdk::send_error(&mut out, req.id, e),
                     },
-                    m => serde_json::to_string(&ErrorResponse {
-                        id: req.id,
-                        error: format!("unknown method: {m}"),
-                    })
-                    .unwrap(),
+                    m => sdk::send_error(&mut out, req.id, format!("unknown method: {m}")),
                 };
-                let _ = writeln!(out, "{resp}");
-                let _ = out.flush();
             }
             Err(e) => eprintln!("[autotag-openai] parse error: {e}"),
         }
     }
-}
-
-fn load_config(out: &mut impl Write) -> Config {
-    let path = std::env::var("ISOMFOLIO_ADDON_CONFIG").unwrap_or_default();
-    if path.is_empty() {
-        return Config::default();
-    }
-    match std::fs::read_to_string(&path) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-            emit_log(out, "warn", &format!("config parse error: {e}, using defaults"));
-            Config::default()
-        }),
-        Err(_) => Config::default(),
-    }
-}
-
-fn load_vocabulary(config: &Config, out: &mut impl Write) -> Vec<String> {
-    if !config.vocabulary_file.is_empty() {
-        match std::fs::read_to_string(&config.vocabulary_file) {
-            Ok(content) => {
-                let tags: Vec<String> = content
-                    .lines()
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                    .collect();
-                if !tags.is_empty() {
-                    emit_log(out, "info", &format!("loaded {} tags from {}", tags.len(), config.vocabulary_file));
-                    return tags;
-                }
-                emit_log(out, "warn", "vocabulary file empty, using defaults");
-            }
-            Err(e) => {
-                emit_log(out, "warn", &format!("failed to read vocabulary file: {e}, using defaults"));
-            }
-        }
-    }
-    VOCABULARY.iter().map(|s| s.to_string()).collect()
 }
 
 fn classify_one(config: &Config, vocab: &[String], params: &Value) -> Result<Value, String> {

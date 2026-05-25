@@ -3,8 +3,9 @@ mod model;
 
 use std::io::{self, BufRead, Write};
 
+use isomfolio_addon_sdk as sdk;
 use rusqlite::Connection as SqliteConn;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 
 use model::{FaceModels, MODEL_VERSION};
@@ -20,73 +21,20 @@ struct Config {
 fn default_eps() -> f32 { 0.4 }
 fn default_min_pts() -> usize { 2 }
 
-fn load_config(out: &mut impl Write) -> Config {
-    let path = std::env::var("ISOMFOLIO_ADDON_CONFIG").unwrap_or_default();
-    if path.is_empty() {
-        return Config::default();
-    }
-    match std::fs::read_to_string(&path) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-            emit_log(out, "warn", &format!("config parse error: {e}, using defaults"));
-            Config::default()
-        }),
-        Err(_) => Config::default(),
-    }
-}
-
-#[derive(Deserialize)]
-struct Request {
-    id: u64,
-    method: String,
-    params: Value,
-}
-
-#[derive(Serialize)]
-struct Response {
-    id: u64,
-    result: Value,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    id: u64,
-    error: String,
-}
-
-fn emit_log(out: &mut impl Write, level: &str, msg: &str) {
-    let _ = writeln!(out, "{}", serde_json::json!({"type":"log","level":level,"message":msg}));
-    let _ = out.flush();
-}
-
-fn emit_progress(out: &mut impl Write, id: u64, percent: u32) {
-    let _ = writeln!(out, "{}", serde_json::json!({"type":"progress","id":id,"percent":percent}));
-    let _ = out.flush();
-}
-
 fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
-    let _ = writeln!(
-        out,
-        "{}",
-        serde_json::json!({
-            "type": "hello",
-            "protocol_version": 1,
-            "addon_api_version": 1,
-            "capabilities": ["cluster_faces"],
-        })
-    );
-    let _ = out.flush();
+    sdk::send_hello(&mut out, &["cluster_faces"]);
 
-    let config = load_config(&mut out);
+    let config: Config = sdk::load_config(&mut out);
     let models_dir = std::env::var("ISOMFOLIO_MODELS_DIR").unwrap_or_else(|_| ".".to_string());
 
-    emit_log(&mut out, "info", "loading face models…");
+    sdk::emit_log(&mut out, "info", "loading face models…");
     let models = match FaceModels::load(&models_dir, &mut out) {
         Ok(m) => m,
         Err(e) => {
-            emit_log(&mut out, "error", &format!("model init failed: {e}"));
+            sdk::emit_log(&mut out, "error", &format!("model init failed: {e}"));
             return;
         }
     };
@@ -94,12 +42,12 @@ fn main() {
     let state_db = match open_state_db(&models_dir) {
         Ok(db) => db,
         Err(e) => {
-            emit_log(&mut out, "error", &format!("state DB init failed: {e}"));
+            sdk::emit_log(&mut out, "error", &format!("state DB init failed: {e}"));
             return;
         }
     };
 
-    emit_log(&mut out, "info", "ready");
+    sdk::emit_log(&mut out, "info", "ready");
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -108,24 +56,16 @@ fn main() {
         if line.is_empty() {
             continue;
         }
-        match serde_json::from_str::<Request>(line) {
-            Ok(req) => {
-                let resp = match req.method.as_str() {
-                    "cluster_faces" => {
-                        match handle_cluster_faces(&models, &state_db, &config, &req.params, req.id, &mut out) {
-                            Ok(r) => serde_json::to_string(&Response { id: req.id, result: r }).unwrap(),
-                            Err(e) => serde_json::to_string(&ErrorResponse { id: req.id, error: e }).unwrap(),
-                        }
+        match serde_json::from_str::<sdk::Request>(line) {
+            Ok(req) => match req.method.as_str() {
+                "cluster_faces" => {
+                    match handle_cluster_faces(&models, &state_db, &config, &req.params, req.id, &mut out) {
+                        Ok(r) => sdk::send_response(&mut out, req.id, r),
+                        Err(e) => sdk::send_error(&mut out, req.id, e),
                     }
-                    m => serde_json::to_string(&ErrorResponse {
-                        id: req.id,
-                        error: format!("unknown method: {m}"),
-                    })
-                    .unwrap(),
-                };
-                let _ = writeln!(out, "{resp}");
-                let _ = out.flush();
-            }
+                }
+                m => sdk::send_error(&mut out, req.id, format!("unknown method: {m}")),
+            },
             Err(e) => eprintln!("[faces] parse error: {e}"),
         }
     }
@@ -178,7 +118,7 @@ fn handle_cluster_faces(
     }
 
     let total = files.len();
-    emit_log(out, "info", &format!("processing {total} files…"));
+    sdk::emit_log(out, "info", &format!("processing {total} files…"));
 
     for (i, file) in files.iter().enumerate() {
         let file_id = file.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -186,7 +126,7 @@ fn handle_cluster_faces(
         let file_mtime = file.get("file_mtime").and_then(|v| v.as_i64()).unwrap_or(0);
 
         let percent = ((i as f64 / total as f64) * 80.0) as u32;
-        emit_progress(out, req_id, percent);
+        sdk::emit_progress(out, req_id, percent);
 
         if is_cached(db, file_id, file_mtime) {
             continue;
@@ -229,19 +169,19 @@ fn handle_cluster_faces(
                                 ],
                             );
                         }
-                        Err(e) => emit_log(out, "warn", &format!("embed failed for {file_id}: {e}")),
+                        Err(e) => sdk::emit_log(out, "warn", &format!("embed failed for {file_id}: {e}")),
                     }
                 }
             }
-            Err(e) => emit_log(out, "warn", &format!("detect failed for {file_id}: {e}")),
+            Err(e) => sdk::emit_log(out, "warn", &format!("detect failed for {file_id}: {e}")),
         }
     }
 
-    emit_progress(out, req_id, 82);
+    sdk::emit_progress(out, req_id, 82);
 
     let rows = load_all_embeddings(db)?;
     if rows.is_empty() {
-        emit_progress(out, req_id, 100);
+        sdk::emit_progress(out, req_id, 100);
         return Ok(serde_json::json!({"clusters": [], "noise": []}));
     }
 
@@ -250,15 +190,15 @@ fn handle_cluster_faces(
     let use_incremental = !force_full && !centroids.is_empty();
 
     let labels = if use_incremental {
-        emit_log(out, "info", &format!("incremental assignment against {} centroids…", centroids.len()));
+        sdk::emit_log(out, "info", &format!("incremental assignment against {} centroids…", centroids.len()));
         assign_to_centroids(&rows, &centroids, config.eps)
     } else {
-        emit_log(out, "info", "full DBSCAN clustering…");
+        sdk::emit_log(out, "info", "full DBSCAN clustering…");
         let embeddings: Vec<Vec<f32>> = rows.iter().map(|r| r.vec.clone()).collect();
         cluster::dbscan(&embeddings, config.eps, config.min_pts)
     };
 
-    emit_progress(out, req_id, 95);
+    sdk::emit_progress(out, req_id, 95);
 
     let max_label = labels.iter().copied().max().unwrap_or(-1);
     let mut cluster_members: Vec<Vec<(usize, Value)>> =
@@ -295,8 +235,8 @@ fn handle_cluster_faces(
         })
         .collect();
 
-    emit_progress(out, req_id, 100);
-    emit_log(out, "info", &format!("found {} people, {} unclustered faces", result.len(), noise_members.len()));
+    sdk::emit_progress(out, req_id, 100);
+    sdk::emit_log(out, "info", &format!("found {} people, {} unclustered faces", result.len(), noise_members.len()));
 
     Ok(serde_json::json!({"clusters": result, "noise": noise_members}))
 }

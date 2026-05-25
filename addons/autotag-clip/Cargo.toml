@@ -8,6 +8,7 @@ name = "autotag-clip"
 path = "src/main.rs"
 
 [dependencies]
+isomfolio-addon-sdk = { path = "../addon-sdk" }
 tract-onnx = "0.22.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }

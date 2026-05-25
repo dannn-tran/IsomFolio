@@ -1,7 +1,8 @@
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use isomfolio_addon_sdk as sdk;
+use serde::Deserialize;
 use serde_json::Value;
 use tokenizers::Tokenizer;
 use tract_onnx::prelude::{
@@ -81,7 +82,7 @@ fn resolve_batch_size(config: &Config, out: &mut impl Write) -> usize {
         5..=8 => 4,
         _ => 8,
     };
-    emit_log(out, "info", &format!("auto batch_size={size} ({cores} cores)"));
+    sdk::emit_log(out, "info", &format!("auto batch_size={size} ({cores} cores)"));
     size
 }
 
@@ -89,61 +90,23 @@ fn default_variant() -> String {
     "clip-vit-b32".to_string()
 }
 
-#[derive(Deserialize)]
-struct Request {
-    id: u64,
-    method: String,
-    params: Value,
-}
-
-#[derive(Serialize)]
-struct Response {
-    id: u64,
-    result: Value,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    id: u64,
-    error: String,
-}
-
-fn emit_log(out: &mut impl Write, level: &str, msg: &str) {
-    let _ = writeln!(
-        out,
-        "{}",
-        serde_json::json!({ "type": "log", "level": level, "message": msg })
-    );
-    let _ = out.flush();
-}
-
 fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
-    let config = load_config(&mut out);
+    let config: Config = sdk::load_config(&mut out);
     let models_base = std::env::var("ISOMFOLIO_MODELS_DIR").unwrap_or_else(|_| ".".to_string());
     let batch_size = resolve_batch_size(&config, &mut out);
 
     let (vision_model, vocab_labels, vocab_embeds) = match init(&config, &models_base, batch_size, &mut out) {
         Ok(r) => r,
         Err(e) => {
-            emit_log(&mut out, "error", &format!("init failed: {e}"));
+            sdk::emit_log(&mut out, "error", &format!("init failed: {e}"));
             return;
         }
     };
 
-    let _ = writeln!(
-        out,
-        "{}",
-        serde_json::json!({
-            "type": "hello",
-            "protocol_version": 1,
-            "addon_api_version": 1,
-            "capabilities": ["classify"],
-        })
-    );
-    let _ = out.flush();
+    sdk::send_hello(&mut out, &["classify"]);
 
     let (line_tx, line_rx) = std::sync::mpsc::sync_channel::<String>(128);
     std::thread::spawn(move || {
@@ -167,16 +130,12 @@ fn main() {
 
         let mut classify_reqs: Vec<(u64, Value)> = Vec::new();
         for line in &lines {
-            match serde_json::from_str::<Request>(line) {
+            match serde_json::from_str::<sdk::Request>(line) {
                 Ok(req) if req.method == "classify" => {
                     classify_reqs.push((req.id, req.params));
                 }
                 Ok(req) => {
-                    let resp = serde_json::to_string(&ErrorResponse {
-                        id: req.id,
-                        error: format!("unknown method: {}", req.method),
-                    }).unwrap();
-                    let _ = writeln!(out, "{resp}");
+                    sdk::send_error(&mut out, req.id, format!("unknown method: {}", req.method));
                 }
                 Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
             }
@@ -189,51 +148,17 @@ fn main() {
 
         let results = classify_batch(&vision_model, &vocab_labels, &vocab_embeds, &classify_reqs, batch_size);
         for (id, result) in results {
-            let resp = match result {
-                Ok(r) => serde_json::to_string(&Response { id, result: r }).unwrap(),
-                Err(e) => serde_json::to_string(&ErrorResponse { id, error: e }).unwrap(),
-            };
-            let _ = writeln!(out, "{resp}");
+            match result {
+                Ok(r) => sdk::send_response(&mut out, id, r),
+                Err(e) => sdk::send_error(&mut out, id, e),
+            }
         }
         let _ = out.flush();
     }
 }
 
-fn load_config(out: &mut impl Write) -> Config {
-    let path = std::env::var("ISOMFOLIO_ADDON_CONFIG").unwrap_or_default();
-    if path.is_empty() {
-        return Config::default();
-    }
-    match std::fs::read_to_string(&path) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-            emit_log(out, "warn", &format!("config parse error: {e}, using defaults"));
-            Config::default()
-        }),
-        Err(_) => Config::default(),
-    }
-}
-
 fn load_vocabulary(config: &Config, out: &mut impl Write) -> Vec<String> {
-    if !config.vocabulary_file.is_empty() {
-        match std::fs::read_to_string(&config.vocabulary_file) {
-            Ok(content) => {
-                let tags: Vec<String> = content
-                    .lines()
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                    .collect();
-                if !tags.is_empty() {
-                    emit_log(out, "info", &format!("loaded {} tags from {}", tags.len(), config.vocabulary_file));
-                    return tags;
-                }
-                emit_log(out, "warn", "vocabulary file empty, using defaults");
-            }
-            Err(e) => {
-                emit_log(out, "warn", &format!("failed to read vocabulary file: {e}, using defaults"));
-            }
-        }
-    }
-    VOCABULARY.iter().map(|s| s.to_string()).collect()
+    sdk::load_vocabulary(&config.vocabulary_file, VOCABULARY, out)
 }
 
 fn init(
@@ -260,9 +185,9 @@ fn init(
     let tokenizer =
         Tokenizer::from_file(model_dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
 
-    emit_log(out, "info", &format!("embedding {} vocabulary tags…", vocab.len()));
+    sdk::emit_log(out, "info", &format!("embedding {} vocabulary tags…", vocab.len()));
     let vocab_embeds = embed_vocabulary_from(&text_model, &tokenizer, &vocab).map_err(|e| e.to_string())?;
-    emit_log(out, "info", &format!("ready ({}, {} tags)", config.variant, vocab.len()));
+    sdk::emit_log(out, "info", &format!("ready ({}, {} tags)", config.variant, vocab.len()));
 
     Ok((vision_model, vocab, vocab_embeds))
 }
@@ -286,12 +211,12 @@ fn download_if_missing(path: PathBuf, url: &str, out: &mut impl Write) -> Result
         return Ok(());
     }
     let name = path.file_name().unwrap().to_string_lossy().to_string();
-    emit_log(out, "info", &format!("downloading {name}…"));
+    sdk::emit_log(out, "info", &format!("downloading {name}…"));
     let response = ureq::get(url).call().map_err(|e| format!("{url}: {e}"))?;
     let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
     std::io::copy(&mut response.into_body().as_reader(), &mut file)
         .map_err(|e| e.to_string())?;
-    emit_log(out, "info", &format!("{name} ready"));
+    sdk::emit_log(out, "info", &format!("{name} ready"));
     Ok(())
 }
 
