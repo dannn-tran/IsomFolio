@@ -130,6 +130,16 @@ pub struct FaceClusterSummary {
     pub file_count: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct FaceClusterMember {
+    pub cluster_id: String,
+    pub file_id: String,
+    pub bbox_x: f64,
+    pub bbox_y: f64,
+    pub bbox_w: f64,
+    pub bbox_h: f64,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("database error: {0}")]

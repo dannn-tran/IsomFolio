@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use rusqlite::Connection;
 
+use crate::indexing::scanner;
+use crate::indexing::types::{ScanProgress, ScanResult};
 use crate::metadata::EmbeddedMetadata;
 use crate::models::*;
 use crate::search::query_engine::{execute_manual_album_search, execute_search};
@@ -15,10 +17,6 @@ impl Catalog {
     pub fn open(db_path: &str) -> Result<Self, AppError> {
         let conn = db::open_database(db_path)?;
         Ok(Catalog { conn })
-    }
-
-    pub fn conn(&self) -> &Connection {
-        &self.conn
     }
 
     // Files
@@ -162,8 +160,12 @@ impl Catalog {
 
     // Face clusters
 
-    pub fn save_face_clusters(&self, clusters: &[(String, String, f64, f64, f64, f64)]) -> Result<(), AppError> {
-        db::save_face_clusters(&self.conn, clusters)
+    pub fn save_face_clusters(&self, members: &[FaceClusterMember]) -> Result<(), AppError> {
+        let tuples: Vec<(String, String, f64, f64, f64, f64)> = members
+            .iter()
+            .map(|m| (m.cluster_id.clone(), m.file_id.clone(), m.bbox_x, m.bbox_y, m.bbox_w, m.bbox_h))
+            .collect();
+        db::save_face_clusters(&self.conn, &tuples)
     }
 
     pub fn get_face_cluster_summaries(&self) -> Result<Vec<FaceClusterSummary>, AppError> {
@@ -189,9 +191,21 @@ impl Catalog {
         execute_manual_album_search(&self.conn, &id, query)
     }
 
-    // Scanner support
+    // Scanner
 
-    pub fn detect_and_store_bursts(&self, folder: &str) -> Result<(), AppError> {
-        db::detect_and_store_bursts(&self.conn, folder)
+    pub fn scan_folder(
+        &self,
+        root_path: &str,
+        on_progress: &dyn Fn(ScanProgress),
+    ) -> Result<ScanResult, AppError> {
+        scanner::scan_folder(&self.conn, root_path, &|_| {}, on_progress)
+    }
+
+    pub fn resync_files(&self, paths: &[String]) -> Result<(), AppError> {
+        scanner::resync_files(&self.conn, paths)
+    }
+
+    pub fn resync_sidecar_files(&self, paths: &[String]) -> Result<(), AppError> {
+        scanner::resync_sidecar_files(&self.conn, paths)
     }
 }

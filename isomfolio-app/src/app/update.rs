@@ -12,9 +12,8 @@ use isomfolio_core::app_paths::addons_dir;
 use isomfolio_core::indexing::thumbnail::thumbnail_cache_path;
 use isomfolio_core::models::ThumbnailState;
 use isomfolio_core::file_index::compute_file_id;
-use isomfolio_core::indexing::scanner;
 use isomfolio_core::indexing::types::FileEvent;
-use isomfolio_core::models::{Album, AlbumKind, SortField};
+use isomfolio_core::models::{Album, AlbumKind, FaceClusterMember, SortField};
 use isomfolio_core::path_utils::{is_catalog_dir, is_under_catalog_dir, normalize_path};
 
 use super::{
@@ -1465,7 +1464,7 @@ impl App {
                                 for event in file_events {
                                     match event {
                                         FileEvent::Created(path) | FileEvent::Modified(path) => {
-                                            let _ = scanner::resync_files(cat.conn(), &[path]);
+                                            let _ = cat.resync_files(&[path]);
                                         }
                                         FileEvent::Deleted(path) => {
                                             let norm = normalize_path(&path);
@@ -1480,10 +1479,10 @@ impl App {
                                             if let Err(e) = cat.mark_orphaned(&old_fid) {
                                                 eprintln!("[db] mark_orphaned failed: {e}");
                                             }
-                                            let _ = scanner::resync_files(cat.conn(), &[new_path]);
+                                            let _ = cat.resync_files(&[new_path]);
                                         }
                                         FileEvent::SidecarChanged(path) => {
-                                            let _ = scanner::resync_sidecar_files(cat.conn(), &[path]);
+                                            let _ = cat.resync_sidecar_files(&[path]);
                                         }
                                         FileEvent::SidecarRemoved(_) => {}
                                         FileEvent::ScanProgress(_) => {}
@@ -1972,7 +1971,7 @@ impl App {
             async move {
                 tokio::task::spawn_blocking(move || {
                     let cat = conn.lock().unwrap_or_else(|e| e.into_inner());
-                    scanner::scan_folder(cat.conn(), &path, &|_| {}, &|prog| {
+                    cat.scan_folder(&path, &|prog| {
                         let _ = wtx.try_send(FileEvent::ScanProgress(prog));
                     })
                     .map(|r| r.total_count)
@@ -2071,8 +2070,7 @@ fn next_sort_field(f: SortField) -> SortField {
     }
 }
 
-// Parse the cluster_faces addon response into DB-insertable rows.
-fn parse_cluster_response(v: &serde_json::Value) -> Vec<(String, String, f64, f64, f64, f64)> {
+fn parse_cluster_response(v: &serde_json::Value) -> Vec<FaceClusterMember> {
     let Some(clusters) = v.get("clusters").and_then(|c| c.as_array()) else {
         return Vec::new();
     };
@@ -2089,11 +2087,14 @@ fn parse_cluster_response(v: &serde_json::Value) -> Vec<(String, String, f64, f6
                     continue;
                 }
                 let bbox = member.get("bbox").unwrap_or(&serde_json::Value::Null);
-                let x = bbox.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let y = bbox.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let w = bbox.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let h = bbox.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                rows.push((cluster_id.clone(), file_id, x, y, w, h));
+                rows.push(FaceClusterMember {
+                    cluster_id: cluster_id.clone(),
+                    file_id,
+                    bbox_x: bbox.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    bbox_y: bbox.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    bbox_w: bbox.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    bbox_h: bbox.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                });
             }
         }
     }
