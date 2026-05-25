@@ -23,7 +23,7 @@ impl App {
             text("People").size(TEXT_BASE).color(FG),
             Space::new().width(Length::Fill),
             button(text("⟳").size(TEXT_MD))
-                .on_press(Msg::RunFaceClustering)
+                .on_press(Msg::RunFaceClustering { force_full: true })
                 .style(icon_btn_style),
         ]
         .spacing(SPACE_2)

@@ -150,7 +150,11 @@ fn open_state_db(models_dir: &str) -> Result<SqliteConn, String> {
             vec          BLOB NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_fe_key
-            ON face_embeddings (file_id, file_mtime, model_version);",
+            ON face_embeddings (file_id, file_mtime, model_version);
+        CREATE TABLE IF NOT EXISTS cluster_centroids (
+            cluster_id   TEXT PRIMARY KEY,
+            centroid     BLOB NOT NULL
+        );",
     )
     .map_err(|e| e.to_string())?;
     Ok(db)
@@ -234,57 +238,30 @@ fn handle_cluster_faces(
     }
 
     emit_progress(out, req_id, 82);
-    emit_log(out, "info", "clustering faces…");
 
-    // Load all embeddings from state DB
-    struct Row {
-        file_id: String,
-        bbox_x: f32,
-        bbox_y: f32,
-        bbox_w: f32,
-        bbox_h: f32,
-        vec: Vec<f32>,
-    }
-
-    let mut stmt = db
-        .prepare(
-            "SELECT file_id, bbox_x, bbox_y, bbox_w, bbox_h, vec
-             FROM face_embeddings
-             WHERE model_version = ?",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let rows: Vec<Row> = stmt
-        .query_map(rusqlite::params![MODEL_VERSION], |row| {
-            let blob: Vec<u8> = row.get(5)?;
-            Ok(Row {
-                file_id: row.get(0)?,
-                bbox_x: row.get(1)?,
-                bbox_y: row.get(2)?,
-                bbox_w: row.get(3)?,
-                bbox_h: row.get(4)?,
-                vec: bytes_to_floats(&blob),
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    emit_progress(out, req_id, 90);
-
+    let rows = load_all_embeddings(db)?;
     if rows.is_empty() {
         emit_progress(out, req_id, 100);
-        return Ok(serde_json::json!({"clusters": []}));
+        return Ok(serde_json::json!({"clusters": [], "noise": []}));
     }
 
-    let embeddings: Vec<Vec<f32>> = rows.iter().map(|r| r.vec.clone()).collect();
-    let labels = cluster::dbscan(&embeddings, config.eps, config.min_pts);
+    let force_full = params.get("force_full").and_then(|v| v.as_bool()).unwrap_or(false);
+    let centroids = load_centroids(db);
+    let use_incremental = !force_full && !centroids.is_empty();
+
+    let labels = if use_incremental {
+        emit_log(out, "info", &format!("incremental assignment against {} centroids…", centroids.len()));
+        assign_to_centroids(&rows, &centroids, config.eps)
+    } else {
+        emit_log(out, "info", "full DBSCAN clustering…");
+        let embeddings: Vec<Vec<f32>> = rows.iter().map(|r| r.vec.clone()).collect();
+        cluster::dbscan(&embeddings, config.eps, config.min_pts)
+    };
 
     emit_progress(out, req_id, 95);
 
-    // Group by cluster label
     let max_label = labels.iter().copied().max().unwrap_or(-1);
-    let mut cluster_members: Vec<Vec<Value>> =
+    let mut cluster_members: Vec<Vec<(usize, Value)>> =
         (0..=(max_label.max(0) as usize)).map(|_| Vec::new()).collect();
 
     let mut noise_members: Vec<Value> = Vec::new();
@@ -297,22 +274,24 @@ fn handle_cluster_faces(
         if label < 0 {
             noise_members.push(member);
         } else {
-            cluster_members[label as usize].push(member);
+            cluster_members[label as usize].push((i, member));
         }
     }
 
-    let mut clusters: Vec<Vec<Value>> =
+    let mut clusters: Vec<Vec<(usize, Value)>> =
         cluster_members.into_iter().filter(|m| !m.is_empty()).collect();
     clusters.sort_by(|a, b| b.len().cmp(&a.len()));
+
+    if !use_incremental {
+        save_centroids(db, &rows, &clusters);
+    }
 
     let result: Vec<Value> = clusters
         .into_iter()
         .map(|members| {
-            let id = stable_cluster_id(&members);
-            serde_json::json!({
-                "id": id,
-                "members": members,
-            })
+            let json_members: Vec<Value> = members.into_iter().map(|(_, v)| v).collect();
+            let id = stable_cluster_id(&json_members);
+            serde_json::json!({ "id": id, "members": json_members })
         })
         .collect();
 
@@ -320,6 +299,111 @@ fn handle_cluster_faces(
     emit_log(out, "info", &format!("found {} people, {} unclustered faces", result.len(), noise_members.len()));
 
     Ok(serde_json::json!({"clusters": result, "noise": noise_members}))
+}
+
+struct EmbeddingRow {
+    file_id: String,
+    bbox_x: f32,
+    bbox_y: f32,
+    bbox_w: f32,
+    bbox_h: f32,
+    vec: Vec<f32>,
+}
+
+fn load_all_embeddings(db: &SqliteConn) -> Result<Vec<EmbeddingRow>, String> {
+    let mut stmt = db
+        .prepare(
+            "SELECT file_id, bbox_x, bbox_y, bbox_w, bbox_h, vec
+             FROM face_embeddings WHERE model_version = ?",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params![MODEL_VERSION], |row| {
+            let blob: Vec<u8> = row.get(5)?;
+            Ok(EmbeddingRow {
+                file_id: row.get(0)?,
+                bbox_x: row.get(1)?,
+                bbox_y: row.get(2)?,
+                bbox_w: row.get(3)?,
+                bbox_h: row.get(4)?,
+                vec: bytes_to_floats(&blob),
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+fn load_centroids(db: &SqliteConn) -> Vec<(String, Vec<f32>)> {
+    let mut stmt = match db.prepare("SELECT cluster_id, centroid FROM cluster_centroids") {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    stmt.query_map([], |row| {
+        let blob: Vec<u8> = row.get(1)?;
+        Ok((row.get::<_, String>(0)?, bytes_to_floats(&blob)))
+    })
+    .ok()
+    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
+}
+
+fn save_centroids(db: &SqliteConn, rows: &[EmbeddingRow], clusters: &[Vec<(usize, Value)>]) {
+    let _ = db.execute("DELETE FROM cluster_centroids", []);
+    for cluster in clusters {
+        if cluster.is_empty() { continue; }
+        let dim = rows[cluster[0].0].vec.len();
+        let mut centroid = vec![0.0f32; dim];
+        for (idx, _) in cluster {
+            for (j, &v) in rows[*idx].vec.iter().enumerate() {
+                centroid[j] += v;
+            }
+        }
+        let n = cluster.len() as f32;
+        for v in &mut centroid {
+            *v /= n;
+        }
+        let norm: f32 = centroid.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for v in &mut centroid {
+                *v /= norm;
+            }
+        }
+        let json_members: Vec<Value> = cluster.iter().map(|(_, v)| v.clone()).collect();
+        let id = stable_cluster_id(&json_members);
+        let blob = floats_to_bytes(&centroid);
+        let _ = db.execute(
+            "INSERT OR REPLACE INTO cluster_centroids (cluster_id, centroid) VALUES (?, ?)",
+            rusqlite::params![id, blob],
+        );
+    }
+}
+
+fn assign_to_centroids(rows: &[EmbeddingRow], centroids: &[(String, Vec<f32>)], eps: f32) -> Vec<i32> {
+    let mut labels = vec![-1i32; rows.len()];
+    for (i, row) in rows.iter().enumerate() {
+        let mut best_sim = 0.0f32;
+        let mut best_label = -1i32;
+        for (ci, (_, centroid)) in centroids.iter().enumerate() {
+            let sim = cosine_sim(&row.vec, centroid);
+            if sim > best_sim {
+                best_sim = sim;
+                best_label = ci as i32;
+            }
+        }
+        if best_sim >= (1.0 - eps) {
+            labels[i] = best_label;
+        }
+    }
+    labels
+}
+
+fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if na == 0.0 || nb == 0.0 { 0.0 } else { dot / (na * nb) }
 }
 
 fn stable_cluster_id(members: &[Value]) -> String {

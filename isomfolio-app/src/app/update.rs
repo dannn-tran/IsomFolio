@@ -181,7 +181,7 @@ impl App {
                 }
             }
 
-            Msg::RunFaceClustering => {
+            Msg::RunFaceClustering { force_full } => {
                 let Some(addon) = self
                     .addons
                     .iter()
@@ -210,7 +210,7 @@ impl App {
                         })
                     })
                     .collect();
-                let params = serde_json::json!({"files": file_params});
+                let params = serde_json::json!({"files": file_params, "force_full": force_full});
 
                 let handle = match addon.send("cluster_faces", params) {
                     Ok(h) => h,
@@ -981,7 +981,7 @@ impl App {
                     Task::none()
                 };
                 let t_faces = if has_new && self.addons.iter().any(|a| a.manifest.capabilities.iter().any(|c| c == "cluster_faces")) {
-                    Task::done(Msg::RunFaceClustering)
+                    Task::done(Msg::RunFaceClustering { force_full: false })
                 } else {
                     Task::none()
                 };

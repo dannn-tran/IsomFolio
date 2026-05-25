@@ -191,7 +191,7 @@ impl App {
                     .style(ghost_btn_style),
                 Space::new().width(Length::Fill),
                 button(text("⟳").size(TEXT_MD))
-                    .on_press(Msg::RunFaceClustering)
+                    .on_press(Msg::RunFaceClustering { force_full: true })
                     .style(icon_btn_style),
             ]
             .spacing(SPACE_0_5)
