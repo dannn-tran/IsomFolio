@@ -16,6 +16,12 @@
       "key": "vocabulary_file",
       "label": "Vocabulary file (one tag per line, blank = built-in 49 tags)",
       "kind": "text"
+    },
+    {
+      "key": "batch_size",
+      "label": "Inference batch size (auto = detect from CPU cores)",
+      "kind": "text",
+      "default": "auto"
     }
   ]
 }

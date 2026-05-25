@@ -56,6 +56,33 @@ struct Config {
     variant: String,
     #[serde(default)]
     vocabulary_file: String,
+    #[serde(default = "default_batch_size")]
+    batch_size: String,
+}
+
+fn default_batch_size() -> String {
+    "auto".to_string()
+}
+
+fn resolve_batch_size(config: &Config, out: &mut impl Write) -> usize {
+    if config.batch_size != "auto" {
+        if let Ok(n) = config.batch_size.parse::<usize>() {
+            if n >= 1 {
+                return n;
+            }
+        }
+    }
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2);
+    let size = match cores {
+        0..=2 => 1,
+        3..=4 => 2,
+        5..=8 => 4,
+        _ => 8,
+    };
+    emit_log(out, "info", &format!("auto batch_size={size} ({cores} cores)"));
+    size
 }
 
 fn default_variant() -> String {
@@ -96,8 +123,9 @@ fn main() {
 
     let config = load_config(&mut out);
     let models_base = std::env::var("ISOMFOLIO_MODELS_DIR").unwrap_or_else(|_| ".".to_string());
+    let batch_size = resolve_batch_size(&config, &mut out);
 
-    let (vision_model, vocab_labels, vocab_embeds) = match init(&config, &models_base, &mut out) {
+    let (vision_model, vocab_labels, vocab_embeds) = match init(&config, &models_base, batch_size, &mut out) {
         Ok(r) => r,
         Err(e) => {
             emit_log(&mut out, "error", &format!("init failed: {e}"));
@@ -117,31 +145,58 @@ fn main() {
     );
     let _ = out.flush();
 
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
-        let line = line.trim();
-        if line.is_empty() {
+    let (line_tx, line_rx) = std::sync::mpsc::sync_channel::<String>(128);
+    std::thread::spawn(move || {
+        let stdin = io::stdin();
+        for line in stdin.lock().lines() {
+            let Ok(line) = line else { break };
+            let line = line.trim().to_string();
+            if line.is_empty() { continue; }
+            if line_tx.send(line).is_err() { break; }
+        }
+    });
+
+    loop {
+        let Ok(first) = line_rx.recv() else { break };
+        let mut lines = vec![first];
+        while lines.len() < batch_size {
+            match line_rx.recv_timeout(std::time::Duration::from_millis(5)) {
+                Ok(line) => lines.push(line),
+                Err(_) => break,
+            }
+        }
+
+        let mut classify_reqs: Vec<(u64, Value)> = Vec::new();
+        for line in &lines {
+            match serde_json::from_str::<Request>(line) {
+                Ok(req) if req.method == "classify" => {
+                    classify_reqs.push((req.id, req.params));
+                }
+                Ok(req) => {
+                    let resp = serde_json::to_string(&ErrorResponse {
+                        id: req.id,
+                        error: format!("unknown method: {}", req.method),
+                    }).unwrap();
+                    let _ = writeln!(out, "{resp}");
+                }
+                Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
+            }
+        }
+
+        if classify_reqs.is_empty() {
+            let _ = out.flush();
             continue;
         }
-        match serde_json::from_str::<Request>(line) {
-            Ok(req) => {
-                let resp = match req.method.as_str() {
-                    "classify" => match classify_one(&vision_model, &vocab_labels, &vocab_embeds, &req.params) {
-                        Ok(r) => serde_json::to_string(&Response { id: req.id, result: r }).unwrap(),
-                        Err(e) => serde_json::to_string(&ErrorResponse { id: req.id, error: e.to_string() }).unwrap(),
-                    },
-                    m => serde_json::to_string(&ErrorResponse {
-                        id: req.id,
-                        error: format!("unknown method: {m}"),
-                    })
-                    .unwrap(),
-                };
-                let _ = writeln!(out, "{resp}");
-                let _ = out.flush();
-            }
-            Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
+
+        let results = classify_batch(&vision_model, &vocab_labels, &vocab_embeds, &classify_reqs, batch_size);
+        for (id, result) in results {
+            let resp = match result {
+                Ok(r) => serde_json::to_string(&Response { id, result: r }).unwrap(),
+                Err(e) => serde_json::to_string(&ErrorResponse { id, error: e }).unwrap(),
+            };
+            let _ = writeln!(out, "{resp}");
         }
+        let _ = out.flush();
     }
 }
 
@@ -185,6 +240,7 @@ fn load_vocabulary(config: &Config, out: &mut impl Write) -> Vec<String> {
 fn init(
     config: &Config,
     models_base: &str,
+    batch_size: usize,
     out: &mut impl Write,
 ) -> Result<(TractModel, Vec<String>, Vec<Vec<f32>>), String> {
     let (subdir, vision_url, text_url, tokenizer_url) = match config.variant.as_str() {
@@ -199,7 +255,7 @@ fn init(
     let vocab = load_vocabulary(config, out);
 
     let vision_model =
-        load_vision_model(model_dir.join("vision_model.onnx")).map_err(|e| e.to_string())?;
+        load_vision_model(model_dir.join("vision_model.onnx"), batch_size).map_err(|e| e.to_string())?;
     let text_model =
         load_text_model(model_dir.join("text_model.onnx"), vocab.len()).map_err(|e| e.to_string())?;
     let tokenizer =
@@ -240,10 +296,10 @@ fn download_if_missing(path: PathBuf, url: &str, out: &mut impl Write) -> Result
     Ok(())
 }
 
-fn load_vision_model(path: PathBuf) -> TractResult<TractModel> {
+fn load_vision_model(path: PathBuf, batch: usize) -> TractResult<TractModel> {
     tract_onnx::onnx()
         .model_for_path(path)?
-        .with_input_fact(0, f32::fact([1usize, 3, IMAGE_SIZE, IMAGE_SIZE]).into())?
+        .with_input_fact(0, f32::fact([batch, 3, IMAGE_SIZE, IMAGE_SIZE]).into())?
         .into_optimized()?
         .into_runnable()
 }
@@ -288,38 +344,7 @@ fn embed_vocabulary_from(model: &TractModel, tokenizer: &Tokenizer, vocab: &[Str
     extract_embeddings(&outputs[0], n)
 }
 
-fn classify_one(
-    model: &TractModel,
-    vocab_labels: &[String],
-    vocab_embeds: &[Vec<f32>],
-    params: &Value,
-) -> TractResult<Value> {
-    let thumb_path = params
-        .get("thumbnail_path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| TractError::msg("missing thumbnail_path"))?;
-
-    let img_embed = embed_image(model, thumb_path)?;
-
-    let mut scores: Vec<(f32, &str)> = vocab_embeds
-        .iter()
-        .zip(vocab_labels.iter())
-        .map(|(emb, label)| (cosine_sim(&img_embed, emb), label.as_str()))
-        .collect();
-    scores.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-    let tags: Vec<Value> = scores
-        .iter()
-        .take(5)
-        .filter(|(s, _)| *s > 0.0)
-        .map(|(s, label)| serde_json::json!({ "tag": label, "confidence": s }))
-        .collect();
-
-    let file_id = params.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
-    Ok(serde_json::json!({ "file_id": file_id, "tags": tags }))
-}
-
-fn embed_image(model: &TractModel, path: &str) -> TractResult<Vec<f32>> {
+fn preprocess_image(path: &str) -> TractResult<Vec<f32>> {
     let img = image::open(path)
         .map_err(|e| TractError::msg(e.to_string()))?
         .to_rgb8();
@@ -329,16 +354,86 @@ fn embed_image(model: &TractModel, path: &str) -> TractResult<Vec<f32>> {
         IMAGE_SIZE as u32,
         image::imageops::FilterType::Triangle,
     );
-    let pixel_values: Tensor = tract_ndarray::Array4::from_shape_fn(
-        (1, 3, IMAGE_SIZE, IMAGE_SIZE),
-        |(_, c, y, x)| {
-            let v = img[(x as u32, y as u32)][c] as f32 / 255.0;
-            (v - CLIP_MEAN[c]) / CLIP_STD[c]
-        },
-    )
-    .into();
-    let outputs = model.run(tvec![pixel_values.into()])?;
-    extract_embeddings(&outputs[0], 1).map(|mut v| v.remove(0))
+    let mut pixels = vec![0.0f32; 3 * IMAGE_SIZE * IMAGE_SIZE];
+    for c in 0..3 {
+        for y in 0..IMAGE_SIZE {
+            for x in 0..IMAGE_SIZE {
+                let v = img[(x as u32, y as u32)][c] as f32 / 255.0;
+                pixels[c * IMAGE_SIZE * IMAGE_SIZE + y * IMAGE_SIZE + x] = (v - CLIP_MEAN[c]) / CLIP_STD[c];
+            }
+        }
+    }
+    Ok(pixels)
+}
+
+fn embed_images(model: &TractModel, pixel_batches: &[Vec<f32>], model_batch_size: usize) -> TractResult<Vec<Vec<f32>>> {
+    let n = pixel_batches.len();
+    let img_len = 3 * IMAGE_SIZE * IMAGE_SIZE;
+    let mut flat = vec![0.0f32; model_batch_size * img_len];
+    for (i, pixels) in pixel_batches.iter().enumerate() {
+        flat[i * img_len..(i + 1) * img_len].copy_from_slice(pixels);
+    }
+    let tensor: Tensor = tract_ndarray::Array4::from_shape_vec(
+        (model_batch_size, 3, IMAGE_SIZE, IMAGE_SIZE), flat,
+    )?.into();
+    let outputs = model.run(tvec![tensor.into()])?;
+    let mut all = extract_embeddings(&outputs[0], model_batch_size)?;
+    all.truncate(n);
+    Ok(all)
+}
+
+fn score_embedding(embed: &[f32], vocab_labels: &[String], vocab_embeds: &[Vec<f32>]) -> Vec<(String, f32)> {
+    let mut scores: Vec<(f32, &str)> = vocab_embeds
+        .iter()
+        .zip(vocab_labels.iter())
+        .map(|(emb, label)| (cosine_sim(embed, emb), label.as_str()))
+        .collect();
+    scores.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    scores.iter().take(5).filter(|(s, _)| *s > 0.0).map(|(s, l)| (l.to_string(), *s)).collect()
+}
+
+fn classify_batch(
+    model: &TractModel,
+    vocab_labels: &[String],
+    vocab_embeds: &[Vec<f32>],
+    reqs: &[(u64, Value)],
+    model_batch_size: usize,
+) -> Vec<(u64, Result<Value, String>)> {
+    let mut loaded: Vec<(usize, Vec<f32>)> = Vec::new();
+    let mut results: Vec<(u64, Result<Value, String>)> = Vec::with_capacity(reqs.len());
+
+    for (i, (_, params)) in reqs.iter().enumerate() {
+        let thumb = params.get("thumbnail_path").and_then(|v| v.as_str()).unwrap_or("");
+        if thumb.is_empty() || !Path::new(thumb).exists() {
+            continue;
+        }
+        match preprocess_image(thumb) {
+            Ok(pixels) => loaded.push((i, pixels)),
+            Err(e) => {
+                results.push((reqs[i].0, Err(e.to_string())));
+            }
+        }
+    }
+
+    let pixels_only: Vec<Vec<f32>> = loaded.iter().map(|(_, p)| p.clone()).collect();
+    let embeddings = match embed_images(model, &pixels_only, model_batch_size) {
+        Ok(e) => e,
+        Err(e) => {
+            for (i, _) in &loaded {
+                results.push((reqs[*i].0, Err(e.to_string())));
+            }
+            return results;
+        }
+    };
+
+    for ((orig_idx, _), embed) in loaded.iter().zip(embeddings.iter()) {
+        let file_id = reqs[*orig_idx].1.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
+        let scored = score_embedding(embed, vocab_labels, vocab_embeds);
+        let tags: Vec<Value> = scored.iter().map(|(t, c)| serde_json::json!({"tag": t, "confidence": c})).collect();
+        results.push((reqs[*orig_idx].0, Ok(serde_json::json!({"file_id": file_id, "tags": tags}))));
+    }
+
+    results
 }
 
 fn extract_embeddings(tensor: &Tensor, batch: usize) -> TractResult<Vec<Vec<f32>>> {
