@@ -90,63 +90,46 @@ impl App {
                     })
                     .collect();
 
-                let done_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-                let applied_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-                use futures::StreamExt;
-                let stream = futures::stream::iter(file_tasks)
-                    .map(move |(file_id, thumbnail_path)| {
-                        let addon = addon.clone();
-                        let conn = conn.clone();
-                        let method = method.clone();
-                        let name = addon_name.clone();
-                        let done_count = done_count.clone();
-                        let applied_count = applied_count.clone();
-                        async move {
-                            if std::path::Path::new(&thumbnail_path).exists() {
-                                let addon_c = addon.clone();
-                                let method_c = method.clone();
-                                let fid = file_id.clone();
-                                let result = tokio::task::spawn_blocking(move || {
-                                    let params = serde_json::json!({
-                                        "file_id": &fid,
-                                        "thumbnail_path": &thumbnail_path,
-                                    });
-                                    addon_c.call(&method_c, params)
-                                })
-                                .await;
-                                if let Ok(Ok(result)) = result {
-                                    let scored_tags: Vec<(String, Option<f32>)> = result
-                                        .get("tags")
-                                        .and_then(|t| t.as_array())
-                                        .map(|arr| {
-                                            arr.iter()
-                                                .filter_map(|t| {
-                                                    let tag = t.get("tag")?.as_str()?.to_string();
-                                                    let conf = t.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32);
-                                                    Some((tag, conf))
-                                                })
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-                                    if !scored_tags.is_empty() {
-                                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                                        if let Err(e) = g.insert_pending_tags(&file_id, &scored_tags) {
-                                            eprintln!("[db] insert_pending_tags failed: {e}");
-                                        }
-                                        applied_count.fetch_add(1, Ordering::Relaxed);
+                let stream = futures::stream::unfold(
+                    (file_tasks.into_iter(), addon, conn, method.clone(), addon_name.clone(), 0usize, 0usize, total),
+                    |(mut iter, addon, conn, method, name, mut done, mut applied, total)| async move {
+                        let (file_id, thumbnail_path) = iter.next()?;
+                        if std::path::Path::new(&thumbnail_path).exists() {
+                            let params = serde_json::json!({
+                                "file_id": &file_id,
+                                "thumbnail_path": &thumbnail_path,
+                            });
+                            if let Ok(result) = addon.call(&method, params) {
+                                let scored_tags: Vec<(String, Option<f32>)> = result
+                                    .get("tags")
+                                    .and_then(|t| t.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|t| {
+                                                let tag = t.get("tag")?.as_str()?.to_string();
+                                                let conf = t.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32);
+                                                Some((tag, conf))
+                                            })
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+                                if !scored_tags.is_empty() {
+                                    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                                    if let Err(e) = g.insert_pending_tags(&file_id, &scored_tags) {
+                                        eprintln!("[db] insert_pending_tags failed: {e}");
                                     }
+                                    applied += 1;
                                 }
                             }
-                            let done = done_count.fetch_add(1, Ordering::Relaxed) + 1;
-                            if done == total {
-                                Msg::AddonBatchDone { method, applied: applied_count.load(Ordering::Relaxed) }
-                            } else {
-                                Msg::AddonBatchProgress { name, done, total }
-                            }
                         }
-                    })
-                    .buffer_unordered(4);
+                        done += 1;
+                        if done == total {
+                            Some((Msg::AddonBatchDone { method: method.clone(), applied }, (iter, addon, conn, method, name, done, applied, total)))
+                        } else {
+                            Some((Msg::AddonBatchProgress { name: name.clone(), done, total }, (iter, addon, conn, method, name, done, applied, total)))
+                        }
+                    },
+                );
                 Task::stream(stream)
             }
 
