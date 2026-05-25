@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use iced::Task;
+use iced::futures;
 
 use isomfolio_core::addon::{
     discover_addons, install_addon_package, load_addon_config, save_addon_config,
@@ -75,9 +76,9 @@ impl App {
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let catalog_dir = self.catalog_dir.clone();
                 let total = file_ids.len();
-                self.status = format!("{}… (0/{})", addon.manifest.name, total);
+                let addon_name = addon.manifest.name.clone();
+                self.status = format!("{addon_name}… (0/{total})");
 
-                // Build (file_id, thumbnail_path) pairs — use cached path if ready, else compute
                 let file_tasks: Vec<(String, String)> = file_ids
                     .into_iter()
                     .map(|id| {
@@ -89,42 +90,55 @@ impl App {
                     })
                     .collect();
 
-                let method_clone = method.clone();
-                Task::perform(
-                    async move {
-                        let mut applied = 0usize;
-                        for (file_id, thumbnail_path) in &file_tasks {
-                            let params = serde_json::json!({
-                                "file_id": file_id,
-                                "thumbnail_path": thumbnail_path,
-                            });
-                            if let Ok(result) = addon.call(&method_clone, params) {
-                                let tags: Vec<String> = result
-                                    .get("tags")
-                                    .and_then(|t| t.as_array())
-                                    .map(|arr| {
-                                        arr.iter()
-                                            .filter_map(|t| t.get("tag")?.as_str())
-                                            .map(|s| s.to_string())
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
-                                if !tags.is_empty() {
-                                    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                                    if let Err(e) = g.add_tags_merge( file_id, &tags) {
-                                        eprintln!("[db] add_tags_merge failed: {e}");
-                                    }
-                                    applied += 1;
+                let stream = futures::stream::unfold(
+                    (file_tasks.into_iter(), addon, conn, method.clone(), addon_name.clone(), 0usize, 0usize, total),
+                    |(mut iter, addon, conn, method, name, mut done, mut applied, total)| async move {
+                        let (file_id, thumbnail_path) = iter.next()?;
+                        if !std::path::Path::new(&thumbnail_path).exists() {
+                            done += 1;
+                            let msg = Msg::AddonBatchProgress { name: name.clone(), done, total };
+                            return Some((msg, (iter, addon, conn, method, name, done, applied, total)));
+                        }
+                        let params = serde_json::json!({
+                            "file_id": &file_id,
+                            "thumbnail_path": &thumbnail_path,
+                        });
+                        if let Ok(result) = addon.call(&method, params) {
+                            let tags: Vec<String> = result
+                                .get("tags")
+                                .and_then(|t| t.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|t| t.get("tag")?.as_str())
+                                        .map(|s| s.to_string())
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            if !tags.is_empty() {
+                                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                                if let Err(e) = g.add_tags_merge(&file_id, &tags) {
+                                    eprintln!("[db] add_tags_merge failed: {e}");
                                 }
+                                applied += 1;
                             }
                         }
-                        applied
+                        done += 1;
+                        if done == total {
+                            Some((Msg::AddonBatchDone { method: method.clone(), applied }, (iter, addon, conn, method, name, done, applied, total)))
+                        } else {
+                            Some((Msg::AddonBatchProgress { name: name.clone(), done, total }, (iter, addon, conn, method, name, done, applied, total)))
+                        }
                     },
-                    move |applied| Msg::AddonBatchDone { method: method.clone(), applied },
-                )
+                );
+                Task::stream(stream)
             }
 
             Msg::AddonProgress { .. } => Task::none(),
+
+            Msg::AddonBatchProgress { name, done, total } => {
+                self.status = format!("{name}… ({done}/{total})");
+                Task::none()
+            }
 
             Msg::AddonBatchDone { method, applied } => {
                 self.status = format!("{method} done — {applied} file{} updated", if applied == 1 { "" } else { "s" });

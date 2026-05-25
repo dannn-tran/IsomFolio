@@ -28,6 +28,14 @@ struct Config {
     api_key: Option<String>,
     #[serde(default = "default_endpoint")]
     api_endpoint: String,
+    #[serde(default = "default_detail")]
+    detail: String,
+    #[serde(default)]
+    vocabulary_file: String,
+}
+
+fn default_detail() -> String {
+    "low".to_string()
 }
 
 fn default_endpoint() -> String {
@@ -68,6 +76,8 @@ fn main() {
 
     let config = load_config(&mut out);
 
+    let vocab = load_vocabulary(&config, &mut out);
+
     if config.api_key.as_deref().unwrap_or("").is_empty() {
         emit_log(&mut out, "error", "api_key not configured — open Settings to add it");
         return;
@@ -95,7 +105,7 @@ fn main() {
         match serde_json::from_str::<Request>(line) {
             Ok(req) => {
                 let resp = match req.method.as_str() {
-                    "classify" => match handle_classify(&config, &req.params) {
+                    "classify" => match handle_classify(&config, &vocab, &req.params) {
                         Ok(r) => {
                             serde_json::to_string(&Response { id: req.id, result: r }).unwrap()
                         }
@@ -133,7 +143,30 @@ fn load_config(out: &mut impl Write) -> Config {
     }
 }
 
-fn handle_classify(config: &Config, params: &Value) -> Result<Value, String> {
+fn load_vocabulary(config: &Config, out: &mut impl Write) -> Vec<String> {
+    if !config.vocabulary_file.is_empty() {
+        match std::fs::read_to_string(&config.vocabulary_file) {
+            Ok(content) => {
+                let tags: Vec<String> = content
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .collect();
+                if !tags.is_empty() {
+                    emit_log(out, "info", &format!("loaded {} tags from {}", tags.len(), config.vocabulary_file));
+                    return tags;
+                }
+                emit_log(out, "warn", "vocabulary file empty, using defaults");
+            }
+            Err(e) => {
+                emit_log(out, "warn", &format!("failed to read vocabulary file: {e}, using defaults"));
+            }
+        }
+    }
+    VOCABULARY.iter().map(|s| s.to_string()).collect()
+}
+
+fn handle_classify(config: &Config, vocab: &[String], params: &Value) -> Result<Value, String> {
     let thumb_path = params
         .get("thumbnail_path")
         .and_then(|v| v.as_str())
@@ -156,12 +189,18 @@ fn handle_classify(config: &Config, params: &Value) -> Result<Value, String> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     let data_url = format!("data:{mime};base64,{b64}");
 
-    let vocab_json = serde_json::to_string(VOCABULARY).unwrap();
+    let vocab_json = serde_json::to_string(vocab).unwrap();
     let prompt = format!(
-        "Return a JSON array of the top 5 most relevant photography tags for this image, \
+        "Return a JSON array of the top 5 most relevant tags for this image, \
         chosen only from this list: {vocab_json}. \
         Respond with only the JSON array, no explanation. Example: [\"portrait\", \"golden hour\"]"
     );
+
+    let detail = if ["low", "high", "auto"].contains(&config.detail.as_str()) {
+        &config.detail
+    } else {
+        "low"
+    };
 
     let body = serde_json::json!({
         "model": "gpt-4o-mini",
@@ -170,7 +209,7 @@ fn handle_classify(config: &Config, params: &Value) -> Result<Value, String> {
             "content": [
                 {
                     "type": "image_url",
-                    "image_url": { "url": data_url, "detail": "low" }
+                    "image_url": { "url": data_url, "detail": detail }
                 },
                 { "type": "text", "text": prompt }
             ]

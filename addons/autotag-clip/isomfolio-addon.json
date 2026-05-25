@@ -11,6 +11,11 @@
       "kind": "select",
       "options": ["clip-vit-b32", "clip-vit-l14"],
       "default": "clip-vit-b32"
+    },
+    {
+      "key": "vocabulary_file",
+      "label": "Vocabulary file (one tag per line, blank = built-in 49 tags)",
+      "kind": "text"
     }
   ]
 }

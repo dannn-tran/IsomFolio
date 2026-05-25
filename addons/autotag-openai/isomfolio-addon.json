@@ -15,6 +15,18 @@
       "label": "Endpoint",
       "kind": "text",
       "default": "https://api.openai.com/v1/chat/completions"
+    },
+    {
+      "key": "detail",
+      "label": "Image detail level",
+      "kind": "select",
+      "options": ["low", "high", "auto"],
+      "default": "low"
+    },
+    {
+      "key": "vocabulary_file",
+      "label": "Vocabulary file (one tag per line, blank = built-in 49 tags)",
+      "kind": "text"
     }
   ]
 }

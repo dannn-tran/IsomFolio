@@ -216,6 +216,7 @@ pub enum Msg {
     AddonsDiscovered(Vec<Arc<AddonProcess>>),
     RunAddon { addon_idx: usize, method: String, file_ids: Vec<String> },
     AddonProgress { addon_idx: usize, file_id: String, percent: u8 },
+    AddonBatchProgress { name: String, done: usize, total: usize },
     AddonBatchDone { method: String, applied: usize },
     AddonRestarted { idx: usize, process: Option<Arc<AddonProcess>> },
 

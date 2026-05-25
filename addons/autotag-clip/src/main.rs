@@ -54,6 +54,8 @@ type TractModel = RunnableModel<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Bo
 struct Config {
     #[serde(default = "default_variant")]
     variant: String,
+    #[serde(default)]
+    vocabulary_file: String,
 }
 
 fn default_variant() -> String {
@@ -95,7 +97,7 @@ fn main() {
     let config = load_config(&mut out);
     let models_base = std::env::var("ISOMFOLIO_MODELS_DIR").unwrap_or_else(|_| ".".to_string());
 
-    let (vision_model, vocab_embeds) = match init(&config, &models_base, &mut out) {
+    let (vision_model, vocab_labels, vocab_embeds) = match init(&config, &models_base, &mut out) {
         Ok(r) => r,
         Err(e) => {
             emit_log(&mut out, "error", &format!("init failed: {e}"));
@@ -125,7 +127,7 @@ fn main() {
         match serde_json::from_str::<Request>(line) {
             Ok(req) => {
                 let resp = match req.method.as_str() {
-                    "classify" => match handle_classify(&vision_model, &vocab_embeds, &req.params) {
+                    "classify" => match handle_classify(&vision_model, &vocab_labels, &vocab_embeds, &req.params) {
                         Ok(r) => {
                             serde_json::to_string(&Response { id: req.id, result: r }).unwrap()
                         }
@@ -163,11 +165,34 @@ fn load_config(out: &mut impl Write) -> Config {
     }
 }
 
+fn load_vocabulary(config: &Config, out: &mut impl Write) -> Vec<String> {
+    if !config.vocabulary_file.is_empty() {
+        match std::fs::read_to_string(&config.vocabulary_file) {
+            Ok(content) => {
+                let tags: Vec<String> = content
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .collect();
+                if !tags.is_empty() {
+                    emit_log(out, "info", &format!("loaded {} tags from {}", tags.len(), config.vocabulary_file));
+                    return tags;
+                }
+                emit_log(out, "warn", "vocabulary file empty, using defaults");
+            }
+            Err(e) => {
+                emit_log(out, "warn", &format!("failed to read vocabulary file: {e}, using defaults"));
+            }
+        }
+    }
+    VOCABULARY.iter().map(|s| s.to_string()).collect()
+}
+
 fn init(
     config: &Config,
     models_base: &str,
     out: &mut impl Write,
-) -> Result<(TractModel, Vec<Vec<f32>>), String> {
+) -> Result<(TractModel, Vec<String>, Vec<Vec<f32>>), String> {
     let (subdir, vision_url, text_url, tokenizer_url) = match config.variant.as_str() {
         "clip-vit-l14" => (L14_SUBDIR, L14_VISION_URL, L14_TEXT_URL, L14_TOKENIZER_URL),
         _ => (B32_SUBDIR, B32_VISION_URL, B32_TEXT_URL, B32_TOKENIZER_URL),
@@ -177,18 +202,20 @@ fn init(
     ensure_models(&model_dir, vision_url, text_url, tokenizer_url, out)
         .map_err(|e| format!("model download failed: {e}"))?;
 
+    let vocab = load_vocabulary(config, out);
+
     let vision_model =
         load_vision_model(model_dir.join("vision_model.onnx")).map_err(|e| e.to_string())?;
     let text_model =
-        load_text_model(model_dir.join("text_model.onnx"), VOCABULARY.len()).map_err(|e| e.to_string())?;
+        load_text_model(model_dir.join("text_model.onnx"), vocab.len()).map_err(|e| e.to_string())?;
     let tokenizer =
         Tokenizer::from_file(model_dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
 
-    emit_log(out, "info", "embedding vocabulary…");
-    let vocab_embeds = embed_vocabulary(&text_model, &tokenizer).map_err(|e| e.to_string())?;
-    emit_log(out, "info", &format!("ready ({})", config.variant));
+    emit_log(out, "info", &format!("embedding {} vocabulary tags…", vocab.len()));
+    let vocab_embeds = embed_vocabulary_from(&text_model, &tokenizer, &vocab).map_err(|e| e.to_string())?;
+    emit_log(out, "info", &format!("ready ({}, {} tags)", config.variant, vocab.len()));
 
-    Ok((vision_model, vocab_embeds))
+    Ok((vision_model, vocab, vocab_embeds))
 }
 
 fn ensure_models(
@@ -252,11 +279,11 @@ fn tokenize(tokenizer: &Tokenizer, text: &str) -> (Vec<i64>, Vec<i64>) {
     (ids, mask)
 }
 
-fn embed_vocabulary(model: &TractModel, tokenizer: &Tokenizer) -> TractResult<Vec<Vec<f32>>> {
-    let n = VOCABULARY.len();
+fn embed_vocabulary_from(model: &TractModel, tokenizer: &Tokenizer, vocab: &[String]) -> TractResult<Vec<Vec<f32>>> {
+    let n = vocab.len();
     let mut flat_ids = Vec::with_capacity(n * TOKEN_LEN);
     let mut flat_mask = Vec::with_capacity(n * TOKEN_LEN);
-    for label in VOCABULARY {
+    for label in vocab {
         let (ids, mask) = tokenize(tokenizer, label);
         flat_ids.extend(ids);
         flat_mask.extend(mask);
@@ -269,6 +296,7 @@ fn embed_vocabulary(model: &TractModel, tokenizer: &Tokenizer) -> TractResult<Ve
 
 fn handle_classify(
     model: &TractModel,
+    vocab_labels: &[String],
     vocab_embeds: &[Vec<f32>],
     params: &Value,
 ) -> TractResult<Value> {
@@ -281,8 +309,8 @@ fn handle_classify(
 
     let mut scores: Vec<(f32, &str)> = vocab_embeds
         .iter()
-        .zip(VOCABULARY.iter())
-        .map(|(emb, label)| (cosine_sim(&img_embed, emb), *label))
+        .zip(vocab_labels.iter())
+        .map(|(emb, label)| (cosine_sim(&img_embed, emb), label.as_str()))
         .collect();
     scores.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
