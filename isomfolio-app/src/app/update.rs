@@ -162,18 +162,22 @@ impl App {
             Msg::AddonBatchDone { addon_idx, method, applied, failed } => {
                 if failed == 0 {
                     self.status = format!("{method} done — {applied} file{} updated", if applied == 1 { "" } else { "s" });
-                    Task::none()
+                    return Task::none();
+                }
+                let report_path = self.addons.get(addon_idx)
+                    .and_then(|addon| write_crash_report(addon, applied, failed));
+                self.status = match &report_path {
+                    Some(path) => format!("{method} done — {applied} updated, {failed} failed — report: {path}"),
+                    None => format!("{method} done — {applied} updated, {failed} failed (addon crashed)"),
+                };
+                let manifest = self.addons.get(addon_idx).map(|a| a.manifest.clone());
+                if let Some(manifest) = manifest {
+                    Task::perform(
+                        async move { AddonProcess::launch(manifest).map(Arc::new).ok() },
+                        move |p| Msg::AddonRestarted { idx: addon_idx, process: p },
+                    )
                 } else {
-                    self.status = format!("{method} done — {applied} updated, {failed} failed (addon crashed)");
-                    let manifest = self.addons.get(addon_idx).map(|a| a.manifest.clone());
-                    if let Some(manifest) = manifest {
-                        Task::perform(
-                            async move { AddonProcess::launch(manifest).map(Arc::new).ok() },
-                            move |p| Msg::AddonRestarted { idx: addon_idx, process: p },
-                        )
-                    } else {
-                        Task::none()
-                    }
+                    Task::none()
                 }
             }
 
@@ -2191,6 +2195,54 @@ impl App {
         )
     }
 
+}
+
+fn write_crash_report(addon: &AddonProcess, applied: usize, failed: usize) -> Option<String> {
+    use isomfolio_core::app_paths::crash_reports_dir;
+    let dir = crash_reports_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let path = dir.join(format!("{}-{ts}.txt", addon.manifest.name));
+
+    let stderr_lines = addon.last_stderr();
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
+
+    let config = isomfolio_core::addon::load_addon_config(&addon.manifest.name);
+    let config_redacted: serde_json::Map<String, serde_json::Value> = config
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(k, v)| {
+            let is_secret = addon.manifest.config_schema.iter().any(|f| {
+                f.key == k && matches!(f.kind, isomfolio_core::addon::ConfigFieldKind::Secret)
+            });
+            if is_secret { (k, serde_json::Value::String("***".into())) } else { (k, v) }
+        })
+        .collect();
+
+    let mut report = String::new();
+    report.push_str(&format!("Addon: {}\n", addon.manifest.name));
+    report.push_str(&format!("OS: {} {}\n", std::env::consts::OS, std::env::consts::ARCH));
+    report.push_str(&format!("CPU cores: {cores}\n"));
+    report.push_str(&format!("Config: {}\n", serde_json::to_string(&config_redacted).unwrap_or_default()));
+    report.push_str(&format!("Applied: {applied}, Failed: {failed}\n"));
+    report.push_str("\n--- stderr (last 100 lines) ---\n");
+    for line in &stderr_lines {
+        report.push_str(line);
+        report.push('\n');
+    }
+    if stderr_lines.is_empty() {
+        report.push_str("(no output)\n");
+    }
+
+    match std::fs::write(&path, &report) {
+        Ok(_) => Some(path.to_string_lossy().into_owned()),
+        Err(_) => None,
+    }
 }
 
 fn extract_scored_tags(result: &serde_json::Value) -> Vec<(String, Option<f32>)> {

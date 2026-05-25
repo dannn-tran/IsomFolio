@@ -14,6 +14,10 @@ pub fn models_dir() -> PathBuf {
     app_data_root().join("models")
 }
 
+pub fn crash_reports_dir() -> PathBuf {
+    app_data_root().join("crash-reports")
+}
+
 
 pub fn db_path(catalog_dir: &str) -> String {
     Path::new(catalog_dir)

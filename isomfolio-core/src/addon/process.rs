@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -6,6 +6,8 @@ use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
+
+const STDERR_RING_SIZE: usize = 100;
 
 use crate::app_paths::models_dir;
 use crate::models::AppError;
@@ -26,9 +28,11 @@ pub struct AddonProcess {
     pending: PendingMap,
     progress_sinks: ProgressMap,
     next_id: Arc<AtomicU64>,
+    stderr_buf: Arc<Mutex<VecDeque<String>>>,
     pub manifest: AddonManifest,
     _child: Child,
     _reader: JoinHandle<()>,
+    _stderr_reader: JoinHandle<()>,
 }
 
 struct HelloData {
@@ -44,7 +48,7 @@ impl AddonProcess {
         let mut child = Command::new(&manifest.executable)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .env("ISOMFOLIO_MODELS_DIR", models_dir())
             .env("ISOMFOLIO_ADDON_CONFIG", config_path)
             .spawn()
@@ -52,6 +56,23 @@ impl AddonProcess {
 
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+
+        let stderr_buf: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let stderr_buf_writer = Arc::clone(&stderr_buf);
+        let addon_name_for_stderr = manifest.name.clone();
+        let _stderr_reader = std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                eprintln!("[{addon_name_for_stderr}] {line}");
+                let mut buf = stderr_buf_writer.lock().unwrap_or_else(|e| e.into_inner());
+                buf.push_back(line);
+                if buf.len() > STDERR_RING_SIZE {
+                    buf.pop_front();
+                }
+            }
+        });
 
         let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
@@ -104,9 +125,11 @@ impl AddonProcess {
             pending,
             progress_sinks,
             next_id: Arc::new(AtomicU64::new(1)),
+            stderr_buf,
             manifest,
             _child: child,
             _reader: reader,
+            _stderr_reader,
         })
     }
 
@@ -171,6 +194,10 @@ impl AddonProcess {
         rx.recv_timeout(timeout)
             .map_err(|_| AppError::Addon(format!("addon '{}' timed out", self.manifest.name)))?
             .map_err(AppError::Addon)
+    }
+
+    pub fn last_stderr(&self) -> Vec<String> {
+        self.stderr_buf.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect()
     }
 
     fn write_request(&self, id: u64, method: &str, params: serde_json::Value) -> Result<(), AppError> {
