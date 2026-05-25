@@ -9,6 +9,31 @@ use serde_json::Value;
 
 use model::{FaceModels, MODEL_VERSION};
 
+#[derive(Deserialize, Default)]
+struct Config {
+    #[serde(default = "default_eps")]
+    eps: f32,
+    #[serde(default = "default_min_pts")]
+    min_pts: usize,
+}
+
+fn default_eps() -> f32 { 0.4 }
+fn default_min_pts() -> usize { 2 }
+
+fn load_config(out: &mut impl Write) -> Config {
+    let path = std::env::var("ISOMFOLIO_ADDON_CONFIG").unwrap_or_default();
+    if path.is_empty() {
+        return Config::default();
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
+            emit_log(out, "warn", &format!("config parse error: {e}, using defaults"));
+            Config::default()
+        }),
+        Err(_) => Config::default(),
+    }
+}
+
 #[derive(Deserialize)]
 struct Request {
     id: u64,
@@ -54,6 +79,7 @@ fn main() {
     );
     let _ = out.flush();
 
+    let config = load_config(&mut out);
     let models_dir = std::env::var("ISOMFOLIO_MODELS_DIR").unwrap_or_else(|_| ".".to_string());
 
     emit_log(&mut out, "info", "loading face models…");
@@ -86,7 +112,7 @@ fn main() {
             Ok(req) => {
                 let resp = match req.method.as_str() {
                     "cluster_faces" => {
-                        match handle_cluster_faces(&models, &state_db, &req.params, req.id, &mut out) {
+                        match handle_cluster_faces(&models, &state_db, &config, &req.params, req.id, &mut out) {
                             Ok(r) => serde_json::to_string(&Response { id: req.id, result: r }).unwrap(),
                             Err(e) => serde_json::to_string(&ErrorResponse { id: req.id, error: e }).unwrap(),
                         }
@@ -133,6 +159,7 @@ fn open_state_db(models_dir: &str) -> Result<SqliteConn, String> {
 fn handle_cluster_faces(
     models: &FaceModels,
     db: &SqliteConn,
+    config: &Config,
     params: &Value,
     req_id: u64,
     out: &mut impl Write,
@@ -251,7 +278,7 @@ fn handle_cluster_faces(
     }
 
     let embeddings: Vec<Vec<f32>> = rows.iter().map(|r| r.vec.clone()).collect();
-    let labels = cluster::dbscan(&embeddings, 0.4, 2);
+    let labels = cluster::dbscan(&embeddings, config.eps, config.min_pts);
 
     emit_progress(out, req_id, 95);
 

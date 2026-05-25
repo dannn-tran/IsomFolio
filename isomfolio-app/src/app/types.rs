@@ -244,6 +244,8 @@ pub enum Msg {
     RenameFaceCluster(String),
     RenameFaceClusterInputChanged(String),
     ConfirmRenameFaceCluster,
+    MergeFaceClusters(String, String),
+    RemoveFileFromFaceCluster(String, String),
 
     SortCycleAll,
     NoOp,

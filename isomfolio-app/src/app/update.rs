@@ -194,43 +194,80 @@ impl App {
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
-                self.status = "Clustering faces… (this may take a while)".to_string();
+                self.status = "Clustering faces… (0%)".to_string();
 
-                Task::perform(
-                    async move {
-                        let files = {
+                let files = {
+                    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                    g.get_all_file_paths_with_mtimes().unwrap_or_default()
+                };
+                let file_params: Vec<serde_json::Value> = files
+                    .iter()
+                    .map(|(id, path, mtime)| {
+                        serde_json::json!({
+                            "file_id": id,
+                            "image_path": path,
+                            "file_mtime": mtime,
+                        })
+                    })
+                    .collect();
+                let params = serde_json::json!({"files": file_params});
+
+                let handle = match addon.send("cluster_faces", params) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        self.status = format!("face clustering error: {e}");
+                        return Task::none();
+                    }
+                };
+
+                let stream = futures::stream::unfold(
+                    (handle, conn, false),
+                    |(handle, conn, done)| async move {
+                        if done { return None; }
+
+                        let handle_result = |conn: &Arc<std::sync::Mutex<isomfolio_core::Catalog>>, result: serde_json::Value| {
+                            let clusters = parse_cluster_response(&result);
                             let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                            g.get_all_file_paths_with_mtimes().unwrap_or_default()
-                        };
-                        let file_params: Vec<serde_json::Value> = files
-                            .iter()
-                            .map(|(id, path, mtime)| {
-                                serde_json::json!({
-                                    "file_id": id,
-                                    "image_path": path,
-                                    "file_mtime": mtime,
-                                })
-                            })
-                            .collect();
-                        let params = serde_json::json!({"files": file_params});
-
-                        let result = addon.call_long("cluster_faces", params);
-                        let clusters = match result {
-                            Ok(v) => parse_cluster_response(&v),
-                            Err(e) => {
-                                eprintln!("[faces] cluster_faces error: {e}");
-                                return Vec::new();
+                            if let Err(e) = g.save_face_clusters(&clusters) {
+                                eprintln!("[db] save_face_clusters failed: {e}");
                             }
+                            g.get_face_cluster_summaries().unwrap_or_default()
                         };
 
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.save_face_clusters( &clusters) {
-                            eprintln!("[db] save_face_clusters failed: {e}");
+                        match handle.progress_rx.recv_timeout(Duration::from_millis(200)) {
+                            Ok(percent) => {
+                                Some((Msg::AddonBatchProgress { name: "Clustering faces".into(), done: percent as usize, total: 100 }, (handle, conn, false)))
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                match handle.result_rx.try_recv() {
+                                    Ok(Ok(result)) => {
+                                        let summaries = handle_result(&conn, result);
+                                        Some((Msg::FaceClusteringDone(summaries), (handle, conn, true)))
+                                    }
+                                    Ok(Err(e)) => {
+                                        eprintln!("[faces] cluster_faces error: {e}");
+                                        Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, true)))
+                                    }
+                                    Err(_) => Some((Msg::NoOp, (handle, conn, false)))
+                                }
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                match handle.result_rx.recv() {
+                                    Ok(Ok(result)) => {
+                                        let summaries = handle_result(&conn, result);
+                                        Some((Msg::FaceClusteringDone(summaries), (handle, conn, true)))
+                                    }
+                                    Ok(Err(e)) => {
+                                        eprintln!("[faces] cluster_faces error: {e}");
+                                        Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, true)))
+                                    }
+                                    Err(_) => None,
+                                }
+                            }
                         }
-                        g.get_face_cluster_summaries().unwrap_or_default()
                     },
-                    Msg::FaceClusteringDone,
-                )
+                );
+                Task::stream(stream)
             }
 
             Msg::FaceClusteringDone(summaries) => {
@@ -285,6 +322,38 @@ impl App {
                         }
                     },
                     |_| Msg::NoOp,
+                )
+            }
+
+            Msg::MergeFaceClusters(target_id, source_id) => {
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.faces.clusters.retain(|c| c.cluster_id != source_id);
+                if let Some(target) = self.faces.clusters.iter_mut().find(|c| c.cluster_id == target_id) {
+                    target.file_count += 1;
+                }
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Err(e) = g.merge_face_clusters(&target_id, &source_id) {
+                            eprintln!("[db] merge_face_clusters failed: {e}");
+                        }
+                        g.get_face_cluster_summaries().unwrap_or_default()
+                    },
+                    Msg::FaceClustersLoaded,
+                )
+            }
+
+            Msg::RemoveFileFromFaceCluster(cluster_id, file_id) => {
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Err(e) = g.remove_file_from_face_cluster(&cluster_id, &file_id) {
+                            eprintln!("[db] remove_file_from_face_cluster failed: {e}");
+                        }
+                        g.get_face_cluster_summaries().unwrap_or_default()
+                    },
+                    Msg::FaceClustersLoaded,
                 )
             }
 
@@ -889,12 +958,18 @@ impl App {
                 } else {
                     self.load_files_task()
                 };
-                let t_autotag = if !new_file_ids.is_empty() {
+                let has_new = !new_file_ids.is_empty();
+                let t_autotag = if has_new {
                     self.auto_tag_task(new_file_ids)
                 } else {
                     Task::none()
                 };
-                Task::batch([t1, t_nav, t_autotag])
+                let t_faces = if has_new && self.addons.iter().any(|a| a.manifest.capabilities.iter().any(|c| c == "cluster_faces")) {
+                    Task::done(Msg::RunFaceClustering)
+                } else {
+                    Task::none()
+                };
+                Task::batch([t1, t_nav, t_autotag, t_faces])
             }
 
             Msg::RequestRemoveFolder(path) => {

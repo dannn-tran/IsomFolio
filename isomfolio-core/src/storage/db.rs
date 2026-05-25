@@ -1002,6 +1002,26 @@ pub fn rename_face_cluster(
     Ok(())
 }
 
+pub fn merge_face_clusters(conn: &Connection, target_id: &str, source_id: &str) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    conn.execute(
+        "UPDATE OR IGNORE face_clusters SET cluster_id = ?1 WHERE cluster_id = ?2",
+        params![target_id, source_id],
+    )?;
+    conn.execute("DELETE FROM face_clusters WHERE cluster_id = ?1", [source_id])?;
+    conn.execute("DELETE FROM face_cluster_names WHERE cluster_id = ?1", [source_id])?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn remove_file_from_face_cluster(conn: &Connection, cluster_id: &str, file_id: &str) -> Result<(), AppError> {
+    conn.execute(
+        "DELETE FROM face_clusters WHERE cluster_id = ?1 AND file_id = ?2",
+        params![cluster_id, file_id],
+    )?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

@@ -256,6 +256,14 @@ impl Catalog {
         db::rename_face_cluster(&self.conn, cluster_id, name)
     }
 
+    pub fn merge_face_clusters(&self, target_id: &str, source_id: &str) -> Result<(), AppError> {
+        db::merge_face_clusters(&self.conn, target_id, source_id)
+    }
+
+    pub fn remove_file_from_face_cluster(&self, cluster_id: &str, file_id: &str) -> Result<(), AppError> {
+        db::remove_file_from_face_cluster(&self.conn, cluster_id, file_id)
+    }
+
     // Search
 
     pub fn search(&self, query: &SearchQuery) -> Result<Vec<AssetFile>, AppError> {
