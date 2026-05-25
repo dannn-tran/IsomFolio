@@ -289,6 +289,11 @@ impl App {
                 Task::none()
             }
 
+            Msg::OpenPeopleView => {
+                self.view_mode = ViewMode::People;
+                Task::none()
+            }
+
             Msg::RenameFaceCluster(cluster_id) => {
                 let current_name = self
                     .faces.clusters
@@ -513,6 +518,9 @@ impl App {
                     }
                 }
                 self.selected_item = item;
+                if matches!(self.view_mode, ViewMode::People) {
+                    self.view_mode = ViewMode::Browse;
+                }
                 self.files.clear();
                 self.file_ratings.clear();
                 self.scroll_y = 0.0;
@@ -629,6 +637,7 @@ impl App {
                             return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
                         }
                     }
+                    ViewMode::People => {}
                 }
                 Task::none()
             }

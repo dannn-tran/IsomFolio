@@ -38,6 +38,7 @@ pub const CRITERIA_PADDING: f32 = 18.0;
 pub enum ViewMode {
     Browse,
     Loupe,
+    People,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -247,6 +248,7 @@ pub enum Msg {
     MergeFaceClusters(String, String),
     RemoveFileFromFaceCluster(String, String),
     FaceCropsReady(Vec<(String, iced::widget::image::Handle)>),
+    OpenPeopleView,
 
     SortCycleAll,
     NoOp,

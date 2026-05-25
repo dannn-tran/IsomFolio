@@ -1,5 +1,5 @@
 use iced::{
-    widget::{button, column, container, image, mouse_area, row, scrollable, text, text_input, tooltip, Space},
+    widget::{button, column, container, mouse_area, row, scrollable, text, text_input, tooltip, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
@@ -11,7 +11,7 @@ use super::styles::{
     SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_3,
     TEXT_BASE, TEXT_MD, TEXT_SM,
 };
-use crate::app::{App, Msg, SidebarItem, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT};
+use crate::app::{App, Msg, SidebarItem, ViewMode, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT};
 
 impl App {
     pub(super) fn view_sidebar(&self) -> Element<'_, Msg> {
@@ -180,8 +180,15 @@ impl App {
             .iter()
             .any(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
         {
+            let count = self.faces.clusters.len();
+            let count_label = if count > 0 { format!(" ({count})") } else { String::new() };
+            let is_active = matches!(self.view_mode, ViewMode::People);
             let people_header: Element<Msg> = row![
-                text("People").size(TEXT_SM).color(FG_DIM),
+                button(
+                    text(format!("People{count_label}")).size(TEXT_SM).color(if is_active { FG } else { FG_DIM })
+                )
+                    .on_press(Msg::OpenPeopleView)
+                    .style(ghost_btn_style),
                 Space::new().width(Length::Fill),
                 button(text("⟳").size(TEXT_MD))
                     .on_press(Msg::RunFaceClustering)
@@ -196,52 +203,6 @@ impl App {
                 .push(sidebar_divider())
                 .push(Space::new().height(SPACE_1))
                 .push(people_header);
-
-            for cluster in &self.faces.clusters {
-                let cluster_id = cluster.cluster_id.clone();
-                let display = cluster
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| cluster.cluster_id.clone());
-                let count = cluster.file_count;
-                let sel = self.selected_item == SidebarItem::FaceCluster(cluster_id.clone());
-
-                if self.faces.rename_cluster_id.as_deref() == Some(cluster_id.as_str()) {
-                    content = content.push(
-                        container(
-                            row![
-                                text_input(&display, &self.faces.rename_input)
-                                    .on_input(Msg::RenameFaceClusterInputChanged)
-                                    .on_submit(Msg::ConfirmRenameFaceCluster)
-                                    .padding([SPACE_1_5, SPACE_2])
-                                    .size(TEXT_BASE)
-                                    .width(Length::Fill),
-                                button(text("✓").size(TEXT_SM).color(FG))
-                                    .on_press(Msg::ConfirmRenameFaceCluster)
-                                    .style(ghost_btn_style),
-                                button(text("✕").size(TEXT_SM).color(FG_DIM))
-                                    .on_press(Msg::EscapePressed)
-                                    .style(ghost_btn_style),
-                            ]
-                            .spacing(SPACE_1)
-                            .align_y(Alignment::Center),
-                        )
-                        .height(FOLDER_ITEM_HEIGHT)
-                        .align_y(Alignment::Center)
-                        .padding([0.0, SPACE_1]),
-                    );
-                } else {
-                    let crop = self.faces.crop_handles.get(&cluster_id).cloned();
-                    content = content.push(face_cluster_row(
-                        display,
-                        cluster_id,
-                        count,
-                        sel,
-                        max_chars,
-                        crop,
-                    ));
-                }
-            }
         }
 
         let sidebar_scroll = scrollable(content.spacing(SPACE_0_5).padding(SPACE_3))
@@ -284,91 +245,6 @@ fn truncate_label(s: &str, max: usize) -> (String, bool) {
         (s.to_string(), false)
     } else {
         (format!("{}…", chars[..max].iter().collect::<String>()), true)
-    }
-}
-
-const FACE_CROP_SIZE: f32 = 24.0;
-
-fn face_cluster_row<'a>(
-    label: String,
-    cluster_id: String,
-    count: usize,
-    selected: bool,
-    max_chars: usize,
-    crop: Option<iced::widget::image::Handle>,
-) -> Element<'a, Msg> {
-    let bg = if selected {
-        Color { r: ACCENT.r * 0.6, g: ACCENT.g * 0.6, b: ACCENT.b * 0.6, a: 0.4 }
-    } else {
-        Color::TRANSPARENT
-    };
-    let border_color = if selected { ACCENT } else { Color::TRANSPARENT };
-    let text_color = if selected { Color::WHITE } else { FG };
-
-    let (display_label, was_truncated) = truncate_label(&label, max_chars);
-    let count_str = if count > 0 { format!(" {count}") } else { String::new() };
-
-    let avatar: Element<Msg> = match crop {
-        Some(handle) => container(
-            image(handle)
-                .width(FACE_CROP_SIZE)
-                .height(FACE_CROP_SIZE)
-                .content_fit(iced::ContentFit::Cover),
-        )
-        .style(|_: &Theme| container::Style {
-            border: Border { radius: (FACE_CROP_SIZE / 2.0).into(), ..Default::default() },
-            ..Default::default()
-        })
-        .clip(true)
-        .into(),
-        None => text("👤").size(TEXT_BASE).color(FG_DIM).into(),
-    };
-
-    let name_btn = button(
-        row![
-            avatar,
-            container(
-                text(display_label.clone())
-                    .size(TEXT_BASE)
-                    .color(text_color)
-                    .wrapping(iced::widget::text::Wrapping::None),
-            )
-            .width(Length::Fill)
-            .clip(true),
-            text(count_str).size(TEXT_SM).color(FG_MUTED),
-        ]
-        .spacing(SPACE_1_5)
-        .align_y(Alignment::Center),
-    )
-    .on_press(Msg::SidebarItemClicked(SidebarItem::FaceCluster(cluster_id.clone())))
-    .width(Length::Fill)
-    .style(|_: &Theme, _| button::Style {
-        background: Some(Background::Color(Color::TRANSPARENT)),
-        text_color: FG,
-        border: Border::default(),
-        shadow: iced::Shadow::default(),
-        snap: false,
-    });
-
-    let inner = container(name_btn)
-        .height(FOLDER_ITEM_HEIGHT)
-        .align_y(Alignment::Center)
-        .padding([0.0, SPACE_1])
-        .style(move |_: &Theme| container::Style {
-            background: Some(Background::Color(bg)),
-            border: Border { color: border_color, width: 0.0, radius: 4.0.into() },
-            ..Default::default()
-        });
-
-    let entity = SidebarItem::FaceCluster(cluster_id.clone());
-    let row_el = mouse_area(inner)
-        .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
-        .on_exit(Msg::HoverSidebarEntityEnd(entity));
-
-    if was_truncated {
-        tooltip(row_el, label_tooltip(label), tooltip::Position::Right).into()
-    } else {
-        row_el.into()
     }
 }
 

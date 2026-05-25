@@ -1,5 +1,6 @@
 mod content;
 mod context_menu;
+mod people;
 mod sidebar;
 pub mod styles;
 mod tag_browser;
@@ -27,6 +28,10 @@ impl App {
 
         if matches!(self.view_mode, ViewMode::Loupe) {
             return self.view_loupe();
+        }
+
+        if matches!(self.view_mode, ViewMode::People) {
+            return self.view_people();
         }
 
         let dragging = self.drag.state.as_ref().map(|d| d.active).unwrap_or(false);
