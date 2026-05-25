@@ -246,6 +246,7 @@ pub enum Msg {
     ConfirmRenameFaceCluster,
     MergeFaceClusters(String, String),
     RemoveFileFromFaceCluster(String, String),
+    FaceCropsReady(Vec<(String, iced::widget::image::Handle)>),
 
     SortCycleAll,
     NoOp,

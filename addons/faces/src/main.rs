@@ -287,18 +287,20 @@ fn handle_cluster_faces(
     let mut cluster_members: Vec<Vec<Value>> =
         (0..=(max_label.max(0) as usize)).map(|_| Vec::new()).collect();
 
+    let mut noise_members: Vec<Value> = Vec::new();
     for (i, &label) in labels.iter().enumerate() {
-        if label < 0 {
-            continue;
-        }
         let r = &rows[i];
-        cluster_members[label as usize].push(serde_json::json!({
+        let member = serde_json::json!({
             "file_id": r.file_id,
             "bbox": {"x": r.bbox_x, "y": r.bbox_y, "w": r.bbox_w, "h": r.bbox_h},
-        }));
+        });
+        if label < 0 {
+            noise_members.push(member);
+        } else {
+            cluster_members[label as usize].push(member);
+        }
     }
 
-    // Sort by cluster size desc, generate stable IDs from member content
     let mut clusters: Vec<Vec<Value>> =
         cluster_members.into_iter().filter(|m| !m.is_empty()).collect();
     clusters.sort_by(|a, b| b.len().cmp(&a.len()));
@@ -315,9 +317,9 @@ fn handle_cluster_faces(
         .collect();
 
     emit_progress(out, req_id, 100);
-    emit_log(out, "info", &format!("found {} people", result.len()));
+    emit_log(out, "info", &format!("found {} people, {} unclustered faces", result.len(), noise_members.len()));
 
-    Ok(serde_json::json!({"clusters": result}))
+    Ok(serde_json::json!({"clusters": result, "noise": noise_members}))
 }
 
 fn stable_cluster_id(members: &[Value]) -> String {

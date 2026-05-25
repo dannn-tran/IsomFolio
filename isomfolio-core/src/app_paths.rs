@@ -14,6 +14,21 @@ pub fn models_dir() -> PathBuf {
     app_data_root().join("models")
 }
 
+pub fn face_crop_dir(catalog_dir: &str) -> String {
+    Path::new(catalog_dir)
+        .join("face-crops")
+        .to_string_lossy()
+        .into_owned()
+}
+
+pub fn face_crop_path(catalog_dir: &str, cluster_id: &str) -> String {
+    Path::new(catalog_dir)
+        .join("face-crops")
+        .join(format!("{cluster_id}.jpg"))
+        .to_string_lossy()
+        .into_owned()
+}
+
 pub fn crash_reports_dir() -> PathBuf {
     app_data_root().join("crash-reports")
 }

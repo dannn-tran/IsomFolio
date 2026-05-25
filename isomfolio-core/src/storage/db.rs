@@ -1014,6 +1014,24 @@ pub fn merge_face_clusters(conn: &Connection, target_id: &str, source_id: &str) 
     Ok(())
 }
 
+pub fn get_face_cluster_representatives(conn: &Connection) -> Result<Vec<(String, String, f64, f64, f64, f64)>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT fc.cluster_id, f.path, fc.bbox_x, fc.bbox_y, fc.bbox_w, fc.bbox_h
+         FROM face_clusters fc
+         JOIN files f ON fc.file_id = f.id AND f.is_orphaned = 0
+         GROUP BY fc.cluster_id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((
+        r.get::<_, String>(0)?,
+        r.get::<_, String>(1)?,
+        r.get::<_, f64>(2)?,
+        r.get::<_, f64>(3)?,
+        r.get::<_, f64>(4)?,
+        r.get::<_, f64>(5)?,
+    )))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn remove_file_from_face_cluster(conn: &Connection, cluster_id: &str, file_id: &str) -> Result<(), AppError> {
     conn.execute(
         "DELETE FROM face_clusters WHERE cluster_id = ?1 AND file_id = ?2",

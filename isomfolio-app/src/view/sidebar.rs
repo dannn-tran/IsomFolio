@@ -1,5 +1,5 @@
 use iced::{
-    widget::{button, column, container, mouse_area, row, scrollable, text, text_input, tooltip, Space},
+    widget::{button, column, container, image, mouse_area, row, scrollable, text, text_input, tooltip, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
@@ -231,12 +231,14 @@ impl App {
                         .padding([0.0, SPACE_1]),
                     );
                 } else {
+                    let crop = self.faces.crop_handles.get(&cluster_id).cloned();
                     content = content.push(face_cluster_row(
                         display,
                         cluster_id,
                         count,
                         sel,
                         max_chars,
+                        crop,
                     ));
                 }
             }
@@ -285,12 +287,15 @@ fn truncate_label(s: &str, max: usize) -> (String, bool) {
     }
 }
 
+const FACE_CROP_SIZE: f32 = 24.0;
+
 fn face_cluster_row<'a>(
     label: String,
     cluster_id: String,
     count: usize,
     selected: bool,
     max_chars: usize,
+    crop: Option<iced::widget::image::Handle>,
 ) -> Element<'a, Msg> {
     let bg = if selected {
         Color { r: ACCENT.r * 0.6, g: ACCENT.g * 0.6, b: ACCENT.b * 0.6, a: 0.4 }
@@ -303,10 +308,27 @@ fn face_cluster_row<'a>(
     let (display_label, was_truncated) = truncate_label(&label, max_chars);
     let count_str = if count > 0 { format!(" {count}") } else { String::new() };
 
+    let avatar: Element<Msg> = match crop {
+        Some(handle) => container(
+            image(handle)
+                .width(FACE_CROP_SIZE)
+                .height(FACE_CROP_SIZE)
+                .content_fit(iced::ContentFit::Cover),
+        )
+        .style(|_: &Theme| container::Style {
+            border: Border { radius: (FACE_CROP_SIZE / 2.0).into(), ..Default::default() },
+            ..Default::default()
+        })
+        .clip(true)
+        .into(),
+        None => text("👤").size(TEXT_BASE).color(FG_DIM).into(),
+    };
+
     let name_btn = button(
         row![
+            avatar,
             container(
-                text(format!("👤 {display_label}"))
+                text(display_label.clone())
                     .size(TEXT_BASE)
                     .color(text_color)
                     .wrapping(iced::widget::text::Wrapping::None),
@@ -315,6 +337,7 @@ fn face_cluster_row<'a>(
             .clip(true),
             text(count_str).size(TEXT_SM).color(FG_MUTED),
         ]
+        .spacing(SPACE_1_5)
         .align_y(Alignment::Center),
     )
     .on_press(Msg::SidebarItemClicked(SidebarItem::FaceCluster(cluster_id.clone())))

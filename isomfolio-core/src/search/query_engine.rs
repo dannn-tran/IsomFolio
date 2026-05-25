@@ -159,6 +159,14 @@ fn execute_query_inner(
         append_rating_filter(&mut sql, &mut params, &mut param_idx, min);
     }
 
+    if let Some(has_faces) = query.has_faces {
+        if has_faces {
+            sql.push_str(" AND EXISTS (SELECT 1 FROM face_clusters fc WHERE fc.file_id = f.id)");
+        } else {
+            sql.push_str(" AND NOT EXISTS (SELECT 1 FROM face_clusters fc WHERE fc.file_id = f.id)");
+        }
+    }
+
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
     sql.push_str(&format!(" ORDER BY {} {}", sort_column(query.sort_by), dir));
 

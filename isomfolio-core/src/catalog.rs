@@ -256,6 +256,10 @@ impl Catalog {
         db::rename_face_cluster(&self.conn, cluster_id, name)
     }
 
+    pub fn get_face_cluster_representatives(&self) -> Result<Vec<(String, String, f64, f64, f64, f64)>, AppError> {
+        db::get_face_cluster_representatives(&self.conn)
+    }
+
     pub fn merge_face_clusters(&self, target_id: &str, source_id: &str) -> Result<(), AppError> {
         db::merge_face_clusters(&self.conn, target_id, source_id)
     }

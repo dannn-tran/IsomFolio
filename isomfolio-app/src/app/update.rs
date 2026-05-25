@@ -274,11 +274,18 @@ impl App {
                 let count = summaries.len();
                 self.faces.clusters = summaries;
                 self.status = format!("Face clustering done — {count} people found");
-                Task::none()
+                self.load_face_crops_task()
             }
 
             Msg::FaceClustersLoaded(summaries) => {
                 self.faces.clusters = summaries;
+                self.load_face_crops_task()
+            }
+
+            Msg::FaceCropsReady(handles) => {
+                for (cluster_id, handle) in handles {
+                    self.faces.crop_handles.insert(cluster_id, handle);
+                }
                 Task::none()
             }
 
@@ -2320,6 +2327,37 @@ fn write_crash_report(addon: &AddonProcess, applied: usize, failed: usize) -> Op
     }
 }
 
+fn generate_face_crops(
+    catalog_dir: &str,
+    reps: &[(String, String, f64, f64, f64, f64)],
+) -> Vec<(String, String)> {
+    use isomfolio_core::app_paths::face_crop_path;
+    let crop_dir = isomfolio_core::app_paths::face_crop_dir(catalog_dir);
+    let _ = std::fs::create_dir_all(&crop_dir);
+
+    let mut results = Vec::new();
+    for (cluster_id, file_path, bx, by, bw, bh) in reps {
+        let out_path = face_crop_path(catalog_dir, cluster_id);
+        if std::path::Path::new(&out_path).exists() {
+            results.push((cluster_id.clone(), out_path));
+            continue;
+        }
+        let Ok(img) = image::open(file_path) else { continue };
+        let (iw, ih) = (img.width() as f64, img.height() as f64);
+        let x = (bx * iw).max(0.0) as u32;
+        let y = (by * ih).max(0.0) as u32;
+        let w = (bw * iw).min(iw - x as f64) as u32;
+        let h = (bh * ih).min(ih - y as f64) as u32;
+        if w == 0 || h == 0 { continue; }
+        let cropped = img.crop_imm(x, y, w, h);
+        let thumb = cropped.resize_exact(96, 96, image::imageops::FilterType::Triangle);
+        if thumb.save(&out_path).is_ok() {
+            results.push((cluster_id.clone(), out_path));
+        }
+    }
+    results
+}
+
 fn extract_scored_tags(result: &serde_json::Value) -> Vec<(String, Option<f32>)> {
     result
         .get("tags")
@@ -2337,6 +2375,34 @@ fn extract_scored_tags(result: &serde_json::Value) -> Vec<(String, Option<f32>)>
 }
 
 impl App {
+    fn load_face_crops_task(&self) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        let catalog_dir = self.catalog_dir.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                    let reps = g.get_face_cluster_representatives().unwrap_or_default();
+                    let crops = generate_face_crops(&catalog_dir, &reps);
+                    crops
+                        .into_iter()
+                        .filter_map(|(cluster_id, path)| {
+                            let bytes = std::fs::read(&path).ok()?;
+                            let img = image::load_from_memory(&bytes).ok()?;
+                            let rgba = img.into_rgba8();
+                            let (w, h) = (rgba.width(), rgba.height());
+                            let handle = iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw());
+                            Some((cluster_id, handle))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_default()
+            },
+            Msg::FaceCropsReady,
+        )
+    }
+
     fn auto_tag_task(&self, new_file_ids: Vec<String>) -> Task<Msg> {
         let classify_idx = self
             .addons
@@ -2438,31 +2504,40 @@ fn next_sort_field(f: SortField) -> SortField {
     }
 }
 
+const UNKNOWN_FACES_CLUSTER: &str = "face-unknown";
+
+fn parse_member(member: &serde_json::Value, cluster_id: &str) -> Option<FaceClusterMember> {
+    let file_id = member.get("file_id").and_then(|v| v.as_str())?.to_string();
+    let bbox = member.get("bbox").unwrap_or(&serde_json::Value::Null);
+    Some(FaceClusterMember {
+        cluster_id: cluster_id.to_string(),
+        file_id,
+        bbox_x: bbox.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        bbox_y: bbox.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        bbox_w: bbox.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        bbox_h: bbox.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0),
+    })
+}
+
 fn parse_cluster_response(v: &serde_json::Value) -> Vec<FaceClusterMember> {
-    let Some(clusters) = v.get("clusters").and_then(|c| c.as_array()) else {
-        return Vec::new();
-    };
     let mut rows = Vec::new();
-    for cluster in clusters {
-        let cluster_id = cluster.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        if cluster_id.is_empty() {
-            continue;
-        }
-        if let Some(members) = cluster.get("members").and_then(|m| m.as_array()) {
-            for member in members {
-                let file_id = member.get("file_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                if file_id.is_empty() {
-                    continue;
+    if let Some(clusters) = v.get("clusters").and_then(|c| c.as_array()) {
+        for cluster in clusters {
+            let cluster_id = cluster.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if cluster_id.is_empty() { continue; }
+            if let Some(members) = cluster.get("members").and_then(|m| m.as_array()) {
+                for member in members {
+                    if let Some(m) = parse_member(member, cluster_id) {
+                        rows.push(m);
+                    }
                 }
-                let bbox = member.get("bbox").unwrap_or(&serde_json::Value::Null);
-                rows.push(FaceClusterMember {
-                    cluster_id: cluster_id.clone(),
-                    file_id,
-                    bbox_x: bbox.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                    bbox_y: bbox.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                    bbox_w: bbox.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                    bbox_h: bbox.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                });
+            }
+        }
+    }
+    if let Some(noise) = v.get("noise").and_then(|n| n.as_array()) {
+        for member in noise {
+            if let Some(m) = parse_member(member, UNKNOWN_FACES_CLUSTER) {
+                rows.push(m);
             }
         }
     }
