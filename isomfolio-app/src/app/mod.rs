@@ -512,7 +512,9 @@ impl App {
             return Task::perform(
                 async move {
                     let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
-                    let tags = cat.get_tags_for_file(&file_id).unwrap_or_default();
+                    let tags_with_origin = cat.get_tags_with_origin(&file_id).unwrap_or_default();
+                    let tags: Vec<String> = tags_with_origin.iter().map(|(t, _)| t.clone()).collect();
+                    let tag_origins: std::collections::HashMap<String, String> = tags_with_origin.into_iter().collect();
                     let meta_opt = cat.get_metadata(&file_id).ok().flatten();
                     let (rating, label, title, exif_tech) = match meta_opt {
                         Some(m) => (
@@ -523,11 +525,12 @@ impl App {
                         ),
                         None => (None, None, None, None),
                     };
-                    (file_id, tags, rating, label, title, exif_tech)
+                    (file_id, tags, tag_origins, rating, label, title, exif_tech)
                 },
-                |(file_id, tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
+                |(file_id, tags, tag_origins, rating, label, title, exif_tech)| Msg::DetailLoaded {
                     file_id,
                     tags,
+                    tag_origins,
                     rating,
                     label,
                     title,

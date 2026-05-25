@@ -499,23 +499,31 @@ impl App {
             );
 
             for tag in &self.detail.tags {
+                let is_ai = self.detail.tag_origins.get(tag).map(|o| o == "ai").unwrap_or(false);
+                let mut tag_row = row![
+                    render_tag_name(tag.as_str()),
+                ]
+                .align_y(Alignment::Center);
+                if is_ai {
+                    tag_row = tag_row.push(
+                        text(" AI").size(TEXT_XS).color(FG_MUTED),
+                    );
+                }
+                tag_row = tag_row
+                    .push(Space::new().width(Length::Fill))
+                    .push(
+                        button(text("×").size(TEXT_XS).color(FG_DIM))
+                            .on_press(Msg::RemoveDetailTag(tag.clone()))
+                            .style(|_: &Theme, _| button::Style {
+                                background: None,
+                                text_color: FG_DIM,
+                                border: Border::default(),
+                                shadow: iced::Shadow::default(),
+                                snap: false,
+                            }),
+                    );
                 col = col.push(
-                    container(
-                        row![
-                            render_tag_name(tag.as_str()),
-                            Space::new().width(Length::Fill),
-                            button(text("×").size(TEXT_XS).color(FG_DIM))
-                                .on_press(Msg::RemoveDetailTag(tag.clone()))
-                                .style(|_: &Theme, _| button::Style {
-                                    background: None,
-                                    text_color: FG_DIM,
-                                    border: Border::default(),
-                                    shadow: iced::Shadow::default(),
-                                    snap: false,
-                                }),
-                        ]
-                        .align_y(Alignment::Center),
-                    )
+                    container(tag_row)
                     .padding([SPACE_0_5, SPACE_1])
                     .style(|_: &Theme| container::Style {
                         background: Some(Background::Color(Color {

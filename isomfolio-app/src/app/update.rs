@@ -843,17 +843,22 @@ impl App {
                 self.scan_folder_task(path)
             }
 
-            Msg::ScanComplete(count) => {
+            Msg::ScanComplete { count, new_file_ids } => {
                 self.is_scanning = false;
                 self.status = format!("Scanned {count} photo(s)");
                 let path = self.last_scanned_path.take();
                 let t1 = self.load_sidebar_task();
-                if let Some(p) = path {
-                    Task::batch([t1, Task::done(Msg::SidebarItemClicked(SidebarItem::Folder(p)))])
+                let t_nav = if let Some(p) = path {
+                    Task::done(Msg::SidebarItemClicked(SidebarItem::Folder(p)))
                 } else {
-                    let t2 = self.load_files_task();
-                    Task::batch([t1, t2])
-                }
+                    self.load_files_task()
+                };
+                let t_autotag = if !new_file_ids.is_empty() {
+                    self.auto_tag_task(new_file_ids)
+                } else {
+                    Task::none()
+                };
+                Task::batch([t1, t_nav, t_autotag])
             }
 
             Msg::RequestRemoveFolder(path) => {
@@ -1223,6 +1228,7 @@ impl App {
             Msg::DetailLoaded {
                 file_id,
                 tags,
+                tag_origins,
                 rating,
                 label,
                 title,
@@ -1231,6 +1237,7 @@ impl App {
                 self.detail.file_id = Some(file_id);
                 self.detail.batch_file_ids.clear();
                 self.detail.tags = tags;
+                self.detail.tag_origins = tag_origins;
                 self.detail.rating = rating;
                 self.detail.label = label;
                 self.detail.title = title;
@@ -2069,14 +2076,29 @@ impl App {
                     cat.scan_folder(&path, &|prog| {
                         let _ = wtx.try_send(FileEvent::ScanProgress(prog));
                     })
-                    .map(|r| r.total_count)
-                    .unwrap_or(0)
+                    .map(|r| (r.total_count, r.new_file_ids))
+                    .unwrap_or((0, Vec::new()))
                 })
                 .await
-                .unwrap_or(0)
+                .unwrap_or((0, Vec::new()))
             },
-            Msg::ScanComplete,
+            |(count, new_file_ids)| Msg::ScanComplete { count, new_file_ids },
         )
+    }
+
+    fn auto_tag_task(&self, new_file_ids: Vec<String>) -> Task<Msg> {
+        let classify_idx = self
+            .addons
+            .iter()
+            .position(|a| a.manifest.capabilities.iter().any(|c| c == "classify"));
+        let Some(addon_idx) = classify_idx else {
+            return Task::none();
+        };
+        Task::done(Msg::RunAddon {
+            addon_idx,
+            method: "classify".to_string(),
+            file_ids: new_file_ids,
+        })
     }
 
     pub(crate) fn load_loupe_full_res(&self) -> Task<Msg> {

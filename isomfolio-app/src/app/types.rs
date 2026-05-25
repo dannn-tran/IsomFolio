@@ -102,7 +102,7 @@ pub enum Msg {
 
     ScanPickFolder,
     ScanStart(String),
-    ScanComplete(usize),
+    ScanComplete { count: usize, new_file_ids: Vec<String> },
 
     StartCreateAlbum,
     CreateAlbumInputChanged(String),
@@ -150,6 +150,7 @@ pub enum Msg {
     DetailLoaded {
         file_id: String,
         tags: Vec<String>,
+        tag_origins: HashMap<String, String>,
         rating: Option<i32>,
         label: Option<String>,
         title: Option<String>,
@@ -292,6 +293,7 @@ pub struct DetailState {
     pub file_id: Option<String>,
     pub batch_file_ids: Vec<String>,
     pub tags: Vec<String>,
+    pub tag_origins: HashMap<String, String>,
     pub tag_input: String,
     pub all_tags: Vec<String>,
     pub recent_tags: Vec<String>,
@@ -318,6 +320,7 @@ impl Default for DetailState {
             file_id: None,
             batch_file_ids: Vec::new(),
             tags: Vec::new(),
+            tag_origins: HashMap::new(),
             tag_input: String::new(),
             all_tags: Vec::new(),
             recent_tags: Vec::new(),

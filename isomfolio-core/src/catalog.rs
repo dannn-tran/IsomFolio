@@ -82,6 +82,18 @@ impl Catalog {
         db::get_tags_for_file(&self.conn, file_id)
     }
 
+    pub fn get_tags_with_origin(&self, file_id: &str) -> Result<Vec<(String, String)>, AppError> {
+        db::get_tags_with_origin(&self.conn, file_id)
+    }
+
+    pub fn delete_ai_tags(&self, file_id: &str) -> Result<usize, AppError> {
+        db::delete_ai_tags(&self.conn, file_id)
+    }
+
+    pub fn delete_all_ai_tags(&self) -> Result<usize, AppError> {
+        db::delete_all_ai_tags(&self.conn)
+    }
+
     pub fn get_shared_tags(&self, file_ids: &[String]) -> Result<Vec<String>, AppError> {
         if file_ids.is_empty() {
             return Ok(Vec::new());

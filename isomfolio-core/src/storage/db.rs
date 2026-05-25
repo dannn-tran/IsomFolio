@@ -257,10 +257,10 @@ pub fn get_indexed_paths_in_folder(
 
 pub fn upsert_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
-    conn.execute("DELETE FROM tags WHERE file_id = ?1", [file_id])?;
+    conn.execute("DELETE FROM tags WHERE file_id = ?1 AND origin = 'manual'", [file_id])?;
     for tag in tags {
         conn.execute(
-            "INSERT INTO tags (file_id, tag) VALUES (?1, ?2)",
+            "INSERT OR REPLACE INTO tags (file_id, tag, origin) VALUES (?1, ?2, 'manual')",
             params![file_id, tag],
         )?;
     }
@@ -274,13 +274,30 @@ pub fn add_tags_merge(conn: &Connection, file_id: &str, tags: &[String]) -> Resu
     let tx = conn.unchecked_transaction()?;
     for tag in tags {
         conn.execute(
-            "INSERT OR IGNORE INTO tags (file_id, tag) VALUES (?1, ?2)",
+            "INSERT OR IGNORE INTO tags (file_id, tag, origin) VALUES (?1, ?2, 'ai')",
             params![file_id, tag],
         )?;
     }
     tx.commit()?;
     rebuild_fts_for_file(conn, file_id)?;
     Ok(())
+}
+
+pub fn delete_ai_tags(conn: &Connection, file_id: &str) -> Result<usize, AppError> {
+    let n = conn.execute("DELETE FROM tags WHERE file_id = ?1 AND origin = 'ai'", [file_id])?;
+    rebuild_fts_for_file(conn, file_id)?;
+    Ok(n)
+}
+
+pub fn delete_all_ai_tags(conn: &Connection) -> Result<usize, AppError> {
+    let n = conn.execute("DELETE FROM tags WHERE origin = 'ai'", [])?;
+    Ok(n)
+}
+
+pub fn get_tag_origin(conn: &Connection, file_id: &str, tag: &str) -> Result<Option<String>, AppError> {
+    let mut stmt = conn.prepare("SELECT origin FROM tags WHERE file_id = ?1 AND tag = ?2")?;
+    let origin = stmt.query_row(params![file_id, tag], |r| r.get::<_, String>(0)).ok();
+    Ok(origin)
 }
 
 fn parse_json_strings(json: &str) -> Vec<String> {
@@ -316,6 +333,12 @@ pub fn rebuild_fts_for_file(conn: &Connection, file_id: &str) -> Result<(), AppE
 pub fn get_tags_for_file(conn: &Connection, file_id: &str) -> Result<Vec<String>, AppError> {
     let mut stmt = conn.prepare("SELECT tag FROM tags WHERE file_id = ?1 ORDER BY tag")?;
     let rows = stmt.query_map([file_id], |r| r.get::<_, String>(0))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn get_tags_with_origin(conn: &Connection, file_id: &str) -> Result<Vec<(String, String)>, AppError> {
+    let mut stmt = conn.prepare("SELECT tag, origin FROM tags WHERE file_id = ?1 ORDER BY tag")?;
+    let rows = stmt.query_map([file_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
@@ -1022,5 +1045,55 @@ mod tests {
         assert_eq!(count_album_files(&conn, "a1").unwrap(), 1);
         remove_file_from_album(&conn, "a1", "f1").unwrap();
         assert_eq!(count_album_files(&conn, "a1").unwrap(), 0);
+    }
+
+    mod tag_origin {
+        use super::*;
+
+        fn setup(conn: &Connection) {
+            upsert_files(conn, &[make_file("f1", "/p/a.jpg")]).unwrap();
+        }
+
+        #[test]
+        fn manual_tags_have_manual_origin() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            upsert_tags(&conn, "f1", &["landscape".into()]).unwrap();
+            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            assert_eq!(tags, vec![("landscape".into(), "manual".into())]);
+        }
+
+        #[test]
+        fn ai_tags_have_ai_origin() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            add_tags_merge(&conn, "f1", &["portrait".into()]).unwrap();
+            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            assert_eq!(tags, vec![("portrait".into(), "ai".into())]);
+        }
+
+        #[test]
+        fn manual_upsert_preserves_ai_tags() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            add_tags_merge(&conn, "f1", &["ai-tag".into()]).unwrap();
+            upsert_tags(&conn, "f1", &["manual-tag".into()]).unwrap();
+            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            assert_eq!(tags.len(), 2);
+            assert!(tags.contains(&("ai-tag".into(), "ai".into())));
+            assert!(tags.contains(&("manual-tag".into(), "manual".into())));
+        }
+
+        #[test]
+        fn delete_ai_tags_keeps_manual() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            upsert_tags(&conn, "f1", &["keep".into()]).unwrap();
+            add_tags_merge(&conn, "f1", &["remove".into()]).unwrap();
+            let n = delete_ai_tags(&conn, "f1").unwrap();
+            assert_eq!(n, 1);
+            let tags = get_tags_for_file(&conn, "f1").unwrap();
+            assert_eq!(tags, vec!["keep".to_string()]);
+        }
     }
 }

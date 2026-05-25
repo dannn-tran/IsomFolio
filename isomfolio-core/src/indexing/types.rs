@@ -35,4 +35,5 @@ pub struct ScanProgress {
 #[derive(Debug, Clone)]
 pub struct ScanResult {
     pub total_count: usize,
+    pub new_file_ids: Vec<String>,
 }

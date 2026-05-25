@@ -66,7 +66,10 @@ pub fn scan_folder(
         .unwrap_or(root_path)
         .to_string();
 
+    let indexed = db::get_indexed_paths_in_folder(conn, root_path)?;
+
     let mut total = 0usize;
+    let mut new_file_ids: Vec<String> = Vec::new();
     let mut batch: Vec<ScannedFile> = Vec::with_capacity(500);
 
     for path in discover_paths(root_path) {
@@ -74,7 +77,11 @@ pub fn scan_folder(
             Some(a) => a,
             None => continue,
         };
+        let is_new = !indexed.contains_key(&asset.path);
         let meta = metadata::read_metadata(&path);
+        if is_new {
+            new_file_ids.push(asset.id.clone());
+        }
         batch.push(ScannedFile { asset, meta });
 
         if batch.len() >= 500 {
@@ -112,7 +119,7 @@ pub fn scan_folder(
     if let Err(e) = db::detect_and_store_bursts(conn, root_path) {
         eprintln!("[db] detect_and_store_bursts failed: {e}");
     }
-    Ok(ScanResult { total_count: total })
+    Ok(ScanResult { total_count: total, new_file_ids })
 }
 
 pub fn resync_files(conn: &Connection, paths: &[String]) -> Result<(), AppError> {
