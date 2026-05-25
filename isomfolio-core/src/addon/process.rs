@@ -18,11 +18,13 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 const SUPPORTED_PROTOCOL_VERSION: u32 = 1;
 
 type PendingMap = Arc<Mutex<HashMap<u64, SyncSender<Result<serde_json::Value, String>>>>>;
+type ProgressMap = Arc<Mutex<HashMap<u64, SyncSender<u8>>>>;
 
 #[derive(Debug)]
 pub struct AddonProcess {
     writer: Arc<Mutex<BufWriter<ChildStdin>>>,
     pending: PendingMap,
+    progress_sinks: ProgressMap,
     next_id: Arc<AtomicU64>,
     pub manifest: AddonManifest,
     _child: Child,
@@ -53,9 +55,11 @@ impl AddonProcess {
 
         let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+        let progress_sinks: ProgressMap = Arc::new(Mutex::new(HashMap::new()));
 
         let (hello_tx, hello_rx) = sync_channel::<Result<HelloData, String>>(1);
         let pending_reader = Arc::clone(&pending);
+        let progress_reader = Arc::clone(&progress_sinks);
 
         let reader = std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -78,7 +82,7 @@ impl AddonProcess {
             let ok = hello_result.is_ok();
             let _ = hello_tx.send(hello_result);
             if ok {
-                reader_loop(reader, pending_reader);
+                reader_loop(reader, pending_reader, progress_reader);
             }
         });
 
@@ -98,6 +102,7 @@ impl AddonProcess {
         Ok(AddonProcess {
             writer,
             pending,
+            progress_sinks,
             next_id: Arc::new(AtomicU64::new(1)),
             manifest,
             _child: child,
@@ -121,6 +126,22 @@ impl AddonProcess {
         self.call_timeout(method, params, Duration::from_secs(600))
     }
 
+    pub fn send(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<AddonCallHandle, AppError> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (result_tx, result_rx) = sync_channel(1);
+        let (progress_tx, progress_rx) = sync_channel(256);
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, result_tx);
+        self.progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).insert(id, progress_tx);
+
+        self.write_request(id, method, params)?;
+
+        Ok(AddonCallHandle { id, result_rx, progress_rx, progress_sinks: Arc::clone(&self.progress_sinks) })
+    }
+
     fn call_timeout(
         &self,
         method: &str,
@@ -131,21 +152,38 @@ impl AddonProcess {
         let (tx, rx) = sync_channel(1);
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
 
-        let req = AddonRequest { id, method: method.to_string(), params };
-        let mut line = serde_json::to_string(&req).unwrap();
-        line.push('\n');
-
-        {
-            let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
-            if let Err(e) = w.write_all(line.as_bytes()).and_then(|_| w.flush()) {
-                self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
-                return Err(AppError::Addon(format!("write failed: {e}")));
-            }
-        }
+        self.write_request(id, method, params)?;
 
         rx.recv_timeout(timeout)
             .map_err(|_| AppError::Addon(format!("addon '{}' timed out", self.manifest.name)))?
             .map_err(AppError::Addon)
+    }
+
+    fn write_request(&self, id: u64, method: &str, params: serde_json::Value) -> Result<(), AppError> {
+        let req = AddonRequest { id, method: method.to_string(), params };
+        let mut line = serde_json::to_string(&req).unwrap();
+        line.push('\n');
+
+        let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        if let Err(e) = w.write_all(line.as_bytes()).and_then(|_| w.flush()) {
+            self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            return Err(AppError::Addon(format!("write failed: {e}")));
+        }
+        Ok(())
+    }
+}
+
+pub struct AddonCallHandle {
+    #[allow(dead_code)]
+    id: u64,
+    pub result_rx: std::sync::mpsc::Receiver<Result<serde_json::Value, String>>,
+    pub progress_rx: std::sync::mpsc::Receiver<u8>,
+    progress_sinks: ProgressMap,
+}
+
+impl Drop for AddonCallHandle {
+    fn drop(&mut self) {
+        self.progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.id);
     }
 }
 
@@ -163,11 +201,12 @@ impl Drop for AddonProcess {
     }
 }
 
-fn reader_loop(reader: BufReader<impl std::io::Read>, pending: PendingMap) {
+fn reader_loop(reader: BufReader<impl std::io::Read>, pending: PendingMap, progress_sinks: ProgressMap) {
     for line in reader.lines() {
         let Ok(line) = line else { break };
         match serde_json::from_str::<StdoutLine>(&line) {
             Ok(StdoutLine::Response(resp)) => {
+                progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).remove(&resp.id);
                 if let Some(tx) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&resp.id) {
                     let result = match resp.body {
                         ResponseBody::Ok { result } => Ok(result),
@@ -179,8 +218,10 @@ fn reader_loop(reader: BufReader<impl std::io::Read>, pending: PendingMap) {
             Ok(StdoutLine::Event(AddonEvent::Log { level, message })) => {
                 eprintln!("[addon] [{level}] {message}");
             }
-            Ok(StdoutLine::Event(AddonEvent::Progress { .. })) => {
-                // forward via channel in a future sub-phase
+            Ok(StdoutLine::Event(AddonEvent::Progress { id, percent })) => {
+                if let Some(tx) = progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).get(&id) {
+                    let _ = tx.try_send(percent);
+                }
             }
             Ok(StdoutLine::Event(AddonEvent::Hello { .. })) => {
                 eprintln!("[addon] unexpected hello after handshake");
@@ -190,7 +231,6 @@ fn reader_loop(reader: BufReader<impl std::io::Read>, pending: PendingMap) {
             }
         }
     }
-    // Addon exited — unblock all pending callers
     for (_, tx) in pending.lock().unwrap_or_else(|e| e.into_inner()).drain() {
         let _ = tx.send(Err("addon exited".to_string()));
     }

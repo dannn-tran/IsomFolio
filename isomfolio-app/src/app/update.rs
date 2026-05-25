@@ -75,68 +75,102 @@ impl App {
                 };
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let catalog_dir = self.catalog_dir.clone();
-                let total = file_ids.len();
                 let addon_name = addon.manifest.name.clone();
-                self.status = format!("{addon_name}… (0/{total})");
+                self.status = format!("{addon_name}…");
 
-                let file_tasks: Vec<(String, String)> = file_ids
+                let use_batch = addon.manifest.capabilities.iter().any(|c| c == "classify_batch");
+                let file_params: Vec<serde_json::Value> = file_ids
                     .into_iter()
                     .map(|id| {
                         let thumb = match self.thumbnails.get(&id) {
                             Some(ThumbnailState::Ready(path)) => path.clone(),
                             _ => thumbnail_cache_path(&catalog_dir, &id),
                         };
-                        (id, thumb)
+                        serde_json::json!({ "file_id": id, "thumbnail_path": thumb })
                     })
                     .collect();
 
-                let stream = futures::stream::unfold(
-                    (file_tasks.into_iter(), addon, conn, method.clone(), addon_name.clone(), 0usize, 0usize, total),
-                    |(mut iter, addon, conn, method, name, mut done, mut applied, total)| async move {
-                        let (file_id, thumbnail_path) = iter.next()?;
-                        if std::path::Path::new(&thumbnail_path).exists() {
-                            let params = serde_json::json!({
-                                "file_id": &file_id,
-                                "thumbnail_path": &thumbnail_path,
-                            });
-                            if let Ok(result) = addon.call(&method, params) {
-                                let scored_tags: Vec<(String, Option<f32>)> = result
-                                    .get("tags")
-                                    .and_then(|t| t.as_array())
-                                    .map(|arr| {
-                                        arr.iter()
-                                            .filter_map(|t| {
-                                                let tag = t.get("tag")?.as_str()?.to_string();
-                                                let conf = t.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32);
-                                                Some((tag, conf))
-                                            })
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
-                                if !scored_tags.is_empty() {
-                                    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                                    if let Err(e) = g.insert_pending_tags(&file_id, &scored_tags) {
-                                        eprintln!("[db] insert_pending_tags failed: {e}");
+                if use_batch {
+                    let params = serde_json::json!({ "files": file_params });
+                    let handle = match addon.send("classify_batch", params) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            self.status = format!("addon error: {e}");
+                            return Task::none();
+                        }
+                    };
+                    let stream = futures::stream::unfold(
+                        (handle, conn, addon_name, false),
+                        |(handle, conn, name, done)| async move {
+                            if done { return None; }
+                            match handle.progress_rx.recv_timeout(Duration::from_millis(100)) {
+                                Ok(percent) => {
+                                    let msg = Msg::AddonBatchProgress { name: name.clone(), done: percent as usize, total: 100 };
+                                    Some((msg, (handle, conn, name, false)))
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                    match handle.result_rx.try_recv() {
+                                        Ok(Ok(result)) => {
+                                            let applied = process_batch_result(&conn, &result);
+                                            Some((Msg::AddonBatchDone { method: "classify".into(), applied }, (handle, conn, name, true)))
+                                        }
+                                        Ok(Err(e)) => {
+                                            eprintln!("[addon] batch error: {e}");
+                                            Some((Msg::AddonBatchDone { method: "classify".into(), applied: 0 }, (handle, conn, name, true)))
+                                        }
+                                        Err(_) => Some((Msg::NoOp, (handle, conn, name, false)))
                                     }
-                                    applied += 1;
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                    match handle.result_rx.recv() {
+                                        Ok(Ok(result)) => {
+                                            let applied = process_batch_result(&conn, &result);
+                                            Some((Msg::AddonBatchDone { method: "classify".into(), applied }, (handle, conn, name, true)))
+                                        }
+                                        Ok(Err(e)) => {
+                                            eprintln!("[addon] batch error: {e}");
+                                            Some((Msg::AddonBatchDone { method: "classify".into(), applied: 0 }, (handle, conn, name, true)))
+                                        }
+                                        Err(_) => None,
+                                    }
                                 }
                             }
-                        }
-                        done += 1;
-                        if done == total {
-                            Some((Msg::AddonBatchDone { method: method.clone(), applied }, (iter, addon, conn, method, name, done, applied, total)))
-                        } else {
-                            Some((Msg::AddonBatchProgress { name: name.clone(), done, total }, (iter, addon, conn, method, name, done, applied, total)))
-                        }
-                    },
-                );
-                Task::stream(stream)
+                        },
+                    );
+                    Task::stream(stream)
+                } else {
+                    let method_c = method.clone();
+                    Task::perform(
+                        async move {
+                            let mut applied = 0usize;
+                            for file in &file_params {
+                                if let Ok(result) = addon.call(&method_c, file.clone()) {
+                                    let tags = extract_scored_tags(&result);
+                                    if !tags.is_empty() {
+                                        let fid = file["file_id"].as_str().unwrap_or("");
+                                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                                        if let Err(e) = g.insert_pending_tags(fid, &tags) {
+                                            eprintln!("[db] insert_pending_tags failed: {e}");
+                                        }
+                                        applied += 1;
+                                    }
+                                }
+                            }
+                            applied
+                        },
+                        move |applied| Msg::AddonBatchDone { method, applied },
+                    )
+                }
             }
 
             Msg::AddonProgress { .. } => Task::none(),
 
             Msg::AddonBatchProgress { name, done, total } => {
-                self.status = format!("{name}… ({done}/{total})");
+                if total == 100 {
+                    self.status = format!("{name}… ({done}%)");
+                } else {
+                    self.status = format!("{name}… ({done}/{total})");
+                }
                 Task::none()
             }
 
@@ -2159,6 +2193,47 @@ impl App {
         )
     }
 
+}
+
+fn extract_scored_tags(result: &serde_json::Value) -> Vec<(String, Option<f32>)> {
+    result
+        .get("tags")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|t| {
+                    let tag = t.get("tag")?.as_str()?.to_string();
+                    let conf = t.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32);
+                    Some((tag, conf))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn process_batch_result(
+    conn: &Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
+    result: &serde_json::Value,
+) -> usize {
+    let files = match result.get("files").and_then(|f| f.as_object()) {
+        Some(f) => f,
+        None => return 0,
+    };
+    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+    let mut applied = 0;
+    for (file_id, tags_val) in files {
+        let tags = extract_scored_tags(tags_val);
+        if !tags.is_empty() {
+            if let Err(e) = g.insert_pending_tags(file_id, &tags) {
+                eprintln!("[db] insert_pending_tags failed: {e}");
+            }
+            applied += 1;
+        }
+    }
+    applied
+}
+
+impl App {
     fn auto_tag_task(&self, new_file_ids: Vec<String>) -> Task<Msg> {
         let classify_idx = self
             .addons
