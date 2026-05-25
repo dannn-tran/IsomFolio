@@ -657,11 +657,14 @@ impl App {
                 }
                 if self.detail.show && self.grid_selected.len() != 1 {
                     self.detail.file_id = None;
-                    self.detail.tags.clear();
                     self.detail.rating = None;
                     self.detail.label = None;
                     self.detail.title = None;
                     self.detail.exif_tech = None;
+                    if self.grid_selected.is_empty() {
+                        self.detail.tags.clear();
+                        self.detail.batch_file_ids.clear();
+                    }
                 }
                 Task::none()
             }
@@ -1208,11 +1211,27 @@ impl App {
                 exif_tech,
             } => {
                 self.detail.file_id = Some(file_id);
+                self.detail.batch_file_ids.clear();
                 self.detail.tags = tags;
                 self.detail.rating = rating;
                 self.detail.label = label;
                 self.detail.title = title;
                 self.detail.exif_tech = exif_tech;
+                self.load_all_tags_task()
+            }
+
+            Msg::BatchDetailLoaded { file_ids, tags } => {
+                self.detail.file_id = None;
+                self.detail.batch_file_ids = file_ids;
+                self.detail.tags = tags;
+                self.detail.rating = None;
+                self.detail.label = None;
+                self.detail.title = None;
+                self.detail.exif_tech = None;
+                self.load_all_tags_task()
+            }
+
+            Msg::BatchTagsChanged => {
                 self.load_all_tags_task()
             }
 
@@ -1227,8 +1246,12 @@ impl App {
                 if tag.is_empty() || self.detail.tags.contains(&tag) {
                     return Task::none();
                 }
-                self.detail.tags.push(tag);
-                self.save_detail_tags_task()
+                self.detail.tags.push(tag.clone());
+                if !self.detail.batch_file_ids.is_empty() {
+                    self.batch_add_tag_task(tag)
+                } else {
+                    self.save_detail_tags_task()
+                }
             }
 
             Msg::AddDetailTagDirect(tag) => {
@@ -1236,14 +1259,22 @@ impl App {
                 if tag.is_empty() || self.detail.tags.contains(&tag) {
                     return Task::none();
                 }
-                self.detail.tags.push(tag);
+                self.detail.tags.push(tag.clone());
                 self.detail.tag_input.clear();
-                self.save_detail_tags_task()
+                if !self.detail.batch_file_ids.is_empty() {
+                    self.batch_add_tag_task(tag)
+                } else {
+                    self.save_detail_tags_task()
+                }
             }
 
             Msg::RemoveDetailTag(tag) => {
                 self.detail.tags.retain(|t| t != &tag);
-                self.save_detail_tags_task()
+                if !self.detail.batch_file_ids.is_empty() {
+                    self.batch_remove_tag_task(tag)
+                } else {
+                    self.save_detail_tags_task()
+                }
             }
 
             Msg::AllTagsLoaded(tags) => {
@@ -1949,7 +1980,7 @@ impl App {
         Task::perform(
             async move {
                 let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                if let Err(e) = g.upsert_tags( &fid, &tags) {
+                if let Err(e) = g.upsert_tags(&fid, &tags) {
                     eprintln!("[db] upsert_tags failed: {e}");
                 }
                 g.get_all_tags()
@@ -1959,6 +1990,38 @@ impl App {
                     .collect::<Vec<_>>()
             },
             Msg::AllTagsLoaded,
+        )
+    }
+
+    fn batch_add_tag_task(&self, tag: String) -> Task<Msg> {
+        let file_ids = self.detail.batch_file_ids.clone();
+        let Some(conn) = self.catalog.clone() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                if let Err(e) = g.add_tag_to_files(&file_ids, &tag) {
+                    eprintln!("[db] add_tag_to_files failed: {e}");
+                }
+            },
+            |()| Msg::BatchTagsChanged,
+        )
+    }
+
+    fn batch_remove_tag_task(&self, tag: String) -> Task<Msg> {
+        let file_ids = self.detail.batch_file_ids.clone();
+        let Some(conn) = self.catalog.clone() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                if let Err(e) = g.remove_tag_from_files(&file_ids, &tag) {
+                    eprintln!("[db] remove_tag_from_files failed: {e}");
+                }
+            },
+            |()| Msg::BatchTagsChanged,
         )
     }
 

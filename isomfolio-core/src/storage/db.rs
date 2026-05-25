@@ -265,6 +265,7 @@ pub fn upsert_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Result<
         )?;
     }
     tx.commit()?;
+    rebuild_fts_for_file(conn, file_id)?;
     Ok(())
 }
 
@@ -278,6 +279,37 @@ pub fn add_tags_merge(conn: &Connection, file_id: &str, tags: &[String]) -> Resu
         )?;
     }
     tx.commit()?;
+    rebuild_fts_for_file(conn, file_id)?;
+    Ok(())
+}
+
+fn parse_json_strings(json: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(json).unwrap_or_default()
+}
+
+pub fn rebuild_fts_for_file(conn: &Connection, file_id: &str) -> Result<(), AppError> {
+    let mut fts_tokens = get_tags_for_file(conn, file_id)?;
+    let mut stmt = conn.prepare(
+        "SELECT subjects, apple_tags, title, description, creator FROM metadata WHERE file_id = ?1",
+    )?;
+    let meta = stmt.query_row([file_id], |r| {
+        Ok((
+            r.get::<_, Option<String>>(0)?,
+            r.get::<_, Option<String>>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, Option<String>>(3)?,
+            r.get::<_, Option<String>>(4)?,
+        ))
+    });
+    if let Ok((subjects, apple_tags, title, description, creator)) = meta {
+        if let Some(ref j) = subjects { fts_tokens.extend(parse_json_strings(j)); }
+        if let Some(ref j) = apple_tags { fts_tokens.extend(parse_json_strings(j)); }
+        if let Some(t) = title { fts_tokens.push(t); }
+        if let Some(d) = description { fts_tokens.push(d); }
+        if let Some(ref j) = creator { fts_tokens.extend(parse_json_strings(j)); }
+    }
+    fts_tokens.dedup();
+    fts::update_file_index_tags(conn, file_id, &fts_tokens)?;
     Ok(())
 }
 
@@ -392,19 +424,7 @@ pub fn upsert_metadata(
     )?;
     tx.commit()?;
 
-    let user_tags = get_tags_for_file(conn, file_id)?;
-    let mut fts_tokens: Vec<String> = user_tags;
-    fts_tokens.extend(subjects.iter().cloned());
-    fts_tokens.extend(apple_tags.iter().cloned());
-    if let Some(t) = title {
-        fts_tokens.push(t.to_string());
-    }
-    if let Some(d) = description {
-        fts_tokens.push(d.to_string());
-    }
-    fts_tokens.extend(creator.iter().cloned());
-    fts_tokens.dedup();
-    fts::update_file_index_tags(conn, file_id, &fts_tokens)?;
+    rebuild_fts_for_file(conn, file_id)?;
     Ok(())
 }
 

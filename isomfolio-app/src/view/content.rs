@@ -432,6 +432,8 @@ impl App {
         use crate::app::SIDEBAR_WIDTH;
 
         let file = self.detail_file();
+        let is_batch = !self.detail.batch_file_ids.is_empty();
+        let has_tags = file.is_some() || is_batch;
 
         let mut col = column![text("Info").size(TEXT_SM).color(FG_DIM)]
             .spacing(SPACE_2)
@@ -475,11 +477,19 @@ impl App {
                 );
             }
             col = col.push(stars_row);
+        } else if is_batch {
+            let n = self.detail.batch_file_ids.len();
+            col = col.push(
+                text(format!("{n} photos selected")).size(TEXT_BASE),
+            );
+        }
 
+        if has_tags {
             col = col.push(Space::new().height(SPACE_1));
+            let tag_label = if is_batch { "Shared Tags" } else { "Tags" };
             col = col.push(
                 row![
-                    text("Tags").size(TEXT_SM).color(FG_DIM),
+                    text(tag_label).size(TEXT_SM).color(FG_DIM),
                     Space::new().width(Length::Fill),
                     button(text("Browse").size(TEXT_XS).color(FG_DIM))
                         .on_press(Msg::OpenTagBrowser)
@@ -554,7 +564,9 @@ impl App {
                     .size(TEXT_SM)
                     .width(Length::Fill),
             );
+        }
 
+        if self.detail_file().is_some() {
             if let Some(title) = &self.detail.title {
                 col = col.push(Space::new().height(SPACE_1));
                 col = col.push(
@@ -618,15 +630,13 @@ impl App {
                     );
                 }
             }
-        } else {
+        }
+
+        if !has_tags {
             col = col.push(
-                text(if self.grid_selected.is_empty() {
-                    "Select a photo to see details"
-                } else {
-                    "Select a single photo"
-                })
-                .size(TEXT_MD)
-                .color(FG_DIM),
+                text("Select a photo to see details")
+                    .size(TEXT_MD)
+                    .color(FG_DIM),
             );
         }
 

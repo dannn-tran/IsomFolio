@@ -109,4 +109,23 @@ mod tests {
         insert_file(&conn, "id1", "photo.jpg", "/photos");
         assert!(search_fts5(&conn, "").unwrap().is_empty());
     }
+
+    #[test]
+    fn fts_updates_after_tag_change() {
+        let (conn, _f) = open_temp();
+        insert_file(&conn, "id1", "photo.jpg", "/photos");
+        assert!(search_fts5(&conn, "bodybuilder").unwrap().is_empty());
+        db::upsert_tags(&conn, "id1", &["bodybuilder".into()]).unwrap();
+        let ids = search_fts5(&conn, "bodybuilder").unwrap();
+        assert!(ids.contains(&"id1".to_string()));
+    }
+
+    #[test]
+    fn fts_updates_after_tag_merge() {
+        let (conn, _f) = open_temp();
+        insert_file(&conn, "id1", "photo.jpg", "/photos");
+        db::add_tags_merge(&conn, "id1", &["arnold".into()]).unwrap();
+        let ids = search_fts5(&conn, "arnold").unwrap();
+        assert!(ids.contains(&"id1".to_string()));
+    }
 }

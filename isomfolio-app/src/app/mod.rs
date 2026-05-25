@@ -494,40 +494,52 @@ impl App {
         if !self.detail.show {
             return Task::none();
         }
-        if self.grid_selected.len() != 1 {
-            return Task::none();
-        }
-        let file_id = self.grid_selected.iter().next().unwrap().clone();
-        if self.detail.file_id.as_deref() == Some(file_id.as_str()) {
-            return Task::none();
-        }
         let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
+        let n = self.grid_selected.len();
+        if n == 0 {
+            return Task::none();
+        }
+        if n == 1 {
+            let file_id = self.grid_selected.iter().next().unwrap().clone();
+            if self.detail.file_id.as_deref() == Some(file_id.as_str()) {
+                return Task::none();
+            }
+            return Task::perform(
+                async move {
+                    let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                    let tags = cat.get_tags_for_file(&file_id).unwrap_or_default();
+                    let meta_opt = cat.get_metadata(&file_id).ok().flatten();
+                    let (rating, label, title, exif_tech) = match meta_opt {
+                        Some(m) => (
+                            m.xmp.as_ref().and_then(|x| x.core.rating),
+                            m.xmp.as_ref().and_then(|x| x.core.label.clone()),
+                            m.xmp.as_ref().and_then(|x| x.dublin_core.title.clone()),
+                            m.exif_tech,
+                        ),
+                        None => (None, None, None, None),
+                    };
+                    (file_id, tags, rating, label, title, exif_tech)
+                },
+                |(file_id, tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
+                    file_id,
+                    tags,
+                    rating,
+                    label,
+                    title,
+                    exif_tech,
+                },
+            );
+        }
+        let file_ids: Vec<String> = self.grid_selected.iter().cloned().collect();
         Task::perform(
             async move {
                 let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
-                let tags = cat.get_tags_for_file(&file_id).unwrap_or_default();
-                let meta_opt = cat.get_metadata(&file_id).ok().flatten();
-                let (rating, label, title, exif_tech) = match meta_opt {
-                    Some(m) => (
-                        m.xmp.as_ref().and_then(|x| x.core.rating),
-                        m.xmp.as_ref().and_then(|x| x.core.label.clone()),
-                        m.xmp.as_ref().and_then(|x| x.dublin_core.title.clone()),
-                        m.exif_tech,
-                    ),
-                    None => (None, None, None, None),
-                };
-                (file_id, tags, rating, label, title, exif_tech)
+                let shared_tags = cat.get_shared_tags(&file_ids).unwrap_or_default();
+                (file_ids, shared_tags)
             },
-            |(file_id, tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
-                file_id,
-                tags,
-                rating,
-                label,
-                title,
-                exif_tech,
-            },
+            |(file_ids, tags)| Msg::BatchDetailLoaded { file_ids, tags },
         )
     }
 
@@ -633,10 +645,6 @@ impl App {
                     key: keyboard::Key::Named(keyboard::key::Named::Escape),
                     ..
                 }) => Some(Msg::EscapePressed),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::Enter),
-                    ..
-                }) if ignored => Some(Msg::OpenLoupe),
                 Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::Space),
                     ..

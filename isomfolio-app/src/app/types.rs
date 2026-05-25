@@ -161,6 +161,8 @@ pub enum Msg {
     SetDetailRating(i32),
     AllTagsLoaded(Vec<String>),
     AddDetailTagDirect(String),
+    BatchDetailLoaded { file_ids: Vec<String>, tags: Vec<String> },
+    BatchTagsChanged,
 
     OpenTagBrowser,
     CloseTagBrowser,
@@ -285,6 +287,7 @@ impl Default for CriteriaState {
 pub struct DetailState {
     pub show: bool,
     pub file_id: Option<String>,
+    pub batch_file_ids: Vec<String>,
     pub tags: Vec<String>,
     pub tag_input: String,
     pub all_tags: Vec<String>,
@@ -299,6 +302,7 @@ impl Default for DetailState {
         Self {
             show: false,
             file_id: None,
+            batch_file_ids: Vec::new(),
             tags: Vec::new(),
             tag_input: String::new(),
             all_tags: Vec::new(),

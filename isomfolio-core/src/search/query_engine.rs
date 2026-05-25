@@ -70,11 +70,17 @@ fn execute_query_inner(
     };
 
     for (i, tag) in query.tags.iter().enumerate() {
+        let like_param = param_idx + 1;
         sql.push_str(&format!(
-            " JOIN tags t{i} ON f.id = t{i}.file_id AND t{i}.tag = ?{param_idx}"
+            " JOIN tags t{i} ON f.id = t{i}.file_id AND (t{i}.tag = ?{param_idx} OR t{i}.tag LIKE ?{like_param} ESCAPE '\\')"
         ));
         params.push(Box::new(tag.clone()));
-        param_idx += 1;
+        let escaped = tag
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        params.push(Box::new(format!("{escaped}/%")));
+        param_idx += 2;
     }
 
     if needs_meta {
@@ -265,6 +271,51 @@ mod tests {
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].id, "plain1");
+        }
+    }
+
+    mod tag_hierarchy {
+        use super::*;
+        use crate::storage::db;
+
+        #[test]
+        fn exact_match() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "a", "a.jpg", "/p", "jpg", 0);
+            insert(&conn, "b", "b.jpg", "/p", "jpg", 0);
+            db::upsert_tags(&conn, "a", &["Subject/Arnold".into()]).unwrap();
+            db::upsert_tags(&conn, "b", &["Subject/Ronnie".into()]).unwrap();
+            let q = SearchQuery { tags: vec!["Subject/Arnold".into()], ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "a");
+        }
+
+        #[test]
+        fn parent_matches_descendants() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "a", "a.jpg", "/p", "jpg", 0);
+            insert(&conn, "b", "b.jpg", "/p", "jpg", 0);
+            insert(&conn, "c", "c.jpg", "/p", "jpg", 0);
+            db::upsert_tags(&conn, "a", &["Subject/Arnold".into()]).unwrap();
+            db::upsert_tags(&conn, "b", &["Subject/Ronnie".into()]).unwrap();
+            db::upsert_tags(&conn, "c", &["Photographer/Art".into()]).unwrap();
+            let q = SearchQuery { tags: vec!["Subject".into()], ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 2);
+            let ids: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+            assert!(ids.contains(&"a"));
+            assert!(ids.contains(&"b"));
+        }
+
+        #[test]
+        fn no_false_prefix_match() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "a", "a.jpg", "/p", "jpg", 0);
+            db::upsert_tags(&conn, "a", &["Subject Extra".into()]).unwrap();
+            let q = SearchQuery { tags: vec!["Subject".into()], ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 0, "'Subject Extra' must not match tag filter 'Subject'");
         }
     }
 

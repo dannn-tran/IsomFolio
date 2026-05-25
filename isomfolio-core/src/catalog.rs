@@ -82,6 +82,38 @@ impl Catalog {
         db::get_tags_for_file(&self.conn, file_id)
     }
 
+    pub fn get_shared_tags(&self, file_ids: &[String]) -> Result<Vec<String>, AppError> {
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let first = db::get_tags_for_file(&self.conn, &file_ids[0])?;
+        if file_ids.len() == 1 {
+            return Ok(first);
+        }
+        let mut shared: Vec<String> = first;
+        for fid in &file_ids[1..] {
+            let tags = db::get_tags_for_file(&self.conn, fid)?;
+            shared.retain(|t| tags.contains(t));
+        }
+        Ok(shared)
+    }
+
+    pub fn add_tag_to_files(&self, file_ids: &[String], tag: &str) -> Result<(), AppError> {
+        for fid in file_ids {
+            db::add_tags_merge(&self.conn, fid, &[tag.to_string()])?;
+        }
+        Ok(())
+    }
+
+    pub fn remove_tag_from_files(&self, file_ids: &[String], tag: &str) -> Result<(), AppError> {
+        for fid in file_ids {
+            let mut tags = db::get_tags_for_file(&self.conn, fid)?;
+            tags.retain(|t| t != tag);
+            db::upsert_tags(&self.conn, fid, &tags)?;
+        }
+        Ok(())
+    }
+
     pub fn get_all_tags(&self) -> Result<Vec<(String, usize)>, AppError> {
         db::get_all_tags(&self.conn)
     }
