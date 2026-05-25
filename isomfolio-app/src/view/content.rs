@@ -532,16 +532,29 @@ impl App {
 
             if !self.detail.tag_input.is_empty() {
                 let input_lower = self.detail.tag_input.to_lowercase();
-                let suggestions: Vec<&String> = self
+                let mut scored: Vec<(&String, u8)> = self
                     .detail
                     .all_tags
                     .iter()
-                    .filter(|t| {
-                        !self.detail.tags.contains(t)
-                            && t.to_lowercase().contains(&input_lower)
+                    .filter(|t| !self.detail.tags.contains(t))
+                    .filter_map(|t| {
+                        let tl = t.to_lowercase();
+                        if tl.starts_with(&input_lower) {
+                            Some((t, 0u8))
+                        } else if tl.contains(&input_lower) {
+                            Some((t, 1))
+                        } else {
+                            let leaf = tl.rsplit('/').next().unwrap_or(&tl);
+                            if leaf.starts_with(&input_lower) {
+                                Some((t, 0))
+                            } else {
+                                None
+                            }
+                        }
                     })
-                    .take(5)
                     .collect();
+                scored.sort_by_key(|&(_, rank)| rank);
+                let suggestions: Vec<&String> = scored.into_iter().map(|(t, _)| t).take(5).collect();
                 if !suggestions.is_empty() {
                     let chips: Vec<Element<Msg>> = suggestions
                         .into_iter()
@@ -554,6 +567,27 @@ impl App {
                         .collect();
                     col = col.push(row(chips).spacing(SPACE_1).wrap());
                 }
+            }
+
+            let recent: Vec<&String> = self
+                .detail
+                .recent_tags
+                .iter()
+                .filter(|t| !self.detail.tags.contains(t))
+                .take(5)
+                .collect();
+            if !recent.is_empty() {
+                let mut recent_row = row![text("Recent").size(TEXT_XS).color(FG_DIM)]
+                    .spacing(SPACE_1)
+                    .align_y(Alignment::Center);
+                for tag in recent {
+                    recent_row = recent_row.push(
+                        button(text(tag.as_str()).size(TEXT_XS))
+                            .on_press(Msg::AddDetailTagDirect(tag.clone()))
+                            .style(ghost_btn_style),
+                    );
+                }
+                col = col.push(recent_row.wrap());
             }
 
             col = col.push(

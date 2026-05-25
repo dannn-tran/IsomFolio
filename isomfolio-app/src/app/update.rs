@@ -1247,6 +1247,7 @@ impl App {
                     return Task::none();
                 }
                 self.detail.tags.push(tag.clone());
+                self.detail.push_recent_tag(&tag);
                 if !self.detail.batch_file_ids.is_empty() {
                     self.batch_add_tag_task(tag)
                 } else {
@@ -1261,6 +1262,7 @@ impl App {
                 }
                 self.detail.tags.push(tag.clone());
                 self.detail.tag_input.clear();
+                self.detail.push_recent_tag(&tag);
                 if !self.detail.batch_file_ids.is_empty() {
                     self.batch_add_tag_task(tag)
                 } else {
@@ -1280,6 +1282,13 @@ impl App {
             Msg::AllTagsLoaded(tags) => {
                 self.detail.all_tags = tags;
                 Task::none()
+            }
+
+            Msg::RepeatLastTag => {
+                let Some(tag) = self.detail.recent_tags.first().cloned() else {
+                    return Task::none();
+                };
+                self.update(Msg::AddDetailTagDirect(tag))
             }
 
             Msg::SetDetailRating(n) => {

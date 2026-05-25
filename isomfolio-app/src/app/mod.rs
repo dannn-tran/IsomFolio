@@ -704,6 +704,10 @@ impl App {
                     ..
                 }) if ignored && c.as_str() == "\\" => Some(Msg::ToggleHideRejects),
                 Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(ref c),
+                    ..
+                }) if ignored && c.as_str() == "." => Some(Msg::RepeatLastTag),
+                Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
                     ..
                 }) if ignored => Some(Msg::Navigate { dx: -1, dy: 0 }),

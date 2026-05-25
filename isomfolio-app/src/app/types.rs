@@ -163,6 +163,7 @@ pub enum Msg {
     AddDetailTagDirect(String),
     BatchDetailLoaded { file_ids: Vec<String>, tags: Vec<String> },
     BatchTagsChanged,
+    RepeatLastTag,
 
     OpenTagBrowser,
     CloseTagBrowser,
@@ -291,10 +292,21 @@ pub struct DetailState {
     pub tags: Vec<String>,
     pub tag_input: String,
     pub all_tags: Vec<String>,
+    pub recent_tags: Vec<String>,
     pub rating: Option<i32>,
     pub label: Option<String>,
     pub title: Option<String>,
     pub exif_tech: Option<isomfolio_core::models::ExifTechMeta>,
+}
+
+const MAX_RECENT_TAGS: usize = 8;
+
+impl DetailState {
+    pub fn push_recent_tag(&mut self, tag: &str) {
+        self.recent_tags.retain(|t| t != tag);
+        self.recent_tags.insert(0, tag.to_string());
+        self.recent_tags.truncate(MAX_RECENT_TAGS);
+    }
 }
 
 impl Default for DetailState {
@@ -306,6 +318,7 @@ impl Default for DetailState {
             tags: Vec::new(),
             tag_input: String::new(),
             all_tags: Vec::new(),
+            recent_tags: Vec::new(),
             rating: None,
             label: None,
             title: None,
