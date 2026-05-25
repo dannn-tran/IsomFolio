@@ -608,6 +608,20 @@ impl App {
                                 .width(Length::Fill),
                         );
                     }
+                    ConfigFieldKind::Number | ConfigFieldKind::Integer => {
+                        let placeholder = field.default.as_deref().unwrap_or("0");
+                        body = body.push(
+                            text_input(placeholder, &current)
+                                .on_input(move |v| Msg::SettingsConfigChanged {
+                                    addon_name: addon_name.clone(),
+                                    key: key.clone(),
+                                    value: v,
+                                })
+                                .padding([SPACE_2, SPACE_2_5])
+                                .size(TEXT_BASE)
+                                .width(120),
+                        );
+                    }
                 }
             }
 

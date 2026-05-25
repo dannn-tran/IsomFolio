@@ -9,6 +9,8 @@ pub enum ConfigFieldKind {
     Text,
     Secret,
     Select,
+    Number,
+    Integer,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -47,7 +49,7 @@ pub fn discover_addons(dir: &Path) -> Vec<AddonManifest> {
 }
 
 fn load_manifest_from_dir(dir: &Path) -> Option<AddonManifest> {
-    let text = std::fs::read_to_string(dir.join("isomfolio-addon.json")).ok()?;
+    let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
     let mut manifest: AddonManifest = serde_json::from_str(&text).ok()?;
     let exe = if cfg!(windows) {
         dir.join(format!("{}.exe", manifest.name))
@@ -86,7 +88,7 @@ mod tests {
     fn make_addon_dir(parent: &Path, dir_name: &str, manifest_name: &str, manifest_json: &str, make_exe: bool) {
         let dir = parent.join(dir_name);
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("isomfolio-addon.json"), manifest_json).unwrap();
+        fs::write(dir.join("manifest.json"), manifest_json).unwrap();
         if make_exe {
             let exe = dir.join(manifest_name);
             fs::write(&exe, b"#!/bin/sh\n").unwrap();

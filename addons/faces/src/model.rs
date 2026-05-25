@@ -158,6 +158,10 @@ fn decode_scrfd_outputs(
 
     let mut faces: Vec<(f32, [f32; 4], [[f32; 2]; 5])> = Vec::new();
 
+    if outputs.len() < 9 {
+        return Err(format!("expected 9 SCRFD outputs, got {}", outputs.len()));
+    }
+
     for (si, &stride) in STRIDES.iter().enumerate() {
         let h = DET_INPUT_SIZE / stride;
         let w = DET_INPUT_SIZE / stride;
@@ -167,10 +171,15 @@ fn decode_scrfd_outputs(
         let bbox_v = outputs[si + 3].to_array_view::<f32>().map_err(|e| e.to_string())?;
         let kps_v = outputs[si + 6].to_array_view::<f32>().map_err(|e| e.to_string())?;
 
+        let scores_len = scores_v.len();
+        if scores_len < n {
+            continue;
+        }
+
         let anchors = generate_anchors(h, w, stride, NUM_ANCHORS);
 
         for i in 0..n {
-            let score = sigmoid(scores_v[[0, i, 0]]);
+            let score = sigmoid(scores_v.as_slice().unwrap_or(&[])[i]);
             if score < SCORE_THRESH {
                 continue;
             }
@@ -179,15 +188,23 @@ fn decode_scrfd_outputs(
             let cy = anchors[i][1];
             let s = stride as f32;
 
-            let x1 = (cx - bbox_v[[0, i, 0]] * s) * scale_x;
-            let y1 = (cy - bbox_v[[0, i, 1]] * s) * scale_y;
-            let x2 = (cx + bbox_v[[0, i, 2]] * s) * scale_x;
-            let y2 = (cy + bbox_v[[0, i, 3]] * s) * scale_y;
+            let bbox_flat = bbox_v.as_slice().unwrap_or(&[]);
+            let kps_flat = kps_v.as_slice().unwrap_or(&[]);
+            let bi = i * 4;
+            let ki = i * 10;
+            if bi + 3 >= bbox_flat.len() || ki + 9 >= kps_flat.len() {
+                continue;
+            }
+
+            let x1 = (cx - bbox_flat[bi] * s) * scale_x;
+            let y1 = (cy - bbox_flat[bi + 1] * s) * scale_y;
+            let x2 = (cx + bbox_flat[bi + 2] * s) * scale_x;
+            let y2 = (cy + bbox_flat[bi + 3] * s) * scale_y;
 
             let mut kps = [[0f32; 2]; 5];
             for k in 0..5 {
-                kps[k][0] = (cx + kps_v[[0, i, k * 2]] * s) * scale_x;
-                kps[k][1] = (cy + kps_v[[0, i, k * 2 + 1]] * s) * scale_y;
+                kps[k][0] = (cx + kps_flat[ki + k * 2] * s) * scale_x;
+                kps[k][1] = (cy + kps_flat[ki + k * 2 + 1] * s) * scale_y;
             }
 
             faces.push((score, [x1, y1, x2, y2], kps));

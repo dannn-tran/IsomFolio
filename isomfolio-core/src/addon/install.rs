@@ -12,7 +12,7 @@ use super::manifest::{AddonManifest, discover_addons};
 ///
 /// Expected zip layout (flat, no subdirectory):
 /// ```text
-/// isomfolio-addon.json
+/// manifest.json
 /// <addon-name>          <- executable (same name as the "name" field in manifest)
 /// ```
 pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, String> {
@@ -21,8 +21,8 @@ pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, Strin
 
     let manifest: AddonManifest = {
         let mut entry = archive
-            .by_name("isomfolio-addon.json")
-            .map_err(|_| "package missing isomfolio-addon.json".to_string())?;
+            .by_name("manifest.json")
+            .map_err(|_| "package missing manifest.json".to_string())?;
         let mut s = String::new();
         entry.read_to_string(&mut s).map_err(|e| format!("read manifest: {e}"))?;
         serde_json::from_str(&s).map_err(|e| format!("parse manifest: {e}"))?

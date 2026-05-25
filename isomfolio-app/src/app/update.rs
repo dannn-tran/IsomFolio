@@ -421,11 +421,23 @@ impl App {
             }
 
             Msg::SettingsConfigChanged { addon_name, key, value } => {
-                self.settings
-                    .addon_configs
-                    .entry(addon_name)
-                    .or_default()
-                    .insert(key, value);
+                use isomfolio_core::addon::ConfigFieldKind;
+                let kind = self.addons.iter()
+                    .find(|a| a.manifest.name == addon_name)
+                    .and_then(|a| a.manifest.config_schema.iter().find(|f| f.key == key))
+                    .map(|f| &f.kind);
+                let valid = match kind {
+                    Some(ConfigFieldKind::Number) => value.is_empty() || value == "." || value == "-" || value.parse::<f64>().is_ok(),
+                    Some(ConfigFieldKind::Integer) => value.is_empty() || value == "-" || value.parse::<i64>().is_ok(),
+                    _ => true,
+                };
+                if valid {
+                    self.settings
+                        .addon_configs
+                        .entry(addon_name)
+                        .or_default()
+                        .insert(key, value);
+                }
                 Task::none()
             }
 
@@ -433,9 +445,25 @@ impl App {
                 self.settings.show = false;
                 let mut restart_tasks = Vec::new();
                 for (addon_name, fields) in &self.settings.addon_configs {
+                    let schema = self.addons.iter()
+                        .find(|a| &a.manifest.name == addon_name)
+                        .map(|a| &a.manifest.config_schema);
                     let config: serde_json::Value = fields
                         .iter()
-                        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                        .map(|(k, v)| {
+                            use isomfolio_core::addon::ConfigFieldKind;
+                            let kind = schema.and_then(|s| s.iter().find(|f| &f.key == k)).map(|f| &f.kind);
+                            let val = match kind {
+                                Some(ConfigFieldKind::Number) => v.parse::<f64>()
+                                    .map(|n| serde_json::Value::from(n))
+                                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
+                                Some(ConfigFieldKind::Integer) => v.parse::<i64>()
+                                    .map(|n| serde_json::Value::from(n))
+                                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
+                                _ => serde_json::Value::String(v.clone()),
+                            };
+                            (k.clone(), val)
+                        })
                         .collect::<serde_json::Map<_, _>>()
                         .into();
                     if let Err(e) = save_addon_config(addon_name, &config) {
