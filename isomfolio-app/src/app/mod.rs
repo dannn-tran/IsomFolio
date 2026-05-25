@@ -11,6 +11,7 @@ use iced::{event, keyboard, mouse, Event, Point, Size, Subscription, Task};
 
 use isomfolio_core::addon::AddonProcess;
 use isomfolio_core::app_paths::db_path;
+use isomfolio_core::Catalog;
 use isomfolio_core::indexing::thumbnail::{
     create_worker_pool, thumbnail_cache_path, ThumbnailPool,
 };
@@ -18,9 +19,6 @@ use isomfolio_core::indexing::types::FileEvent;
 use isomfolio_core::indexing::watcher::{create_watcher, FileWatcher};
 use isomfolio_core::models::SearchQuery;
 use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, SortField, ThumbnailState};
-use isomfolio_core::search::query_engine::{execute_manual_album_search, execute_search};
-use isomfolio_core::storage::db;
-use isomfolio_core::Connection;
 
 pub struct LoupeState {
     pub idx: usize,
@@ -79,7 +77,7 @@ impl Default for FaceState {
 }
 
 pub struct App {
-    pub conn: Option<Arc<Mutex<Connection>>>,
+    pub catalog: Option<Arc<Mutex<Catalog>>>,
     pub catalog_dir: String,
 
     pub view_mode: ViewMode,
@@ -157,24 +155,24 @@ impl App {
 
         let recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
 
-        let (catalog_dir_str, conn, initial_status, show_welcome, task) = match catalog_dir {
+        let (catalog_dir_str, catalog, initial_status, show_welcome, task) = match catalog_dir {
             Some(dir) => {
                 isomfolio_core::app_paths::ensure_directories(&dir);
-                let conn = db::open_database(&db_path(&dir))
+                let catalog = Catalog::open(&db_path(&dir))
                     .ok()
                     .map(|c| Arc::new(Mutex::new(c)));
-                let status = if conn.is_none() {
+                let status = if catalog.is_none() {
                     "Error: could not open database — check permissions".to_string()
                 } else {
                     String::new()
                 };
-                (dir, conn, status, false, Task::done(Msg::CatalogReady))
+                (dir, catalog, status, false, Task::done(Msg::CatalogReady))
             }
             None => (String::new(), None, String::new(), true, Task::none()),
         };
 
         let app = App {
-            conn,
+            catalog,
             catalog_dir: catalog_dir_str,
             view_mode: ViewMode::Browse,
             loupe: LoupeState::default(),
@@ -417,7 +415,7 @@ impl App {
     }
 
     pub fn load_files_task(&self) -> Task<Msg> {
-        let Some(conn) = self.conn.clone() else {
+        let Some(catalog) = self.catalog.clone() else {
             return Task::done(Msg::FilesLoaded(Vec::new()));
         };
         let item = self.selected_item.clone();
@@ -426,27 +424,26 @@ impl App {
 
         Task::perform(
             async move {
-                let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
                 match item {
-                    SidebarItem::AllFiles => execute_search(&guard, &query).unwrap_or_default(),
+                    SidebarItem::AllFiles => cat.search(&query).unwrap_or_default(),
                     SidebarItem::Folder(path) => {
                         let q = SearchQuery {
                             folder_path: Some(path),
                             folder_recursive: true,
                             ..query
                         };
-                        execute_search(&guard, &q).unwrap_or_default()
+                        cat.search(&q).unwrap_or_default()
                     }
                     SidebarItem::Album(album_id) => {
                         if is_smart {
-                            execute_search(&guard, &query).unwrap_or_default()
+                            cat.search(&query).unwrap_or_default()
                         } else {
-                            execute_manual_album_search(&guard, &album_id, &query)
-                                .unwrap_or_default()
+                            cat.search_manual_album(&album_id, &query).unwrap_or_default()
                         }
                     }
                     SidebarItem::FaceCluster(cluster_id) => {
-                        db::get_files_in_face_cluster(&guard, &cluster_id).unwrap_or_default()
+                        cat.get_files_in_face_cluster(&cluster_id).unwrap_or_default()
                     }
                 }
             },
@@ -455,16 +452,16 @@ impl App {
     }
 
     pub(crate) fn load_sidebar_task(&self) -> Task<Msg> {
-        let Some(conn) = self.conn.clone() else {
+        let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                let raw_folders = db::get_folder_counts(&g).unwrap_or_default();
-                let albums = db::get_all_albums(&g).unwrap_or_default();
-                let album_counts = db::get_all_album_file_counts(&g).unwrap_or_default();
-                drop(g);
+                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                let raw_folders = cat.get_folder_counts().unwrap_or_default();
+                let albums = cat.get_all_albums().unwrap_or_default();
+                let album_counts = cat.get_all_album_file_counts().unwrap_or_default();
+                drop(cat);
                 let folders = raw_folders
                     .into_iter()
                     .map(|(path, count)| {
@@ -504,14 +501,14 @@ impl App {
         if self.detail.file_id.as_deref() == Some(file_id.as_str()) {
             return Task::none();
         }
-        let Some(conn) = self.conn.clone() else {
+        let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                let tags = db::get_tags_for_file(&g, &file_id).unwrap_or_default();
-                let meta_opt = db::get_metadata(&g, &file_id).ok().flatten();
+                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                let tags = cat.get_tags_for_file(&file_id).unwrap_or_default();
+                let meta_opt = cat.get_metadata(&file_id).ok().flatten();
                 let (rating, label, title, exif_tech) = match meta_opt {
                     Some(m) => (
                         m.xmp.as_ref().and_then(|x| x.core.rating),
@@ -535,13 +532,13 @@ impl App {
     }
 
     pub(crate) fn load_all_tags_task(&self) -> Task<Msg> {
-        let Some(conn) = self.conn.clone() else {
+        let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                db::get_all_tags(&g)
+                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                cat.get_all_tags()
                     .unwrap_or_default()
                     .into_iter()
                     .map(|(t, _)| t)
@@ -552,7 +549,7 @@ impl App {
     }
 
     pub(crate) fn load_ratings_task(&self) -> Task<Msg> {
-        let Some(conn) = self.conn.clone() else {
+        let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
         let file_ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
@@ -561,11 +558,11 @@ impl App {
         }
         Task::perform(
             async move {
-                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
                 file_ids
                     .iter()
                     .filter_map(|id| {
-                        let meta = db::get_metadata(&g, id).ok()??;
+                        let meta = cat.get_metadata(id).ok()??;
                         let r = meta.xmp.as_ref()?.core.rating?;
                         (r > 0).then(|| (id.clone(), r))
                     })
@@ -576,13 +573,13 @@ impl App {
     }
 
     pub(crate) fn load_tag_browser_task(&self) -> Task<Msg> {
-        let Some(conn) = self.conn.clone() else {
+        let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                db::get_all_tags(&g).unwrap_or_default()
+                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                cat.get_all_tags().unwrap_or_default()
             },
             Msg::TagBrowserLoaded,
         )

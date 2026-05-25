@@ -16,7 +16,6 @@ use isomfolio_core::indexing::scanner;
 use isomfolio_core::indexing::types::FileEvent;
 use isomfolio_core::models::{Album, AlbumKind, SortField};
 use isomfolio_core::path_utils::{is_catalog_dir, is_under_catalog_dir, normalize_path};
-use isomfolio_core::storage::db;
 
 use super::{
     unix_to_date_str, App, ContextMenuState, ContextMenuTarget, CriteriaState, DetailState,
@@ -47,11 +46,11 @@ impl App {
                     },
                     Msg::AddonsDiscovered,
                 );
-                let face_task = if let Some(conn) = self.conn.clone() {
+                let face_task = if let Some(conn) = self.catalog.clone() {
                     Task::perform(
                         async move {
                             let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                            db::get_face_cluster_summaries(&g).unwrap_or_default()
+                            g.get_face_cluster_summaries().unwrap_or_default()
                         },
                         Msg::FaceClustersLoaded,
                     )
@@ -74,7 +73,7 @@ impl App {
                 let Some(addon) = self.addons.get(addon_idx).cloned() else {
                     return Task::none();
                 };
-                let Some(conn) = self.conn.clone() else { return Task::none() };
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let catalog_dir = self.catalog_dir.clone();
                 let total = file_ids.len();
                 self.status = format!("{}… (0/{})", addon.manifest.name, total);
@@ -113,7 +112,7 @@ impl App {
                                     .unwrap_or_default();
                                 if !tags.is_empty() {
                                     let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                                    if let Err(e) = db::add_tags_merge(&g, file_id, &tags) {
+                                    if let Err(e) = g.add_tags_merge( file_id, &tags) {
                                         eprintln!("[db] add_tags_merge failed: {e}");
                                     }
                                     applied += 1;
@@ -143,7 +142,7 @@ impl App {
                     self.status = "No face clustering addon installed".to_string();
                     return Task::none();
                 };
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 self.status = "Clustering faces… (this may take a while)".to_string();
@@ -152,7 +151,7 @@ impl App {
                     async move {
                         let files = {
                             let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                            db::get_all_file_paths_with_mtimes(&g).unwrap_or_default()
+                            g.get_all_file_paths_with_mtimes().unwrap_or_default()
                         };
                         let file_params: Vec<serde_json::Value> = files
                             .iter()
@@ -176,10 +175,10 @@ impl App {
                         };
 
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::save_face_clusters(&g, &clusters) {
+                        if let Err(e) = g.save_face_clusters( &clusters) {
                             eprintln!("[db] save_face_clusters failed: {e}");
                         }
-                        db::get_face_cluster_summaries(&g).unwrap_or_default()
+                        g.get_face_cluster_summaries().unwrap_or_default()
                     },
                     Msg::FaceClusteringDone,
                 )
@@ -223,7 +222,7 @@ impl App {
                 if name.is_empty() {
                     return Task::none();
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 if let Some(c) = self.faces.clusters.iter_mut().find(|c| c.cluster_id == cluster_id) {
@@ -232,7 +231,7 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::rename_face_cluster(&g, &cluster_id, &name) {
+                        if let Err(e) = g.rename_face_cluster( &cluster_id, &name) {
                             eprintln!("[db] rename_face_cluster failed: {e}");
                         }
                     },
@@ -763,14 +762,14 @@ impl App {
                 let count = ids.len();
                 self.status = format!("Added {count} photo(s) to \"{name}\"");
 
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         for fid in &ids {
-                            if let Err(e) = db::add_file_to_album(&guard, &album_id, fid) {
+                            if let Err(e) = guard.add_file_to_album( &album_id, fid) {
                                 eprintln!("[db] add_file_to_album failed: {e}");
                             }
                         }
@@ -855,13 +854,13 @@ impl App {
                     self.selected_item = SidebarItem::AllFiles;
                     self.files.clear();
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::delete_files_by_root_folder(&guard, &path) {
+                        if let Err(e) = guard.delete_files_by_root_folder( &path) {
                             eprintln!("[db] delete_files_by_root_folder failed: {e}");
                         }
                     },
@@ -891,7 +890,7 @@ impl App {
                 if name.is_empty() {
                     return Task::none();
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 let album = Album {
@@ -904,7 +903,7 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::create_album(&guard, &album) {
+                        if let Err(e) = guard.create_album( &album) {
                             eprintln!("[db] create_album failed: {e}");
                         }
                     },
@@ -952,13 +951,13 @@ impl App {
                 if name.is_empty() {
                     return Task::none();
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::rename_album(&guard, &album_id, &name) {
+                        if let Err(e) = guard.rename_album( &album_id, &name) {
                             eprintln!("[db] rename_album failed: {e}");
                         }
                     },
@@ -982,13 +981,13 @@ impl App {
                     self.selected_item = SidebarItem::AllFiles;
                     self.files.clear();
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::delete_album(&guard, &album_id) {
+                        if let Err(e) = guard.delete_album( &album_id) {
                             eprintln!("[db] delete_album failed: {e}");
                         }
                     },
@@ -1028,14 +1027,14 @@ impl App {
                     .unwrap_or_default();
                 self.status = format!("Removed {count} photo(s) from \"{name}\"");
                 self.grid_selected.clear();
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         for fid in &ids {
-                            if let Err(e) = db::remove_file_from_album(&guard, &album_id, fid) {
+                            if let Err(e) = guard.remove_file_from_album( &album_id, fid) {
                                 eprintln!("[db] remove_file_from_album failed: {e}");
                             }
                         }
@@ -1146,7 +1145,7 @@ impl App {
                     return Task::none();
                 }
                 let query = self.build_search_query();
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 let album = Album {
@@ -1158,7 +1157,7 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::create_album(&guard, &album) {
+                        if let Err(e) = guard.create_album( &album) {
                             eprintln!("[db] create_album failed: {e}");
                         }
                     },
@@ -1177,13 +1176,13 @@ impl App {
                 };
                 let album_id = id.clone();
                 let query = self.build_search_query();
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::update_smart_album_query(&guard, &album_id, &query) {
+                        if let Err(e) = guard.update_smart_album_query( &album_id, &query) {
                             eprintln!("[db] update_smart_album_query failed: {e}");
                         }
                     },
@@ -1264,13 +1263,13 @@ impl App {
                     return Task::none();
                 };
                 let fid = fid.clone();
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::set_file_rating(&g, &fid, new_rating) {
+                        if let Err(e) = g.set_file_rating( &fid, new_rating) {
                             eprintln!("[db] set_file_rating failed: {e}");
                         }
                     },
@@ -1292,7 +1291,7 @@ impl App {
                         f.flag = flag;
                     }
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 let flag_clone = flag;
@@ -1300,7 +1299,7 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::set_files_flag(&g, &ids_clone, flag_clone) {
+                        if let Err(e) = g.set_files_flag( &ids_clone, flag_clone) {
                             eprintln!("[db] set_files_flag failed: {e}");
                         }
                     },
@@ -1334,14 +1333,14 @@ impl App {
                 if ids.len() == 1 && self.detail.file_id.as_deref() == Some(ids[0].as_str()) {
                     self.detail.rating = rating;
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 let ids_clone = ids;
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::set_files_rating(&g, &ids_clone, rating) {
+                        if let Err(e) = g.set_files_rating( &ids_clone, rating) {
                             eprintln!("[db] set_files_rating failed: {e}");
                         }
                     },
@@ -1459,32 +1458,32 @@ impl App {
                     }
                 }
                 if !file_events.is_empty() {
-                    if let Some(conn) = self.conn.clone() {
+                    if let Some(conn) = self.catalog.clone() {
                         tasks.push(Task::perform(
                             async move {
-                                let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                                let cat = conn.lock().unwrap_or_else(|e| e.into_inner());
                                 for event in file_events {
                                     match event {
                                         FileEvent::Created(path) | FileEvent::Modified(path) => {
-                                            let _ = scanner::resync_files(&guard, &[path]);
+                                            let _ = scanner::resync_files(cat.conn(), &[path]);
                                         }
                                         FileEvent::Deleted(path) => {
                                             let norm = normalize_path(&path);
                                             let fid = compute_file_id(&norm);
-                                            if let Err(e) = db::mark_orphaned(&guard, &fid) {
+                                            if let Err(e) = cat.mark_orphaned(&fid) {
                                                 eprintln!("[db] mark_orphaned failed: {e}");
                                             }
                                         }
                                         FileEvent::Renamed { old_path, new_path } => {
                                             let norm = normalize_path(&old_path);
                                             let old_fid = compute_file_id(&norm);
-                                            if let Err(e) = db::mark_orphaned(&guard, &old_fid) {
+                                            if let Err(e) = cat.mark_orphaned(&old_fid) {
                                                 eprintln!("[db] mark_orphaned failed: {e}");
                                             }
-                                            let _ = scanner::resync_files(&guard, &[new_path]);
+                                            let _ = scanner::resync_files(cat.conn(), &[new_path]);
                                         }
                                         FileEvent::SidecarChanged(path) => {
-                                            let _ = scanner::resync_sidecar_files(&guard, &[path]);
+                                            let _ = scanner::resync_sidecar_files(cat.conn(), &[path]);
                                         }
                                         FileEvent::SidecarRemoved(_) => {}
                                         FileEvent::ScanProgress(_) => {}
@@ -1649,10 +1648,10 @@ impl App {
                 self.welcome.new_catalog_dir = None;
                 self.welcome.new_catalog_name.clear();
                 isomfolio_core::app_paths::ensure_directories(&path);
-                self.conn = db::open_database(&db_path(&path))
+                self.catalog = isomfolio_core::Catalog::open(&db_path(&path))
                     .ok()
                     .map(|c| std::sync::Arc::new(std::sync::Mutex::new(c)));
-                self.status = if self.conn.is_none() {
+                self.status = if self.catalog.is_none() {
                     "Error: could not open database — check permissions".to_string()
                 } else {
                     String::new()
@@ -1709,7 +1708,7 @@ impl App {
                 let Some(src) = self.albums.iter().find(|a| a.id == album_id).cloned() else {
                     return Task::none();
                 };
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 let new_id = new_album_id();
@@ -1723,11 +1722,11 @@ impl App {
                             kind: src.kind.clone(),
                             sort_order: 0,
                         };
-                        if let Err(e) = db::create_album(&guard, &new_album) {
+                        if let Err(e) = guard.create_album( &new_album) {
                             eprintln!("[db] create_album failed: {e}");
                         }
                         if matches!(src.kind, AlbumKind::Manual) {
-                            if let Err(e) = db::copy_album_files(&guard, &album_id, &new_id) {
+                            if let Err(e) = guard.copy_album_files( &album_id, &new_id) {
                                 eprintln!("[db] copy_album_files failed: {e}");
                             }
                         }
@@ -1753,14 +1752,14 @@ impl App {
                     .map(|a| a.name.clone())
                     .unwrap_or_default();
                 self.status = format!("Added {count} photo(s) to \"{name}\"");
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
                         for fid in &ids {
-                            if let Err(e) = db::add_file_to_album(&guard, &album_id, fid) {
+                            if let Err(e) = guard.add_file_to_album( &album_id, fid) {
                                 eprintln!("[db] add_file_to_album failed: {e}");
                             }
                         }
@@ -1866,13 +1865,13 @@ impl App {
                 if let Some(ref mut tb) = self.tag_browser {
                     tb.rename = None;
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::rename_prefixed_tags(&g, &old, &new_name) {
+                        if let Err(e) = g.rename_prefixed_tags( &old, &new_name) {
                             eprintln!("[db] rename_prefixed_tags failed: {e}");
                         }
                     },
@@ -1903,13 +1902,13 @@ impl App {
                 if let Some(ref mut tb) = self.tag_browser {
                     tb.delete_armed = None;
                 }
-                let Some(conn) = self.conn.clone() else {
+                let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = db::delete_tag_with_descendants(&g, &tag) {
+                        if let Err(e) = g.delete_tag_with_descendants( &tag) {
                             eprintln!("[db] delete_tag_with_descendants failed: {e}");
                         }
                     },
@@ -1945,16 +1944,16 @@ impl App {
         };
         let fid = fid.clone();
         let tags = self.detail.tags.clone();
-        let Some(conn) = self.conn.clone() else {
+        let Some(conn) = self.catalog.clone() else {
             return Task::none();
         };
         Task::perform(
             async move {
                 let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                if let Err(e) = db::upsert_tags(&g, &fid, &tags) {
+                if let Err(e) = g.upsert_tags( &fid, &tags) {
                     eprintln!("[db] upsert_tags failed: {e}");
                 }
-                db::get_all_tags(&g)
+                g.get_all_tags()
                     .unwrap_or_default()
                     .into_iter()
                     .map(|(t, _)| t)
@@ -1965,15 +1964,15 @@ impl App {
     }
 
     fn scan_folder_task(&self, path: String) -> Task<Msg> {
-        let Some(conn) = self.conn.clone() else {
+        let Some(conn) = self.catalog.clone() else {
             return Task::none();
         };
         let wtx = self.watcher_tx.clone();
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                    scanner::scan_folder(&guard, &path, &|_| {}, &|prog| {
+                    let cat = conn.lock().unwrap_or_else(|e| e.into_inner());
+                    scanner::scan_folder(cat.conn(), &path, &|_| {}, &|prog| {
                         let _ = wtx.try_send(FileEvent::ScanProgress(prog));
                     })
                     .map(|r| r.total_count)
