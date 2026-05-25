@@ -462,7 +462,7 @@ impl App {
             Msg::InstallAddonPickFile => Task::perform(
                 async {
                     rfd::AsyncFileDialog::new()
-                        .add_filter("Folio Addon", &["faddon"])
+                        .add_filter("IsomFolio Extension", &["isfx"])
                         .pick_file()
                         .await
                         .map(|f| f.path().to_string_lossy().into_owned())

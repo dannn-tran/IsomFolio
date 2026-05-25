@@ -8,7 +8,7 @@ use crate::app_paths::addons_dir;
 
 use super::manifest::{AddonManifest, discover_addons};
 
-/// Install an `.isomfolio-addon` zip package into `addons_dir()`.
+/// Install an `.isfx` zip package into `addons_dir()`.
 ///
 /// Expected zip layout (flat, no subdirectory):
 /// ```text

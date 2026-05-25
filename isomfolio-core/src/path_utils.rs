@@ -36,7 +36,7 @@ pub fn is_within_subtree(root: &str, path: &str) -> bool {
 pub fn is_under_catalog_dir(path: &str) -> bool {
     Path::new(path)
         .components()
-        .any(|c| c.as_os_str().to_string_lossy().ends_with(".isomfolio"))
+        .any(|c| c.as_os_str().to_string_lossy().ends_with(".isfcatalog"))
 }
 
 pub fn is_catalog_dir(path: &str) -> bool {
