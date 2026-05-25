@@ -156,8 +156,7 @@ fn main() {
         }
     });
 
-    loop {
-        let Ok(first) = line_rx.recv() else { break };
+    while let Ok(first) = line_rx.recv() {
         let mut lines = vec![first];
         while lines.len() < batch_size {
             match line_rx.recv_timeout(std::time::Duration::from_millis(5)) {

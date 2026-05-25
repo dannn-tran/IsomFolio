@@ -455,10 +455,10 @@ impl App {
                             let kind = schema.and_then(|s| s.iter().find(|f| &f.key == k)).map(|f| &f.kind);
                             let val = match kind {
                                 Some(ConfigFieldKind::Number) => v.parse::<f64>()
-                                    .map(|n| serde_json::Value::from(n))
+                                    .map(serde_json::Value::from)
                                     .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
                                 Some(ConfigFieldKind::Integer) => v.parse::<i64>()
-                                    .map(|n| serde_json::Value::from(n))
+                                    .map(serde_json::Value::from)
                                     .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
                                 _ => serde_json::Value::String(v.clone()),
                             };

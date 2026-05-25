@@ -280,7 +280,7 @@ fn handle_cluster_faces(
 
     let mut clusters: Vec<Vec<(usize, Value)>> =
         cluster_members.into_iter().filter(|m| !m.is_empty()).collect();
-    clusters.sort_by(|a, b| b.len().cmp(&a.len()));
+    clusters.sort_by_key(|c| std::cmp::Reverse(c.len()));
 
     if !use_incremental {
         save_centroids(db, &rows, &clusters);

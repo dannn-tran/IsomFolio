@@ -229,15 +229,11 @@ fn decode_scrfd_outputs(
 
 fn generate_anchors(h: usize, w: usize, stride: usize, num_anchors: usize) -> Vec<[f32; 2]> {
     let s = stride as f32;
-    let mut anchors = Vec::with_capacity(h * w * num_anchors);
-    for row in 0..h {
-        for col in 0..w {
-            for _ in 0..num_anchors {
-                anchors.push([col as f32 * s, row as f32 * s]);
-            }
-        }
-    }
-    anchors
+    (0..h).flat_map(|row| {
+        (0..w).flat_map(move |col| {
+            std::iter::repeat_n([col as f32 * s, row as f32 * s], num_anchors)
+        })
+    }).collect()
 }
 
 fn sigmoid(x: f32) -> f32 {
