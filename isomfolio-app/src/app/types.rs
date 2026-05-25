@@ -164,6 +164,7 @@ pub enum Msg {
     BatchDetailLoaded { file_ids: Vec<String>, tags: Vec<String> },
     BatchTagsChanged,
     RepeatLastTag,
+    ToggleShortcutHelp,
 
     OpenTagBrowser,
     CloseTagBrowser,

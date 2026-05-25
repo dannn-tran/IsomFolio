@@ -1,0 +1,139 @@
+use std::sync::LazyLock;
+
+use iced::keyboard;
+
+use super::Msg;
+
+static BINDINGS: LazyLock<Vec<KeyBind>> = LazyLock::new(default_bindings);
+
+pub fn bindings() -> &'static [KeyBind] {
+    &BINDINGS
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    Navigation,
+    View,
+    Culling,
+    Tagging,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Named(keyboard::key::Named),
+    Char(&'static str),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mods {
+    pub command: bool,
+    pub shift: bool,
+}
+
+impl Mods {
+    pub const NONE: Self = Mods { command: false, shift: false };
+    pub const CMD: Self = Mods { command: true, shift: false };
+
+    pub fn matches(self, m: keyboard::Modifiers) -> bool {
+        m.command() == self.command && m.shift() == self.shift
+    }
+}
+
+pub struct KeyBind {
+    pub key: Key,
+    pub mods: Mods,
+    pub when_ignored: bool,
+    pub action: fn() -> Msg,
+    pub label: &'static str,
+    pub category: Category,
+}
+
+pub fn default_bindings() -> Vec<KeyBind> {
+    use Category::*;
+    use Key::*;
+    use keyboard::key::Named;
+
+    vec![
+        // Navigation
+        KeyBind { key: Named(Named::ArrowLeft),  mods: Mods::NONE, when_ignored: true,  action: || Msg::Navigate { dx: -1, dy: 0 },  label: "Previous",          category: Navigation },
+        KeyBind { key: Named(Named::ArrowRight), mods: Mods::NONE, when_ignored: true,  action: || Msg::Navigate { dx: 1, dy: 0 },   label: "Next",              category: Navigation },
+        KeyBind { key: Named(Named::ArrowUp),    mods: Mods::NONE, when_ignored: true,  action: || Msg::Navigate { dx: 0, dy: -1 },  label: "Up",                category: Navigation },
+        KeyBind { key: Named(Named::ArrowDown),  mods: Mods::NONE, when_ignored: true,  action: || Msg::Navigate { dx: 0, dy: 1 },   label: "Down",              category: Navigation },
+        KeyBind { key: Named(Named::Escape),     mods: Mods::NONE, when_ignored: false, action: || Msg::EscapePressed,                label: "Cancel / Back",     category: Navigation },
+
+        // View
+        KeyBind { key: Named(Named::Space), mods: Mods::NONE, when_ignored: true, action: || Msg::OpenLoupe,       label: "Toggle Loupe",    category: View },
+        KeyBind { key: Char("i"),           mods: Mods::NONE, when_ignored: true, action: || Msg::ToggleDetail,     label: "Toggle Info",     category: View },
+        KeyBind { key: Char("="),           mods: Mods::CMD,  when_ignored: true, action: || Msg::TileSizeUp,       label: "Zoom In",         category: View },
+        KeyBind { key: Char("-"),           mods: Mods::CMD,  when_ignored: true, action: || Msg::TileSizeDown,     label: "Zoom Out",        category: View },
+        KeyBind { key: Char("\\"),          mods: Mods::NONE, when_ignored: true, action: || Msg::ToggleHideRejects, label: "Toggle Rejects", category: View },
+
+        // Culling
+        KeyBind { key: Char("p"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetFlag(isomfolio_core::models::Flag::Pick),      label: "Flag Pick",      category: Culling },
+        KeyBind { key: Char("x"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetFlag(isomfolio_core::models::Flag::Reject),    label: "Flag Reject",    category: Culling },
+        KeyBind { key: Char("u"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetFlag(isomfolio_core::models::Flag::Unflagged), label: "Flag Unflagged", category: Culling },
+        KeyBind { key: Char("0"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(None),    label: "Clear Rating", category: Culling },
+        KeyBind { key: Char("1"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(1)), label: "1 Star",       category: Culling },
+        KeyBind { key: Char("2"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(2)), label: "2 Stars",      category: Culling },
+        KeyBind { key: Char("3"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(3)), label: "3 Stars",      category: Culling },
+        KeyBind { key: Char("4"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(4)), label: "4 Stars",      category: Culling },
+        KeyBind { key: Char("5"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(5)), label: "5 Stars",      category: Culling },
+
+        // Tagging
+        KeyBind { key: Char("."), mods: Mods::NONE, when_ignored: true, action: || Msg::RepeatLastTag, label: "Repeat Last Tag", category: Tagging },
+
+        // Help
+        KeyBind { key: Char("?"), mods: Mods::NONE, when_ignored: true, action: || Msg::ToggleShortcutHelp, label: "Shortcut Help", category: View },
+    ]
+}
+
+pub fn format_key(bind: &KeyBind) -> String {
+    let mut parts = Vec::new();
+    if bind.mods.command { parts.push("Cmd"); }
+    if bind.mods.shift { parts.push("Shift"); }
+    match bind.key {
+        Key::Named(n) => parts.push(match n {
+            keyboard::key::Named::ArrowLeft => "←",
+            keyboard::key::Named::ArrowRight => "→",
+            keyboard::key::Named::ArrowUp => "↑",
+            keyboard::key::Named::ArrowDown => "↓",
+            keyboard::key::Named::Space => "Space",
+            keyboard::key::Named::Escape => "Esc",
+            keyboard::key::Named::Enter => "Enter",
+            _ => "?",
+        }),
+        Key::Char(c) => parts.push(match c {
+            "\\" => "\\",
+            "=" => "+",
+            "-" => "-",
+            "." => ".",
+            other => other,
+        }),
+    }
+    parts.join("+")
+}
+
+pub fn match_event(
+    bindings: &[KeyBind],
+    key: &keyboard::Key,
+    modifiers: keyboard::Modifiers,
+    ignored: bool,
+) -> Option<Msg> {
+    for bind in bindings {
+        if bind.when_ignored && !ignored {
+            continue;
+        }
+        if !bind.mods.matches(modifiers) {
+            continue;
+        }
+        let matched = match (&bind.key, key) {
+            (Key::Named(expected), keyboard::Key::Named(actual)) => expected == actual,
+            (Key::Char(expected), keyboard::Key::Character(actual)) => actual.as_str() == *expected,
+            _ => false,
+        };
+        if matched {
+            return Some((bind.action)());
+        }
+    }
+    None
+}

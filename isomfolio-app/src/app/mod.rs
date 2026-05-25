@@ -1,3 +1,4 @@
+pub mod keybinds;
 mod types;
 mod update;
 
@@ -121,6 +122,7 @@ pub struct App {
     pub criteria: CriteriaState,
     pub detail: DetailState,
 
+    pub show_shortcut_help: bool,
     pub status: String,
     pub is_scanning: bool,
     pub scan_pending: bool,
@@ -214,6 +216,7 @@ impl App {
             sort_asc: true,
             criteria: CriteriaState::default(),
             detail: DetailState::default(),
+            show_shortcut_help: false,
             status: initial_status,
             is_scanning: false,
             scan_pending: false,
@@ -631,98 +634,13 @@ impl App {
             let ignored = status == iced::event::Status::Ignored;
             match event {
                 Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::MouseMoved(position)),
-                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                    Some(Msg::MousePressed)
-                }
-                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                    Some(Msg::MouseReleased)
-                }
-                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
-                    Some(Msg::MouseRightClicked)
-                }
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => Some(Msg::MousePressed),
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Msg::MouseReleased),
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => Some(Msg::MouseRightClicked),
                 Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::ModifiersChanged(m)),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::Escape),
-                    ..
-                }) => Some(Msg::EscapePressed),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::Space),
-                    ..
-                }) if ignored => Some(Msg::OpenLoupe),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    modifiers,
-                    ..
-                }) if ignored && modifiers.command() && c.as_str() == "=" => Some(Msg::TileSizeUp),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    modifiers,
-                    ..
-                }) if ignored && modifiers.command() && c.as_str() == "-" => Some(Msg::TileSizeDown),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "i" => Some(Msg::ToggleDetail),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "p" => Some(Msg::SetFlag(isomfolio_core::models::Flag::Pick)),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "x" => Some(Msg::SetFlag(isomfolio_core::models::Flag::Reject)),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "u" => Some(Msg::SetFlag(isomfolio_core::models::Flag::Unflagged)),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "0" => Some(Msg::SetRating(None)),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "1" => Some(Msg::SetRating(Some(1))),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "2" => Some(Msg::SetRating(Some(2))),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "3" => Some(Msg::SetRating(Some(3))),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "4" => Some(Msg::SetRating(Some(4))),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "5" => Some(Msg::SetRating(Some(5))),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "\\" => Some(Msg::ToggleHideRejects),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Character(ref c),
-                    ..
-                }) if ignored && c.as_str() == "." => Some(Msg::RepeatLastTag),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
-                    ..
-                }) if ignored => Some(Msg::Navigate { dx: -1, dy: 0 }),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::ArrowRight),
-                    ..
-                }) if ignored => Some(Msg::Navigate { dx: 1, dy: 0 }),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::ArrowUp),
-                    ..
-                }) if ignored => Some(Msg::Navigate { dx: 0, dy: -1 }),
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::ArrowDown),
-                    ..
-                }) if ignored => Some(Msg::Navigate { dx: 0, dy: 1 }),
+                Event::Keyboard(keyboard::Event::KeyPressed { ref key, modifiers, .. }) => {
+                    keybinds::match_event(keybinds::bindings(), key, modifiers, ignored)
+                }
                 _ => None,
             }
         });

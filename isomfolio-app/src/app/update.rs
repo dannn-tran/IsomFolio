@@ -724,6 +724,10 @@ impl App {
             }
 
             Msg::EscapePressed => {
+                if self.show_shortcut_help {
+                    self.show_shortcut_help = false;
+                    return Task::none();
+                }
                 if self.tag_browser.is_some() {
                     self.tag_browser = None;
                     return Task::none();
@@ -1289,6 +1293,11 @@ impl App {
                     return Task::none();
                 };
                 self.update(Msg::AddDetailTagDirect(tag))
+            }
+
+            Msg::ToggleShortcutHelp => {
+                self.show_shortcut_help = !self.show_shortcut_help;
+                Task::none()
             }
 
             Msg::SetDetailRating(n) => {

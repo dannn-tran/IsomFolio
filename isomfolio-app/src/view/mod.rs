@@ -50,7 +50,7 @@ impl App {
         } else {
             match self.grid_selected.len() {
                 0 => "Click to select".to_string(),
-                1 => "Enter/Space for loupe · I for info · Drag to add to album".to_string(),
+                1 => "Space for loupe · I for info · ? for shortcuts".to_string(),
                 n => format!("{n} photos selected · Drag to album"),
             }
         };
@@ -181,6 +181,9 @@ impl App {
         }
         if self.settings.show {
             layers.push(self.view_settings_modal());
+        }
+        if self.show_shortcut_help {
+            layers.push(self.view_shortcut_help());
         }
         let root: Element<Msg> = if layers.len() == 1 {
             layers.remove(0)
@@ -663,5 +666,79 @@ impl App {
             .into(),
         ])
         .into()
+    }
+
+    fn view_shortcut_help(&self) -> Element<'_, Msg> {
+        use crate::app::keybinds::{self, Category};
+
+        let bindings = keybinds::bindings();
+        let categories = [
+            (Category::Navigation, "Navigation"),
+            (Category::View, "View"),
+            (Category::Culling, "Culling"),
+            (Category::Tagging, "Tagging"),
+        ];
+
+        let mut col = column![
+            row![
+                text("Keyboard Shortcuts").size(TEXT_BASE).color(FG),
+                Space::new().width(Length::Fill),
+                button(text("✕").size(TEXT_MD).color(FG_DIM))
+                    .on_press(Msg::ToggleShortcutHelp)
+                    .style(ghost_btn_style),
+            ]
+            .align_y(Alignment::Center)
+            .spacing(SPACE_2),
+        ]
+        .spacing(SPACE_2)
+        .padding(SPACE_3);
+
+        for (cat, cat_label) in &categories {
+            let cat_bindings: Vec<_> = bindings.iter().filter(|b| &b.category == cat).collect();
+            if cat_bindings.is_empty() {
+                continue;
+            }
+            col = col.push(text(*cat_label).size(TEXT_SM).color(FG_DIM));
+            for bind in cat_bindings {
+                let key_str = keybinds::format_key(bind);
+                col = col.push(
+                    row![
+                        container(text(key_str).size(TEXT_SM).color(ACCENT))
+                            .width(Length::Fixed(100.0)),
+                        text(bind.label).size(TEXT_SM).color(FG),
+                    ]
+                    .spacing(SPACE_2)
+                    .align_y(Alignment::Center),
+                );
+            }
+        }
+
+        let panel = container(col)
+            .width(Length::Fixed(340.0))
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_MODAL)),
+                border: Border {
+                    color: BORDER,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            });
+
+        container(panel)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.6,
+                })),
+                ..Default::default()
+            })
+            .into()
     }
 }
