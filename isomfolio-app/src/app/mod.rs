@@ -513,8 +513,9 @@ impl App {
                 async move {
                     let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
                     let tags_with_origin = cat.get_tags_with_origin(&file_id).unwrap_or_default();
-                    let tags: Vec<String> = tags_with_origin.iter().map(|(t, _)| t.clone()).collect();
-                    let tag_origins: std::collections::HashMap<String, String> = tags_with_origin.into_iter().collect();
+                    let tags: Vec<String> = tags_with_origin.iter().map(|(t, _, _)| t.clone()).collect();
+                    let tag_origins: std::collections::HashMap<String, String> = tags_with_origin.iter().map(|(t, o, _)| (t.clone(), o.clone())).collect();
+                    let tag_confidence: std::collections::HashMap<String, f32> = tags_with_origin.iter().filter_map(|(t, _, c)| Some((t.clone(), (*c)?))).collect();
                     let meta_opt = cat.get_metadata(&file_id).ok().flatten();
                     let (rating, label, title, exif_tech) = match meta_opt {
                         Some(m) => (
@@ -525,12 +526,13 @@ impl App {
                         ),
                         None => (None, None, None, None),
                     };
-                    (file_id, tags, tag_origins, rating, label, title, exif_tech)
+                    (file_id, tags, tag_origins, tag_confidence, rating, label, title, exif_tech)
                 },
-                |(file_id, tags, tag_origins, rating, label, title, exif_tech)| Msg::DetailLoaded {
+                |(file_id, tags, tag_origins, tag_confidence, rating, label, title, exif_tech)| Msg::DetailLoaded {
                     file_id,
                     tags,
                     tag_origins,
+                    tag_confidence,
                     rating,
                     label,
                     title,

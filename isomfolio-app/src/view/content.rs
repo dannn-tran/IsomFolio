@@ -505,8 +505,12 @@ impl App {
                 ]
                 .align_y(Alignment::Center);
                 if is_ai {
+                    let conf_label = match self.detail.tag_confidence.get(tag) {
+                        Some(c) => format!(" AI {:.0}%", c * 100.0),
+                        None => " AI".to_string(),
+                    };
                     tag_row = tag_row.push(
-                        text(" AI").size(TEXT_XS).color(FG_MUTED),
+                        text(conf_label).size(TEXT_XS).color(FG_MUTED),
                     );
                 }
                 tag_row = tag_row

@@ -82,8 +82,12 @@ impl Catalog {
         db::get_tags_for_file(&self.conn, file_id)
     }
 
-    pub fn get_tags_with_origin(&self, file_id: &str) -> Result<Vec<(String, String)>, AppError> {
+    pub fn get_tags_with_origin(&self, file_id: &str) -> Result<Vec<(String, String, Option<f32>)>, AppError> {
         db::get_tags_with_origin(&self.conn, file_id)
+    }
+
+    pub fn add_tags_merge_scored(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
+        db::add_tags_merge_scored(&self.conn, file_id, tags)
     }
 
     pub fn delete_ai_tags(&self, file_id: &str) -> Result<usize, AppError> {

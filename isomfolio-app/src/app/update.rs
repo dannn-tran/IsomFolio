@@ -104,20 +104,23 @@ impl App {
                             "thumbnail_path": &thumbnail_path,
                         });
                         if let Ok(result) = addon.call(&method, params) {
-                            let tags: Vec<String> = result
+                            let scored_tags: Vec<(String, Option<f32>)> = result
                                 .get("tags")
                                 .and_then(|t| t.as_array())
                                 .map(|arr| {
                                     arr.iter()
-                                        .filter_map(|t| t.get("tag")?.as_str())
-                                        .map(|s| s.to_string())
+                                        .filter_map(|t| {
+                                            let tag = t.get("tag")?.as_str()?.to_string();
+                                            let conf = t.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32);
+                                            Some((tag, conf))
+                                        })
                                         .collect()
                                 })
                                 .unwrap_or_default();
-                            if !tags.is_empty() {
+                            if !scored_tags.is_empty() {
                                 let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                                if let Err(e) = g.add_tags_merge(&file_id, &tags) {
-                                    eprintln!("[db] add_tags_merge failed: {e}");
+                                if let Err(e) = g.add_tags_merge_scored(&file_id, &scored_tags) {
+                                    eprintln!("[db] add_tags_merge_scored failed: {e}");
                                 }
                                 applied += 1;
                             }
@@ -1229,6 +1232,7 @@ impl App {
                 file_id,
                 tags,
                 tag_origins,
+                tag_confidence,
                 rating,
                 label,
                 title,
@@ -1238,6 +1242,7 @@ impl App {
                 self.detail.batch_file_ids.clear();
                 self.detail.tags = tags;
                 self.detail.tag_origins = tag_origins;
+                self.detail.tag_confidence = tag_confidence;
                 self.detail.rating = rating;
                 self.detail.label = label;
                 self.detail.title = title;

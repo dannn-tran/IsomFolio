@@ -271,11 +271,15 @@ pub fn upsert_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Result<
 
 /// Add tags without deleting existing ones — used for AI-generated tags to preserve manual tags.
 pub fn add_tags_merge(conn: &Connection, file_id: &str, tags: &[String]) -> Result<(), AppError> {
+    add_tags_merge_scored(conn, file_id, &tags.iter().map(|t| (t.clone(), None)).collect::<Vec<_>>())
+}
+
+pub fn add_tags_merge_scored(conn: &Connection, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
-    for tag in tags {
+    for (tag, confidence) in tags {
         conn.execute(
-            "INSERT OR IGNORE INTO tags (file_id, tag, origin) VALUES (?1, ?2, 'ai')",
-            params![file_id, tag],
+            "INSERT OR IGNORE INTO tags (file_id, tag, origin, confidence) VALUES (?1, ?2, 'ai', ?3)",
+            params![file_id, tag, confidence],
         )?;
     }
     tx.commit()?;
@@ -336,9 +340,13 @@ pub fn get_tags_for_file(conn: &Connection, file_id: &str) -> Result<Vec<String>
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-pub fn get_tags_with_origin(conn: &Connection, file_id: &str) -> Result<Vec<(String, String)>, AppError> {
-    let mut stmt = conn.prepare("SELECT tag, origin FROM tags WHERE file_id = ?1 ORDER BY tag")?;
-    let rows = stmt.query_map([file_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+pub fn get_tags_with_origin(conn: &Connection, file_id: &str) -> Result<Vec<(String, String, Option<f32>)>, AppError> {
+    let mut stmt = conn.prepare("SELECT tag, origin, confidence FROM tags WHERE file_id = ?1 ORDER BY tag")?;
+    let rows = stmt.query_map([file_id], |r| Ok((
+        r.get::<_, String>(0)?,
+        r.get::<_, String>(1)?,
+        r.get::<_, Option<f64>>(2)?.map(|v| v as f32),
+    )))?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
@@ -1060,16 +1068,22 @@ mod tests {
             setup(&conn);
             upsert_tags(&conn, "f1", &["landscape".into()]).unwrap();
             let tags = get_tags_with_origin(&conn, "f1").unwrap();
-            assert_eq!(tags, vec![("landscape".into(), "manual".into())]);
+            assert_eq!(tags.len(), 1);
+            assert_eq!(tags[0].0, "landscape");
+            assert_eq!(tags[0].1, "manual");
+            assert_eq!(tags[0].2, None);
         }
 
         #[test]
         fn ai_tags_have_ai_origin() {
             let (conn, _f) = open_temp();
             setup(&conn);
-            add_tags_merge(&conn, "f1", &["portrait".into()]).unwrap();
+            add_tags_merge_scored(&conn, "f1", &[("portrait".into(), Some(0.85))]).unwrap();
             let tags = get_tags_with_origin(&conn, "f1").unwrap();
-            assert_eq!(tags, vec![("portrait".into(), "ai".into())]);
+            assert_eq!(tags.len(), 1);
+            assert_eq!(tags[0].0, "portrait");
+            assert_eq!(tags[0].1, "ai");
+            assert!((tags[0].2.unwrap() - 0.85).abs() < 0.01);
         }
 
         #[test]
@@ -1080,8 +1094,8 @@ mod tests {
             upsert_tags(&conn, "f1", &["manual-tag".into()]).unwrap();
             let tags = get_tags_with_origin(&conn, "f1").unwrap();
             assert_eq!(tags.len(), 2);
-            assert!(tags.contains(&("ai-tag".into(), "ai".into())));
-            assert!(tags.contains(&("manual-tag".into(), "manual".into())));
+            assert!(tags.iter().any(|(t, o, _)| t == "ai-tag" && o == "ai"));
+            assert!(tags.iter().any(|(t, o, _)| t == "manual-tag" && o == "manual"));
         }
 
         #[test]
