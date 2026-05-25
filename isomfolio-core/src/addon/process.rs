@@ -334,6 +334,152 @@ done
         assert!(err.to_string().contains("unsupported protocol version"));
     }
 
+    fn echo_script() -> &'static str {
+        r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
+while IFS= read -r line; do
+    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    printf '{"id":%s,"result":{"ok":true}}\n' "$id"
+done
+"#
+    }
+
+    #[test]
+    fn send_many_returns_all_responses() {
+        let tmp = TempDir::new().unwrap();
+        let exe = write_test_addon(tmp.path(), echo_script());
+        let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
+        let requests: Vec<(&str, serde_json::Value)> = (0..5)
+            .map(|i| ("echo", serde_json::json!({"n": i})))
+            .collect();
+        let handle = proc.send_many(&requests).expect("send_many failed");
+        assert_eq!(handle.total, 5);
+        let mut count = 0;
+        while count < 5 {
+            let rx = handle.rx.lock().unwrap();
+            let result = rx.recv_timeout(Duration::from_secs(5)).expect("recv timed out");
+            assert!(result.is_ok());
+            count += 1;
+        }
+    }
+
+    #[test]
+    fn send_many_crash_mid_batch() {
+        let tmp = TempDir::new().unwrap();
+        let script = r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
+count=0
+while IFS= read -r line; do
+    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    count=$((count + 1))
+    if [ "$count" -ge 3 ]; then
+        exit 1
+    fi
+    printf '{"id":%s,"result":{"ok":true}}\n' "$id"
+done
+"#;
+        let exe = write_test_addon(tmp.path(), script);
+        let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
+        let requests: Vec<(&str, serde_json::Value)> = (0..5)
+            .map(|i| ("echo", serde_json::json!({"n": i})))
+            .collect();
+        let handle = proc.send_many(&requests).expect("send_many failed");
+        let mut ok_count = 0;
+        let mut err_count = 0;
+        for _ in 0..5 {
+            let rx = handle.rx.lock().unwrap();
+            match rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(Ok(_)) => ok_count += 1,
+                Ok(Err(_)) => err_count += 1,
+                Err(_) => break,
+            }
+        }
+        assert!(ok_count >= 2, "expected at least 2 successes, got {ok_count}");
+        assert!(err_count > 0 || ok_count < 5, "expected some failures from crash");
+    }
+
+    #[test]
+    fn send_with_progress_events() {
+        let tmp = TempDir::new().unwrap();
+        let script = r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
+while IFS= read -r line; do
+    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    printf '{"type":"progress","id":%s,"percent":50}\n' "$id"
+    printf '{"type":"progress","id":%s,"percent":100}\n' "$id"
+    printf '{"id":%s,"result":{"done":true}}\n' "$id"
+done
+"#;
+        let exe = write_test_addon(tmp.path(), script);
+        let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
+        let handle = proc.send("echo", serde_json::json!({})).expect("send failed");
+        let mut progress_values = Vec::new();
+        loop {
+            match handle.progress_rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(p) => progress_values.push(p),
+                Err(_) => break,
+            }
+        }
+        assert_eq!(progress_values, vec![50, 100]);
+        let result = handle.result_rx.recv_timeout(Duration::from_secs(5)).expect("no result");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap()["done"], true);
+    }
+
+    #[test]
+    fn stderr_captured_in_ring_buffer() {
+        let tmp = TempDir::new().unwrap();
+        let script = r#"echo "startup error log" >&2
+echo "warning line" >&2
+printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":[]}\n'
+while IFS= read -r line; do
+    echo "processing" >&2
+    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    printf '{"id":%s,"result":{}}\n' "$id"
+done
+"#;
+        let exe = write_test_addon(tmp.path(), script);
+        let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
+        let _ = proc.call("test", serde_json::json!({}));
+        std::thread::sleep(Duration::from_millis(100));
+        let stderr = proc.last_stderr();
+        assert!(stderr.len() >= 2, "expected stderr lines, got {:?}", stderr);
+        assert!(stderr.iter().any(|l| l.contains("startup error log")));
+        assert!(stderr.iter().any(|l| l.contains("warning line")));
+    }
+
+    #[test]
+    fn addon_error_response_propagated() {
+        let tmp = TempDir::new().unwrap();
+        let script = r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
+while IFS= read -r line; do
+    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    printf '{"id":%s,"error":"something went wrong"}\n' "$id"
+done
+"#;
+        let exe = write_test_addon(tmp.path(), script);
+        let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
+        let err = proc.call("echo", serde_json::json!({})).unwrap_err();
+        assert!(err.to_string().contains("something went wrong"));
+    }
+
+    #[test]
+    fn send_many_empty_batch() {
+        let tmp = TempDir::new().unwrap();
+        let exe = write_test_addon(tmp.path(), echo_script());
+        let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
+        let handle = proc.send_many(&[]).expect("send_many failed");
+        assert_eq!(handle.total, 0);
+    }
+
+    #[test]
+    fn multiple_sequential_calls() {
+        let tmp = TempDir::new().unwrap();
+        let exe = write_test_addon(tmp.path(), echo_script());
+        let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
+        for i in 0..10 {
+            let result = proc.call("echo", serde_json::json!({"i": i})).expect("call failed");
+            assert_eq!(result["ok"], true);
+        }
+    }
+
     #[test]
     fn call_returns_error_on_addon_exit() {
         let tmp = TempDir::new().unwrap();
