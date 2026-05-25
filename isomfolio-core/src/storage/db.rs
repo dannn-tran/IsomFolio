@@ -304,6 +304,82 @@ pub fn get_tag_origin(conn: &Connection, file_id: &str, tag: &str) -> Result<Opt
     Ok(origin)
 }
 
+pub fn insert_pending_tags(conn: &Connection, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    for (tag, confidence) in tags {
+        conn.execute(
+            "INSERT OR IGNORE INTO pending_tags (file_id, tag, confidence) VALUES (?1, ?2, ?3)",
+            params![file_id, tag, confidence],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn get_pending_tags(conn: &Connection, file_id: &str) -> Result<Vec<(String, Option<f32>)>, AppError> {
+    let mut stmt = conn.prepare("SELECT tag, confidence FROM pending_tags WHERE file_id = ?1 ORDER BY confidence DESC")?;
+    let rows = stmt.query_map([file_id], |r| Ok((
+        r.get::<_, String>(0)?,
+        r.get::<_, Option<f64>>(1)?.map(|v| v as f32),
+    )))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn get_pending_tag_count(conn: &Connection) -> Result<usize, AppError> {
+    let n: i64 = conn.query_row("SELECT COUNT(DISTINCT file_id) FROM pending_tags", [], |r| r.get(0))?;
+    Ok(n as usize)
+}
+
+pub fn accept_pending_tag(conn: &Connection, file_id: &str, tag: &str) -> Result<(), AppError> {
+    let conf: Option<f64> = conn
+        .query_row(
+            "SELECT confidence FROM pending_tags WHERE file_id = ?1 AND tag = ?2",
+            params![file_id, tag],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
+    conn.execute(
+        "INSERT OR IGNORE INTO tags (file_id, tag, origin, confidence) VALUES (?1, ?2, 'ai', ?3)",
+        params![file_id, tag, conf],
+    )?;
+    conn.execute(
+        "DELETE FROM pending_tags WHERE file_id = ?1 AND tag = ?2",
+        params![file_id, tag],
+    )?;
+    rebuild_fts_for_file(conn, file_id)?;
+    Ok(())
+}
+
+pub fn reject_pending_tag(conn: &Connection, file_id: &str, tag: &str) -> Result<(), AppError> {
+    conn.execute(
+        "DELETE FROM pending_tags WHERE file_id = ?1 AND tag = ?2",
+        params![file_id, tag],
+    )?;
+    Ok(())
+}
+
+pub fn accept_all_pending(conn: &Connection, file_id: &str) -> Result<usize, AppError> {
+    let pending = get_pending_tags(conn, file_id)?;
+    let n = pending.len();
+    let tx = conn.unchecked_transaction()?;
+    for (tag, conf) in &pending {
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (file_id, tag, origin, confidence) VALUES (?1, ?2, 'ai', ?3)",
+            params![file_id, tag, conf],
+        )?;
+    }
+    conn.execute("DELETE FROM pending_tags WHERE file_id = ?1", [file_id])?;
+    tx.commit()?;
+    rebuild_fts_for_file(conn, file_id)?;
+    Ok(n)
+}
+
+pub fn reject_all_pending(conn: &Connection, file_id: &str) -> Result<usize, AppError> {
+    let n = conn.execute("DELETE FROM pending_tags WHERE file_id = ?1", [file_id])?;
+    Ok(n)
+}
+
 fn parse_json_strings(json: &str) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(json).unwrap_or_default()
 }
@@ -1108,6 +1184,73 @@ mod tests {
             assert_eq!(n, 1);
             let tags = get_tags_for_file(&conn, "f1").unwrap();
             assert_eq!(tags, vec!["keep".to_string()]);
+        }
+    }
+
+    mod pending_tags {
+        use super::*;
+
+        fn setup(conn: &Connection) {
+            upsert_files(conn, &[make_file("f1", "/p/a.jpg")]).unwrap();
+        }
+
+        #[test]
+        fn insert_and_get() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            insert_pending_tags(&conn, "f1", &[
+                ("portrait".into(), Some(0.9)),
+                ("landscape".into(), Some(0.7)),
+            ]).unwrap();
+            let pending = get_pending_tags(&conn, "f1").unwrap();
+            assert_eq!(pending.len(), 2);
+            assert_eq!(pending[0].0, "portrait");
+        }
+
+        #[test]
+        fn accept_moves_to_tags() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            insert_pending_tags(&conn, "f1", &[("portrait".into(), Some(0.9))]).unwrap();
+            accept_pending_tag(&conn, "f1", "portrait").unwrap();
+            assert!(get_pending_tags(&conn, "f1").unwrap().is_empty());
+            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            assert_eq!(tags.len(), 1);
+            assert_eq!(tags[0].0, "portrait");
+            assert_eq!(tags[0].1, "ai");
+        }
+
+        #[test]
+        fn reject_removes() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            insert_pending_tags(&conn, "f1", &[("portrait".into(), Some(0.9))]).unwrap();
+            reject_pending_tag(&conn, "f1", "portrait").unwrap();
+            assert!(get_pending_tags(&conn, "f1").unwrap().is_empty());
+            assert!(get_tags_for_file(&conn, "f1").unwrap().is_empty());
+        }
+
+        #[test]
+        fn accept_all() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            insert_pending_tags(&conn, "f1", &[
+                ("a".into(), Some(0.9)),
+                ("b".into(), Some(0.8)),
+            ]).unwrap();
+            let n = accept_all_pending(&conn, "f1").unwrap();
+            assert_eq!(n, 2);
+            assert!(get_pending_tags(&conn, "f1").unwrap().is_empty());
+            assert_eq!(get_tags_for_file(&conn, "f1").unwrap().len(), 2);
+        }
+
+        #[test]
+        fn count() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            assert_eq!(get_pending_tag_count(&conn).unwrap(), 0);
+            insert_pending_tags(&conn, "f1", &[("a".into(), None)]).unwrap();
+            assert_eq!(get_pending_tag_count(&conn).unwrap(), 1);
         }
     }
 }

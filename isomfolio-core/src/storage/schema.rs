@@ -160,6 +160,16 @@ pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE metadata ADD COLUMN flash INTEGER",
 ];
 
+pub const CREATE_PENDING_TAGS: &str = "
+CREATE TABLE IF NOT EXISTS pending_tags (
+    file_id     TEXT NOT NULL,
+    tag         TEXT NOT NULL COLLATE NOCASE,
+    confidence  REAL,
+    PRIMARY KEY (file_id, tag),
+    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+);
+";
+
 pub const ALL_DDL: &[&str] = &[
     CREATE_FILES,
     CREATE_METADATA,
@@ -172,6 +182,7 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_ALBUMS,
     CREATE_ALBUM_FILES,
     CREATE_ALBUM_FILES_INDEX,
+    CREATE_PENDING_TAGS,
     CREATE_FACE_CLUSTERS,
     CREATE_FACE_CLUSTER_NAMES,
     CREATE_FACE_CLUSTER_IDX,

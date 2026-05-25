@@ -98,6 +98,34 @@ impl Catalog {
         db::delete_all_ai_tags(&self.conn)
     }
 
+    pub fn insert_pending_tags(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
+        db::insert_pending_tags(&self.conn, file_id, tags)
+    }
+
+    pub fn get_pending_tags(&self, file_id: &str) -> Result<Vec<(String, Option<f32>)>, AppError> {
+        db::get_pending_tags(&self.conn, file_id)
+    }
+
+    pub fn get_pending_tag_count(&self) -> Result<usize, AppError> {
+        db::get_pending_tag_count(&self.conn)
+    }
+
+    pub fn accept_pending_tag(&self, file_id: &str, tag: &str) -> Result<(), AppError> {
+        db::accept_pending_tag(&self.conn, file_id, tag)
+    }
+
+    pub fn reject_pending_tag(&self, file_id: &str, tag: &str) -> Result<(), AppError> {
+        db::reject_pending_tag(&self.conn, file_id, tag)
+    }
+
+    pub fn accept_all_pending(&self, file_id: &str) -> Result<usize, AppError> {
+        db::accept_all_pending(&self.conn, file_id)
+    }
+
+    pub fn reject_all_pending(&self, file_id: &str) -> Result<usize, AppError> {
+        db::reject_all_pending(&self.conn, file_id)
+    }
+
     pub fn get_shared_tags(&self, file_ids: &[String]) -> Result<Vec<String>, AppError> {
         if file_ids.is_empty() {
             return Ok(Vec::new());

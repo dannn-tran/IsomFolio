@@ -119,8 +119,8 @@ impl App {
                                 .unwrap_or_default();
                             if !scored_tags.is_empty() {
                                 let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                                if let Err(e) = g.add_tags_merge_scored(&file_id, &scored_tags) {
-                                    eprintln!("[db] add_tags_merge_scored failed: {e}");
+                                if let Err(e) = g.insert_pending_tags(&file_id, &scored_tags) {
+                                    eprintln!("[db] insert_pending_tags failed: {e}");
                                 }
                                 applied += 1;
                             }
@@ -1233,6 +1233,7 @@ impl App {
                 tags,
                 tag_origins,
                 tag_confidence,
+                pending_tags,
                 rating,
                 label,
                 title,
@@ -1243,6 +1244,7 @@ impl App {
                 self.detail.tags = tags;
                 self.detail.tag_origins = tag_origins;
                 self.detail.tag_confidence = tag_confidence;
+                self.detail.pending_tags = pending_tags;
                 self.detail.rating = rating;
                 self.detail.label = label;
                 self.detail.title = title;
@@ -1319,6 +1321,75 @@ impl App {
                     return Task::none();
                 };
                 self.update(Msg::AddDetailTagDirect(tag))
+            }
+
+            Msg::AcceptPendingTag(tag) => {
+                let Some(ref fid) = self.detail.file_id else { return Task::none() };
+                let fid = fid.clone();
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.detail.pending_tags.retain(|(t, _)| t != &tag);
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Err(e) = g.accept_pending_tag(&fid, &tag) {
+                            eprintln!("[db] accept_pending_tag failed: {e}");
+                        }
+                    },
+                    |()| Msg::PendingTagsUpdated,
+                )
+            }
+
+            Msg::RejectPendingTag(tag) => {
+                let Some(ref fid) = self.detail.file_id else { return Task::none() };
+                let fid = fid.clone();
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.detail.pending_tags.retain(|(t, _)| t != &tag);
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Err(e) = g.reject_pending_tag(&fid, &tag) {
+                            eprintln!("[db] reject_pending_tag failed: {e}");
+                        }
+                    },
+                    |()| Msg::PendingTagsUpdated,
+                )
+            }
+
+            Msg::AcceptAllPending => {
+                let Some(ref fid) = self.detail.file_id else { return Task::none() };
+                let fid = fid.clone();
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.detail.pending_tags.clear();
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Err(e) = g.accept_all_pending(&fid) {
+                            eprintln!("[db] accept_all_pending failed: {e}");
+                        }
+                    },
+                    |()| Msg::PendingTagsUpdated,
+                )
+            }
+
+            Msg::RejectAllPending => {
+                let Some(ref fid) = self.detail.file_id else { return Task::none() };
+                let fid = fid.clone();
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.detail.pending_tags.clear();
+                Task::perform(
+                    async move {
+                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Err(e) = g.reject_all_pending(&fid) {
+                            eprintln!("[db] reject_all_pending failed: {e}");
+                        }
+                    },
+                    |()| Msg::PendingTagsUpdated,
+                )
+            }
+
+            Msg::PendingTagsUpdated => {
+                self.detail.file_id = None;
+                self.maybe_load_detail()
             }
 
             Msg::ToggleShortcutHelp => {

@@ -610,6 +610,59 @@ impl App {
                     .size(TEXT_SM)
                     .width(Length::Fill),
             );
+
+            if !self.detail.pending_tags.is_empty() {
+                col = col.push(Space::new().height(SPACE_1));
+                col = col.push(
+                    row![
+                        text("Suggested").size(TEXT_SM).color(FG_DIM),
+                        Space::new().width(Length::Fill),
+                        button(text("Accept All").size(TEXT_XS))
+                            .on_press(Msg::AcceptAllPending)
+                            .style(ghost_btn_style),
+                        button(text("Reject All").size(TEXT_XS).color(ERR))
+                            .on_press(Msg::RejectAllPending)
+                            .style(ghost_btn_style),
+                    ]
+                    .spacing(SPACE_1)
+                    .align_y(Alignment::Center),
+                );
+                for (tag, confidence) in &self.detail.pending_tags {
+                    let conf_str = confidence.map(|c| format!(" {:.0}%", c * 100.0)).unwrap_or_default();
+                    col = col.push(
+                        container(
+                            row![
+                                text(tag.as_str()).size(TEXT_SM).color(FG_DIM),
+                                text(conf_str).size(TEXT_XS).color(FG_MUTED),
+                                Space::new().width(Length::Fill),
+                                button(text("✓").size(TEXT_XS).color(ACCENT))
+                                    .on_press(Msg::AcceptPendingTag(tag.clone()))
+                                    .style(ghost_btn_style),
+                                button(text("✕").size(TEXT_XS).color(ERR))
+                                    .on_press(Msg::RejectPendingTag(tag.clone()))
+                                    .style(ghost_btn_style),
+                            ]
+                            .spacing(SPACE_1)
+                            .align_y(Alignment::Center),
+                        )
+                        .padding([SPACE_0_5, SPACE_1])
+                        .style(|_: &Theme| container::Style {
+                            background: Some(Background::Color(Color {
+                                r: 1.0,
+                                g: 1.0,
+                                b: 1.0,
+                                a: 0.03,
+                            })),
+                            border: Border {
+                                radius: 3.0.into(),
+                                color: Color { r: 1.0, g: 1.0, b: 1.0, a: 0.08 },
+                                width: 1.0,
+                            },
+                            ..Default::default()
+                        }),
+                    );
+                }
+            }
         }
 
         if self.detail_file().is_some() {
