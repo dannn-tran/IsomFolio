@@ -142,6 +142,20 @@ impl AddonProcess {
         Ok(AddonCallHandle { id, result_rx, progress_rx, progress_sinks: Arc::clone(&self.progress_sinks) })
     }
 
+    pub fn send_many(
+        &self,
+        requests: &[(&str, serde_json::Value)],
+    ) -> Result<BatchHandle, AppError> {
+        let total = requests.len();
+        let (tx, rx) = sync_channel(total);
+        for (method, params) in requests {
+            let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+            self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx.clone());
+            self.write_request(id, method, params.clone())?;
+        }
+        Ok(BatchHandle { rx: Arc::new(Mutex::new(rx)), total })
+    }
+
     fn call_timeout(
         &self,
         method: &str,
@@ -171,6 +185,11 @@ impl AddonProcess {
         }
         Ok(())
     }
+}
+
+pub struct BatchHandle {
+    pub rx: Arc<Mutex<std::sync::mpsc::Receiver<Result<serde_json::Value, String>>>>,
+    pub total: usize,
 }
 
 pub struct AddonCallHandle {

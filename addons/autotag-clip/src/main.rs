@@ -112,7 +112,7 @@ fn main() {
             "type": "hello",
             "protocol_version": 1,
             "addon_api_version": 1,
-            "capabilities": ["classify", "classify_batch"],
+            "capabilities": ["classify"],
         })
     );
     let _ = out.flush();
@@ -127,10 +127,6 @@ fn main() {
         match serde_json::from_str::<Request>(line) {
             Ok(req) => {
                 let resp = match req.method.as_str() {
-                    "classify_batch" => {
-                        handle_classify_batch(&vision_model, &vocab_labels, &vocab_embeds, req.id, &req.params, &mut out);
-                        continue;
-                    }
                     "classify" => match classify_one(&vision_model, &vocab_labels, &vocab_embeds, &req.params) {
                         Ok(r) => serde_json::to_string(&Response { id: req.id, result: r }).unwrap(),
                         Err(e) => serde_json::to_string(&ErrorResponse { id: req.id, error: e.to_string() }).unwrap(),
@@ -147,41 +143,6 @@ fn main() {
             Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
         }
     }
-}
-
-fn handle_classify_batch(
-    model: &TractModel,
-    vocab_labels: &[String],
-    vocab_embeds: &[Vec<f32>],
-    req_id: u64,
-    params: &Value,
-    out: &mut impl Write,
-) {
-    let files = params.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
-    let total = files.len();
-    let mut results = serde_json::Map::new();
-
-    for (i, file) in files.iter().enumerate() {
-        let file_id = file.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
-        let thumb = file.get("thumbnail_path").and_then(|v| v.as_str()).unwrap_or("");
-
-        if !thumb.is_empty() && Path::new(thumb).exists() {
-            if let Ok(tags) = classify_one(model, vocab_labels, vocab_embeds, file) {
-                results.insert(file_id.to_string(), tags);
-            }
-        }
-
-        let percent = ((i + 1) * 100 / total).min(99) as u8;
-        let _ = writeln!(out, "{}", serde_json::json!({"type":"progress","id":req_id,"percent":percent}));
-        let _ = out.flush();
-    }
-
-    let resp = serde_json::to_string(&Response {
-        id: req_id,
-        result: serde_json::json!({ "files": results }),
-    }).unwrap();
-    let _ = writeln!(out, "{resp}");
-    let _ = out.flush();
 }
 
 fn load_config(out: &mut impl Write) -> Config {
@@ -354,7 +315,8 @@ fn classify_one(
         .map(|(s, label)| serde_json::json!({ "tag": label, "confidence": s }))
         .collect();
 
-    Ok(serde_json::json!({ "tags": tags }))
+    let file_id = params.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
+    Ok(serde_json::json!({ "file_id": file_id, "tags": tags }))
 }
 
 fn embed_image(model: &TractModel, path: &str) -> TractResult<Vec<f32>> {
