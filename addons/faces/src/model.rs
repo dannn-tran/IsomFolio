@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use image::{RgbImage, imageops::FilterType};
@@ -8,8 +9,9 @@ use tract_onnx::prelude::{
 
 pub const MODEL_VERSION: &str = "scrfd-10g+arcface-w600k-r50-v1";
 
-const DET_URL: &str = "https://huggingface.co/datasets/public-data/insightface/resolve/main/models/buffalo_l/det_10g.onnx";
-const REC_URL: &str = "https://huggingface.co/datasets/public-data/insightface/resolve/main/models/buffalo_l/w600k_r50.onnx";
+const BUFFALO_ZIP_URL: &str = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip";
+const DET_FILENAME: &str = "det_10g.onnx";
+const REC_FILENAME: &str = "w600k_r50.onnx";
 
 const DET_INPUT_SIZE: usize = 640;
 const REC_INPUT_SIZE: usize = 112;
@@ -47,11 +49,22 @@ impl FaceModels {
         let dir = PathBuf::from(models_dir).join("buffalo_l");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-        download_if_missing(&dir.join("det_10g.onnx"), DET_URL, out)?;
-        download_if_missing(&dir.join("w600k_r50.onnx"), REC_URL, out)?;
+        let det_path = dir.join(DET_FILENAME);
+        let rec_path = dir.join(REC_FILENAME);
 
-        let detector = load_det_model(&dir.join("det_10g.onnx"))?;
-        let recognizer = load_rec_model(&dir.join("w600k_r50.onnx"))?;
+        if !det_path.exists() || !rec_path.exists() {
+            download_and_extract_models(&dir, out)?;
+        }
+
+        if !det_path.exists() {
+            return Err(format!("{DET_FILENAME} not found in {}", dir.display()));
+        }
+        if !rec_path.exists() {
+            return Err(format!("{REC_FILENAME} not found in {}", dir.display()));
+        }
+
+        let detector = load_det_model(&det_path)?;
+        let recognizer = load_rec_model(&rec_path)?;
 
         Ok(FaceModels { detector, recognizer })
     }
@@ -401,26 +414,38 @@ fn l2_normalize(v: Vec<f32>) -> Vec<f32> {
     }
 }
 
-fn download_if_missing(path: &Path, url: &str, out: &mut impl std::io::Write) -> Result<(), String> {
-    if path.exists() {
-        return Ok(());
+fn download_and_extract_models(dir: &Path, out: &mut impl std::io::Write) -> Result<(), String> {
+    emit_log(out, "info", "downloading face models from GitHub…");
+
+    let resp = ureq::get(BUFFALO_ZIP_URL)
+        .call()
+        .map_err(|e| format!("download failed: {e}"))?;
+
+    let mut zip_bytes = Vec::new();
+    resp.into_body()
+        .as_reader()
+        .read_to_end(&mut zip_bytes)
+        .map_err(|e| format!("read failed: {e}"))?;
+
+    emit_log(out, "info", "extracting models…");
+
+    let cursor = std::io::Cursor::new(&zip_bytes);
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("invalid zip: {e}"))?;
+
+    let needed = [DET_FILENAME, REC_FILENAME];
+    for name in &needed {
+        let mut file = archive.by_name(name).map_err(|e| format!("{name} not in archive: {e}"))?;
+        let out_path = dir.join(name);
+        let mut out_file = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+        std::io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
+        emit_log(out, "info", &format!("{name} ready"));
     }
-    let name = path.file_name().unwrap().to_string_lossy().to_string();
-    let _ = writeln!(
-        out,
-        "{}",
-        serde_json::json!({"type":"log","level":"info","message": format!("downloading {name}…")})
-    );
-    let _ = out.flush();
-    let resp = ureq::get(url).call().map_err(|e| format!("{url}: {e}"))?;
-    let mut file = std::fs::File::create(path).map_err(|e| e.to_string())?;
-    std::io::copy(&mut resp.into_body().as_reader(), &mut file).map_err(|e| e.to_string())?;
-    let _ = writeln!(
-        out,
-        "{}",
-        serde_json::json!({"type":"log","level":"info","message": format!("{name} ready")})
-    );
-    let _ = out.flush();
+
     Ok(())
+}
+
+fn emit_log(out: &mut impl std::io::Write, level: &str, msg: &str) {
+    let _ = writeln!(out, "{}", serde_json::json!({"type":"log","level":level,"message":msg}));
+    let _ = out.flush();
 }
 

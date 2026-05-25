@@ -14,3 +14,4 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 tract-onnx = "0.21"
 ureq = { version = "3.3.0" }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
