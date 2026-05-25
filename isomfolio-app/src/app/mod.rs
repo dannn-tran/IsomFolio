@@ -70,11 +70,12 @@ pub struct FaceState {
     pub crop_handles: HashMap<String, iced::widget::image::Handle>,
     pub rename_cluster_id: Option<String>,
     pub rename_input: String,
+    pub status: Option<String>,
 }
 
 impl Default for FaceState {
     fn default() -> Self {
-        Self { clusters: Vec::new(), crop_handles: HashMap::new(), rename_cluster_id: None, rename_input: String::new() }
+        Self { clusters: Vec::new(), crop_handles: HashMap::new(), rename_cluster_id: None, rename_input: String::new(), status: None }
     }
 }
 

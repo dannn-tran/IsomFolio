@@ -151,10 +151,15 @@ impl App {
             Msg::AddonProgress { .. } => Task::none(),
 
             Msg::AddonBatchProgress { name, done, total } => {
-                if total == 100 {
-                    self.status = format!("{name}… ({done}%)");
+                let msg = if total == 100 {
+                    format!("{name}… ({done}%)")
                 } else {
-                    self.status = format!("{name}… ({done}/{total})");
+                    format!("{name}… ({done}/{total})")
+                };
+                if name.contains("faces") || name.contains("Clustering") {
+                    self.faces.status = Some(msg);
+                } else {
+                    self.status = msg;
                 }
                 Task::none()
             }
@@ -188,13 +193,13 @@ impl App {
                     .find(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
                     .cloned()
                 else {
-                    self.status = "No face clustering addon installed".to_string();
+                    self.faces.status = Some("No face clustering addon installed".to_string());
                     return Task::none();
                 };
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
-                self.status = "Clustering faces… (0%)".to_string();
+                self.faces.status = Some("Clustering faces… (0%)".to_string());
 
                 let files = {
                     let g = conn.lock().unwrap_or_else(|e| e.into_inner());
@@ -215,7 +220,7 @@ impl App {
                 let handle = match addon.send("cluster_faces", params) {
                     Ok(h) => h,
                     Err(e) => {
-                        self.status = format!("face clustering error: {e}");
+                        self.faces.status = Some(format!("face clustering error: {e}"));
                         return Task::none();
                     }
                 };
@@ -273,7 +278,7 @@ impl App {
             Msg::FaceClusteringDone(summaries) => {
                 let count = summaries.len();
                 self.faces.clusters = summaries;
-                self.status = format!("Face clustering done — {count} people found");
+                self.faces.status = Some(format!("{count} people found"));
                 self.load_face_crops_task()
             }
 
@@ -370,15 +375,20 @@ impl App {
             }
 
             Msg::AddonRestarted { idx, process } => {
-                if let Some(p) = process {
+                let msg = if let Some(p) = process {
                     if idx < self.addons.len() {
                         self.addons[idx] = p;
                     } else {
                         self.addons.push(p);
                     }
-                    self.status = "Addon restarted".to_string();
+                    "Addon restarted".to_string()
                 } else {
-                    self.status = "Addon restart failed — check logs".to_string();
+                    "Addon restart failed — check logs".to_string()
+                };
+                if self.settings.show {
+                    self.settings.status = Some(msg);
+                } else {
+                    self.status = msg;
                 }
                 Task::none()
             }
@@ -401,7 +411,7 @@ impl App {
                     }
                     addon_configs.insert(addon.manifest.name.clone(), fields);
                 }
-                self.settings = SettingsState { show: true, addon_configs, install_error: None };
+                self.settings = SettingsState { show: true, addon_configs, install_error: None, status: None };
                 Task::none()
             }
 
@@ -444,7 +454,7 @@ impl App {
                 if restart_tasks.is_empty() {
                     Task::none()
                 } else {
-                    self.status = "Restarting addons…".to_string();
+                    self.settings.status = Some("Saving & restarting addons…".to_string());
                     Task::batch(restart_tasks)
                 }
             }
@@ -464,7 +474,7 @@ impl App {
 
             Msg::AddonPackagePicked(Some(path)) => {
                 self.settings.install_error = None;
-                self.status = "Installing addon…".to_string();
+                self.settings.status = Some("Installing addon…".to_string());
                 Task::perform(
                     async move {
                         let path = std::path::PathBuf::from(path);
@@ -479,7 +489,7 @@ impl App {
             }
 
             Msg::AddonInstalled(process) => {
-                self.status = format!("Addon '{}' installed", process.manifest.name);
+                self.settings.status = Some(format!("'{}' installed", process.manifest.name));
                 self.settings.install_error = None;
                 self.addons.push(process);
                 Task::none()
@@ -492,12 +502,12 @@ impl App {
 
             Msg::UninstallAddon(name) => {
                 if let Some(idx) = self.addons.iter().position(|a| a.manifest.name == name) {
-                    self.addons.remove(idx); // kills process via Drop
+                    self.addons.remove(idx);
                 }
                 if let Err(e) = uninstall_addon(&name) {
-                    self.status = format!("Uninstall failed: {e}");
+                    self.settings.status = Some(format!("Uninstall failed: {e}"));
                 } else {
-                    self.status = format!("Addon '{name}' removed");
+                    self.settings.status = Some(format!("'{name}' removed"));
                 }
                 Task::none()
             }

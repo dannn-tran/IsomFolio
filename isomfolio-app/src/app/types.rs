@@ -353,6 +353,7 @@ pub struct SettingsState {
     /// addon_name -> key -> current edited value
     pub addon_configs: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     pub install_error: Option<String>,
+    pub status: Option<String>,
 }
 
 impl Default for SettingsState {
@@ -361,6 +362,7 @@ impl Default for SettingsState {
             show: false,
             addon_configs: std::collections::HashMap::new(),
             install_error: None,
+            status: None,
         }
     }
 }

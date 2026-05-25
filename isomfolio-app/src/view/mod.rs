@@ -30,10 +30,6 @@ impl App {
             return self.view_loupe();
         }
 
-        if matches!(self.view_mode, ViewMode::People) {
-            return self.view_people();
-        }
-
         let dragging = self.drag.state.as_ref().map(|d| d.active).unwrap_or(false);
         let drag_hover = self.drag.hover_album.clone();
         let status = if dragging {
@@ -166,9 +162,14 @@ impl App {
         .interaction(iced::mouse::Interaction::ResizingHorizontally)
         .into();
 
-        let mut main_row = row![self.view_sidebar(), resize_handle, self.view_grid()]
+        let content_area: Element<Msg> = if matches!(self.view_mode, ViewMode::People) {
+            self.view_people_grid()
+        } else {
+            self.view_grid()
+        };
+        let mut main_row = row![self.view_sidebar(), resize_handle, content_area]
             .height(Length::Fill);
-        if self.detail.show {
+        if self.detail.show && !matches!(self.view_mode, ViewMode::People) {
             main_row = main_row.push(self.view_detail());
         }
 
@@ -622,6 +623,11 @@ impl App {
         if let Some(ref err) = self.settings.install_error {
             body = body.push(Space::new().height(SPACE_2));
             body = body.push(text(err.as_str()).size(TEXT_SM).color(ERR));
+        }
+
+        if let Some(ref status) = self.settings.status {
+            body = body.push(Space::new().height(SPACE_2));
+            body = body.push(text(status.as_str()).size(TEXT_SM).color(FG_DIM));
         }
 
         body = body.push(Space::new().height(SPACE_6)).push(

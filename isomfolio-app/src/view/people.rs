@@ -6,8 +6,8 @@ use iced::{
 use isomfolio_core::models::FaceClusterSummary;
 
 use super::styles::{
-    ghost_btn_style, icon_btn_style, BG_GRID, BG_TILE_LOADING, FG, FG_DIM, FG_MUTED,
-    SPACE_1, SPACE_1_5, SPACE_2, SPACE_3, SPACE_4, TEXT_BASE, TEXT_MD, TEXT_SM,
+    BG_GRID, BG_TILE_LOADING, FG, FG_DIM, FG_MUTED,
+    SPACE_1, SPACE_1_5, SPACE_2, SPACE_3, SPACE_4, TEXT_BASE, TEXT_SM,
 };
 use crate::app::{App, Msg, SidebarItem, TILE_GAP};
 
@@ -15,21 +15,7 @@ const PERSON_CARD_SIZE: f32 = 96.0;
 const CARD_TOTAL: f32 = PERSON_CARD_SIZE + 28.0;
 
 impl App {
-    pub(super) fn view_people(&self) -> Element<'_, Msg> {
-        let header = row![
-            button(text("← Back").size(TEXT_MD))
-                .on_press(Msg::SidebarItemClicked(SidebarItem::AllFiles))
-                .style(ghost_btn_style),
-            text("People").size(TEXT_BASE).color(FG),
-            Space::new().width(Length::Fill),
-            button(text("⟳").size(TEXT_MD))
-                .on_press(Msg::RunFaceClustering { force_full: true })
-                .style(icon_btn_style),
-        ]
-        .spacing(SPACE_2)
-        .align_y(Alignment::Center)
-        .padding([SPACE_2, SPACE_3]);
-
+    pub(super) fn view_people_grid(&self) -> Element<'_, Msg> {
         let grid_width = self.viewport_width;
         let cols = ((grid_width - SPACE_3 * 2.0) / (CARD_TOTAL + TILE_GAP)).max(1.0) as usize;
 
@@ -43,7 +29,11 @@ impl App {
             .filter(|c| c.cluster_id == "face-unknown")
             .collect();
 
-        let mut content = column![].spacing(SPACE_3).padding([0.0, SPACE_3]);
+        let mut content = column![].spacing(SPACE_3).padding([SPACE_3, SPACE_3]);
+
+        if let Some(ref status) = self.faces.status {
+            content = content.push(text(status.as_str()).size(TEXT_SM).color(FG_DIM));
+        }
 
         if !named.is_empty() {
             content = content.push(self.people_grid("Named", &named, cols));
@@ -55,12 +45,12 @@ impl App {
             content = content.push(self.people_grid("Unknown", &unknown, cols));
         }
 
-        if self.faces.clusters.is_empty() {
+        if self.faces.clusters.is_empty() && self.faces.status.is_none() {
             content = content.push(
                 container(
                     column![
                         text("No people found yet").size(TEXT_BASE).color(FG_DIM),
-                        text("Click ⟳ to run face detection").size(TEXT_SM).color(FG_MUTED),
+                        text("Click ⟳ in the sidebar to run face detection").size(TEXT_SM).color(FG_MUTED),
                     ]
                     .spacing(SPACE_1)
                     .align_x(Alignment::Center),
@@ -77,7 +67,7 @@ impl App {
             ))
             .height(Length::Fill);
 
-        container(column![header, scrollable_content])
+        container(scrollable_content)
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {
