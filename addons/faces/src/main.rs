@@ -3,7 +3,7 @@ mod model;
 
 use std::io::{self, BufRead, Write};
 
-use isomfolio_addon_sdk as sdk;
+use isfx_sdk as sdk;
 use rusqlite::Connection as SqliteConn;
 use serde::Deserialize;
 use serde_json::Value;

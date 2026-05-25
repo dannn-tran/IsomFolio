@@ -2,7 +2,7 @@
 members = [
     "isomfolio-core",
     "isomfolio-app",
-    "addons/addon-sdk",
+    "addons/isfx-sdk",
     "addons/test-addon",
     "addons/autotag-clip",
     "addons/autotag-openai",

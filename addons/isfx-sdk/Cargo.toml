@@ -1,5 +1,5 @@
 [package]
-name = "isomfolio-addon-sdk"
+name = "isfx-sdk"
 version = "0.1.0"
 edition = "2021"
 

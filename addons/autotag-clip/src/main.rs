@@ -1,7 +1,7 @@
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use isomfolio_addon_sdk as sdk;
+use isfx_sdk as sdk;
 use serde::Deserialize;
 use serde_json::Value;
 use tokenizers::Tokenizer;
