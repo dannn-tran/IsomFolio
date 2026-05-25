@@ -225,7 +225,7 @@ pub enum Msg {
     RunAddon { addon_idx: usize, method: String, file_ids: Vec<String> },
     AddonProgress { addon_idx: usize, file_id: String, percent: u8 },
     AddonBatchProgress { name: String, done: usize, total: usize },
-    AddonBatchDone { method: String, applied: usize },
+    AddonBatchDone { addon_idx: usize, method: String, applied: usize, failed: usize },
     AddonRestarted { idx: usize, process: Option<Arc<AddonProcess>> },
 
     OpenSettings,

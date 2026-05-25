@@ -99,8 +99,8 @@ impl App {
                 };
 
                 let stream = futures::stream::unfold(
-                    (handle, conn, addon_name, 0usize, 0usize),
-                    |(handle, conn, name, mut done, mut applied)| async move {
+                    (handle, conn, addon_name, addon_idx, 0usize, 0usize, 0usize),
+                    |(handle, conn, name, addon_idx, mut done, mut applied, mut failed)| async move {
                         let rx = handle.rx.clone();
                         let result = tokio::task::spawn_blocking(move || {
                             rx.lock().unwrap_or_else(|e| e.into_inner()).recv()
@@ -120,22 +120,27 @@ impl App {
                                 }
                                 done += 1;
                                 if done >= handle.total {
-                                    Some((Msg::AddonBatchDone { method: "classify".into(), applied }, (handle, conn, name, done, applied)))
+                                    Some((Msg::AddonBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
                                 } else {
-                                    Some((Msg::AddonBatchProgress { name: name.clone(), done, total: handle.total }, (handle, conn, name, done, applied)))
+                                    Some((Msg::AddonBatchProgress { name: name.clone(), done, total: handle.total }, (handle, conn, name, addon_idx, done, applied, failed)))
                                 }
                             }
                             Ok(Ok(Err(e))) => {
                                 eprintln!("[addon] classify error: {e}");
                                 done += 1;
+                                failed += 1;
                                 if done >= handle.total {
-                                    Some((Msg::AddonBatchDone { method: "classify".into(), applied }, (handle, conn, name, done, applied)))
+                                    Some((Msg::AddonBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
                                 } else {
-                                    Some((Msg::AddonBatchProgress { name: name.clone(), done, total: handle.total }, (handle, conn, name, done, applied)))
+                                    Some((Msg::AddonBatchProgress { name: name.clone(), done, total: handle.total }, (handle, conn, name, addon_idx, done, applied, failed)))
                                 }
                             }
                             _ => {
-                                Some((Msg::AddonBatchDone { method: "classify".into(), applied }, (handle, conn, name, done, applied)))
+                                let total = handle.total;
+                                let remaining = total.saturating_sub(done);
+                                failed += remaining;
+                                done = total;
+                                Some((Msg::AddonBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
                             }
                         }
                     },
@@ -154,9 +159,22 @@ impl App {
                 Task::none()
             }
 
-            Msg::AddonBatchDone { method, applied } => {
-                self.status = format!("{method} done — {applied} file{} updated", if applied == 1 { "" } else { "s" });
-                Task::none()
+            Msg::AddonBatchDone { addon_idx, method, applied, failed } => {
+                if failed == 0 {
+                    self.status = format!("{method} done — {applied} file{} updated", if applied == 1 { "" } else { "s" });
+                    Task::none()
+                } else {
+                    self.status = format!("{method} done — {applied} updated, {failed} failed (addon crashed)");
+                    let manifest = self.addons.get(addon_idx).map(|a| a.manifest.clone());
+                    if let Some(manifest) = manifest {
+                        Task::perform(
+                            async move { AddonProcess::launch(manifest).map(Arc::new).ok() },
+                            move |p| Msg::AddonRestarted { idx: addon_idx, process: p },
+                        )
+                    } else {
+                        Task::none()
+                    }
+                }
             }
 
             Msg::RunFaceClustering => {
