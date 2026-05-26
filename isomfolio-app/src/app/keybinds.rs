@@ -66,6 +66,7 @@ pub fn default_bindings() -> Vec<KeyBind> {
         KeyBind { key: Char("i"),           mods: Mods::NONE, when_ignored: true, action: || Msg::ToggleDetail,     label: "Toggle Info",     category: View },
         KeyBind { key: Char("="),           mods: Mods::CMD,  when_ignored: true, action: || Msg::TileSizeUp,       label: "Zoom In",         category: View },
         KeyBind { key: Char("-"),           mods: Mods::CMD,  when_ignored: true, action: || Msg::TileSizeDown,     label: "Zoom Out",        category: View },
+        KeyBind { key: Char("e"),           mods: Mods::NONE, when_ignored: true, action: || Msg::TogglePreview,     label: "Toggle Preview",  category: View },
         KeyBind { key: Char("\\"),          mods: Mods::NONE, when_ignored: true, action: || Msg::ToggleHideRejects, label: "Toggle Rejects", category: View },
 
         // Culling

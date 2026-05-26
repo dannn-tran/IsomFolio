@@ -40,6 +40,7 @@ pub const CRITERIA_PADDING: f32 = 18.0;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ViewMode {
     Browse,
+    Preview,
     Loupe,
     People,
 }
@@ -175,6 +176,7 @@ pub enum Msg {
     OpenMenuDropdown(String),
     CloseMenuDropdown,
     ReturnToWelcome,
+    TogglePreview,
     AcceptPendingTag(String),
     RejectPendingTag(String),
     AcceptAllPending,

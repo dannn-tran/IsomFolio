@@ -143,14 +143,14 @@ impl App {
         .interaction(iced::mouse::Interaction::ResizingHorizontally)
         .into();
 
-        let content_area: Element<Msg> = if matches!(self.view_mode, ViewMode::People) {
-            self.view_people_grid()
-        } else {
-            self.view_grid()
+        let content_area: Element<Msg> = match self.view_mode {
+            ViewMode::People => self.view_people_grid(),
+            ViewMode::Preview => self.view_preview(),
+            _ => self.view_grid(),
         };
         let mut main_row = row![self.view_sidebar(), resize_handle, content_area]
             .height(Length::Fill);
-        if self.detail.show && !matches!(self.view_mode, ViewMode::People) {
+        if self.detail.show && matches!(self.view_mode, ViewMode::Browse | ViewMode::Preview) {
             main_row = main_row.push(self.view_detail());
         }
 
@@ -272,6 +272,55 @@ impl App {
             .align_x(Alignment::End)
             .align_y(Alignment::End)
             .padding(iced::Padding { top: 0.0, right: SPACE_3, bottom: 38.0, left: 0.0 })
+            .into()
+    }
+
+    fn view_preview(&self) -> Element<'_, Msg> {
+        let total = self.files.len();
+        let idx = self.loupe.idx.min(total.saturating_sub(1));
+
+        let img_handle: Option<image::Handle> = self.loupe.full_res.as_ref()
+            .and_then(|(full_idx, handle)| if *full_idx == idx { Some(handle.clone()) } else { None });
+
+        let preview_img: Element<Msg> = match img_handle {
+            Some(handle) => image(handle)
+                .content_fit(iced::ContentFit::Contain)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            None => {
+                let thumb = self.files.get(idx)
+                    .and_then(|f| self.thumb_ctx.handles.get(&f.id).cloned());
+                match thumb {
+                    Some(handle) => image(handle)
+                        .content_fit(iced::ContentFit::Contain)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .into(),
+                    None => container(text("Loading…").size(TEXT_MD).color(FG_DIM))
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center)
+                        .into(),
+                }
+            }
+        };
+
+        let preview_area = container(preview_img)
+            .width(Length::Fill)
+            .height(Length::FillPortion(3))
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 })),
+                ..Default::default()
+            });
+
+        let grid_strip = container(self.view_grid())
+            .height(Length::FillPortion(2));
+
+        column![preview_area, grid_strip]
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 

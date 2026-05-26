@@ -625,7 +625,7 @@ impl App {
             }
 
             Msg::Navigate { dx, dy } => {
-                if matches!(self.view_mode, ViewMode::Loupe) {
+                if matches!(self.view_mode, ViewMode::Loupe | ViewMode::Preview) {
                     let total = self.files.len();
                     if total == 0 {
                         return Task::none();
@@ -637,12 +637,24 @@ impl App {
                     self.loupe.prefetch.retain(|&k, _| {
                         (k as i32 - new_idx as i32).unsigned_abs() as usize <= 2
                     });
+                    if matches!(self.view_mode, ViewMode::Preview) {
+                        self.anchor_idx = Some(new_idx);
+                        self.grid_selected.clear();
+                        if let Some(f) = self.files.get(new_idx) {
+                            self.grid_selected.insert(f.id.clone());
+                        }
+                    }
+                    let mut tasks = vec![self.load_loupe_full_res(), self.load_loupe_prefetch()];
+                    if matches!(self.view_mode, ViewMode::Preview) {
+                        tasks.push(self.scroll_to_index(new_idx));
+                        tasks.push(self.maybe_load_detail());
+                    }
                     if let Some(handle) = self.loupe.prefetch.remove(&new_idx) {
                         self.loupe.full_res = Some((new_idx, handle));
-                        return self.load_loupe_prefetch();
+                        return Task::batch(tasks);
                     }
                     self.loupe.full_res = None;
-                    return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
+                    return Task::batch(tasks);
                 }
                 let cols = self.cols().max(1) as i32;
                 let total = self.files.len() as i32;
@@ -677,6 +689,10 @@ impl App {
                         self.loupe.full_res = None;
                         self.loupe.prefetch.clear();
                         return self.scroll_to_index(self.loupe.idx);
+                    }
+                    ViewMode::Preview => {
+                        self.view_mode = ViewMode::Loupe;
+                        return Task::none();
                     }
                     ViewMode::Browse => {
                         if !self.files.is_empty() {
@@ -1590,6 +1606,24 @@ impl App {
 
             Msg::CloseMenuDropdown => {
                 self.open_menu = None;
+                Task::none()
+            }
+
+            Msg::TogglePreview => {
+                match self.view_mode {
+                    ViewMode::Preview => {
+                        self.view_mode = ViewMode::Browse;
+                        self.loupe.full_res = None;
+                    }
+                    ViewMode::Browse => {
+                        if let Some(idx) = self.anchor_idx {
+                            self.loupe.idx = idx;
+                            self.view_mode = ViewMode::Preview;
+                            return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
+                        }
+                    }
+                    _ => {}
+                }
                 Task::none()
             }
 
