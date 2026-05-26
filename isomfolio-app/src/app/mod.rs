@@ -271,6 +271,18 @@ impl App {
         format!("IsomFolio — {name}")
     }
 
+    pub fn scroll_to_index(&self, idx: usize) -> Task<Msg> {
+        let cols = self.cols().max(1);
+        let step = self.tile_px + TILE_GAP;
+        let row = idx / cols;
+        let target_y = row as f32 * step + GRID_PADDING;
+        let centered = (target_y - self.viewport_height / 2.0 + step / 2.0).max(0.0);
+        iced::widget::operation::scroll_to(
+            GRID_SCROLL_ID.clone(),
+            iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: centered },
+        )
+    }
+
     pub fn cols(&self) -> usize {
         let detail_w = if self.detail.show { SIDEBAR_WIDTH } else { 0.0 };
         let avail = (self.viewport_width - 2.0 * GRID_PADDING - detail_w).max(0.0);

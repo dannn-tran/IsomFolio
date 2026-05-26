@@ -104,6 +104,7 @@ impl App {
             .padding([0, GRID_PADDING as u16]);
 
             scrollable(grid_content)
+                .id(crate::app::GRID_SCROLL_ID.clone())
                 .direction(Direction::Vertical(
                     scrollable::Scrollbar::new().width(6).scroller_width(6),
                 ))

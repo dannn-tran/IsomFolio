@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use iced::{keyboard, Point};
+use std::sync::LazyLock;
+use iced::{keyboard, widget, Point};
+
+pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
 use isomfolio_core::addon::AddonProcess;
 use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag};
 

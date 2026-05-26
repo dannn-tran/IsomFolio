@@ -608,12 +608,20 @@ impl App {
 
             Msg::TileSizeUp => {
                 self.tile_px = (self.tile_px + 40.0).min(400.0);
-                Task::none()
+                if let Some(idx) = self.anchor_idx {
+                    self.scroll_to_index(idx)
+                } else {
+                    Task::none()
+                }
             }
 
             Msg::TileSizeDown => {
                 self.tile_px = (self.tile_px - 40.0).max(80.0);
-                Task::none()
+                if let Some(idx) = self.anchor_idx {
+                    self.scroll_to_index(idx)
+                } else {
+                    Task::none()
+                }
             }
 
             Msg::Navigate { dx, dy } => {
@@ -652,15 +660,23 @@ impl App {
                 if let Some(f) = self.files.get(new_idx) {
                     self.grid_selected.insert(f.id.clone());
                 }
-                self.maybe_load_detail()
+                let scroll = self.scroll_to_index(new_idx);
+                let detail = self.maybe_load_detail();
+                Task::batch([scroll, detail])
             }
 
             Msg::OpenLoupe => {
                 match self.view_mode {
                     ViewMode::Loupe => {
+                        self.anchor_idx = Some(self.loupe.idx);
+                        self.grid_selected.clear();
+                        if let Some(f) = self.files.get(self.loupe.idx) {
+                            self.grid_selected.insert(f.id.clone());
+                        }
                         self.view_mode = ViewMode::Browse;
                         self.loupe.full_res = None;
                         self.loupe.prefetch.clear();
+                        return self.scroll_to_index(self.loupe.idx);
                     }
                     ViewMode::Browse => {
                         if !self.files.is_empty() {
