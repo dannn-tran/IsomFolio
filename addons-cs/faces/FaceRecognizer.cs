@@ -7,9 +7,9 @@ namespace IsomFolio.Addons.Faces;
 
 public class FaceRecognizer : IDisposable
 {
-    const int InputSize = 112;
+    private const int InputSize = 112;
 
-    static readonly float[][] ArcfaceDst =
+    private static readonly float[][] ArcfaceDst =
     [
         [38.2946f, 51.6963f],
         [73.5318f, 51.5014f],
@@ -32,8 +32,8 @@ public class FaceRecognizer : IDisposable
         using var aligned = AlignFace(image, face.Kps);
         var input = Preprocess(aligned);
 
-        using var results = _session.Run(new[] { NamedOnnxValue.CreateFromTensor(_session.InputNames[0], input) });
-        var output = results.First().AsEnumerable<float>().ToArray();
+        using var results = _session.Run([NamedOnnxValue.CreateFromTensor(_session.InputNames[0], input)]);
+        var output = results[0].AsEnumerable<float>().ToArray();
         return L2Normalize(output);
     }
 
@@ -117,11 +117,18 @@ public class FaceRecognizer : IDisposable
     private static float[] L2Normalize(float[] v)
     {
         var norm = MathF.Sqrt(v.Sum(x => x * x));
-        if (norm > 0)
-            for (var i = 0; i < v.Length; i++)
-                v[i] /= norm;
+        if (norm <= 0) return v;
+        
+        for (var i = 0; i < v.Length; i++)
+            v[i] /= norm;
+
         return v;
+
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+        _session.Dispose();
+    }
 }

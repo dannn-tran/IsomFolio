@@ -16,7 +16,7 @@ namespace IsomFolio.Addons.Faces;
 public partial class AppJsonContext : JsonSerializerContext;
 
 public record HelloMessage(string Type, int ProtocolVersion, int AddonApiVersion, string[] Capabilities);
-public record ResponseMessage(ulong Id, object Result);
+public record ResponseMessage(ulong Id, ClusterResult Result);
 public record ErrorMessage(ulong Id, string Error);
 public record LogMessage(string Type, string Level, string Message);
 public record ProgressMessage(string Type, ulong Id, int Percent);

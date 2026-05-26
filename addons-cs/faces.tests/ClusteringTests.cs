@@ -1,6 +1,4 @@
-using IsomFolio.Addons.Faces;
-
-namespace Faces.Tests;
+namespace IsomFolio.Addons.Faces.Tests;
 
 public class ClusteringTests
 {
@@ -10,98 +8,107 @@ public class ClusteringTests
         return v.Select(x => x / norm).ToArray();
     }
 
-    [Fact]
-    public void Dbscan_TwoClusters_SeparatedCorrectly()
+    public class DbscanTests : ClusteringTests
     {
-        var embeddings = new[]
+        [Fact]
+        public void TwoClusters_SeparatedCorrectly()
         {
-            Normalize([1, 0, 0]),
-            Normalize([0.95f, 0.05f, 0]),
-            Normalize([0, 0, 1]),
-            Normalize([0.05f, 0, 0.95f]),
-        };
-        var labels = Clustering.Dbscan(embeddings, 0.3f, 1);
+            var embeddings = new[]
+            {
+                Normalize([1, 0, 0]),
+                Normalize([0.95f, 0.05f, 0]),
+                Normalize([0, 0, 1]),
+                Normalize([0.05f, 0, 0.95f]),
+            };
+            var labels = Clustering.Dbscan(embeddings, 0.3f, 1);
 
-        Assert.Equal(labels[0], labels[1]);
-        Assert.Equal(labels[2], labels[3]);
-        Assert.NotEqual(labels[0], labels[2]);
+            Assert.Equal(labels[0], labels[1]);
+            Assert.Equal(labels[2], labels[3]);
+            Assert.NotEqual(labels[0], labels[2]);
+        }
+
+        [Fact]
+        public void SinglePoint_IsNoise()
+        {
+            var embeddings = new[]
+            {
+                Normalize([1, 0, 0]),
+                Normalize([0, 1, 0]),
+                Normalize([0, 0, 1]),
+            };
+            var labels = Clustering.Dbscan(embeddings, 0.3f, 2);
+
+            Assert.All(labels, l => Assert.Equal(-1, l));
+        }
+
+        [Fact]
+        public void AllSimilar_OneCluster()
+        {
+            var embeddings = new[]
+            {
+                Normalize([1, 0, 0]),
+                Normalize([0.99f, 0.01f, 0]),
+                Normalize([0.98f, 0.02f, 0]),
+            };
+            var labels = Clustering.Dbscan(embeddings, 0.3f, 1);
+
+            Assert.True(labels.All(l => l == labels[0] && l >= 0));
+        }
+        
+        [Fact]
+        public void EmptyInput_ReturnsEmpty()
+        {
+            var labels = Clustering.Dbscan([], 0.3f, 2);
+            Assert.Empty(labels);
+        }
     }
 
-    [Fact]
-    public void Dbscan_SinglePoint_IsNoise()
+    public class AssignToCentroidsTests
     {
-        var embeddings = new[]
+        [Fact]
+        public void MatchesNearest()
         {
-            Normalize([1, 0, 0]),
-            Normalize([0, 1, 0]),
-            Normalize([0, 0, 1]),
-        };
-        var labels = Clustering.Dbscan(embeddings, 0.3f, 2);
+            var centroids = new[]
+            {
+                Normalize([1, 0, 0]),
+                Normalize([0, 0, 1]),
+            };
+            var embeddings = new[]
+            {
+                Normalize([0.9f, 0.1f, 0]),
+                Normalize([0.1f, 0, 0.9f]),
+            };
+            var labels = Clustering.AssignToCentroids(embeddings, centroids, 0.4f);
 
-        Assert.All(labels, l => Assert.Equal(-1, l));
+            Assert.Equal(0, labels[0]);
+            Assert.Equal(1, labels[1]);
+        }
+
+        [Fact]
+        public void FarFromAll_IsNoise()
+        {
+            var centroids = new[] { Normalize([1, 0, 0]) };
+            var embeddings = new[] { Normalize([0, 1, 0]) };
+            var labels = Clustering.AssignToCentroids(embeddings, centroids, 0.3f);
+
+            Assert.Equal(-1, labels[0]);
+        }
     }
 
-    [Fact]
-    public void Dbscan_AllSimilar_OneCluster()
+    public class ComputeCentroidTests
     {
-        var embeddings = new[]
+        [Fact]
+        public void IsNormalized()
         {
-            Normalize([1, 0, 0]),
-            Normalize([0.99f, 0.01f, 0]),
-            Normalize([0.98f, 0.02f, 0]),
-        };
-        var labels = Clustering.Dbscan(embeddings, 0.3f, 1);
+            var embeddings = new[]
+            {
+                Normalize([1, 0, 0]),
+                Normalize([0, 1, 0]),
+            };
+            var centroid = Clustering.ComputeCentroid(embeddings);
 
-        Assert.True(labels.All(l => l == labels[0] && l >= 0));
-    }
-
-    [Fact]
-    public void Dbscan_EmptyInput_ReturnsEmpty()
-    {
-        var labels = Clustering.Dbscan([], 0.3f, 2);
-        Assert.Empty(labels);
-    }
-
-    [Fact]
-    public void AssignToCentroids_MatchesNearest()
-    {
-        var centroids = new[]
-        {
-            Normalize([1, 0, 0]),
-            Normalize([0, 0, 1]),
-        };
-        var embeddings = new[]
-        {
-            Normalize([0.9f, 0.1f, 0]),
-            Normalize([0.1f, 0, 0.9f]),
-        };
-        var labels = Clustering.AssignToCentroids(embeddings, centroids, 0.4f);
-
-        Assert.Equal(0, labels[0]);
-        Assert.Equal(1, labels[1]);
-    }
-
-    [Fact]
-    public void AssignToCentroids_FarFromAll_IsNoise()
-    {
-        var centroids = new[] { Normalize([1, 0, 0]) };
-        var embeddings = new[] { Normalize([0, 1, 0]) };
-        var labels = Clustering.AssignToCentroids(embeddings, centroids, 0.3f);
-
-        Assert.Equal(-1, labels[0]);
-    }
-
-    [Fact]
-    public void ComputeCentroid_IsNormalized()
-    {
-        var embeddings = new[]
-        {
-            Normalize([1, 0, 0]),
-            Normalize([0, 1, 0]),
-        };
-        var centroid = Clustering.ComputeCentroid(embeddings);
-
-        var norm = MathF.Sqrt(centroid.Sum(x => x * x));
-        Assert.InRange(norm, 0.99f, 1.01f);
+            var norm = MathF.Sqrt(centroid.Sum(x => x * x));
+            Assert.InRange(norm, 0.99f, 1.01f);
+        }
     }
 }

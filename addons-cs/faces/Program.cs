@@ -8,7 +8,7 @@ namespace IsomFolio.Addons.Faces;
 
 public static class Program
 {
-    record Config(float Eps = 0.4f, int MinPts = 2);
+    private record Config(float Eps = 0.4f, int MinPts = 2);
 
     public static void Main()
     {
@@ -41,8 +41,7 @@ public static class Program
 
         Protocol.EmitLog(output, "info", "ready");
 
-        string? line;
-        while ((line = Console.ReadLine()) != null)
+        while (Console.ReadLine() is { } line)
         {
             line = line.Trim();
             if (string.IsNullOrEmpty(line)) continue;

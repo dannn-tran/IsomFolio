@@ -1,7 +1,6 @@
 using System.Text.Json;
-using IsomFolio.Addons.Faces;
 
-namespace Faces.Tests;
+namespace IsomFolio.Addons.Faces.Tests;
 
 public class ProtocolTests
 {

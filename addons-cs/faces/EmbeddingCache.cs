@@ -4,7 +4,7 @@ namespace IsomFolio.Addons.Faces;
 
 public class EmbeddingCache : IDisposable
 {
-    const string ModelVersion = "scrfd-10g+arcface-w600k-r50-v2";
+    private const string ModelVersion = "scrfd-10g+arcface-w600k-r50-v2";
     private readonly SqliteConnection _conn;
 
     public EmbeddingCache(string dbPath)
@@ -143,5 +143,9 @@ public class EmbeddingCache : IDisposable
         return floats;
     }
 
-    public void Dispose() => _conn.Dispose();
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+        _conn.Dispose();
+    }
 }

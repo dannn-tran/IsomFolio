@@ -13,8 +13,8 @@ public static class Protocol
 
     public static void SendResponse(TextWriter output, ulong id, ClusterResult result)
     {
-        var json = $"{{\"id\":{id},\"result\":{JsonSerializer.Serialize(result, AppJsonContext.Default.ClusterResult)}}}";
-        output.WriteLine(json);
+        var msg = new ResponseMessage(id, result);
+        output.WriteLine(JsonSerializer.Serialize(msg, AppJsonContext.Default.ResponseMessage));
         output.Flush();
     }
 

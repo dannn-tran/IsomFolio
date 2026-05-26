@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <RootNamespace>IsomFolio.Addons.Faces.Tests</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <NoWarn>NU1902</NoWarn>
@@ -10,6 +12,6 @@
     <PackageReference Include="xunit.v3" Version="1.*" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../faces/faces.csproj" />
+    <ProjectReference Include="../Faces/Faces.csproj" />
   </ItemGroup>
 </Project>

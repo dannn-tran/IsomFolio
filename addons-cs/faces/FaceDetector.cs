@@ -10,11 +10,11 @@ public record DetectedFace(float BboxX, float BboxY, float BboxW, float BboxH, f
 
 public class FaceDetector : IDisposable
 {
-    const int InputSize = 640;
-    const float ScoreThresh = 0.5f;
-    const float NmsThresh = 0.4f;
-    static readonly int[] Strides = [8, 16, 32];
-    const int NumAnchors = 2;
+    private const int InputSize = 640;
+    private const float ScoreThresh = 0.5f;
+    private const float NmsThresh = 0.4f;
+    private static readonly int[] Strides = [8, 16, 32];
+    private const int NumAnchors = 2;
 
     private readonly InferenceSession _session;
 
@@ -35,7 +35,7 @@ public class FaceDetector : IDisposable
         using var resized = image.Clone(ctx => ctx.Resize(InputSize, InputSize));
         var input = Preprocess(resized);
 
-        using var results = _session.Run(new[] { NamedOnnxValue.CreateFromTensor(_session.InputNames[0], input) });
+        using var results = _session.Run([NamedOnnxValue.CreateFromTensor(_session.InputNames[0], input)]);
         var outputs = results.ToList();
 
         if (outputs.Count < 9)
@@ -165,5 +165,9 @@ public class FaceDetector : IDisposable
 
     private static float Sigmoid(float x) => 1f / (1f + MathF.Exp(-x));
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+        _session.Dispose();
+    }
 }

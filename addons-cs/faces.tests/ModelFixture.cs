@@ -1,6 +1,4 @@
-using IsomFolio.Addons.Faces;
-
-namespace Faces.Tests;
+namespace IsomFolio.Addons.Faces.Tests;
 
 public class ModelFixture : IAsyncLifetime
 {
@@ -21,5 +19,9 @@ public class ModelFixture : IAsyncLifetime
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        GC.SuppressFinalize(this);
+        return ValueTask.CompletedTask;
+    }
 }

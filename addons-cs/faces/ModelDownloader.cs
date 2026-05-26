@@ -4,9 +4,9 @@ namespace IsomFolio.Addons.Faces;
 
 public static class ModelDownloader
 {
-    const string BuffaloZipUrl = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip";
-    const string DetFilename = "det_10g.onnx";
-    const string RecFilename = "w600k_r50.onnx";
+    private const string BuffaloZipUrl = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip";
+    private const string DetFilename = "det_10g.onnx";
+    private const string RecFilename = "w600k_r50.onnx";
 
     public static (string detPath, string recPath) EnsureModels(string modelsDir, TextWriter log)
     {

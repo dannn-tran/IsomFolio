@@ -25,10 +25,9 @@ public static class Clustering
                 if (labels[j] != -1) continue;
                 labels[j] = clusterId;
 
-                if (neighbors[j].Count >= minPts)
-                    foreach (var k in neighbors[j])
-                        if (labels[k] == -1)
-                            queue.Enqueue(k);
+                if (neighbors[j].Count < minPts) continue;
+                foreach (var k in neighbors[j].Where(k => labels[k] == -1))
+                    queue.Enqueue(k);
             }
             clusterId++;
         }
@@ -47,11 +46,9 @@ public static class Clustering
             for (var ci = 0; ci < centroids.Length; ci++)
             {
                 var sim = CosineSim(embeddings[i], centroids[ci]);
-                if (sim > bestSim)
-                {
-                    bestSim = sim;
-                    bestLabel = ci;
-                }
+                if (!(sim > bestSim)) continue;
+                bestSim = sim;
+                bestLabel = ci;
             }
             if (bestSim >= 1f - eps)
                 labels[i] = bestLabel;
@@ -76,9 +73,10 @@ public static class Clustering
             norm += centroid[j] * centroid[j];
         }
         norm = MathF.Sqrt(norm);
-        if (norm > 0)
-            for (var j = 0; j < dim; j++)
-                centroid[j] /= norm;
+        if (!(norm > 0)) return centroid;
+        
+        for (var j = 0; j < dim; j++)
+            centroid[j] /= norm;
 
         return centroid;
     }
@@ -95,11 +93,10 @@ public static class Clustering
         {
             for (var j = i + 1; j < n; j++)
             {
-                if (CosineSim(embeddings[i], embeddings[j]) >= threshold)
-                {
-                    neighbors[i].Add(j);
-                    neighbors[j].Add(i);
-                }
+                if (!(CosineSim(embeddings[i], embeddings[j]) >= threshold)) continue;
+                
+                neighbors[i].Add(j);
+                neighbors[j].Add(i);
             }
         }
         return neighbors;
