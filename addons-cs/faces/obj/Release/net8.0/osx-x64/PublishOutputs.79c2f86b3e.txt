@@ -1,0 +1,6 @@
+/Users/danntran/Repos.nosync/IsomFolio/addons-cs/faces/bin/Release/net8.0/osx-x64/publish/onnxruntime.dll
+/Users/danntran/Repos.nosync/IsomFolio/addons-cs/faces/bin/Release/net8.0/osx-x64/publish/onnxruntime_providers_shared.dll
+/Users/danntran/Repos.nosync/IsomFolio/addons-cs/faces/bin/Release/net8.0/osx-x64/publish/faces
+/Users/danntran/Repos.nosync/IsomFolio/addons-cs/faces/bin/Release/net8.0/osx-x64/publish/faces.pdb
+/Users/danntran/Repos.nosync/IsomFolio/addons-cs/faces/bin/Release/net8.0/osx-x64/publish/libonnxruntime.dylib
+/Users/danntran/Repos.nosync/IsomFolio/addons-cs/faces/bin/Release/net8.0/osx-x64/publish/libe_sqlite3.dylib

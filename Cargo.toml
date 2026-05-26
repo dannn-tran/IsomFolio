@@ -6,6 +6,5 @@ members = [
     "addons/test-addon",
     "addons/autotag-clip",
     "addons/autotag-openai",
-    "addons/faces",
 ]
 resolver = "2"

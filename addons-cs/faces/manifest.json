@@ -1,0 +1,21 @@
+{
+  "name": "faces",
+  "protocol_version": 1,
+  "addon_api_version": 1,
+  "capabilities": ["cluster_faces"],
+  "description": "Local face detection and clustering using InsightFace ONNX models",
+  "config_schema": [
+    {
+      "key": "eps",
+      "label": "Similarity threshold (lower = stricter, default 0.4)",
+      "kind": "number",
+      "default": "0.4"
+    },
+    {
+      "key": "min_pts",
+      "label": "Minimum faces per cluster (default 2)",
+      "kind": "integer",
+      "default": "2"
+    }
+  ]
+}
