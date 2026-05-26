@@ -897,6 +897,10 @@ impl App {
             }
 
             Msg::EscapePressed => {
+                if self.open_menu.is_some() {
+                    self.open_menu = None;
+                    return Task::none();
+                }
                 if self.show_shortcut_help {
                     self.show_shortcut_help = false;
                     return Task::none();
@@ -1559,6 +1563,28 @@ impl App {
                 Task::none()
             }
 
+            Msg::OpenMenuDropdown(name) => {
+                self.open_menu = if self.open_menu.as_deref() == Some(name.as_str()) {
+                    None
+                } else {
+                    Some(name)
+                };
+                Task::none()
+            }
+
+            Msg::CloseMenuDropdown => {
+                self.open_menu = None;
+                Task::none()
+            }
+
+            Msg::ReturnToWelcome => {
+                self.open_menu = None;
+                self.welcome.show = true;
+                self.welcome.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
+                self.welcome.selected_recent_catalog = None;
+                Task::none()
+            }
+
             Msg::SetDetailRating(n) => {
                 let new_rating = if self.detail.rating == Some(n) {
                     None
@@ -1817,7 +1843,9 @@ impl App {
                 Task::none()
             }
 
-            Msg::PickOpenCatalog => Task::perform(
+            Msg::PickOpenCatalog => {
+                self.open_menu = None;
+                Task::perform(
                 async {
                     rfd::AsyncFileDialog::new()
                         .set_title("Open Catalog")
@@ -1829,7 +1857,7 @@ impl App {
                     Some(path) => Msg::OpenCatalogPicked(path),
                     None => Msg::NoOp,
                 },
-            ),
+            )}
 
             Msg::SelectRecentCatalog(path) => {
                 self.welcome.selected_recent_catalog = Some(path);
@@ -1844,6 +1872,11 @@ impl App {
             }
 
             Msg::ShowNewCatalogModal => {
+                self.open_menu = None;
+                if !self.welcome.show {
+                    self.welcome.show = true;
+                    self.welcome.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
+                }
                 self.welcome.show_new_catalog_modal = true;
                 self.welcome.new_catalog_dir = None;
                 self.welcome.new_catalog_name.clear();

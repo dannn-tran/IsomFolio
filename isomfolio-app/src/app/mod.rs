@@ -125,6 +125,7 @@ pub struct App {
     pub detail: DetailState,
 
     pub show_shortcut_help: bool,
+    pub open_menu: Option<String>,
     pub status: String,
     pub is_scanning: bool,
     pub scan_pending: bool,
@@ -219,6 +220,7 @@ impl App {
             criteria: CriteriaState::default(),
             detail: DetailState::default(),
             show_shortcut_help: false,
+            open_menu: None,
             status: initial_status,
             is_scanning: false,
             scan_pending: false,

@@ -1,5 +1,6 @@
 mod content;
 mod context_menu;
+mod menu_bar;
 mod people;
 mod sidebar;
 pub mod styles;
@@ -13,7 +14,7 @@ use iced::{
 
 use crate::app::{App, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
 use styles::{
-    active_chip_style, danger_btn_style, ghost_btn_style, icon_btn_style, ACCENT, BG_MODAL,
+    active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_MODAL,
     BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
     OVERLAY_HEAVY, OVERLAY_LIGHT, OVERLAY_MEDIUM, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
     SPACE_2_5, SPACE_3, SPACE_4, SPACE_6, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
@@ -115,26 +116,6 @@ impl App {
                             ghost_btn_style(t, s)
                         }
                     }),
-            )
-            .push(
-                button(text("−").size(TEXT_LG))
-                    .on_press(Msg::TileSizeDown)
-                    .style(ghost_btn_style),
-            )
-            .push(
-                text(format!("{}px", self.tile_px as u32))
-                    .size(TEXT_MD)
-                    .color(FG_MUTED),
-            )
-            .push(
-                button(text("+").size(TEXT_LG))
-                    .on_press(Msg::TileSizeUp)
-                    .style(ghost_btn_style),
-            )
-            .push(
-                button(text("⚙").size(TEXT_LG))
-                    .on_press(Msg::OpenSettings)
-                    .style(icon_btn_style),
             );
 
         let status_bar = container(status_row)
@@ -173,9 +154,12 @@ impl App {
             main_row = main_row.push(self.view_detail());
         }
 
-        let base: Element<Msg> = column![main_row, status_bar].into();
+        let base: Element<Msg> = column![self.view_menu_bar(), main_row, status_bar].into();
 
         let mut layers: Vec<Element<Msg>> = vec![base];
+        if let Some(dd) = self.view_menu_dropdown() {
+            layers.push(dd);
+        }
         if let Some(cm) = self.view_context_menu() {
             layers.push(cm);
         }

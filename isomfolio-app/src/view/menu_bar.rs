@@ -1,0 +1,192 @@
+use iced::{
+    widget::{button, column, container, row, text, Space},
+    Alignment, Background, Border, Color, Element, Length, Theme,
+};
+
+use super::styles::{
+    BG_MODAL, BG_STATUSBAR, BORDER, FG, FG_DIM, FG_MUTED,
+    SPACE_1, SPACE_1_5, SPACE_2, SPACE_3, TEXT_MD, TEXT_SM,
+};
+use crate::app::{App, Msg};
+
+const MENU_ITEM_HEIGHT: f32 = 30.0;
+const DROPDOWN_WIDTH: f32 = 220.0;
+
+impl App {
+    pub(super) fn view_menu_bar(&self) -> Element<'_, Msg> {
+        let menus = [
+            ("Catalog", "catalog"),
+            ("View", "view"),
+            ("Help", "help"),
+        ];
+
+        let mut bar = row![].spacing(0).align_y(Alignment::Center);
+
+        for (label, id) in &menus {
+            let is_open = self.open_menu.as_deref() == Some(*id);
+            bar = bar.push(
+                button(text(*label).size(TEXT_MD).color(if is_open { FG } else { FG_DIM }))
+                    .on_press(Msg::OpenMenuDropdown(id.to_string()))
+                    .style(move |_: &Theme, status| {
+                        let bg = match (is_open, status) {
+                            (true, _) => Color { r: 1.0, g: 1.0, b: 1.0, a: 0.08 },
+                            (_, iced::widget::button::Status::Hovered) => Color { r: 1.0, g: 1.0, b: 1.0, a: 0.05 },
+                            _ => Color::TRANSPARENT,
+                        };
+                        iced::widget::button::Style {
+                            background: Some(Background::Color(bg)),
+                            text_color: FG,
+                            border: Border::default(),
+                            shadow: iced::Shadow::default(),
+                            snap: false,
+                        }
+                    })
+                    .padding([SPACE_1, SPACE_1_5]),
+            );
+        }
+
+        bar = bar.push(Space::new().width(Length::Fill));
+
+        container(bar)
+            .padding([0.0, SPACE_3])
+            .width(Length::Fill)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_STATUSBAR)),
+                border: Border {
+                    color: BORDER,
+                    width: 0.0,
+                    radius: 0.0.into(),
+                },
+                ..Default::default()
+            })
+            .into()
+    }
+
+    pub(super) fn view_menu_dropdown(&self) -> Option<Element<'_, Msg>> {
+        let menu_id = self.open_menu.as_deref()?;
+        let items = match menu_id {
+            "catalog" => self.catalog_menu_items(),
+            "view" => self.view_menu_items(),
+            "help" => self.help_menu_items(),
+            _ => return None,
+        };
+
+        let offset_x = match menu_id {
+            "catalog" => SPACE_3,
+            "view" => SPACE_3 + 70.0,
+            "help" => SPACE_3 + 70.0 + 52.0,
+            _ => SPACE_3,
+        };
+
+        let mut col = column![].spacing(0).padding([SPACE_1, 0.0]);
+        for item in items {
+            match item {
+                MenuItem::Action(label, shortcut, msg) => {
+                    col = col.push(menu_action_row(label, shortcut, msg));
+                }
+                MenuItem::Separator => {
+                    col = col.push(
+                        container(Space::new())
+                            .width(Length::Fill)
+                            .height(1.0)
+                            .padding([SPACE_1, SPACE_1_5])
+                            .style(|_: &Theme| container::Style {
+                                background: Some(Background::Color(BORDER)),
+                                ..Default::default()
+                            }),
+                    );
+                }
+            }
+        }
+
+        let dropdown = container(col)
+            .width(DROPDOWN_WIDTH)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_MODAL)),
+                border: Border { color: BORDER, width: 1.0, radius: 6.0.into() },
+                ..Default::default()
+            });
+
+        let overlay = container(
+            container(dropdown)
+                .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 0.0, left: offset_x }),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(|_: &Theme| container::Style::default());
+
+        Some(overlay.into())
+    }
+
+    fn catalog_menu_items(&self) -> Vec<MenuItem> {
+        let mut items = vec![
+            MenuItem::Action("New Catalog…", "", Msg::ShowNewCatalogModal),
+            MenuItem::Action("Open Catalog…", "", Msg::PickOpenCatalog),
+        ];
+        if self.catalog.is_some() {
+            items.push(MenuItem::Separator);
+            items.push(MenuItem::Action("Return to Welcome", "", Msg::ReturnToWelcome));
+        }
+        items
+    }
+
+    fn view_menu_items(&self) -> Vec<MenuItem> {
+        vec![
+            MenuItem::Action("Toggle Info Panel", "I", Msg::ToggleDetail),
+            MenuItem::Action("Toggle Loupe", "Space", Msg::OpenLoupe),
+            MenuItem::Action("People", "", Msg::OpenPeopleView),
+            MenuItem::Separator,
+            MenuItem::Action("Zoom In", "Cmd+=", Msg::TileSizeUp),
+            MenuItem::Action("Zoom Out", "Cmd+−", Msg::TileSizeDown),
+            MenuItem::Separator,
+            MenuItem::Action("Hide Rejects", "\\", Msg::ToggleHideRejects),
+        ]
+    }
+
+    fn help_menu_items(&self) -> Vec<MenuItem> {
+        vec![
+            MenuItem::Action("Keyboard Shortcuts", "?", Msg::ToggleShortcutHelp),
+            MenuItem::Separator,
+            MenuItem::Action("Extensions…", "", Msg::OpenSettings),
+        ]
+    }
+}
+
+enum MenuItem {
+    Action(&'static str, &'static str, Msg),
+    Separator,
+}
+
+fn menu_action_row<'a>(label: &'a str, shortcut: &'a str, msg: Msg) -> Element<'a, Msg> {
+    let mut r = row![
+        text(label).size(TEXT_SM).color(FG),
+        Space::new().width(Length::Fill),
+    ]
+    .spacing(SPACE_2)
+    .align_y(Alignment::Center);
+
+    if !shortcut.is_empty() {
+        r = r.push(text(shortcut).size(TEXT_SM).color(FG_MUTED));
+    }
+
+    button(r.padding([0.0, SPACE_1_5]))
+        .on_press(msg)
+        .style(|_: &Theme, status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed => {
+                    Color { r: 1.0, g: 1.0, b: 1.0, a: 0.10 }
+                }
+                _ => Color::TRANSPARENT,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: FG,
+                border: Border { radius: 4.0.into(), ..Default::default() },
+                shadow: iced::Shadow::default(),
+                snap: false,
+            }
+        })
+        .height(MENU_ITEM_HEIGHT)
+        .width(Length::Fill)
+        .into()
+}
