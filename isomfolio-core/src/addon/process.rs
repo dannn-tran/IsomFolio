@@ -13,9 +13,10 @@ use crate::app_paths::models_dir;
 use crate::models::AppError;
 
 use super::manifest::AddonManifest;
-use super::protocol::{AddonEvent, AddonRequest, ResponseBody, StdoutLine};
+use super::protocol::{AddonRequest, HandshakeResult, StdoutLine};
 
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(120);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+const READY_TIMEOUT: Duration = Duration::from_secs(120);
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 const SUPPORTED_PROTOCOL_VERSION: u32 = 1;
 
@@ -35,26 +36,17 @@ pub struct AddonProcess {
     _stderr_reader: JoinHandle<()>,
 }
 
-struct HelloData {
-    protocol_version: u32,
-    #[allow(dead_code)]
-    addon_api_version: u32,
-    capabilities: Vec<String>,
-}
-
 impl AddonProcess {
     pub fn launch(mut manifest: AddonManifest) -> Result<Self, AppError> {
-        let config_path = crate::addon::config::addon_config_path(&manifest.name);
         let mut child = Command::new(&manifest.executable)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .env("ISOMFOLIO_MODELS_DIR", models_dir())
-            .env("ISOMFOLIO_ADDON_CONFIG", config_path)
             .spawn()
             .map_err(|e| AppError::Addon(format!("failed to spawn {}: {}", manifest.name, e)))?;
 
-        let stdin = child.stdin.take().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
 
@@ -74,57 +66,114 @@ impl AddonProcess {
             }
         });
 
+        // Send handshake request before handing stdin off to the writer Arc
+        let handshake_id = 1u64;
+        let handshake_req = serde_json::to_string(&AddonRequest {
+            id: handshake_id,
+            method: "handshake".to_string(),
+            params: serde_json::Value::Null,
+        })
+        .unwrap();
+        writeln!(stdin, "{handshake_req}")
+            .and_then(|_| stdin.flush())
+            .map_err(|e| AppError::Addon(format!("{}: failed to send handshake: {e}", manifest.name)))?;
+
         let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let progress_sinks: ProgressMap = Arc::new(Mutex::new(HashMap::new()));
 
-        let (hello_tx, hello_rx) = sync_channel::<Result<HelloData, String>>(1);
+        let (handshake_tx, handshake_rx) = sync_channel::<Result<HandshakeResult, String>>(1);
+        let (ready_tx, ready_rx) = sync_channel::<Result<(), String>>(1);
         let pending_reader = Arc::clone(&pending);
         let progress_reader = Arc::clone(&progress_sinks);
+        let addon_name_for_reader = manifest.name.clone();
 
         let reader = std::thread::spawn(move || {
-            let mut reader = BufReader::new(stdout);
-            let mut line = String::new();
+            let reader = BufReader::new(stdout);
+            let mut lines = reader.lines();
 
-            let hello_result = if reader.read_line(&mut line).is_err() {
-                Err("failed to read handshake line".to_string())
-            } else {
+            // Phase 1: wait for handshake Ok response
+            let mut handshake_ok = false;
+            for line in lines.by_ref() {
+                let Ok(line) = line else {
+                    let _ = handshake_tx.send(Err("addon exited during handshake".to_string()));
+                    return;
+                };
                 match serde_json::from_str::<StdoutLine>(line.trim()) {
-                    Ok(StdoutLine::Event(AddonEvent::Hello {
-                        protocol_version,
-                        addon_api_version,
-                        capabilities,
-                    })) => Ok(HelloData { protocol_version, addon_api_version, capabilities }),
-                    Ok(_) => Err("expected hello event as first message".to_string()),
-                    Err(e) => Err(format!("invalid handshake JSON: {e}")),
+                    Ok(StdoutLine::Ok { id, result }) if id == handshake_id => {
+                        match serde_json::from_value::<HandshakeResult>(result) {
+                            Ok(h) => {
+                                let _ = handshake_tx.send(Ok(h));
+                                handshake_ok = true;
+                                break;
+                            }
+                            Err(e) => {
+                                let _ = handshake_tx.send(Err(format!("invalid handshake result: {e}")));
+                                return;
+                            }
+                        }
+                    }
+                    Ok(StdoutLine::Error { id, error }) if id == handshake_id => {
+                        let _ = handshake_tx.send(Err(error));
+                        return;
+                    }
+                    Ok(StdoutLine::Log { level, message }) => {
+                        eprintln!("[{addon_name_for_reader}] [{level}] {message}");
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("[{addon_name_for_reader}] parse error during handshake: {e}"),
                 }
-            };
-
-            let ok = hello_result.is_ok();
-            let _ = hello_tx.send(hello_result);
-            if ok {
-                reader_loop(reader, pending_reader, progress_reader);
             }
+
+            if !handshake_ok {
+                return;
+            }
+
+            // Phase 2: wait for ready event
+            for line in lines.by_ref() {
+                let Ok(line) = line else {
+                    let _ = ready_tx.send(Err("addon exited before ready".to_string()));
+                    return;
+                };
+                match serde_json::from_str::<StdoutLine>(line.trim()) {
+                    Ok(StdoutLine::Ready) => {
+                        let _ = ready_tx.send(Ok(()));
+                        break;
+                    }
+                    Ok(StdoutLine::Log { level, message }) => {
+                        eprintln!("[{addon_name_for_reader}] [{level}] {message}");
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("[{addon_name_for_reader}] parse error during startup: {e}"),
+                }
+            }
+
+            reader_loop(lines, pending_reader, progress_reader, &addon_name_for_reader);
         });
 
-        let hello = hello_rx
+        let handshake = handshake_rx
             .recv_timeout(HANDSHAKE_TIMEOUT)
             .map_err(|_| AppError::Addon(format!("{}: handshake timed out", manifest.name)))?
             .map_err(|e| AppError::Addon(format!("{}: handshake failed: {}", manifest.name, e)))?;
 
-        if hello.protocol_version != SUPPORTED_PROTOCOL_VERSION {
+        if handshake.protocol_version != SUPPORTED_PROTOCOL_VERSION {
             return Err(AppError::Addon(format!(
                 "{}: unsupported protocol version {} (expected {})",
-                manifest.name, hello.protocol_version, SUPPORTED_PROTOCOL_VERSION
+                manifest.name, handshake.protocol_version, SUPPORTED_PROTOCOL_VERSION
             )));
         }
-        manifest.capabilities = hello.capabilities;
+        manifest.capabilities = handshake.capabilities;
+
+        ready_rx
+            .recv_timeout(READY_TIMEOUT)
+            .map_err(|_| AppError::Addon(format!("{}: ready timed out (model loading took too long)", manifest.name)))?
+            .map_err(|e| AppError::Addon(format!("{}: startup failed: {}", manifest.name, e)))?;
 
         Ok(AddonProcess {
             writer,
             pending,
             progress_sinks,
-            next_id: Arc::new(AtomicU64::new(1)),
+            next_id: Arc::new(AtomicU64::new(2)), // 1 was used for handshake
             stderr_buf,
             manifest,
             _child: child,
@@ -235,11 +284,9 @@ impl Drop for AddonCallHandle {
 
 impl Drop for AddonProcess {
     fn drop(&mut self) {
-        // Drop the writer to close stdin — addon sees EOF and can flush/exit
         if let Ok(mut w) = self.writer.lock() {
             let _ = w.flush();
         }
-        // Give the process a short grace period to exit before killing
         std::thread::sleep(Duration::from_millis(200));
         if self._child.try_wait().ok().flatten().is_none() {
             let _ = self._child.kill();
@@ -247,33 +294,40 @@ impl Drop for AddonProcess {
     }
 }
 
-fn reader_loop(reader: BufReader<impl std::io::Read>, pending: PendingMap, progress_sinks: ProgressMap) {
-    for line in reader.lines() {
+fn reader_loop(
+    lines: impl Iterator<Item = std::io::Result<String>>,
+    pending: PendingMap,
+    progress_sinks: ProgressMap,
+    addon_name: &str,
+) {
+    for line in lines {
         let Ok(line) = line else { break };
         match serde_json::from_str::<StdoutLine>(&line) {
-            Ok(StdoutLine::Response(resp)) => {
-                progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).remove(&resp.id);
-                if let Some(tx) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&resp.id) {
-                    let result = match resp.body {
-                        ResponseBody::Ok { result } => Ok(result),
-                        ResponseBody::Err { error } => Err(error),
-                    };
-                    let _ = tx.send(result);
+            Ok(StdoutLine::Ok { id, result }) => {
+                progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+                if let Some(tx) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+                    let _ = tx.send(Ok(result));
                 }
             }
-            Ok(StdoutLine::Event(AddonEvent::Log { level, message })) => {
-                eprintln!("[addon] [{level}] {message}");
+            Ok(StdoutLine::Error { id, error }) => {
+                progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+                if let Some(tx) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+                    let _ = tx.send(Err(error));
+                }
             }
-            Ok(StdoutLine::Event(AddonEvent::Progress { id, percent })) => {
+            Ok(StdoutLine::Log { level, message }) => {
+                eprintln!("[{addon_name}] [{level}] {message}");
+            }
+            Ok(StdoutLine::Progress { id, percent }) => {
                 if let Some(tx) = progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).get(&id) {
                     let _ = tx.try_send(percent);
                 }
             }
-            Ok(StdoutLine::Event(AddonEvent::Hello { .. })) => {
-                eprintln!("[addon] unexpected hello after handshake");
+            Ok(StdoutLine::Ready) => {
+                eprintln!("[{addon_name}] unexpected ready after startup");
             }
             Err(e) => {
-                eprintln!("[addon] unrecognised stdout line: {e}: {line}");
+                eprintln!("[{addon_name}] unrecognised stdout line: {e}: {line}");
             }
         }
     }
@@ -301,8 +355,7 @@ mod tests {
     fn make_manifest(exe: std::path::PathBuf) -> AddonManifest {
         AddonManifest {
             name: "test".to_string(),
-            protocol_version: 1,
-            addon_api_version: 1,
+            version: "1.0.0".to_string(),
             capabilities: vec!["echo".to_string()],
             description: "test addon".to_string(),
             config_schema: vec![],
@@ -310,16 +363,23 @@ mod tests {
         }
     }
 
+    // Minimal addon script: responds to handshake, sends ready, echoes requests
+    fn echo_script() -> &'static str {
+        r#"IFS= read -r hs_line
+hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"addon_version":"1.0.0","capabilities":["echo"]}}\n' "$hs_id"
+printf '{"type":"ready"}\n'
+while IFS= read -r line; do
+    id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    printf '{"type":"ok","id":%s,"result":{"ok":true}}\n' "$id"
+done
+"#
+    }
+
     #[test]
     fn launch_and_call_echo_addon() {
         let tmp = TempDir::new().unwrap();
-        let script = r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
-while IFS= read -r line; do
-    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
-    printf '{"id":%s,"result":{"ok":true}}\n' "$id"
-done
-"#;
-        let exe = write_test_addon(tmp.path(), script);
+        let exe = write_test_addon(tmp.path(), echo_script());
         let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
         let result = proc.call("echo", serde_json::json!({"msg": "hello"})).expect("call failed");
         assert_eq!(result["ok"], true);
@@ -328,19 +388,14 @@ done
     #[test]
     fn launch_fails_on_wrong_protocol_version() {
         let tmp = TempDir::new().unwrap();
-        let script = r#"printf '{"type":"hello","protocol_version":99,"addon_api_version":1,"capabilities":[]}\n'"#;
+        let script = r#"IFS= read -r hs_line
+hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+printf '{"type":"ok","id":%s,"result":{"protocol_version":99,"addon_version":"1.0.0","capabilities":[]}}\n' "$hs_id"
+printf '{"type":"ready"}\n'
+"#;
         let exe = write_test_addon(tmp.path(), script);
         let err = AddonProcess::launch(make_manifest(exe)).unwrap_err();
         assert!(err.to_string().contains("unsupported protocol version"));
-    }
-
-    fn echo_script() -> &'static str {
-        r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
-while IFS= read -r line; do
-    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
-    printf '{"id":%s,"result":{"ok":true}}\n' "$id"
-done
-"#
     }
 
     #[test]
@@ -365,15 +420,18 @@ done
     #[test]
     fn send_many_crash_mid_batch() {
         let tmp = TempDir::new().unwrap();
-        let script = r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
+        let script = r#"IFS= read -r hs_line
+hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"addon_version":"1.0.0","capabilities":["echo"]}}\n' "$hs_id"
+printf '{"type":"ready"}\n'
 count=0
 while IFS= read -r line; do
-    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
     count=$((count + 1))
     if [ "$count" -ge 3 ]; then
         exit 1
     fi
-    printf '{"id":%s,"result":{"ok":true}}\n' "$id"
+    printf '{"type":"ok","id":%s,"result":{"ok":true}}\n' "$id"
 done
 "#;
         let exe = write_test_addon(tmp.path(), script);
@@ -399,12 +457,15 @@ done
     #[test]
     fn send_with_progress_events() {
         let tmp = TempDir::new().unwrap();
-        let script = r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
+        let script = r#"IFS= read -r hs_line
+hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"addon_version":"1.0.0","capabilities":["echo"]}}\n' "$hs_id"
+printf '{"type":"ready"}\n'
 while IFS= read -r line; do
-    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
     printf '{"type":"progress","id":%s,"percent":50}\n' "$id"
     printf '{"type":"progress","id":%s,"percent":100}\n' "$id"
-    printf '{"id":%s,"result":{"done":true}}\n' "$id"
+    printf '{"type":"ok","id":%s,"result":{"done":true}}\n' "$id"
 done
 "#;
         let exe = write_test_addon(tmp.path(), script);
@@ -428,11 +489,14 @@ done
         let tmp = TempDir::new().unwrap();
         let script = r#"echo "startup error log" >&2
 echo "warning line" >&2
-printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":[]}\n'
+IFS= read -r hs_line
+hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"addon_version":"1.0.0","capabilities":[]}}\n' "$hs_id"
+printf '{"type":"ready"}\n'
 while IFS= read -r line; do
     echo "processing" >&2
-    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
-    printf '{"id":%s,"result":{}}\n' "$id"
+    id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    printf '{"type":"ok","id":%s,"result":{}}\n' "$id"
 done
 "#;
         let exe = write_test_addon(tmp.path(), script);
@@ -448,10 +512,13 @@ done
     #[test]
     fn addon_error_response_propagated() {
         let tmp = TempDir::new().unwrap();
-        let script = r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":["echo"]}\n'
+        let script = r#"IFS= read -r hs_line
+hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"addon_version":"1.0.0","capabilities":["echo"]}}\n' "$hs_id"
+printf '{"type":"ready"}\n'
 while IFS= read -r line; do
-    id=$(echo "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
-    printf '{"id":%s,"error":"something went wrong"}\n' "$id"
+    id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+    printf '{"type":"error","id":%s,"error":"something went wrong"}\n' "$id"
 done
 "#;
         let exe = write_test_addon(tmp.path(), script);
@@ -483,7 +550,12 @@ done
     #[test]
     fn call_returns_error_on_addon_exit() {
         let tmp = TempDir::new().unwrap();
-        let script = r#"printf '{"type":"hello","protocol_version":1,"addon_api_version":1,"capabilities":[]}\n'"#;
+        // Addon completes handshake+ready then exits immediately
+        let script = r#"IFS= read -r hs_line
+hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"addon_version":"1.0.0","capabilities":[]}}\n' "$hs_id"
+printf '{"type":"ready"}\n'
+"#;
         let exe = write_test_addon(tmp.path(), script);
         let proc = AddonProcess::launch(make_manifest(exe)).expect("launch failed");
         std::thread::sleep(Duration::from_millis(100));

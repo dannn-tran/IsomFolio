@@ -1,15 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::app_paths::app_data_root;
-
-pub fn addon_config_path(addon_name: &str) -> PathBuf {
-    app_data_root()
-        .join("addon-settings")
-        .join(format!("{}.json", addon_name))
+pub fn addon_config_path(addon_dir: &Path) -> PathBuf {
+    addon_dir.join("config.json")
 }
 
-pub fn load_addon_config(addon_name: &str) -> serde_json::Value {
-    let path = addon_config_path(addon_name);
+pub fn load_addon_config(addon_dir: &Path) -> serde_json::Value {
+    let path = addon_config_path(addon_dir);
     std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -17,10 +13,9 @@ pub fn load_addon_config(addon_name: &str) -> serde_json::Value {
 }
 
 pub fn save_addon_config(
-    addon_name: &str,
+    addon_dir: &Path,
     config: &serde_json::Value,
 ) -> Result<(), std::io::Error> {
-    let path = addon_config_path(addon_name);
-    std::fs::create_dir_all(path.parent().unwrap())?;
+    let path = addon_config_path(addon_dir);
     std::fs::write(path, serde_json::to_string_pretty(config).unwrap())
 }

@@ -11,15 +11,19 @@ pub struct Request {
 }
 
 #[derive(Serialize)]
-pub struct Response {
-    pub id: u64,
-    pub result: Value,
+struct OkResponse {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    id: u64,
+    result: Value,
 }
 
 #[derive(Serialize)]
-pub struct ErrorResponse {
-    pub id: u64,
-    pub error: String,
+struct ErrorResponse {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    id: u64,
+    error: String,
 }
 
 pub fn emit_log(out: &mut impl Write, level: &str, msg: &str) {
@@ -32,33 +36,51 @@ pub fn emit_progress(out: &mut impl Write, id: u64, percent: u32) {
     let _ = out.flush();
 }
 
-pub fn send_hello(out: &mut impl Write, capabilities: &[&str]) {
+pub fn send_ready(out: &mut impl Write) {
+    let _ = writeln!(out, r#"{{"type":"ready"}}"#);
+    let _ = out.flush();
+}
+
+pub fn send_handshake_response(out: &mut impl Write, id: u64, version: &str, capabilities: &[&str]) {
     let _ = writeln!(out, "{}", serde_json::json!({
-        "type": "hello",
-        "protocol_version": 1,
-        "addon_api_version": 1,
-        "capabilities": capabilities,
+        "type": "ok",
+        "id": id,
+        "result": {
+            "protocol_version": 1,
+            "addon_version": version,
+            "capabilities": capabilities,
+        }
     }));
     let _ = out.flush();
 }
 
+pub fn send_ping_response(out: &mut impl Write, id: u64) {
+    let resp = serde_json::to_string(&OkResponse { kind: "ok", id, result: serde_json::json!({}) }).unwrap();
+    let _ = writeln!(out, "{resp}");
+    let _ = out.flush();
+}
+
 pub fn send_response(out: &mut impl Write, id: u64, result: Value) {
-    let resp = serde_json::to_string(&Response { id, result }).unwrap();
+    let resp = serde_json::to_string(&OkResponse { kind: "ok", id, result }).unwrap();
     let _ = writeln!(out, "{resp}");
     let _ = out.flush();
 }
 
 pub fn send_error(out: &mut impl Write, id: u64, error: String) {
-    let resp = serde_json::to_string(&ErrorResponse { id, error }).unwrap();
+    let resp = serde_json::to_string(&ErrorResponse { kind: "error", id, error }).unwrap();
     let _ = writeln!(out, "{resp}");
     let _ = out.flush();
 }
 
 pub fn load_config<T: for<'de> Deserialize<'de> + Default>(out: &mut impl Write) -> T {
-    let path = std::env::var("ISOMFOLIO_ADDON_CONFIG").unwrap_or_default();
-    if path.is_empty() {
+    let config_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("config.json")));
+
+    let Some(path) = config_path else {
         return T::default();
-    }
+    };
+
     match std::fs::read_to_string(&path) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
             emit_log(out, "warn", &format!("config parse error: {e}, using defaults"));

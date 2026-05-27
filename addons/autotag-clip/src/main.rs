@@ -90,6 +90,8 @@ fn default_variant() -> String {
     "clip-vit-b32".to_string()
 }
 
+const VERSION: &str = "1.0.0";
+
 fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -106,8 +108,31 @@ fn main() {
         }
     };
 
-    sdk::send_hello(&mut out, &["classify"]);
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        match serde_json::from_str::<sdk::Request>(line) {
+            Ok(req) if req.method == "handshake" => {
+                sdk::send_handshake_response(&mut out, req.id, VERSION, &["classify"]);
+                sdk::send_ready(&mut out);
+                run_batch_loop(vision_model, &vocab_labels, &vocab_embeds, batch_size, &mut out);
+                return;
+            }
+            Ok(req) => sdk::send_error(&mut out, req.id, format!("unknown method: {}", req.method)),
+            Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
+        }
+    }
+}
 
+fn run_batch_loop(
+    vision_model: TractModel,
+    vocab_labels: &[String],
+    vocab_embeds: &[Vec<f32>],
+    batch_size: usize,
+    out: &mut impl Write,
+) {
     let (line_tx, line_rx) = std::sync::mpsc::sync_channel::<String>(128);
     std::thread::spawn(move || {
         let stdin = io::stdin();
@@ -131,12 +156,9 @@ fn main() {
         let mut classify_reqs: Vec<(u64, Value)> = Vec::new();
         for line in &lines {
             match serde_json::from_str::<sdk::Request>(line) {
-                Ok(req) if req.method == "classify" => {
-                    classify_reqs.push((req.id, req.params));
-                }
-                Ok(req) => {
-                    sdk::send_error(&mut out, req.id, format!("unknown method: {}", req.method));
-                }
+                Ok(req) if req.method == "classify" => classify_reqs.push((req.id, req.params)),
+                Ok(req) if req.method == "ping" => sdk::send_ping_response(out, req.id),
+                Ok(req) => sdk::send_error(out, req.id, format!("unknown method: {}", req.method)),
                 Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
             }
         }
@@ -146,11 +168,11 @@ fn main() {
             continue;
         }
 
-        let results = classify_batch(&vision_model, &vocab_labels, &vocab_embeds, &classify_reqs, batch_size);
+        let results = classify_batch(&vision_model, vocab_labels, vocab_embeds, &classify_reqs, batch_size);
         for (id, result) in results {
             match result {
-                Ok(r) => sdk::send_response(&mut out, id, r),
-                Err(e) => sdk::send_error(&mut out, id, e),
+                Ok(r) => sdk::send_response(out, id, r),
+                Err(e) => sdk::send_error(out, id, e),
             }
         }
         let _ = out.flush();

@@ -22,13 +22,15 @@ pub struct ConfigField {
     pub default: Option<String>,
     #[serde(default)]
     pub options: Vec<String>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AddonManifest {
     pub name: String,
-    pub protocol_version: u32,
-    pub addon_api_version: u32,
+    pub version: String,
     pub capabilities: Vec<String>,
     pub description: String,
     #[serde(default)]
@@ -100,8 +102,7 @@ mod tests {
 
     const VALID_MANIFEST: &str = r#"{
         "name": "test-addon",
-        "protocol_version": 1,
-        "addon_api_version": 1,
+        "version": "1.0.0",
         "capabilities": ["classify"],
         "description": "Test addon"
     }"#;
@@ -113,6 +114,7 @@ mod tests {
         let addons = discover_addons(tmp.path());
         assert_eq!(addons.len(), 1);
         assert_eq!(addons[0].name, "test-addon");
+        assert_eq!(addons[0].version, "1.0.0");
         assert_eq!(addons[0].capabilities, vec!["classify"]);
     }
 

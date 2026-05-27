@@ -38,6 +38,8 @@ struct Config {
 fn default_detail() -> String { "low".to_string() }
 fn default_endpoint() -> String { DEFAULT_ENDPOINT.to_string() }
 
+const VERSION: &str = "1.0.0";
+
 fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -50,8 +52,6 @@ fn main() {
         return;
     }
 
-    sdk::send_hello(&mut out, &["classify"]);
-
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
@@ -60,15 +60,18 @@ fn main() {
             continue;
         }
         match serde_json::from_str::<sdk::Request>(line) {
-            Ok(req) => {
-                match req.method.as_str() {
-                    "classify" => match classify_one(&config, &vocab, &req.params) {
-                        Ok(r) => sdk::send_response(&mut out, req.id, r),
-                        Err(e) => sdk::send_error(&mut out, req.id, e),
-                    },
-                    m => sdk::send_error(&mut out, req.id, format!("unknown method: {m}")),
-                };
-            }
+            Ok(req) => match req.method.as_str() {
+                "handshake" => {
+                    sdk::send_handshake_response(&mut out, req.id, VERSION, &["classify"]);
+                    sdk::send_ready(&mut out);
+                }
+                "ping" => sdk::send_ping_response(&mut out, req.id),
+                "classify" => match classify_one(&config, &vocab, &req.params) {
+                    Ok(r) => sdk::send_response(&mut out, req.id, r),
+                    Err(e) => sdk::send_error(&mut out, req.id, e),
+                },
+                m => sdk::send_error(&mut out, req.id, format!("unknown method: {m}")),
+            },
             Err(e) => eprintln!("[autotag-openai] parse error: {e}"),
         }
     }

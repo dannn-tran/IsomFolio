@@ -1,39 +1,12 @@
 use std::io::{self, BufRead, Write};
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Deserialize)]
-struct Request {
-    id: u64,
-    method: String,
-    params: Value,
-}
-
-#[derive(Serialize)]
-struct Response {
-    id: u64,
-    result: Value,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    id: u64,
-    error: String,
-}
+const VERSION: &str = "1.0.0";
 
 fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-
-    let hello = serde_json::json!({
-        "type": "hello",
-        "protocol_version": 1,
-        "addon_api_version": 1,
-        "capabilities": ["classify"]
-    });
-    writeln!(out, "{}", serde_json::to_string(&hello).unwrap()).unwrap();
-    out.flush().unwrap();
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -42,31 +15,63 @@ fn main() {
         if line.is_empty() {
             continue;
         }
-        match serde_json::from_str::<Request>(line) {
-            Ok(req) => {
-                let result = handle(&req.method, &req.params);
-                let resp = match result {
-                    Ok(r) => serde_json::to_string(&Response { id: req.id, result: r }).unwrap(),
-                    Err(e) => serde_json::to_string(&ErrorResponse { id: req.id, error: e }).unwrap(),
-                };
-                writeln!(out, "{resp}").unwrap();
-                out.flush().unwrap();
-            }
+
+        let req: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
             Err(e) => {
                 eprintln!("[test-addon] parse error: {e}: {line}");
+                continue;
+            }
+        };
+
+        let id = match req.get("id").and_then(|v| v.as_u64()) {
+            Some(id) => id,
+            None => continue,
+        };
+        let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("");
+
+        match method {
+            "handshake" => {
+                let _ = writeln!(out, "{}", serde_json::json!({
+                    "type": "ok",
+                    "id": id,
+                    "result": {
+                        "protocol_version": 1,
+                        "addon_version": VERSION,
+                        "capabilities": ["classify"]
+                    }
+                }));
+                let _ = out.flush();
+                let _ = writeln!(out, r#"{{"type":"ready"}}"#);
+                let _ = out.flush();
+            }
+            "ping" => {
+                let _ = writeln!(out, "{}", serde_json::json!({"type":"ok","id":id,"result":{}}));
+                let _ = out.flush();
+            }
+            "classify" => {
+                let result = handle_classify(req.get("params").unwrap_or(&Value::Null));
+                let (type_str, body) = match result {
+                    Ok(r) => ("ok", serde_json::json!({"type":"ok","id":id,"result":r})),
+                    Err(e) => ("error", serde_json::json!({"type":"error","id":id,"error":e})),
+                };
+                let _ = type_str;
+                let _ = writeln!(out, "{body}");
+                let _ = out.flush();
+            }
+            m => {
+                let _ = writeln!(out, "{}", serde_json::json!({"type":"error","id":id,"error":format!("unknown method: {m}")}));
+                let _ = out.flush();
             }
         }
     }
 }
 
-fn handle(method: &str, _params: &Value) -> Result<Value, String> {
-    match method {
-        "classify" => Ok(serde_json::json!({
-            "tags": [
-                { "tag": "test", "confidence": 1.0 },
-                { "tag": "placeholder", "confidence": 0.9 }
-            ]
-        })),
-        _ => Err(format!("unknown method: {method}")),
-    }
+fn handle_classify(_params: &Value) -> Result<Value, String> {
+    Ok(serde_json::json!({
+        "tags": [
+            { "tag": "test", "confidence": 1.0 },
+            { "tag": "placeholder", "confidence": 0.9 }
+        ]
+    }))
 }

@@ -399,7 +399,8 @@ impl App {
                     if addon.manifest.config_schema.is_empty() {
                         continue;
                     }
-                    let stored = load_addon_config(&addon.manifest.name);
+                    let addon_dir = addon.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
+                    let stored = load_addon_config(addon_dir);
                     let mut fields = std::collections::HashMap::new();
                     for field in &addon.manifest.config_schema {
                         let val = stored
@@ -466,7 +467,11 @@ impl App {
                         })
                         .collect::<serde_json::Map<_, _>>()
                         .into();
-                    if let Err(e) = save_addon_config(addon_name, &config) {
+                    let addon_dir = self.addons.iter()
+                        .find(|a| &a.manifest.name == addon_name)
+                        .and_then(|a| a.manifest.executable.parent().map(|p| p.to_path_buf()))
+                        .unwrap_or_default();
+                    if let Err(e) = save_addon_config(&addon_dir, &config) {
                         self.status = format!("Settings save failed: {e}");
                         return Task::none();
                     }
@@ -2422,7 +2427,8 @@ fn write_crash_report(addon: &AddonProcess, applied: usize, failed: usize) -> Op
     let stderr_lines = addon.last_stderr();
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
 
-    let config = isomfolio_core::addon::load_addon_config(&addon.manifest.name);
+    let addon_dir = addon.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
+    let config = isomfolio_core::addon::load_addon_config(addon_dir);
     let config_redacted: serde_json::Map<String, serde_json::Value> = config
         .as_object()
         .cloned()
