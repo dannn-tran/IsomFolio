@@ -1,32 +1,29 @@
 using System.Security.Cryptography;
 using System.Text;
+using IsomFolio.Addons.Sdk;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace IsomFolio.Addons.Faces;
 
-public interface IRequestHandler : IDisposable
+public class RequestHandler(DbscanConfig dbscanConfig, IAddonLogger logger, IMessageWriter writer,
+    EmbeddingCache cache, FaceDetector detector, FaceRecognizer recognizer) : IRequestHandler
 {
-    ClusterResult Handle(ClusterFacesRequest request);
-}
-
-internal class RequestHandler(DbscanConfig dbscanConfig, IMessageOutbox outbox, EmbeddingCache cache,
-    FaceDetector detector, FaceRecognizer recognizer) : IRequestHandler
-{
-    public ClusterResult Handle(ClusterFacesRequest request)
+    public async Task<ClusterResult> HandleAsync(ClusterFacesRequest request, CancellationToken ct = default)
     {
-        var total = request.Params.Files.Length;
+        var files = request.Params.Files;
+        var total = files.Length;
 
         if (total == 0)
             return new ClusterResult([], []);
 
-        outbox.SendLog(LogLevel.Info, $"processing {total} files…");
+        await logger.LogAsync(LogLevel.Info, $"processing {total} files…");
 
         for (var i = 0; i < total; i++)
         {
-            var file = request.Params.Files[i];
+            var file = files[i];
 
-            outbox.SendProgress(request.Id, (int)((float)i / total * 80));
+            await writer.SendProgressAsync(request.Id, (int)((float)i / total * 80));
 
             if (cache.IsCached(file.FileId, file.FileMtime)) continue;
             if (string.IsNullOrEmpty(file.ImagePath) || !File.Exists(file.ImagePath)) continue;
@@ -34,28 +31,29 @@ internal class RequestHandler(DbscanConfig dbscanConfig, IMessageOutbox outbox, 
             try
             {
                 using var img = Image.Load<Rgb24>(file.ImagePath);
-                var faces = detector.Detect(img);
+                var faces = await detector.DetectAsync(img, ct);
                 cache.DeleteStale(file.FileId, file.FileMtime);
 
                 foreach (var face in faces)
                 {
-                    var embedding = recognizer.Embed(img, face);
+                    var embedding = await recognizer.EmbedAsync(img, face, ct);
                     cache.InsertEmbedding(file.FileId, file.FileMtime, face.BboxX, face.BboxY, face.BboxW, face.BboxH, embedding);
                 }
             }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                outbox.SendLog(LogLevel.Warning, $"failed for {file.FileId}: {ex.Message}");
+                await logger.LogAsync(LogLevel.Warning, $"failed for {file.FileId}: {ex.Message}");
             }
         }
 
-        outbox.SendProgress(request.Id, 82);
-        outbox.SendLog(LogLevel.Info, "clustering…");
+        await writer.SendProgressAsync(request.Id, 82);
+        await logger.LogAsync(LogLevel.Info, "clustering…");
 
         var rows = cache.LoadAll();
         if (rows.Count == 0)
         {
-            outbox.SendProgress(request.Id, 100);
+            await writer.SendProgressAsync(request.Id, 100);
             return new ClusterResult([], []);
         }
 
@@ -65,16 +63,16 @@ internal class RequestHandler(DbscanConfig dbscanConfig, IMessageOutbox outbox, 
         int[] labels;
         if (!request.Params.ForceFull && centroids.Count > 0)
         {
-            outbox.SendLog(LogLevel.Info, $"incremental assignment against {centroids.Count} centroids…");
+            await logger.LogAsync(LogLevel.Info, $"incremental assignment against {centroids.Count} centroids…");
             labels = Clustering.AssignToCentroids(embeddings, centroids.Values.ToArray(), dbscanConfig.Eps);
         }
         else
         {
-            outbox.SendLog(LogLevel.Info, "full DBSCAN clustering…");
+            await logger.LogAsync(LogLevel.Info, "full DBSCAN clustering…");
             labels = Clustering.Dbscan(embeddings, dbscanConfig.Eps, dbscanConfig.MinPts);
         }
 
-        outbox.SendProgress(request.Id, 95);
+        await writer.SendProgressAsync(request.Id, 95);
 
         var maxLabel = labels.Max();
         var clusterMembers = new List<(int idx, FaceMember member)>[Math.Max(0, maxLabel + 1)];
@@ -116,12 +114,12 @@ internal class RequestHandler(DbscanConfig dbscanConfig, IMessageOutbox outbox, 
             return new ClusterEntry(StableClusterId(members), members);
         }).ToList();
 
-        outbox.SendProgress(request.Id, 100);
-        outbox.SendLog(LogLevel.Info, $"found {resultClusters.Count} people, {noiseMembers.Count} unclustered faces");
+        await writer.SendProgressAsync(request.Id, 100);
+        await logger.LogAsync(LogLevel.Info, $"found {resultClusters.Count} people, {noiseMembers.Count} unclustered faces");
 
         return new ClusterResult(resultClusters, noiseMembers);
     }
-    
+
     private static string StableClusterId(List<FaceMember> members)
     {
         var keys = members
@@ -139,5 +137,6 @@ internal class RequestHandler(DbscanConfig dbscanConfig, IMessageOutbox outbox, 
         cache.Dispose();
         detector.Dispose();
         recognizer.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

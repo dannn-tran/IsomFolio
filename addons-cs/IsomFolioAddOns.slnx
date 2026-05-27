@@ -1,4 +1,6 @@
 <Solution>
-  <Project Path="Faces.Tests/Faces.Tests.csproj" />
+  <Project Path="Sdk/Sdk.csproj" />
+  <Project Path="Sdk.Tests/Sdk.Tests.csproj" />
   <Project Path="Faces/Faces.csproj" />
+  <Project Path="Faces.Tests/Faces.Tests.csproj" />
 </Solution>

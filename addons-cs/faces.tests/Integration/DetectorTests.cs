@@ -11,13 +11,13 @@ public class DetectorTests(ModelFixture models) : IClassFixture<ModelFixture>
     {
         using var detector = new FaceDetector(models.DetPath);
     }
-    
+
     [Fact]
-    public void DoesNotCrashOnSyntheticImage()
+    public async Task DoesNotCrashOnSyntheticImage()
     {
         using var detector = new FaceDetector(models.DetPath);
         using var img = new Image<Rgb24>(640, 480);
-        var faces = detector.Detect(img);
+        var faces = await detector.DetectAsync(img, TestContext.Current.CancellationToken);
         Assert.NotNull(faces);
     }
 
@@ -26,12 +26,11 @@ public class DetectorTests(ModelFixture models) : IClassFixture<ModelFixture>
     [InlineData(640, 480)]
     [InlineData(1920, 1080)]
     [InlineData(50, 2000)]
-    public void HandlesVariousImageSizes(int width, int height)
+    public async Task HandlesVariousImageSizes(int width, int height)
     {
         using var detector = new FaceDetector(models.DetPath);
         using var img = new Image<Rgb24>(width, height);
-        var faces = detector.Detect(img);
+        var faces = await detector.DetectAsync(img, TestContext.Current.CancellationToken);
         Assert.NotNull(faces);
     }
 }
-

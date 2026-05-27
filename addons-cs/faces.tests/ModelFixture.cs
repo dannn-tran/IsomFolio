@@ -1,3 +1,5 @@
+using IsomFolio.Addons.Sdk;
+
 namespace IsomFolio.Addons.Faces.Tests;
 
 public class ModelFixture : IAsyncLifetime
@@ -11,12 +13,12 @@ public class ModelFixture : IAsyncLifetime
     public string DetPath { get; private set; } = "";
     public string RecPath { get; private set; } = "";
 
-    public ValueTask InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
-        var (det, rec) = ModelDownloader.EnsureModels(ModelsDir, Console.Out);
+        var downloader = new ModelDownloader(new MessageWriter(TextWriter.Null));
+        var (det, rec) = await downloader.EnsureModelsDownloadedAsync(ModelsDir);
         DetPath = det;
         RecPath = rec;
-        return ValueTask.CompletedTask;
     }
 
     public ValueTask DisposeAsync()

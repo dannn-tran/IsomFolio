@@ -3,7 +3,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
-    <RootNamespace>IsomFolio.Addons.Faces.Tests</RootNamespace>
+    <RootNamespace>IsomFolio.Addons.Sdk.Tests</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <NoWarn>NU1902</NoWarn>
@@ -13,9 +13,5 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sdk/Sdk.csproj" />
-    <ProjectReference Include="../Faces/Faces.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="Assets/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

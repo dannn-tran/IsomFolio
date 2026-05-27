@@ -27,7 +27,10 @@ public class FaceRecognizer : IDisposable
         _session = new InferenceSession(modelPath, opts);
     }
 
-    public float[] Embed(Image<Rgb24> image, DetectedFace face)
+    public Task<float[]> EmbedAsync(Image<Rgb24> image, DetectedFace face, CancellationToken ct = default) =>
+        Task.Run(() => Embed(image, face), ct);
+
+    private float[] Embed(Image<Rgb24> image, DetectedFace face)
     {
         using var aligned = AlignFace(image, face.Kps);
         var input = Preprocess(aligned);

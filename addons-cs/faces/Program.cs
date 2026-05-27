@@ -1,46 +1,50 @@
+using IsomFolio.Addons.Sdk;
+
 namespace IsomFolio.Addons.Faces;
 
 public static class Program
 {
-    public static void Main()
+    public static async Task Main()
     {
-        var outbox = new MessageOutbox(Console.Out);
-        outbox.SendHello(["cluster_faces"]);
-        
-        outbox.SendLog(LogLevel.Info, "loading face models…");
-        IRequestHandler requestHandler;
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+        using var writer = new MessageWriter(Console.Out);
+
+        var loadingTask = LoadAsync(writer, cts.Token);
+        _ = loadingTask.ContinueWith(_ => cts.Cancel(), TaskContinuationOptions.OnlyOnFaulted);
+
+        await using var worker = new FacesWorker(writer, loadingTask);
+
         try
         {
-            var requestHandlerFactory =
-                new RequestHandlerFactory(outbox, new DbscanConfigFactory(outbox), new ModelDownloader(outbox));
-            requestHandler = requestHandlerFactory.Create();
+            await foreach (var msg in MessageReader.ReadAllAsync(Console.In, writer, cts.Token))
+            {
+                switch (msg)
+                {
+                    case HandshakeRequest req:
+                        await writer.SendHandshakeResponseAsync(req.Id, [AddonCapability.ClusterFaces]);
+                        break;
+                    case PingRequest req:
+                        await writer.SendPingResponseAsync(req.Id);
+                        break;
+                    case ClusterFacesRequest req:
+                        worker.Enqueue(req, cts.Token);
+                        break;
+                    default:
+                        await writer.SendErrorResponseAsync(msg.Id, $"unknown request: {msg.GetType().Name}");
+                        break;
+                }
+            }
         }
-        catch (Exception e)
-        {
-            outbox.SendLog(LogLevel.Error, $"model init failed: {e.Message}");
-            return;
-        }
-        
-        outbox.SendLog(LogLevel.Info, "ready");
+        catch (OperationCanceledException) { }
+    }
 
-        while (MessageInbox.TryGetNext(out var msg))
-        {
-            if (msg is ClusterFacesRequest req)
-            {
-                try
-                {
-                    var result = requestHandler.Handle(req);
-                    outbox.SendResponse(req.Id, result);
-                }
-                catch (Exception ex)
-                {
-                    outbox.SendError(req.Id, ex.Message);
-                }
-            }
-            else
-            {
-                outbox.SendError(msg.Id, $"unknown request: {msg}");
-            }
-        }
+    private static async Task<IRequestHandler> LoadAsync(MessageWriter writer, CancellationToken ct)
+    {
+        await writer.LogAsync(LogLevel.Info, "loading face models…");
+        var handler = await new RequestHandlerFactory(writer, writer).CreateAsync(ct);
+        await writer.SendReadyAsync();
+        return handler;
     }
 }

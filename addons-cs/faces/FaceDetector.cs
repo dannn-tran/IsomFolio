@@ -25,7 +25,10 @@ public class FaceDetector : IDisposable
         _session = new InferenceSession(modelPath, opts);
     }
 
-    public List<DetectedFace> Detect(Image<Rgb24> image)
+    public Task<List<DetectedFace>> DetectAsync(Image<Rgb24> image, CancellationToken ct = default) =>
+        Task.Run(() => Detect(image), ct);
+
+    private List<DetectedFace> Detect(Image<Rgb24> image)
     {
         var origW = image.Width;
         var origH = image.Height;
