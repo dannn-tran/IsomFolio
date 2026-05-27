@@ -128,7 +128,7 @@ public class FaceRecognizer : IDisposable
 
     public void Dispose()
     {
-        GC.SuppressFinalize(this);
         _session.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

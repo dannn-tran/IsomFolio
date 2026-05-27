@@ -145,7 +145,7 @@ public class EmbeddingCache : IDisposable
 
     public void Dispose()
     {
-        GC.SuppressFinalize(this);
         _conn.Dispose();
+        GC.SuppressFinalize(this);
     }
 }
