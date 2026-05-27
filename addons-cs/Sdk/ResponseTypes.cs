@@ -1,6 +1,6 @@
 namespace IsomFolio.Addons.Sdk;
 
-public record HandshakeResult(int ProtocolVersion, AddonCapability[] Capabilities);
+public record HandshakeResult(int ProtocolVersion, string AddonVersion, AddonCapability[] Capabilities);
 public record PingResult;
 
 public record ClassifyResult(string FileId, List<TagScore> Tags);

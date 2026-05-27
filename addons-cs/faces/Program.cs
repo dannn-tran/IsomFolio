@@ -23,7 +23,7 @@ public static class Program
                 switch (msg)
                 {
                     case HandshakeRequest req:
-                        await writer.SendHandshakeResponseAsync(req.Id, [AddonCapability.ClusterFaces]);
+                        await writer.SendHandshakeResponseAsync(req.Id, AddonInfo.Version, [AddonCapability.ClusterFaces]);
                         break;
                     case PingRequest req:
                         await writer.SendPingResponseAsync(req.Id);

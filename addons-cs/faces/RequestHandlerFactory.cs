@@ -24,8 +24,8 @@ public class RequestHandlerFactory(IAddonLogger logger, IMessageWriter writer)
 
     private async Task<DbscanConfig> GetConfigAsync(CancellationToken ct)
     {
-        var path = Environment.GetEnvironmentVariable("ISOMFOLIO_ADDON_CONFIG") ?? "";
-        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        var path = Path.Combine(AppContext.BaseDirectory, "config.json");
+        if (!File.Exists(path))
             return new DbscanConfig();
 
         try

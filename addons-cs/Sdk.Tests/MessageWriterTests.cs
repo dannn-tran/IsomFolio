@@ -9,13 +9,14 @@ public class MessageWriterTests
     {
         var sw = new StringWriter();
         var writer = new MessageWriter(sw);
-        await writer.SendHandshakeResponseAsync(1, [AddonCapability.ClusterFaces, AddonCapability.Classify]);
+        await writer.SendHandshakeResponseAsync(1, "2.0.0", [AddonCapability.ClusterFaces, AddonCapability.Classify]);
         var root = JsonDocument.Parse(sw.ToString().Trim()).RootElement;
 
         Assert.Equal("ok", root.GetProperty("type").GetString());
         Assert.Equal(1UL, root.GetProperty("id").GetUInt64());
         var result = root.GetProperty("result");
         Assert.Equal(1, result.GetProperty("protocol_version").GetInt32());
+        Assert.Equal("2.0.0", result.GetProperty("addon_version").GetString());
         var caps = result.GetProperty("capabilities").EnumerateArray().Select(e => e.GetString()).ToList();
         Assert.Contains("cluster_faces", caps);
         Assert.Contains("classify", caps);

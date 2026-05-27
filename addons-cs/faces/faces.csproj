@@ -16,4 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="../Sdk/Sdk.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="manifest.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
