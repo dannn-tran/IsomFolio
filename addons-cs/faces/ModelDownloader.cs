@@ -2,13 +2,19 @@ using System.IO.Compression;
 
 namespace IsomFolio.Addons.Faces;
 
-public static class ModelDownloader
+public interface IModelDownloader
 {
+    public (string DetPath, string RecPath) EnsureModelsDownloaded(string modelsDir);
+}
+
+public class ModelDownloader(IMessageOutbox messageOutbox) : IModelDownloader
+{
+    private static readonly HttpClient Client = new();
     private const string BuffaloZipUrl = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip";
     private const string DetFilename = "det_10g.onnx";
     private const string RecFilename = "w600k_r50.onnx";
 
-    public static (string detPath, string recPath) EnsureModels(string modelsDir, TextWriter log)
+    public (string DetPath, string RecPath) EnsureModelsDownloaded(string modelsDir)
     {
         var dir = Path.Combine(modelsDir, "buffalo_l");
         Directory.CreateDirectory(dir);
@@ -17,7 +23,7 @@ public static class ModelDownloader
         var recPath = Path.Combine(dir, RecFilename);
 
         if (!File.Exists(detPath) || !File.Exists(recPath))
-            DownloadAndExtract(dir, log);
+            DownloadAndExtract(dir);
 
         if (!File.Exists(detPath))
             throw new FileNotFoundException($"{DetFilename} not found in {dir}");
@@ -27,14 +33,13 @@ public static class ModelDownloader
         return (detPath, recPath);
     }
 
-    private static void DownloadAndExtract(string dir, TextWriter log)
+    private void DownloadAndExtract(string dir)
     {
-        Protocol.EmitLog(log, "info", "downloading face models from GitHub…");
+        messageOutbox.SendLog(LogLevel.Info, "downloading face models from GitHub…");
 
-        using var client = new HttpClient();
-        var zipBytes = client.GetByteArrayAsync(BuffaloZipUrl).GetAwaiter().GetResult();
+        var zipBytes = Client.GetByteArrayAsync(BuffaloZipUrl).GetAwaiter().GetResult();
 
-        Protocol.EmitLog(log, "info", "extracting models…");
+        messageOutbox.SendLog(LogLevel.Info, "extracting models…");
 
         using var archive = new ZipArchive(new MemoryStream(zipBytes), ZipArchiveMode.Read);
         string[] needed = [DetFilename, RecFilename];
@@ -46,7 +51,7 @@ public static class ModelDownloader
             using var entryStream = entry.Open();
             using var outFile = File.Create(Path.Combine(dir, name));
             entryStream.CopyTo(outFile);
-            Protocol.EmitLog(log, "info", $"{name} ready");
+            messageOutbox.SendLog(LogLevel.Info, $"{name} ready");
         }
     }
 }
