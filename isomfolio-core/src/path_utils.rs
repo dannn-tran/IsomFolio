@@ -21,10 +21,9 @@ pub fn normalize_path(path: &str) -> String {
 
 
 pub fn is_under_catalog_dir(path: &str) -> bool {
-    let suffix = format!(".{CATALOG_EXT}");
     Path::new(path)
         .components()
-        .any(|c| c.as_os_str().to_string_lossy().ends_with(&suffix))
+        .any(|c| Path::new(c.as_os_str()).extension().map_or(false, |ext| ext == CATALOG_EXT))
 }
 
 pub fn is_catalog_dir(path: &str) -> bool {
