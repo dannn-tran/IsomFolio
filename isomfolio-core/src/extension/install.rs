@@ -5,22 +5,22 @@ use std::process::{Command, Stdio};
 
 use zip::ZipArchive;
 
-use crate::app_paths::{addons_dir, models_dir};
+use crate::app_paths::{extensions_dir, models_dir};
 
-use super::manifest::{AddonManifest, discover_addons};
+use super::manifest::{ExtensionManifest, discover_extensions};
 
-/// Install an `.isfx` zip package into `addons_dir()`.
+/// Install an `.isfx` zip package into `extensions_dir()`.
 ///
 /// Expected zip layout (flat, no subdirectory):
 /// ```text
 /// manifest.json
-/// <addon-name>          <- executable (same name as the "name" field in manifest)
+/// <extension-name>          <- executable (same name as the "name" field in manifest)
 /// ```
-pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, String> {
+pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifest, String> {
     let file = fs::File::open(package_path).map_err(|e| format!("open package: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
 
-    let manifest: AddonManifest = {
+    let manifest: ExtensionManifest = {
         let mut entry = archive
             .by_name("manifest.json")
             .map_err(|_| "package missing manifest.json".to_string())?;
@@ -29,8 +29,8 @@ pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, Strin
         serde_json::from_str(&s).map_err(|e| format!("parse manifest: {e}"))?
     };
 
-    let addon_dir = addons_dir().join(&manifest.name);
-    fs::create_dir_all(&addon_dir).map_err(|e| format!("create addon dir: {e}"))?;
+    let extension_dir = extensions_dir().join(&manifest.name);
+    fs::create_dir_all(&extension_dir).map_err(|e| format!("create extension dir: {e}"))?;
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
@@ -43,7 +43,7 @@ pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, Strin
             .and_then(|n| n.to_str())
             .ok_or_else(|| format!("zip entry '{}' has no valid filename", entry.name()))?
             .to_string();
-        let dest = addon_dir.join(&entry_name);
+        let dest = extension_dir.join(&entry_name);
         let mut out = fs::File::create(&dest).map_err(|e| format!("create {entry_name}: {e}"))?;
         io::copy(&mut entry, &mut out).map_err(|e| format!("extract {entry_name}: {e}"))?;
 
@@ -56,12 +56,12 @@ pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, Strin
     }
 
     // Re-discover to get the executable path resolved properly
-    let installed = discover_addons(&addons_dir())
+    let installed = discover_extensions(&extensions_dir())
         .into_iter()
         .find(|m| m.name == manifest.name)
         .ok_or_else(|| {
             format!(
-                "installed '{}' but executable not found — check the binary name matches the addon name",
+                "installed '{}' but executable not found — check the binary name matches the extension name",
                 manifest.name
             )
         })?;
@@ -73,7 +73,7 @@ pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, Strin
     Ok(installed)
 }
 
-fn run_install_step(manifest: &AddonManifest) -> Result<(), String> {
+fn run_install_step(manifest: &ExtensionManifest) -> Result<(), String> {
     let mut child = Command::new(&manifest.executable)
         .arg("install")
         .arg("--data-dir")
@@ -115,9 +115,9 @@ mod tests {
         exe
     }
 
-    fn make_manifest(exe: std::path::PathBuf) -> AddonManifest {
-        AddonManifest {
-            name: "test-addon".to_string(),
+    fn make_manifest(exe: std::path::PathBuf) -> ExtensionManifest {
+        ExtensionManifest {
+            name: "test-extension".to_string(),
             version: "1.0.0".to_string(),
             capabilities: vec![],
             description: "test".to_string(),
@@ -131,7 +131,7 @@ mod tests {
     fn install_step_is_invoked() {
         let tmp = TempDir::new().unwrap();
         let sentinel = tmp.path().join("install_ran");
-        let exe = write_script(tmp.path(), "test-addon", &format!("touch {}", sentinel.display()));
+        let exe = write_script(tmp.path(), "test-extension", &format!("touch {}", sentinel.display()));
         run_install_step(&make_manifest(exe)).expect("install step failed");
         assert!(sentinel.exists(), "install step was not run");
     }
@@ -139,17 +139,17 @@ mod tests {
     #[test]
     fn install_step_failure_returns_error() {
         let tmp = TempDir::new().unwrap();
-        let exe = write_script(tmp.path(), "test-addon", "exit 1");
+        let exe = write_script(tmp.path(), "test-extension", "exit 1");
         let err = run_install_step(&make_manifest(exe)).unwrap_err();
         assert!(err.contains("installer exited with 1"), "unexpected: {err}");
     }
 }
 
-/// Remove an installed addon by name. Leaves model weights untouched.
-pub fn uninstall_addon(name: &str) -> Result<(), String> {
-    let addon_dir = addons_dir().join(name);
-    if addon_dir.exists() {
-        fs::remove_dir_all(&addon_dir).map_err(|e| format!("remove addon dir: {e}"))?;
+/// Remove an installed extension by name. Leaves model weights untouched.
+pub fn uninstall_extension(name: &str) -> Result<(), String> {
+    let extension_dir = extensions_dir().join(name);
+    if extension_dir.exists() {
+        fs::remove_dir_all(&extension_dir).map_err(|e| format!("remove extension dir: {e}"))?;
     }
     Ok(())
 }

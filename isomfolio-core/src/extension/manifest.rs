@@ -28,7 +28,7 @@ pub struct ConfigField {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct AddonManifest {
+pub struct ExtensionManifest {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<String>,
@@ -41,7 +41,7 @@ pub struct AddonManifest {
     pub executable: PathBuf,
 }
 
-pub fn discover_addons(dir: &Path) -> Vec<AddonManifest> {
+pub fn discover_extensions(dir: &Path) -> Vec<ExtensionManifest> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -52,9 +52,9 @@ pub fn discover_addons(dir: &Path) -> Vec<AddonManifest> {
         .collect()
 }
 
-fn load_manifest_from_dir(dir: &Path) -> Option<AddonManifest> {
+fn load_manifest_from_dir(dir: &Path) -> Option<ExtensionManifest> {
     let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
-    let mut manifest: AddonManifest = serde_json::from_str(&text).ok()?;
+    let mut manifest: ExtensionManifest = serde_json::from_str(&text).ok()?;
     let exe = if cfg!(windows) {
         dir.join(format!("{}.exe", manifest.name))
     } else {
@@ -89,7 +89,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
 
-    fn make_addon_dir(parent: &Path, dir_name: &str, manifest_name: &str, manifest_json: &str, make_exe: bool) {
+    fn make_extension_dir(parent: &Path, dir_name: &str, manifest_name: &str, manifest_json: &str, make_exe: bool) {
         let dir = parent.join(dir_name);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("manifest.json"), manifest_json).unwrap();
@@ -103,52 +103,52 @@ mod tests {
     }
 
     const VALID_MANIFEST: &str = r#"{
-        "name": "test-addon",
+        "name": "test-extension",
         "version": "1.0.0",
         "capabilities": ["classify"],
-        "description": "Test addon"
+        "description": "Test extension"
     }"#;
 
     #[test]
-    fn discovers_valid_addon() {
+    fn discovers_valid_extension() {
         let tmp = TempDir::new().unwrap();
-        make_addon_dir(tmp.path(), "test-addon", "test-addon", VALID_MANIFEST, true);
-        let addons = discover_addons(tmp.path());
-        assert_eq!(addons.len(), 1);
-        assert_eq!(addons[0].name, "test-addon");
-        assert_eq!(addons[0].version, "1.0.0");
-        assert_eq!(addons[0].capabilities, vec!["classify"]);
+        make_extension_dir(tmp.path(), "test-extension", "test-extension", VALID_MANIFEST, true);
+        let extensions = discover_extensions(tmp.path());
+        assert_eq!(extensions.len(), 1);
+        assert_eq!(extensions[0].name, "test-extension");
+        assert_eq!(extensions[0].version, "1.0.0");
+        assert_eq!(extensions[0].capabilities, vec!["classify"]);
     }
 
     #[test]
     fn skips_missing_executable() {
         let tmp = TempDir::new().unwrap();
-        make_addon_dir(tmp.path(), "test-addon", "test-addon", VALID_MANIFEST, false);
-        assert!(discover_addons(tmp.path()).is_empty());
+        make_extension_dir(tmp.path(), "test-extension", "test-extension", VALID_MANIFEST, false);
+        assert!(discover_extensions(tmp.path()).is_empty());
     }
 
     #[test]
     fn skips_invalid_manifest() {
         let tmp = TempDir::new().unwrap();
-        make_addon_dir(tmp.path(), "test-addon", "test-addon", "not json", true);
-        assert!(discover_addons(tmp.path()).is_empty());
+        make_extension_dir(tmp.path(), "test-extension", "test-extension", "not json", true);
+        assert!(discover_extensions(tmp.path()).is_empty());
     }
 
     #[test]
     fn skips_missing_manifest() {
         let tmp = TempDir::new().unwrap();
-        fs::create_dir_all(tmp.path().join("test-addon")).unwrap();
-        assert!(discover_addons(tmp.path()).is_empty());
+        fs::create_dir_all(tmp.path().join("test-extension")).unwrap();
+        assert!(discover_extensions(tmp.path()).is_empty());
     }
 
     #[test]
     fn empty_dir_returns_empty() {
         let tmp = TempDir::new().unwrap();
-        assert!(discover_addons(tmp.path()).is_empty());
+        assert!(discover_extensions(tmp.path()).is_empty());
     }
 
     #[test]
     fn nonexistent_dir_returns_empty() {
-        assert!(discover_addons(Path::new("/nonexistent/path/xyz")).is_empty());
+        assert!(discover_extensions(Path::new("/nonexistent/path/xyz")).is_empty());
     }
 }

@@ -5,11 +5,11 @@ use std::time::{Duration, Instant};
 use iced::Task;
 use iced::futures;
 
-use isomfolio_core::addon::{
-    discover_addons, install_addon_package, load_addon_config, save_addon_config,
-    uninstall_addon, AddonProcess,
+use isomfolio_core::extension::{
+    discover_extensions, install_extension_package, load_extension_config, save_extension_config,
+    uninstall_extension, ExtensionProcess,
 };
-use isomfolio_core::app_paths::addons_dir;
+use isomfolio_core::app_paths::extensions_dir;
 use isomfolio_core::indexing::thumbnail::thumbnail_cache_path;
 use isomfolio_core::models::ThumbnailState;
 use isomfolio_core::file_index::compute_file_id;
@@ -42,19 +42,19 @@ impl App {
                 let sidebar_task = self.load_sidebar_task();
                 let addon_task = Task::perform(
                     async move {
-                        let dir = addons_dir();
-                        let manifests = discover_addons(&dir);
+                        let dir = extensions_dir();
+                        let manifests = discover_extensions(&dir);
                         manifests
                             .into_iter()
                             .filter_map(|m| {
-                                AddonProcess::launch(m)
+                                ExtensionProcess::launch(m)
                                     .map(Arc::new)
                                     .map_err(|e| eprintln!("[addon] launch failed: {e}"))
                                     .ok()
                             })
                             .collect::<Vec<_>>()
                     },
-                    Msg::AddonsDiscovered,
+                    Msg::ExtensionsDiscovered,
                 );
                 let face_task = if let Some(conn) = self.catalog.clone() {
                     Task::perform(
@@ -81,24 +81,24 @@ impl App {
                 Task::batch([sidebar_task, addon_task, face_task, orphan_task])
             }
 
-            Msg::AddonsDiscovered(addons) => {
+            Msg::ExtensionsDiscovered(addons) => {
                 let count = addons.len();
-                self.addons = addons;
+                self.extensions = addons;
                 if count > 0 {
                     self.status = format!("{count} addon{} loaded", if count == 1 { "" } else { "s" });
                 }
                 Task::none()
             }
 
-            Msg::RunAddon { addon_idx, method, file_ids } => {
-                let Some(addon) = self.addons.get(addon_idx).cloned() else {
+            Msg::RunExtension { addon_idx, method, file_ids } => {
+                let Some(addon) = self.extensions.get(addon_idx).cloned() else {
                     return Task::none();
                 };
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let catalog_dir = self.catalog_dir.clone();
                 let total = file_ids.len();
-                let addon_name = addon.manifest.name.clone();
-                self.status = format!("{addon_name}… (0/{total})");
+                let extension_name = addon.manifest.name.clone();
+                self.status = format!("{extension_name}… (0/{total})");
 
                 let requests: Vec<(&str, serde_json::Value)> = file_ids
                     .iter()
@@ -120,7 +120,7 @@ impl App {
                 };
 
                 let stream = futures::stream::unfold(
-                    (handle, conn, addon_name, addon_idx, 0usize, 0usize, 0usize),
+                    (handle, conn, extension_name, addon_idx, 0usize, 0usize, 0usize),
                     |(handle, conn, name, addon_idx, mut done, mut applied, mut failed)| async move {
                         let rx = handle.rx.clone();
                         let result = tokio::task::spawn_blocking(move || {
@@ -139,9 +139,9 @@ impl App {
                                 }
                                 done += 1;
                                 if done >= handle.total {
-                                    Some((Msg::AddonBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
+                                    Some((Msg::ExtensionBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
                                 } else {
-                                    Some((Msg::AddonBatchProgress { name: name.clone(), done, total: handle.total }, (handle, conn, name, addon_idx, done, applied, failed)))
+                                    Some((Msg::ExtensionBatchProgress { name: name.clone(), done, total: handle.total }, (handle, conn, name, addon_idx, done, applied, failed)))
                                 }
                             }
                             Ok(Ok(Err(e))) => {
@@ -149,9 +149,9 @@ impl App {
                                 done += 1;
                                 failed += 1;
                                 if done >= handle.total {
-                                    Some((Msg::AddonBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
+                                    Some((Msg::ExtensionBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
                                 } else {
-                                    Some((Msg::AddonBatchProgress { name: name.clone(), done, total: handle.total }, (handle, conn, name, addon_idx, done, applied, failed)))
+                                    Some((Msg::ExtensionBatchProgress { name: name.clone(), done, total: handle.total }, (handle, conn, name, addon_idx, done, applied, failed)))
                                 }
                             }
                             _ => {
@@ -159,7 +159,7 @@ impl App {
                                 let remaining = total.saturating_sub(done);
                                 failed += remaining;
                                 done = total;
-                                Some((Msg::AddonBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
+                                Some((Msg::ExtensionBatchDone { addon_idx, method: "classify".into(), applied, failed }, (handle, conn, name, addon_idx, done, applied, failed)))
                             }
                         }
                     },
@@ -167,9 +167,9 @@ impl App {
                 Task::stream(stream)
             }
 
-            Msg::AddonProgress { .. } => Task::none(),
+            Msg::ExtensionProgress { .. } => Task::none(),
 
-            Msg::AddonBatchProgress { name, done, total } => {
+            Msg::ExtensionBatchProgress { name, done, total } => {
                 let msg = if total == 100 {
                     format!("{name}… ({done}%)")
                 } else {
@@ -183,22 +183,22 @@ impl App {
                 Task::none()
             }
 
-            Msg::AddonBatchDone { addon_idx, method, applied, failed } => {
+            Msg::ExtensionBatchDone { addon_idx, method, applied, failed } => {
                 if failed == 0 {
                     self.status = format!("{method} done — {applied} file{} updated", if applied == 1 { "" } else { "s" });
                     return Task::none();
                 }
-                let report_path = self.addons.get(addon_idx)
+                let report_path = self.extensions.get(addon_idx)
                     .and_then(|addon| write_crash_report(addon, applied, failed));
                 self.status = match &report_path {
                     Some(path) => format!("{method} done — {applied} updated, {failed} failed — report: {path}"),
                     None => format!("{method} done — {applied} updated, {failed} failed (addon crashed)"),
                 };
-                let manifest = self.addons.get(addon_idx).map(|a| a.manifest.clone());
+                let manifest = self.extensions.get(addon_idx).map(|a| a.manifest.clone());
                 if let Some(manifest) = manifest {
                     Task::perform(
-                        async move { AddonProcess::launch(manifest).map(Arc::new).ok() },
-                        move |p| Msg::AddonRestarted { idx: addon_idx, process: p },
+                        async move { ExtensionProcess::launch(manifest).map(Arc::new).ok() },
+                        move |p| Msg::ExtensionRestarted { idx: addon_idx, process: p },
                     )
                 } else {
                     Task::none()
@@ -207,7 +207,7 @@ impl App {
 
             Msg::RunFaceClustering { force_full } => {
                 let Some(addon) = self
-                    .addons
+                    .extensions
                     .iter()
                     .find(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
                     .cloned()
@@ -250,7 +250,7 @@ impl App {
 
                         match handle.progress_rx.recv_timeout(Duration::from_millis(200)) {
                             Ok(percent) => {
-                                Some((Msg::AddonBatchProgress { name: "Clustering faces".into(), done: percent as usize, total: 100 }, (handle, conn, false)))
+                                Some((Msg::ExtensionBatchProgress { name: "Clustering faces".into(), done: percent as usize, total: 100 }, (handle, conn, false)))
                             }
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                                 match handle.result_rx.try_recv() {
@@ -382,12 +382,12 @@ impl App {
                 )
             }
 
-            Msg::AddonRestarted { idx, process } => {
+            Msg::ExtensionRestarted { idx, process } => {
                 let msg = if let Some(p) = process {
-                    if idx < self.addons.len() {
-                        self.addons[idx] = p;
+                    if idx < self.extensions.len() {
+                        self.extensions[idx] = p;
                     } else {
-                        self.addons.push(p);
+                        self.extensions.push(p);
                     }
                     "Addon restarted".to_string()
                 } else {
@@ -405,12 +405,12 @@ impl App {
             | Msg::CloseSettings
             | Msg::SettingsConfigChanged { .. }
             | Msg::SaveSettings
-            | Msg::InstallAddonPickFile
-            | Msg::AddonPackagePicked(_)
-            | Msg::AddonInstalled(_)
-            | Msg::AddonInstallFailed(_)
-            | Msg::UninstallAddon(_)
-            | Msg::SetPreferredAddon { .. } => self.handle_settings(msg),
+            | Msg::InstallExtensionPickFile
+            | Msg::ExtensionPackagePicked(_)
+            | Msg::ExtensionInstalled(_)
+            | Msg::ExtensionInstallFailed(_)
+            | Msg::UninstallExtension(_)
+            | Msg::SetPreferredExtension { .. } => self.handle_settings(msg),
 
             Msg::SidebarItemClicked(item) => {
                 if let SidebarItem::Album(ref id) = item {
@@ -929,7 +929,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                let t_faces = if has_new && self.addons.iter().any(|a| a.manifest.capabilities.iter().any(|c| c == "cluster_faces")) {
+                let t_faces = if has_new && self.extensions.iter().any(|a| a.manifest.capabilities.iter().any(|c| c == "cluster_faces")) {
                     Task::done(Msg::RunFaceClustering { force_full: false })
                 } else {
                     Task::none()
@@ -2159,7 +2159,7 @@ impl App {
 
 }
 
-fn write_crash_report(addon: &AddonProcess, applied: usize, failed: usize) -> Option<String> {
+fn write_crash_report(addon: &ExtensionProcess, applied: usize, failed: usize) -> Option<String> {
     use isomfolio_core::app_paths::crash_reports_dir;
     let dir = crash_reports_dir();
     let _ = std::fs::create_dir_all(&dir);
@@ -2173,7 +2173,7 @@ fn write_crash_report(addon: &AddonProcess, applied: usize, failed: usize) -> Op
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
 
     let addon_dir = addon.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
-    let config = isomfolio_core::addon::load_addon_config(addon_dir);
+    let config = isomfolio_core::extension::load_extension_config(addon_dir);
     let config_redacted: serde_json::Map<String, serde_json::Value> = config
         .as_object()
         .cloned()
@@ -2181,7 +2181,7 @@ fn write_crash_report(addon: &AddonProcess, applied: usize, failed: usize) -> Op
         .into_iter()
         .map(|(k, v)| {
             let is_secret = addon.manifest.config_schema.iter().any(|f| {
-                f.key == k && matches!(f.kind, isomfolio_core::addon::ConfigFieldKind::Secret)
+                f.key == k && matches!(f.kind, isomfolio_core::extension::ConfigFieldKind::Secret)
             });
             if is_secret { (k, serde_json::Value::String("***".into())) } else { (k, v) }
         })
@@ -2361,18 +2361,18 @@ impl App {
     }
 
     fn auto_tag_task(&self, new_file_ids: Vec<String>) -> Task<Msg> {
-        let preferred = self.prefs.preferred_addon.get("classify").map(|s| s.as_str());
-        let classify_idx = self.addons.iter().position(|a| {
+        let preferred = self.prefs.preferred_extension.get("classify").map(|s| s.as_str());
+        let classify_idx = self.extensions.iter().position(|a| {
             a.manifest.capabilities.iter().any(|c| c == "classify")
                 && preferred.map_or(true, |p| a.manifest.name == p)
         }).or_else(|| {
             // Fall back to first capable addon if preference no longer installed
-            self.addons.iter().position(|a| a.manifest.capabilities.iter().any(|c| c == "classify"))
+            self.extensions.iter().position(|a| a.manifest.capabilities.iter().any(|c| c == "classify"))
         });
         let Some(addon_idx) = classify_idx else {
             return Task::none();
         };
-        Task::done(Msg::RunAddon {
+        Task::done(Msg::RunExtension {
             addon_idx,
             method: "classify".to_string(),
             file_ids: new_file_ids,
@@ -2842,12 +2842,12 @@ impl App {
         match msg {
             Msg::OpenSettings => {
                 let mut addon_configs = std::collections::HashMap::new();
-                for addon in &self.addons {
+                for addon in &self.extensions {
                     if addon.manifest.config_schema.is_empty() {
                         continue;
                     }
                     let addon_dir = addon.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
-                    let stored = load_addon_config(addon_dir);
+                    let stored = load_extension_config(addon_dir);
                     let mut fields = std::collections::HashMap::new();
                     for field in &addon.manifest.config_schema {
                         let val = stored
@@ -2868,10 +2868,10 @@ impl App {
                 Task::none()
             }
 
-            Msg::SettingsConfigChanged { addon_name, key, value } => {
-                use isomfolio_core::addon::ConfigFieldKind;
-                let kind = self.addons.iter()
-                    .find(|a| a.manifest.name == addon_name)
+            Msg::SettingsConfigChanged { extension_name, key, value } => {
+                use isomfolio_core::extension::ConfigFieldKind;
+                let kind = self.extensions.iter()
+                    .find(|a| a.manifest.name == extension_name)
                     .and_then(|a| a.manifest.config_schema.iter().find(|f| f.key == key))
                     .map(|f| &f.kind);
                 let valid = match kind {
@@ -2882,7 +2882,7 @@ impl App {
                 if valid {
                     self.settings
                         .addon_configs
-                        .entry(addon_name)
+                        .entry(extension_name)
                         .or_default()
                         .insert(key, value);
                 }
@@ -2892,14 +2892,14 @@ impl App {
             Msg::SaveSettings => {
                 self.settings.show = false;
                 let mut restart_tasks = Vec::new();
-                for (addon_name, fields) in &self.settings.addon_configs {
-                    let schema = self.addons.iter()
-                        .find(|a| &a.manifest.name == addon_name)
+                for (extension_name, fields) in &self.settings.addon_configs {
+                    let schema = self.extensions.iter()
+                        .find(|a| &a.manifest.name == extension_name)
                         .map(|a| &a.manifest.config_schema);
                     let config: serde_json::Value = fields
                         .iter()
                         .map(|(k, v)| {
-                            use isomfolio_core::addon::ConfigFieldKind;
+                            use isomfolio_core::extension::ConfigFieldKind;
                             let kind = schema.and_then(|s| s.iter().find(|f| &f.key == k)).map(|f| &f.kind);
                             let val = match kind {
                                 Some(ConfigFieldKind::Number) => v.parse::<f64>()
@@ -2914,20 +2914,20 @@ impl App {
                         })
                         .collect::<serde_json::Map<_, _>>()
                         .into();
-                    let addon_dir = self.addons.iter()
-                        .find(|a| &a.manifest.name == addon_name)
+                    let addon_dir = self.extensions.iter()
+                        .find(|a| &a.manifest.name == extension_name)
                         .and_then(|a| a.manifest.executable.parent().map(|p| p.to_path_buf()))
                         .unwrap_or_default();
-                    if let Err(e) = save_addon_config(&addon_dir, &config) {
+                    if let Err(e) = save_extension_config(&addon_dir, &config) {
                         self.status = format!("Settings save failed: {e}");
                         return Task::none();
                     }
-                    let idx = self.addons.iter().position(|a| &a.manifest.name == addon_name);
+                    let idx = self.extensions.iter().position(|a| &a.manifest.name == extension_name);
                     if let Some(idx) = idx {
-                        let manifest = self.addons[idx].manifest.clone();
+                        let manifest = self.extensions[idx].manifest.clone();
                         restart_tasks.push(Task::perform(
-                            async move { AddonProcess::launch(manifest).map(Arc::new).ok() },
-                            move |p| Msg::AddonRestarted { idx, process: p },
+                            async move { ExtensionProcess::launch(manifest).map(Arc::new).ok() },
+                            move |p| Msg::ExtensionRestarted { idx, process: p },
                         ));
                     }
                 }
@@ -2939,7 +2939,7 @@ impl App {
                 }
             }
 
-            Msg::InstallAddonPickFile => Task::perform(
+            Msg::InstallExtensionPickFile => Task::perform(
                 async {
                     rfd::AsyncFileDialog::new()
                         .add_filter("IsomFolio Extension", &["isfx"])
@@ -2947,46 +2947,46 @@ impl App {
                         .await
                         .map(|f| f.path().to_string_lossy().into_owned())
                 },
-                Msg::AddonPackagePicked,
+                Msg::ExtensionPackagePicked,
             ),
 
-            Msg::AddonPackagePicked(None) => Task::none(),
+            Msg::ExtensionPackagePicked(None) => Task::none(),
 
-            Msg::AddonPackagePicked(Some(path)) => {
+            Msg::ExtensionPackagePicked(Some(path)) => {
                 self.settings.install_error = None;
                 self.settings.status = Some("Installing addon…".to_string());
                 Task::perform(
                     async move {
                         let path = std::path::PathBuf::from(path);
-                        install_addon_package(&path)
-                            .and_then(|m| AddonProcess::launch(m).map(Arc::new).map_err(|e| e.to_string()))
+                        install_extension_package(&path)
+                            .and_then(|m| ExtensionProcess::launch(m).map(Arc::new).map_err(|e| e.to_string()))
                     },
                     |result| match result {
-                        Ok(p) => Msg::AddonInstalled(p),
-                        Err(e) => Msg::AddonInstallFailed(e),
+                        Ok(p) => Msg::ExtensionInstalled(p),
+                        Err(e) => Msg::ExtensionInstallFailed(e),
                     },
                 )
             }
 
-            Msg::AddonInstalled(process) => {
+            Msg::ExtensionInstalled(process) => {
                 self.settings.status = Some(format!("'{}' installed", process.manifest.name));
                 self.settings.install_error = None;
-                self.addons.push(process);
+                self.extensions.push(process);
                 Task::none()
             }
 
-            Msg::AddonInstallFailed(e) => {
+            Msg::ExtensionInstallFailed(e) => {
                 self.settings.install_error = Some(e);
                 Task::none()
             }
 
-            Msg::UninstallAddon(name) => {
-                if let Some(idx) = self.addons.iter().position(|a| a.manifest.name == name) {
-                    self.addons.remove(idx);
+            Msg::UninstallExtension(name) => {
+                if let Some(idx) = self.extensions.iter().position(|a| a.manifest.name == name) {
+                    self.extensions.remove(idx);
                 }
                 // Remove any capability preferences that pointed to this addon
-                self.prefs.preferred_addon.retain(|_, v| v != &name);
-                if let Err(e) = uninstall_addon(&name) {
+                self.prefs.preferred_extension.retain(|_, v| v != &name);
+                if let Err(e) = uninstall_extension(&name) {
                     self.settings.status = Some(format!("Uninstall failed: {e}"));
                 } else {
                     self.settings.status = Some(format!("'{name}' removed"));
@@ -2995,8 +2995,8 @@ impl App {
                 Task::none()
             }
 
-            Msg::SetPreferredAddon { capability, addon_name } => {
-                self.prefs.preferred_addon.insert(capability, addon_name);
+            Msg::SetPreferredExtension { capability, extension_name } => {
+                self.prefs.preferred_extension.insert(capability, extension_name);
                 isomfolio_core::app_paths::save_prefs(&self.prefs);
                 Task::none()
             }

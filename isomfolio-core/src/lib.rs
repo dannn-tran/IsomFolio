@@ -1,4 +1,4 @@
-pub mod addon;
+pub mod extension;
 pub mod app_paths;
 pub mod catalog;
 pub mod file_index;

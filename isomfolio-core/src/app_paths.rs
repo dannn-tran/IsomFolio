@@ -6,8 +6,8 @@ pub fn app_data_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-pub fn addons_dir() -> PathBuf {
-    app_data_root().join("addons")
+pub fn extensions_dir() -> PathBuf {
+    app_data_root().join("extensions")
 }
 
 pub fn models_dir() -> PathBuf {
@@ -61,7 +61,7 @@ pub fn create_catalog(parent_dir: &str, name: &str) -> Result<String, std::io::E
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Prefs {
     /// Maps capability name (e.g. "classify") to preferred addon name.
-    pub preferred_addon: std::collections::HashMap<String, String>,
+    pub preferred_extension: std::collections::HashMap<String, String>,
 }
 
 fn prefs_path() -> PathBuf {

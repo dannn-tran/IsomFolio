@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
-pub struct AddonRequest {
+pub struct ExtensionRequest {
     pub id: u64,
     pub method: String,
     #[serde(skip_serializing_if = "serde_json::Value::is_null")]
@@ -11,11 +11,11 @@ pub struct AddonRequest {
 #[derive(Debug, Deserialize)]
 pub struct HandshakeResult {
     pub protocol_version: u32,
-    pub addon_version: String,
+    pub extension_version: String,
     pub capabilities: Vec<String>,
 }
 
-/// All messages sent by an addon on stdout, discriminated by "type".
+/// All messages sent by an extension on stdout, discriminated by "type".
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum StdoutLine {

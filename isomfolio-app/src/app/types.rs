@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use iced::{keyboard, widget, Point};
 
 pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
-use isomfolio_core::addon::AddonProcess;
+use isomfolio_core::extension::ExtensionProcess;
 use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag};
 
 #[derive(Debug, Clone)]
@@ -233,23 +233,23 @@ pub enum Msg {
     SetFlagFilter(FlagFilter),
     SetRatingFilter(Option<i32>),
 
-    AddonsDiscovered(Vec<Arc<AddonProcess>>),
-    RunAddon { addon_idx: usize, method: String, file_ids: Vec<String> },
-    AddonProgress { addon_idx: usize, file_id: String, percent: u8 },
-    AddonBatchProgress { name: String, done: usize, total: usize },
-    AddonBatchDone { addon_idx: usize, method: String, applied: usize, failed: usize },
-    AddonRestarted { idx: usize, process: Option<Arc<AddonProcess>> },
+    ExtensionsDiscovered(Vec<Arc<ExtensionProcess>>),
+    RunExtension { addon_idx: usize, method: String, file_ids: Vec<String> },
+    ExtensionProgress { addon_idx: usize, file_id: String, percent: u8 },
+    ExtensionBatchProgress { name: String, done: usize, total: usize },
+    ExtensionBatchDone { addon_idx: usize, method: String, applied: usize, failed: usize },
+    ExtensionRestarted { idx: usize, process: Option<Arc<ExtensionProcess>> },
 
     OpenSettings,
     CloseSettings,
-    SettingsConfigChanged { addon_name: String, key: String, value: String },
+    SettingsConfigChanged { extension_name: String, key: String, value: String },
     SaveSettings,
-    InstallAddonPickFile,
-    AddonPackagePicked(Option<String>),
-    AddonInstalled(Arc<AddonProcess>),
-    AddonInstallFailed(String),
-    UninstallAddon(String),
-    SetPreferredAddon { capability: String, addon_name: String },
+    InstallExtensionPickFile,
+    ExtensionPackagePicked(Option<String>),
+    ExtensionInstalled(Arc<ExtensionProcess>),
+    ExtensionInstallFailed(String),
+    UninstallExtension(String),
+    SetPreferredExtension { capability: String, extension_name: String },
 
     RunFaceClustering { force_full: bool },
     FaceClusteringDone(Vec<isomfolio_core::models::FaceClusterSummary>),
@@ -377,7 +377,7 @@ impl Default for DetailState {
 
 pub struct SettingsState {
     pub show: bool,
-    /// addon_name -> key -> current edited value
+    /// extension_name -> key -> current edited value
     pub addon_configs: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     pub install_error: Option<String>,
     pub status: Option<String>,

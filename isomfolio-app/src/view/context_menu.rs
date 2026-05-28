@@ -150,7 +150,7 @@ impl App {
                 items.push(Some(("Add to Album ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)));
 
                 let classify_addons: Vec<(usize, &str)> = self
-                    .addons
+                    .extensions
                     .iter()
                     .enumerate()
                     .filter(|(_, a)| a.manifest.capabilities.iter().any(|c| c == "classify"))
@@ -169,7 +169,7 @@ impl App {
                         };
                         items.push(Some((
                             label,
-                            Msg::RunAddon {
+                            Msg::RunExtension {
                                 addon_idx: idx,
                                 method: "classify".to_string(),
                                 file_ids: file_ids.clone(),

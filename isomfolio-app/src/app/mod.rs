@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use iced::{event, keyboard, mouse, Event, Point, Size, Subscription, Task};
 
-use isomfolio_core::addon::AddonProcess;
+use isomfolio_core::extension::ExtensionProcess;
 use isomfolio_core::app_paths::db_path;
 use isomfolio_core::Catalog;
 use isomfolio_core::indexing::thumbnail::{
@@ -147,7 +147,7 @@ pub struct App {
     pub sidebar_width: f32,
     pub sidebar_resizing: bool,
 
-    pub addons: Vec<Arc<AddonProcess>>,
+    pub extensions: Vec<Arc<ExtensionProcess>>,
     pub settings: SettingsState,
     pub prefs: isomfolio_core::app_paths::Prefs,
 
@@ -262,7 +262,7 @@ impl App {
             tag_browser: None,
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_resizing: false,
-            addons: Vec::new(),
+            extensions: Vec::new(),
             settings: SettingsState::default(),
             prefs: isomfolio_core::app_paths::read_prefs(),
             faces: FaceState::default(),

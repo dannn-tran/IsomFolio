@@ -154,8 +154,8 @@ pub enum AppError {
     Watcher(String),
     #[error("metadata error: {0}")]
     Metadata(String),
-    #[error("addon error: {0}")]
-    Addon(String),
+    #[error("extension error: {0}")]
+    Extension(String),
 }
 
 impl From<rusqlite::Error> for AppError {

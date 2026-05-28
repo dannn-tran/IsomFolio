@@ -537,7 +537,7 @@ impl App {
     }
 
     fn view_settings_modal(&self) -> Element<'_, Msg> {
-        use isomfolio_core::addon::ConfigFieldKind;
+        use isomfolio_core::extension::ConfigFieldKind;
 
         let mut body = column![
             text("Settings").size(TEXT_TITLE).color(FG),
@@ -548,12 +548,12 @@ impl App {
         .spacing(0)
         .width(440);
 
-        if self.addons.is_empty() {
+        if self.extensions.is_empty() {
             body = body.push(text("No addons installed.").size(TEXT_MD).color(FG_MUTED));
             body = body.push(Space::new().height(SPACE_2));
         }
 
-        for addon in &self.addons {
+        for addon in &self.extensions {
             let name = addon.manifest.name.clone();
             let desc = addon.manifest.description.clone();
 
@@ -567,7 +567,7 @@ impl App {
                     .spacing(SPACE_0_5),
                     Space::new().width(Length::Fill),
                     button(text("Remove").size(TEXT_SM))
-                        .on_press(Msg::UninstallAddon(name.clone()))
+                        .on_press(Msg::UninstallExtension(name.clone()))
                         .style(|_: &Theme, s| {
                             let alpha = match s {
                                 iced::widget::button::Status::Hovered => 0.13,
@@ -593,7 +593,7 @@ impl App {
             for field in &addon.manifest.config_schema {
                 let current = field_values.get(&field.key).cloned().unwrap_or_default();
                 let key = field.key.clone();
-                let addon_name = name.clone();
+                let extension_name = name.clone();
 
                 body = body.push(Space::new().height(SPACE_2));
                 body = body.push(text(&field.label).size(TEXT_MD).color(FG_DIM));
@@ -606,11 +606,11 @@ impl App {
                             let selected = current == *opt;
                             let opt_val = opt.clone();
                             let k = key.clone();
-                            let an = addon_name.clone();
+                            let an = extension_name.clone();
                             option_row = option_row.push(
                                 button(text(opt.as_str()).size(TEXT_MD))
                                     .on_press(Msg::SettingsConfigChanged {
-                                        addon_name: an,
+                                        extension_name: an,
                                         key: k,
                                         value: opt_val,
                                     })
@@ -625,7 +625,7 @@ impl App {
                         body = body.push(
                             text_input(field.default.as_deref().unwrap_or(""), &current)
                                 .on_input(move |v| Msg::SettingsConfigChanged {
-                                    addon_name: addon_name.clone(),
+                                    extension_name: extension_name.clone(),
                                     key: key.clone(),
                                     value: v,
                                 })
@@ -639,7 +639,7 @@ impl App {
                         body = body.push(
                             text_input(field.default.as_deref().unwrap_or(""), &current)
                                 .on_input(move |v| Msg::SettingsConfigChanged {
-                                    addon_name: addon_name.clone(),
+                                    extension_name: extension_name.clone(),
                                     key: key.clone(),
                                     value: v,
                                 })
@@ -653,7 +653,7 @@ impl App {
                         body = body.push(
                             text_input(placeholder, &current)
                                 .on_input(move |v| Msg::SettingsConfigChanged {
-                                    addon_name: addon_name.clone(),
+                                    extension_name: extension_name.clone(),
                                     key: key.clone(),
                                     value: v,
                                 })
@@ -671,7 +671,7 @@ impl App {
         // Capability defaults — only shown when 2+ addons share a capability
         let mut cap_map: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
-        for addon in &self.addons {
+        for addon in &self.extensions {
             for cap in &addon.manifest.capabilities {
                 cap_map.entry(cap.clone()).or_default().push(addon.manifest.name.clone());
             }
@@ -686,7 +686,7 @@ impl App {
             body = body.push(text("Defaults").size(TEXT_SM).color(FG_DIM));
             body = body.push(Space::new().height(SPACE_2));
             for (cap, names) in contested {
-                let current = self.prefs.preferred_addon.get(&cap).cloned()
+                let current = self.prefs.preferred_extension.get(&cap).cloned()
                     .unwrap_or_else(|| names[0].clone());
                 body = body.push(text(format!("Auto-{cap}:")).size(TEXT_MD).color(FG));
                 body = body.push(Space::new().height(SPACE_1_5));
@@ -698,9 +698,9 @@ impl App {
                     let n_label = n.clone();
                     chip_row = chip_row.push(
                         button(text(n_label).size(TEXT_MD))
-                            .on_press(Msg::SetPreferredAddon {
+                            .on_press(Msg::SetPreferredExtension {
                                 capability: cap2,
-                                addon_name: n2,
+                                extension_name: n2,
                             })
                             .style(move |t: &Theme, s| {
                                 if selected { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
@@ -715,7 +715,7 @@ impl App {
         body = body.push(Space::new().height(SPACE_2));
         body = body.push(
             button(text("Install from file…").size(TEXT_BASE))
-                .on_press(Msg::InstallAddonPickFile)
+                .on_press(Msg::InstallExtensionPickFile)
                 .style(ghost_btn_style),
         );
 

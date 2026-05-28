@@ -178,7 +178,7 @@ impl App {
 
         // People section
         if !self.faces.clusters.is_empty() || self
-            .addons
+            .extensions
             .iter()
             .any(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
         {
