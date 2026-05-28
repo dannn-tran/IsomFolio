@@ -62,18 +62,14 @@ impl App {
                             tokio::task::spawn_blocking(move || rx.lock_unwrap().recv()).await;
                         match result {
                             Ok(Ok(Ok(value))) => {
-                                let fid = value
-                                    .get("file_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let tags = extract_scored_tags(value);
-                                if !tags.is_empty() && !fid.is_empty() {
-                                    let g = conn.lock_unwrap();
-                                    if let Err(e) = g.insert_pending_tags(&fid, &tags) {
-                                        eprintln!("[db] insert_pending_tags failed: {e}");
+                                if let Some((fid, tags)) = extract_scored_tags(value) {
+                                    if !tags.is_empty() && !fid.is_empty() {
+                                        let g = conn.lock_unwrap();
+                                        if let Err(e) = g.insert_pending_tags(&fid, &tags) {
+                                            eprintln!("[db] insert_pending_tags failed: {e}");
+                                        }
+                                        applied += 1;
                                     }
-                                    applied += 1;
                                 }
                                 done += 1;
                                 if done >= handle.total {
@@ -573,6 +569,7 @@ struct ClassifyRequest<'a> {
 
 #[derive(serde::Deserialize)]
 struct ClassifyResponse {
+    file_id: String,
     #[serde(default)]
     tags: Vec<ClassifyTag>,
 }
@@ -630,11 +627,9 @@ struct BboxDto {
     h: f64,
 }
 
-fn extract_scored_tags(result: serde_json::Value) -> Vec<(String, Option<f32>)> {
-    let Ok(resp) = serde_json::from_value::<ClassifyResponse>(result) else {
-        return Vec::new();
-    };
-    resp.tags.into_iter().map(|t| (t.tag, t.confidence)).collect()
+fn extract_scored_tags(result: serde_json::Value) -> Option<(String, Vec<(String, Option<f32>)>)> {
+    let resp = serde_json::from_value::<ClassifyResponse>(result).ok()?;
+    Some((resp.file_id, resp.tags.into_iter().map(|t| (t.tag, t.confidence)).collect()))
 }
 
 fn classify_request_params(file_id: &str, thumbnail_path: String) -> serde_json::Value {
