@@ -5,7 +5,7 @@ use iced::{
 
 use isomfolio_core::models::AlbumKind;
 
-use super::styles::{BG_MODAL, BORDER, ERR, FG, FG_DIM, SPACE_1, SPACE_1_5, SPACE_2, TEXT_MD};
+use super::styles::{BG_MODAL, BORDER, ERR, FG, FG_DIM, HINT_HOVER, SPACE_1, SPACE_1_5, SPACE_2, TEXT_MD};
 use crate::app::{App, ContextMenuTarget, Msg};
 
 const MENU_WIDTH: f32 = 180.0;
@@ -250,9 +250,7 @@ fn menu_panel_style(_: &Theme) -> container::Style {
 
 fn menu_item_style(_: &Theme, status: button::Status) -> button::Style {
     let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => {
-            Color { r: 1.0, g: 1.0, b: 1.0, a: 0.10 }
-        }
+        button::Status::Hovered | button::Status::Pressed => HINT_HOVER,
         _ => Color::TRANSPARENT,
     };
     button::Style {

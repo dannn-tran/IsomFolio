@@ -2,12 +2,12 @@ use std::collections::{BTreeMap, HashSet};
 
 use iced::{
     widget::{button, column, container, row, scrollable, text, text_input, Space},
-    Alignment, Background, Border, Color, Element, Length, Theme,
+    Alignment, Background, Border, Element, Length, Theme,
 };
 
 use super::styles::{
-    danger_btn_style, ghost_btn_style, BG_MODAL, BORDER, ERR, FG, FG_DIM, SPACE_0_5, SPACE_1,
-    SPACE_1_5, SPACE_2, SPACE_2_5, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_XS,
+    danger_btn_style, ghost_btn_style, BG_MODAL, BORDER, ERR, FG, FG_DIM, OVERLAY_MEDIUM,
+    SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_XS,
 };
 use crate::app::{App, Msg};
 
@@ -159,12 +159,7 @@ impl App {
             .align_x(Alignment::Center)
             .align_y(Alignment::Center)
             .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 0.6,
-                })),
+                background: Some(Background::Color(OVERLAY_MEDIUM)),
                 ..Default::default()
             });
 

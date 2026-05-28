@@ -58,7 +58,8 @@ impl App {
             match self.grid_selected.len() {
                 0 => "Click to select".to_string(),
                 1 => "Space for loupe · I for info · ? for shortcuts".to_string(),
-                n => format!("{n} photos selected · Drag to album"),
+                2 => "2 photos selected · c to compare · drag to album".to_string(),
+                n => format!("{n} photos selected · drag to album"),
             }
         };
 
@@ -795,12 +796,7 @@ impl App {
             .align_x(Alignment::Center)
             .align_y(Alignment::Center)
             .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 0.6,
-                })),
+                background: Some(Background::Color(OVERLAY_MEDIUM)),
                 ..Default::default()
             })
             .into()

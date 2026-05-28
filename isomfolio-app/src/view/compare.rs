@@ -1,12 +1,13 @@
 use iced::{
-    widget::{button, column, container, image, row, text, Space},
+    widget::{button, column, container, image, row, stack, text, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
+use isomfolio_core::models::Flag;
 
 use crate::app::{App, Msg};
 use super::styles::{
-    BG_GRID, FG, FG_DIM, OVERLAY_HEAVY, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
-    TEXT_BASE, TEXT_MD,
+    ACCENT, BG_GRID, ERR, FG, FG_DIM, OVERLAY_HEAVY, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5,
+    SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM,
 };
 
 impl App {
@@ -19,8 +20,17 @@ impl App {
             row![
                 button(text("✕").size(TEXT_BASE).color(FG))
                     .on_press(Msg::EscapePressed)
-                    .style(|_: &Theme, _| button::Style {
-                        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.1 })),
+                    .style(|_: &Theme, status| button::Style {
+                        background: Some(Background::Color(Color {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: match status {
+                                button::Status::Hovered => 0.15,
+                                button::Status::Pressed => 0.25,
+                                _ => 0.08,
+                            },
+                        })),
                         text_color: FG,
                         border: Border { radius: 4.0.into(), ..Default::default() },
                         shadow: iced::Shadow::default(),
@@ -41,7 +51,11 @@ impl App {
             ..Default::default()
         });
 
-        let images_row = row(panels).spacing(SPACE_2).width(Length::Fill).height(Length::Fill);
+        let images_row = row(panels)
+            .spacing(SPACE_2)
+            .padding([SPACE_2, SPACE_3])
+            .width(Length::Fill)
+            .height(Length::Fill);
 
         let body = container(images_row)
             .width(Length::Fill)
@@ -87,16 +101,50 @@ impl App {
             }
         };
 
-        let name = file.map(|f| f.name.as_str()).unwrap_or("");
-        let label = container(
-            text(name).size(TEXT_MD).color(FG_DIM),
-        )
-        .padding([SPACE_1, SPACE_1_5])
-        .style(|_: &Theme| container::Style {
-            background: Some(Background::Color(OVERLAY_HEAVY)),
-            ..Default::default()
-        });
+        let overlay: Element<Msg> = if let Some(f) = file {
+            let rating = self.file_ratings.get(&f.id).copied().unwrap_or(0);
+            let (flag_label, flag_color) = match f.flag {
+                Flag::Pick => ("✓ Pick", ACCENT),
+                Flag::Reject => ("✕ Reject", ERR),
+                Flag::Unflagged => ("", FG_DIM),
+            };
 
-        column![img_el, label].spacing(SPACE_2).width(Length::Fill).height(Length::Fill).into()
+            let mut meta_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
+            if f.flag != Flag::Unflagged {
+                meta_row = meta_row.push(text(flag_label).size(TEXT_SM).color(flag_color));
+            }
+            if rating > 0 {
+                meta_row = meta_row
+                    .push(text("★".repeat(rating as usize)).size(TEXT_SM).color(STAR_GOLD));
+            }
+
+            container(
+                column![
+                    Space::new().height(Length::Fill),
+                    container(
+                        column![
+                            text(f.name.as_str()).size(TEXT_MD).color(FG),
+                            meta_row,
+                        ]
+                        .spacing(SPACE_1),
+                    )
+                    .padding([SPACE_1_5, SPACE_2])
+                    .width(Length::Fill)
+                    .style(|_: &Theme| container::Style {
+                        background: Some(Background::Color(OVERLAY_HEAVY)),
+                        ..Default::default()
+                    }),
+                ]
+                .width(Length::Fill)
+                .height(Length::Fill),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        } else {
+            Space::new().width(Length::Fill).height(Length::Fill).into()
+        };
+
+        stack![img_el, overlay].width(Length::Fill).height(Length::Fill).into()
     }
 }

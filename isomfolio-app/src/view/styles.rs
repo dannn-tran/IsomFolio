@@ -151,6 +151,11 @@ pub const OVERLAY_HEAVY: Color = Color {
     a: 0.7,
 };
 
+/// Subtle white-tint fill — input field backgrounds, tag chip backgrounds.
+pub const HINT_SUBTLE: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.05 };
+/// Hover white-tint fill — context menu hover, menu button hover.
+pub const HINT_HOVER: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.10 };
+
 pub const TEXT_XS: f32 = 10.0;
 pub const TEXT_SM: f32 = 11.0;
 pub const TEXT_MD: f32 = 12.0;

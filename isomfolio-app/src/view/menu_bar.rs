@@ -4,7 +4,7 @@ use iced::{
 };
 
 use super::styles::{
-    BG_MODAL, BG_STATUSBAR, BORDER, FG, FG_DIM, FG_MUTED,
+    BG_MODAL, BG_STATUSBAR, BORDER, FG, FG_DIM, FG_MUTED, HINT_HOVER, HINT_SUBTLE,
     SPACE_1, SPACE_1_5, SPACE_2, SPACE_3, TEXT_MD, TEXT_SM,
 };
 use crate::app::{App, Msg};
@@ -29,8 +29,8 @@ impl App {
                     .on_press(Msg::OpenMenuDropdown(id.to_string()))
                     .style(move |_: &Theme, status| {
                         let bg = match (is_open, status) {
-                            (true, _) => Color { r: 1.0, g: 1.0, b: 1.0, a: 0.08 },
-                            (_, iced::widget::button::Status::Hovered) => Color { r: 1.0, g: 1.0, b: 1.0, a: 0.05 },
+                            (true, _) => HINT_HOVER,
+                            (_, iced::widget::button::Status::Hovered) => HINT_SUBTLE,
                             _ => Color::TRANSPARENT,
                         };
                         iced::widget::button::Style {
@@ -175,7 +175,7 @@ fn menu_action_row<'a>(label: &'a str, shortcut: &'a str, msg: Msg) -> Element<'
         .style(|_: &Theme, status| {
             let bg = match status {
                 iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed => {
-                    Color { r: 1.0, g: 1.0, b: 1.0, a: 0.10 }
+                    HINT_HOVER
                 }
                 _ => Color::TRANSPARENT,
             };
