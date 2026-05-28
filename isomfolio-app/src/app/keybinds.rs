@@ -89,6 +89,9 @@ pub fn default_bindings() -> Vec<KeyBind> {
         KeyBind { key: Char("z"), mods: Mods::CMD,       when_ignored: true, action: || Msg::Undo, label: "Undo", category: Tagging },
         KeyBind { key: Char("z"), mods: Mods::CMD_SHIFT,  when_ignored: true, action: || Msg::Redo, label: "Redo", category: Tagging },
 
+        // Compare
+        KeyBind { key: Char("c"), mods: Mods::NONE, when_ignored: true, action: || Msg::OpenCompare, label: "Compare (2 selected)", category: View },
+
         // Tagging
         KeyBind { key: Char("."), mods: Mods::NONE, when_ignored: true, action: || Msg::RepeatLastTag, label: "Repeat Last Tag", category: Tagging },
 

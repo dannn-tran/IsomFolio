@@ -44,6 +44,7 @@ pub enum ViewMode {
     Preview,
     Loupe,
     People,
+    Compare,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -266,6 +267,8 @@ pub enum Msg {
     Undo,
     Redo,
     UndoApplied,
+    OpenCompare,
+    CompareFullResLoaded { slot: usize, handle: iced::widget::image::Handle },
     SortCycleAll,
     NoOp,
 

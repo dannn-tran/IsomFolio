@@ -1,3 +1,4 @@
+mod compare;
 mod content;
 mod context_menu;
 mod menu_bar;
@@ -29,6 +30,10 @@ impl App {
 
         if matches!(self.view_mode, ViewMode::Loupe) {
             return self.view_loupe();
+        }
+
+        if matches!(self.view_mode, ViewMode::Compare) {
+            return self.view_compare();
         }
 
         let dragging = self.drag.state.as_ref().map(|d| d.active).unwrap_or(false);
@@ -146,6 +151,7 @@ impl App {
         let content_area: Element<Msg> = match self.view_mode {
             ViewMode::People => self.view_people_grid(),
             ViewMode::Preview => self.view_preview(),
+            ViewMode::Compare => self.view_compare(),
             _ => self.view_grid(),
         };
         let mut main_row = row![self.view_sidebar(), resize_handle, content_area]

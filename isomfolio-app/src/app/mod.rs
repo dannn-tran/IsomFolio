@@ -154,6 +154,19 @@ pub struct App {
 
     pub undo_stack: Vec<UndoOp>,
     pub redo_stack: Vec<UndoOp>,
+
+    pub compare: CompareState,
+}
+
+pub struct CompareState {
+    pub files: [Option<isomfolio_core::models::AssetFile>; 2],
+    pub handles: [Option<iced::widget::image::Handle>; 2],
+}
+
+impl Default for CompareState {
+    fn default() -> Self {
+        Self { files: [None, None], handles: [None, None] }
+    }
 }
 
 impl App {
@@ -253,6 +266,7 @@ impl App {
             faces: FaceState::default(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            compare: CompareState::default(),
         };
 
         (app, task)

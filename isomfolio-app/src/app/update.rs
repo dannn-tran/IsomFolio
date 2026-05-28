@@ -18,9 +18,9 @@ use isomfolio_core::models::{Album, AlbumKind, FaceClusterMember, SortField};
 use isomfolio_core::path_utils::{is_catalog_dir, is_under_catalog_dir, normalize_path};
 
 use super::{
-    unix_to_date_str, App, ContextMenuState, ContextMenuTarget, CriteriaState, DetailState,
-    DragState, LoupeState, Msg, SettingsState, SidebarItem, TagBrowserState, UndoOp, ViewMode,
-    ALBUM_ITEM_HEIGHT, SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_HANDLE_WIDTH,
+    unix_to_date_str, App, CompareState, ContextMenuState, ContextMenuTarget, CriteriaState,
+    DetailState, DragState, LoupeState, Msg, SettingsState, SidebarItem, TagBrowserState, UndoOp,
+    ViewMode, ALBUM_ITEM_HEIGHT, SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_HANDLE_WIDTH,
 };
 use isomfolio_core::app_paths::db_path;
 
@@ -578,7 +578,7 @@ impl App {
                             return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
                         }
                     }
-                    ViewMode::People => {}
+                    ViewMode::People | ViewMode::Compare => {}
                 }
                 Task::none()
             }
@@ -814,7 +814,7 @@ impl App {
                     self.context_menu = None;
                     return Task::none();
                 }
-                if matches!(self.view_mode, ViewMode::Loupe) {
+                if matches!(self.view_mode, ViewMode::Compare | ViewMode::Loupe) {
                     self.view_mode = ViewMode::Browse;
                     return Task::none();
                 }
@@ -1836,6 +1836,28 @@ impl App {
                 Task::batch([t1, t2, t3])
             }
 
+            Msg::OpenCompare => {
+                if self.grid_selected.len() != 2 {
+                    self.status = "Select exactly 2 photos to compare".to_string();
+                    return Task::none();
+                }
+                let mut sel = self.grid_selected.iter();
+                let id0 = sel.next().unwrap().clone();
+                let id1 = sel.next().unwrap().clone();
+                let f0 = self.files.iter().find(|f| f.id == id0).cloned();
+                let f1 = self.files.iter().find(|f| f.id == id1).cloned();
+                self.compare = CompareState { files: [f0, f1], handles: [None, None] };
+                self.view_mode = ViewMode::Compare;
+                Task::batch([self.load_compare_slot(0), self.load_compare_slot(1)])
+            }
+
+            Msg::CompareFullResLoaded { slot, handle } => {
+                if matches!(self.view_mode, ViewMode::Compare) {
+                    self.compare.handles[slot] = Some(handle);
+                }
+                Task::none()
+            }
+
             Msg::NoOp => Task::none(),
         }
     }
@@ -2373,6 +2395,31 @@ impl App {
             },
             move |handle_opt| match handle_opt {
                 Some(handle) => Msg::LoupeFullResLoaded { idx, handle },
+                None => Msg::NoOp,
+            },
+        )
+    }
+
+    pub(crate) fn load_compare_slot(&self, slot: usize) -> Task<Msg> {
+        let Some(file) = self.compare.files[slot].as_ref() else {
+            return Task::none();
+        };
+        let path = file.path.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    image::open(&path).ok().map(|img| {
+                        let rgba = img.into_rgba8();
+                        let (w, h) = (rgba.width(), rgba.height());
+                        iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw())
+                    })
+                })
+                .await
+                .ok()
+                .flatten()
+            },
+            move |handle_opt| match handle_opt {
+                Some(handle) => Msg::CompareFullResLoaded { slot, handle },
                 None => Msg::NoOp,
             },
         )
