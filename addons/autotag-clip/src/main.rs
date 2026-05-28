@@ -51,6 +51,12 @@ const VOCABULARY: &[&str] = &[
 
 type TractModel = RunnableModel<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>;
 
+#[derive(Deserialize)]
+struct ClassifyParams {
+    file_id: String,
+    thumbnail_path: String,
+}
+
 #[derive(Deserialize, Default)]
 struct Config {
     #[serde(default = "default_variant")]
@@ -61,69 +67,129 @@ struct Config {
     batch_size: String,
 }
 
-fn default_batch_size() -> String {
-    "auto".to_string()
-}
+fn default_batch_size() -> String { "auto".to_string() }
+fn default_variant() -> String { "clip-vit-b32".to_string() }
 
 fn resolve_batch_size(config: &Config, out: &mut impl Write) -> usize {
     if config.batch_size != "auto" {
         if let Ok(n) = config.batch_size.parse::<usize>() {
-            if n >= 1 {
-                return n;
-            }
+            if n >= 1 { return n; }
         }
     }
-    let cores = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(2);
-    let size = match cores {
-        0..=2 => 1,
-        3..=4 => 2,
-        5..=8 => 4,
-        _ => 8,
-    };
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
+    let size = match cores { 0..=2 => 1, 3..=4 => 2, 5..=8 => 4, _ => 8 };
     sdk::emit_log(out, "info", &format!("auto batch_size={size} ({cores} cores)"));
     size
 }
 
-fn default_variant() -> String {
-    "clip-vit-b32".to_string()
+fn model_urls(config: &Config) -> (&'static str, &'static str, &'static str, &'static str) {
+    match config.variant.as_str() {
+        "clip-vit-l14" => (L14_SUBDIR, L14_VISION_URL, L14_TEXT_URL, L14_TOKENIZER_URL),
+        _ => (B32_SUBDIR, B32_VISION_URL, B32_TEXT_URL, B32_TOKENIZER_URL),
+    }
 }
 
 const VERSION: &str = "1.0.0";
+
+enum InitError {
+    ModelsMissing(String),
+    Other(String),
+}
 
 fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
     let config: Config = sdk::load_config(&mut out);
-    let models_base = std::env::var("ISOMFOLIO_MODELS_DIR").unwrap_or_else(|_| ".".to_string());
     let batch_size = resolve_batch_size(&config, &mut out);
 
-    let (vision_model, vocab_labels, vocab_embeds) = match init(&config, &models_base, batch_size, &mut out) {
-        Ok(r) => r,
-        Err(e) => {
-            sdk::emit_log(&mut out, "error", &format!("init failed: {e}"));
-            return;
+    if sdk::is_install_mode() {
+        let data_dir = sdk::data_dir().unwrap_or_else(|| {
+            eprintln!("usage: autotag-clip install --data-dir <path>");
+            std::process::exit(1);
+        });
+        let (subdir, vision_url, text_url, tokenizer_url) = model_urls(&config);
+        let model_dir = data_dir.join(subdir);
+        if let Err(e) = ensure_models(&model_dir, vision_url, text_url, tokenizer_url, &mut out) {
+            sdk::emit_log(&mut out, "error", &format!("install failed: {e}"));
+            std::process::exit(1);
         }
+        return;
+    }
+
+    let data_dir = sdk::data_dir().unwrap_or_else(|| {
+        eprintln!("usage: autotag-clip --data-dir <path>");
+        std::process::exit(1);
+    });
+
+    // Phase 1: respond to handshake immediately, before any model loading
+    {
+        let stdin = io::stdin();
+        for line in stdin.lock().lines() {
+            let Ok(line) = line else { return };
+            let line = line.trim();
+            if line.is_empty() { continue; }
+            match serde_json::from_str::<sdk::Request>(line) {
+                Ok(req) if req.method == "handshake" => {
+                    sdk::send_handshake_response(&mut out, req.id, VERSION, &["classify"]);
+                    break;
+                }
+                Ok(req) => sdk::send_error(&mut out, req.id, format!("unexpected before handshake: {}", req.method)),
+                Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
+            }
+        }
+    } // stdin lock released here
+
+    // Phase 2: load models from disk
+    let (vision_model, vocab_labels, vocab_embeds) = match load(&config, &data_dir, batch_size, &mut out) {
+        Ok(r) => r,
+        Err(InitError::ModelsMissing(msg)) => { sdk::emit_fatal(&mut out, true, &msg); return; }
+        Err(InitError::Other(msg)) => { sdk::emit_fatal(&mut out, false, &msg); return; }
     };
 
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
-        let line = line.trim();
-        if line.is_empty() { continue; }
-        match serde_json::from_str::<sdk::Request>(line) {
-            Ok(req) if req.method == "handshake" => {
-                sdk::send_handshake_response(&mut out, req.id, VERSION, &["classify"]);
-                sdk::send_ready(&mut out);
-                run_batch_loop(vision_model, &vocab_labels, &vocab_embeds, batch_size, &mut out);
-                return;
-            }
-            Ok(req) => sdk::send_error(&mut out, req.id, format!("unknown method: {}", req.method)),
-            Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
+    sdk::send_ready(&mut out);
+
+    // Phase 3: batch loop
+    run_batch_loop(vision_model, &vocab_labels, &vocab_embeds, batch_size, &mut out);
+}
+
+fn load(
+    config: &Config,
+    data_dir: &Path,
+    batch_size: usize,
+    out: &mut impl Write,
+) -> Result<(TractModel, Vec<String>, Vec<Vec<f32>>), InitError> {
+    let (subdir, ..) = model_urls(config);
+    let model_dir = data_dir.join(subdir);
+
+    let vision_path = model_dir.join("vision_model.onnx");
+    let text_path = model_dir.join("text_model.onnx");
+    let tokenizer_path = model_dir.join("tokenizer.json");
+
+    for path in [&vision_path, &text_path, &tokenizer_path] {
+        if !path.exists() {
+            return Err(InitError::ModelsMissing(format!(
+                "{} not found — run installer to repair",
+                path.display()
+            )));
         }
     }
+
+    let vocab = sdk::load_vocabulary(&config.vocabulary_file, VOCABULARY, out);
+
+    let vision_model = load_vision_model(vision_path, batch_size)
+        .map_err(|e| InitError::Other(e.to_string()))?;
+    let text_model = load_text_model(text_path, vocab.len())
+        .map_err(|e| InitError::Other(e.to_string()))?;
+    let tokenizer = Tokenizer::from_file(tokenizer_path)
+        .map_err(|e| InitError::Other(e.to_string()))?;
+
+    sdk::emit_log(out, "info", &format!("embedding {} vocabulary tags…", vocab.len()));
+    let vocab_embeds = embed_vocabulary_from(&text_model, &tokenizer, &vocab)
+        .map_err(|e| InitError::Other(e.to_string()))?;
+    sdk::emit_log(out, "info", &format!("ready ({}, {} tags)", config.variant, vocab.len()));
+
+    Ok((vision_model, vocab, vocab_embeds))
 }
 
 fn run_batch_loop(
@@ -153,10 +219,15 @@ fn run_batch_loop(
             }
         }
 
-        let mut classify_reqs: Vec<(u64, Value)> = Vec::new();
+        let mut classify_reqs: Vec<(u64, ClassifyParams)> = Vec::new();
         for line in &lines {
             match serde_json::from_str::<sdk::Request>(line) {
-                Ok(req) if req.method == "classify" => classify_reqs.push((req.id, req.params)),
+                Ok(req) if req.method == "classify" => {
+                    match serde_json::from_value::<ClassifyParams>(req.params) {
+                        Ok(p) => classify_reqs.push((req.id, p)),
+                        Err(e) => sdk::send_error(out, req.id, format!("invalid classify params: {e}")),
+                    }
+                }
                 Ok(req) if req.method == "ping" => sdk::send_ping_response(out, req.id),
                 Ok(req) => sdk::send_error(out, req.id, format!("unknown method: {}", req.method)),
                 Err(e) => eprintln!("[autotag-clip] parse error: {e}"),
@@ -179,41 +250,6 @@ fn run_batch_loop(
     }
 }
 
-fn load_vocabulary(config: &Config, out: &mut impl Write) -> Vec<String> {
-    sdk::load_vocabulary(&config.vocabulary_file, VOCABULARY, out)
-}
-
-fn init(
-    config: &Config,
-    models_base: &str,
-    batch_size: usize,
-    out: &mut impl Write,
-) -> Result<(TractModel, Vec<String>, Vec<Vec<f32>>), String> {
-    let (subdir, vision_url, text_url, tokenizer_url) = match config.variant.as_str() {
-        "clip-vit-l14" => (L14_SUBDIR, L14_VISION_URL, L14_TEXT_URL, L14_TOKENIZER_URL),
-        _ => (B32_SUBDIR, B32_VISION_URL, B32_TEXT_URL, B32_TOKENIZER_URL),
-    };
-    let model_dir = PathBuf::from(models_base).join(subdir);
-
-    ensure_models(&model_dir, vision_url, text_url, tokenizer_url, out)
-        .map_err(|e| format!("model download failed: {e}"))?;
-
-    let vocab = load_vocabulary(config, out);
-
-    let vision_model =
-        load_vision_model(model_dir.join("vision_model.onnx"), batch_size).map_err(|e| e.to_string())?;
-    let text_model =
-        load_text_model(model_dir.join("text_model.onnx"), vocab.len()).map_err(|e| e.to_string())?;
-    let tokenizer =
-        Tokenizer::from_file(model_dir.join("tokenizer.json")).map_err(|e| e.to_string())?;
-
-    sdk::emit_log(out, "info", &format!("embedding {} vocabulary tags…", vocab.len()));
-    let vocab_embeds = embed_vocabulary_from(&text_model, &tokenizer, &vocab).map_err(|e| e.to_string())?;
-    sdk::emit_log(out, "info", &format!("ready ({}, {} tags)", config.variant, vocab.len()));
-
-    Ok((vision_model, vocab, vocab_embeds))
-}
-
 fn ensure_models(
     dir: &Path,
     vision_url: &str,
@@ -229,15 +265,12 @@ fn ensure_models(
 }
 
 fn download_if_missing(path: PathBuf, url: &str, out: &mut impl Write) -> Result<(), String> {
-    if path.exists() {
-        return Ok(());
-    }
+    if path.exists() { return Ok(()); }
     let name = path.file_name().unwrap().to_string_lossy().to_string();
     sdk::emit_log(out, "info", &format!("downloading {name}…"));
     let response = ureq::get(url).call().map_err(|e| format!("{url}: {e}"))?;
     let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
-    std::io::copy(&mut response.into_body().as_reader(), &mut file)
-        .map_err(|e| e.to_string())?;
+    std::io::copy(&mut response.into_body().as_reader(), &mut file).map_err(|e| e.to_string())?;
     sdk::emit_log(out, "info", &format!("{name} ready"));
     Ok(())
 }
@@ -295,10 +328,7 @@ fn preprocess_image(path: &str) -> TractResult<Vec<f32>> {
         .map_err(|e| TractError::msg(e.to_string()))?
         .to_rgb8();
     let img = image::imageops::resize(
-        &img,
-        IMAGE_SIZE as u32,
-        IMAGE_SIZE as u32,
-        image::imageops::FilterType::Triangle,
+        &img, IMAGE_SIZE as u32, IMAGE_SIZE as u32, image::imageops::FilterType::Triangle,
     );
     let mut pixels = vec![0.0f32; 3 * IMAGE_SIZE * IMAGE_SIZE];
     for c in 0..3 {
@@ -342,22 +372,17 @@ fn classify_batch(
     model: &TractModel,
     vocab_labels: &[String],
     vocab_embeds: &[Vec<f32>],
-    reqs: &[(u64, Value)],
+    reqs: &[(u64, ClassifyParams)],
     model_batch_size: usize,
 ) -> Vec<(u64, Result<Value, String>)> {
     let mut loaded: Vec<(usize, Vec<f32>)> = Vec::new();
     let mut results: Vec<(u64, Result<Value, String>)> = Vec::with_capacity(reqs.len());
 
     for (i, (_, params)) in reqs.iter().enumerate() {
-        let thumb = params.get("thumbnail_path").and_then(|v| v.as_str()).unwrap_or("");
-        if thumb.is_empty() || !Path::new(thumb).exists() {
-            continue;
-        }
-        match preprocess_image(thumb) {
+        if params.thumbnail_path.is_empty() || !Path::new(&params.thumbnail_path).exists() { continue; }
+        match preprocess_image(&params.thumbnail_path) {
             Ok(pixels) => loaded.push((i, pixels)),
-            Err(e) => {
-                results.push((reqs[i].0, Err(e.to_string())));
-            }
+            Err(e) => results.push((reqs[i].0, Err(e.to_string()))),
         }
     }
 
@@ -373,10 +398,10 @@ fn classify_batch(
     };
 
     for ((orig_idx, _), embed) in loaded.iter().zip(embeddings.iter()) {
-        let file_id = reqs[*orig_idx].1.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
+        let params = &reqs[*orig_idx].1;
         let scored = score_embedding(embed, vocab_labels, vocab_embeds);
         let tags: Vec<Value> = scored.iter().map(|(t, c)| serde_json::json!({"tag": t, "confidence": c})).collect();
-        results.push((reqs[*orig_idx].0, Ok(serde_json::json!({"file_id": file_id, "tags": tags}))));
+        results.push((reqs[*orig_idx].0, Ok(serde_json::json!({"file_id": params.file_id, "tags": tags}))));
     }
 
     results

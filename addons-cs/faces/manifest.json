@@ -2,6 +2,7 @@
   "name": "faces",
   "version": "1.0.0",
   "capabilities": ["cluster_faces"],
+  "has_install_step": true,
   "description": "Local face detection and clustering using InsightFace ONNX models",
   "config_schema": [
     {

@@ -5,17 +5,24 @@ namespace IsomFolio.Addons.Faces;
 
 public class RequestHandlerFactory(IAddonLogger logger, IMessageWriter writer)
 {
-    public async Task<RequestHandler> CreateAsync(CancellationToken ct = default)
+    private const string DetFilename = "det_10g.onnx";
+    private const string RecFilename = "w600k_r50.onnx";
+
+    public async Task<RequestHandler> CreateAsync(string dataDir, CancellationToken ct = default)
     {
-        var modelsDir = Environment.GetEnvironmentVariable("ISOMFOLIO_MODELS_DIR") ?? ".";
+        var modelDir = Path.Combine(dataDir, "buffalo_l");
+        var detPath = Path.Combine(modelDir, DetFilename);
+        var recPath = Path.Combine(modelDir, RecFilename);
 
-        var (detPath, recPath) = await new ModelDownloader(logger).EnsureModelsDownloadedAsync(modelsDir, ct);
+        if (!File.Exists(detPath))
+            throw new FileNotFoundException($"{DetFilename} not found — run installer to repair", detPath);
+        if (!File.Exists(recPath))
+            throw new FileNotFoundException($"{RecFilename} not found — run installer to repair", recPath);
 
-        // ONNX session construction is CPU-bound with no async API
         var (detector, recognizer) = await Task.Run(
             () => (new FaceDetector(detPath), new FaceRecognizer(recPath)), ct);
 
-        var stateDbPath = Path.Combine(modelsDir, "faces", "state.db");
+        var stateDbPath = Path.Combine(dataDir, "faces", "state.db");
         Directory.CreateDirectory(Path.GetDirectoryName(stateDbPath)!);
         var cache = new EmbeddingCache(stateDbPath);
 

@@ -47,11 +47,6 @@ fn main() {
     let config: Config = sdk::load_config(&mut out);
     let vocab = sdk::load_vocabulary(&config.vocabulary_file, VOCABULARY, &mut out);
 
-    if config.api_key.as_deref().unwrap_or("").is_empty() {
-        sdk::emit_log(&mut out, "error", "api_key not configured — open Settings to add it");
-        return;
-    }
-
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
@@ -84,6 +79,9 @@ fn classify_one(config: &Config, vocab: &[String], params: &Value) -> Result<Val
         .ok_or("missing thumbnail_path")?;
 
     let api_key = config.api_key.as_deref().unwrap_or("");
+    if api_key.is_empty() {
+        return Err("api_key not configured — add it in Settings → Addons → autotag-openai".to_string());
+    }
     let bytes = std::fs::read(thumb_path).map_err(|e| format!("read image: {e}"))?;
 
     let ext = Path::new(thumb_path)
@@ -152,7 +150,8 @@ fn classify_one(config: &Config, vocab: &[String], params: &Value) -> Result<Val
         .trim_end_matches("```")
         .trim();
 
-    let tag_list: Vec<String> = serde_json::from_str(content).unwrap_or_default();
+    let tag_list: Vec<String> = serde_json::from_str(content)
+        .map_err(|e| format!("unexpected API response (tag parse failed: {e}); got: {content}"))?;
     let tags: Vec<Value> = tag_list
         .iter()
         .take(5)

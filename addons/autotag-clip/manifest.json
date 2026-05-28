@@ -2,6 +2,7 @@
   "name": "autotag-clip",
   "version": "1.0.0",
   "capabilities": ["classify"],
+  "has_install_step": true,
   "description": "Auto-tag photos using CLIP (local inference, offline after first download)",
   "config_schema": [
     {

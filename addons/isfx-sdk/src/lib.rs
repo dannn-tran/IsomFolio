@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 pub use serde_json::Value;
@@ -69,6 +70,22 @@ pub fn send_response(out: &mut impl Write, id: u64, result: Value) {
 pub fn send_error(out: &mut impl Write, id: u64, error: String) {
     let resp = serde_json::to_string(&ErrorResponse { kind: "error", id, error }).unwrap();
     let _ = writeln!(out, "{resp}");
+    let _ = out.flush();
+}
+
+pub fn data_dir() -> Option<PathBuf> {
+    let args: Vec<String> = std::env::args().collect();
+    args.windows(2)
+        .find(|w| w[0] == "--data-dir")
+        .map(|w| PathBuf::from(&w[1]))
+}
+
+pub fn is_install_mode() -> bool {
+    std::env::args().nth(1).as_deref() == Some("install")
+}
+
+pub fn emit_fatal(out: &mut impl Write, repairable: bool, message: &str) {
+    let _ = writeln!(out, "{}", serde_json::json!({"type":"fatal","repairable":repairable,"message":message}));
     let _ = out.flush();
 }
 

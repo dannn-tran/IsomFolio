@@ -12,6 +12,7 @@ public interface IMessageWriter
     ValueTask SendHandshakeResponseAsync(ulong id, string addonVersion, AddonCapability[] capabilities);
     ValueTask SendPingResponseAsync(ulong id);
     ValueTask SendReadyAsync();
+    ValueTask SendFatalAsync(bool repairable, string message);
     ValueTask SendProgressAsync(ulong id, int percent);
     ValueTask SendClassifyResponseAsync(ulong id, ClassifyResult result);
     ValueTask SendClusterResponseAsync(ulong id, ClusterResult result);
@@ -26,6 +27,7 @@ public class MessageWriter(TextWriter output) : IAddonLogger, IMessageWriter, ID
     public ValueTask SendHandshakeResponseAsync(ulong id, string addonVersion, AddonCapability[] capabilities) => SendAsync(new OkResponse<HandshakeResult>(id, new HandshakeResult(1, addonVersion, capabilities)));
     public ValueTask SendPingResponseAsync(ulong id) => SendAsync(new OkResponse<PingResult>(id, new PingResult()));
     public ValueTask SendReadyAsync() => SendAsync(new ReadyMessage());
+    public ValueTask SendFatalAsync(bool repairable, string message) => SendAsync(new FatalMessage(repairable, message));
     public ValueTask SendProgressAsync(ulong id, int percent) => SendAsync(new ProgressMessage(id, percent));
     public ValueTask SendClassifyResponseAsync(ulong id, ClassifyResult result) => SendAsync(new OkResponse<ClassifyResult>(id, result));
     public ValueTask SendClusterResponseAsync(ulong id, ClusterResult result) => SendAsync(new OkResponse<ClusterResult>(id, result));

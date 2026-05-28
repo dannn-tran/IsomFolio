@@ -2331,7 +2331,7 @@ dependencies = [
 name = "isfx-test-addon"
 version = "0.1.0"
 dependencies = [
- "serde",
+ "isfx-sdk",
  "serde_json",
 ]
 

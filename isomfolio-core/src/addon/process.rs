@@ -42,7 +42,8 @@ impl AddonProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .env("ISOMFOLIO_MODELS_DIR", models_dir())
+            .arg("--data-dir")
+            .arg(models_dir())
             .spawn()
             .map_err(|e| AppError::Addon(format!("failed to spawn {}: {}", manifest.name, e)))?;
 
