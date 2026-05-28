@@ -117,7 +117,7 @@ impl App {
                             .set_title("Open Catalog")
                             .pick_folder()
                             .await
-                            .map(|h| h.path().to_string_lossy().to_string())
+                            .map(|h| h.path().to_path_buf())
                     },
                     |opt| match opt {
                         Some(path) => Msg::OpenCatalogPicked(path),
@@ -128,15 +128,11 @@ impl App {
 
             Msg::OpenCatalogPicked(path) => {
                 if !is_catalog_dir(&path) {
-                    let name = std::path::Path::new(&path)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(path.as_str())
-                        .to_string();
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
                     self.status = format!("\"{}\" is not a valid catalog", name);
                     return Task::none();
                 }
-                Task::done(Msg::OpenCatalog(path))
+                Task::done(Msg::OpenCatalog(path.to_string_lossy().into_owned()))
             }
 
             Msg::SelectRecentCatalog(path) => {
@@ -184,7 +180,7 @@ impl App {
                         .set_title("Choose location for new catalog")
                         .pick_folder()
                         .await
-                        .map(|h| h.path().to_string_lossy().to_string())
+                        .map(|h| h.path().to_path_buf())
                 },
                 |opt| match opt {
                     Some(dir) => Msg::NewCatalogDirPicked(dir),
@@ -213,7 +209,7 @@ impl App {
                 self.welcome.show_new_catalog_modal = false;
                 Task::perform(
                     async move {
-                        isomfolio_core::app_paths::create_catalog(&dir, &name)
+                        isomfolio_core::app_paths::create_catalog(&dir.to_string_lossy(), &name)
                             .map_err(|e| e.to_string())
                     },
                     |result| match result {
@@ -228,7 +224,6 @@ impl App {
     }
 }
 
-fn is_catalog_dir(path: &str) -> bool {
-    let p = std::path::Path::new(path);
-    p.extension().map_or(false, |ext| ext == CATALOG_EXT) && p.join("catalog.db").exists()
+fn is_catalog_dir(path: &std::path::Path) -> bool {
+    path.extension().map_or(false, |ext| ext == CATALOG_EXT) && path.join("catalog.db").exists()
 }

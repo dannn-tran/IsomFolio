@@ -66,7 +66,7 @@ pub struct DragState {
 #[derive(Debug)]
 pub enum ThumbnailEvent {
     Ready(String, String),
-    Failed(String, String),
+    Failed(String),
 }
 
 #[derive(Debug, Clone)]
@@ -208,13 +208,13 @@ pub enum Msg {
     SidebarScrolled(f32),
 
     PickOpenCatalog,
-    OpenCatalogPicked(String),
+    OpenCatalogPicked(std::path::PathBuf),
     SelectRecentCatalog(String),
     OpenSelectedRecentCatalog,
     ShowNewCatalogModal,
     HideNewCatalogModal,
     PickNewCatalogDir,
-    NewCatalogDirPicked(String),
+    NewCatalogDirPicked(std::path::PathBuf),
     NewCatalogNameChanged(String),
     ConfirmNewCatalog,
     OpenCatalog(String),
@@ -383,7 +383,7 @@ impl Default for DetailState {
 pub struct SettingsState {
     pub show: bool,
     /// extension_name -> key -> current edited value
-    pub extension_configs: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    pub extension_configs: HashMap<String, HashMap<String, String>>,
     pub install_error: Option<String>,
     pub status: Option<String>,
 }
@@ -392,7 +392,7 @@ impl Default for SettingsState {
     fn default() -> Self {
         Self {
             show: false,
-            extension_configs: std::collections::HashMap::new(),
+            extension_configs: HashMap::new(),
             install_error: None,
             status: None,
         }

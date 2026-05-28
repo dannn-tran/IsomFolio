@@ -129,7 +129,8 @@ impl App {
 
         let location_display = self
             .welcome.new_catalog_dir
-            .as_deref()
+            .as_ref()
+            .and_then(|p| p.to_str())
             .unwrap_or("Choose a folder for the new catalogue");
 
         let modal = container(

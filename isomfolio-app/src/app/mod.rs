@@ -36,7 +36,7 @@ impl Default for LoupeState {
 pub struct ThumbnailContext {
     pub pool: Option<ThumbnailPool>,
     pub tx: mpsc::SyncSender<ThumbnailEvent>,
-    pub rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<ThumbnailEvent>>>>,
+    pub rx: Arc<Mutex<Option<mpsc::Receiver<ThumbnailEvent>>>>,
     pub sub_id: u64,
     pub pending: usize,
     pub total: usize,
@@ -62,7 +62,7 @@ pub struct WelcomeState {
     pub recent_catalogs: Vec<String>,
     pub selected_recent_catalog: Option<String>,
     pub show_new_catalog_modal: bool,
-    pub new_catalog_dir: Option<String>,
+    pub new_catalog_dir: Option<std::path::PathBuf>,
     pub new_catalog_name: String,
 }
 
@@ -210,7 +210,7 @@ impl iced::advanced::subscription::Recipe for ThumbnailRecipe {
                     let (event, rx) = result;
                     let msg = match event {
                         ThumbnailEvent::Ready(fid, path) => Msg::ThumbnailCompleted { file_id: fid, path },
-                        ThumbnailEvent::Failed(fid, _) => Msg::ThumbnailFailed { file_id: fid },
+                        ThumbnailEvent::Failed(fid) => Msg::ThumbnailFailed { file_id: fid },
                     };
                     Some((msg, Some(rx)))
                 }
@@ -491,8 +491,8 @@ impl App {
             move |fid, path| {
                 let _ = tx_ready.try_send(ThumbnailEvent::Ready(fid, path));
             },
-            move |fid, err| {
-                let _ = tx_failed.try_send(ThumbnailEvent::Failed(fid, err));
+            move |fid, _| {
+                let _ = tx_failed.try_send(ThumbnailEvent::Failed(fid));
             },
         ));
     }
