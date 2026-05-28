@@ -24,6 +24,16 @@ use super::{
 };
 use isomfolio_core::app_paths::db_path;
 
+trait LockUnwrap<T> {
+    fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockUnwrap<T> for std::sync::Mutex<T> {
+    fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
 impl App {
     pub fn update(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
@@ -49,7 +59,7 @@ impl App {
                 let face_task = if let Some(conn) = self.catalog.clone() {
                     Task::perform(
                         async move {
-                            let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                            let g = conn.lock_unwrap();
                             g.get_face_cluster_summaries().unwrap_or_default()
                         },
                         Msg::FaceClustersLoaded,
@@ -60,7 +70,7 @@ impl App {
                 let orphan_task = if let Some(conn) = self.catalog.clone() {
                     Task::perform(
                         async move {
-                            let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                            let g = conn.lock_unwrap();
                             g.purge_old_orphans(30).ok();
                         },
                         |()| Msg::NoOp,
@@ -97,7 +107,7 @@ impl App {
                             Some(ThumbnailState::Ready(path)) => path.clone(),
                             _ => thumbnail_cache_path(&catalog_dir, id),
                         };
-                        (method.as_str(), serde_json::json!({ "file_id": id, "thumbnail_path": thumb }))
+                        (method.as_str(), classify_request_params(id, thumb))
                     })
                     .collect();
 
@@ -114,20 +124,18 @@ impl App {
                     |(handle, conn, name, addon_idx, mut done, mut applied, mut failed)| async move {
                         let rx = handle.rx.clone();
                         let result = tokio::task::spawn_blocking(move || {
-                            rx.lock().unwrap_or_else(|e| e.into_inner()).recv()
+                            rx.lock_unwrap().recv()
                         }).await;
                         match result {
                             Ok(Ok(Ok(value))) => {
-                                let tags = extract_scored_tags(&value);
-                                if !tags.is_empty() {
-                                    let fid = value.get("file_id").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !fid.is_empty() {
-                                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                                        if let Err(e) = g.insert_pending_tags(fid, &tags) {
-                                            eprintln!("[db] insert_pending_tags failed: {e}");
-                                        }
-                                        applied += 1;
+                                let fid = value.get("file_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let tags = extract_scored_tags(value);
+                                if !tags.is_empty() && !fid.is_empty() {
+                                    let g = conn.lock_unwrap();
+                                    if let Err(e) = g.insert_pending_tags(&fid, &tags) {
+                                        eprintln!("[db] insert_pending_tags failed: {e}");
                                     }
+                                    applied += 1;
                                 }
                                 done += 1;
                                 if done >= handle.total {
@@ -213,20 +221,10 @@ impl App {
                 self.faces.status = Some("Clustering faces… (0%)".to_string());
 
                 let files = {
-                    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                    let g = conn.lock_unwrap();
                     g.get_all_file_paths_with_mtimes().unwrap_or_default()
                 };
-                let file_params: Vec<serde_json::Value> = files
-                    .iter()
-                    .map(|(id, path, mtime)| {
-                        serde_json::json!({
-                            "file_id": id,
-                            "image_path": path,
-                            "file_mtime": mtime,
-                        })
-                    })
-                    .collect();
-                let params = serde_json::json!({"files": file_params, "force_full": force_full});
+                let params = cluster_faces_request_params(&files, force_full);
 
                 let handle = match addon.send("cluster_faces", params) {
                     Ok(h) => h,
@@ -242,8 +240,8 @@ impl App {
                         if done { return None; }
 
                         let handle_result = |conn: &Arc<std::sync::Mutex<isomfolio_core::Catalog>>, result: serde_json::Value| {
-                            let clusters = parse_cluster_response(&result);
-                            let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                            let clusters = parse_cluster_response(result);
+                            let g = conn.lock_unwrap();
                             if let Err(e) = g.save_face_clusters(&clusters) {
                                 eprintln!("[db] save_face_clusters failed: {e}");
                             }
@@ -345,7 +343,7 @@ impl App {
                 }
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.rename_face_cluster(&cluster_id, &name).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::NoOp, Msg::DbError),
@@ -360,7 +358,7 @@ impl App {
                 }
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         if let Err(e) = g.merge_face_clusters(&target_id, &source_id) {
                             eprintln!("[db] merge_face_clusters failed: {e}");
                         }
@@ -374,7 +372,7 @@ impl App {
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         if let Err(e) = g.remove_file_from_face_cluster(&cluster_id, &file_id) {
                             eprintln!("[db] remove_file_from_face_cluster failed: {e}");
                         }
@@ -995,7 +993,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         let failed = ids.iter()
                             .filter(|fid| guard.add_file_to_album(&album_id, fid).is_err())
                             .count();
@@ -1103,7 +1101,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         guard.delete_files_by_root_folder(&path).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::FolderRemoved, Msg::DbError),
@@ -1144,7 +1142,7 @@ impl App {
                 self.pending_album_select = Some(album.id.clone());
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         guard.create_album(&album).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
@@ -1196,7 +1194,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         guard.rename_album(&album_id, &name).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::AlbumRenamed, Msg::DbError),
@@ -1224,7 +1222,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         guard.delete_album(&album_id).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::AlbumDeleted, Msg::DbError),
@@ -1268,7 +1266,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         let err = ids.iter()
                             .find_map(|fid| guard.remove_file_from_album(&album_id, fid).err())
                             .map(|e| e.to_string());
@@ -1391,7 +1389,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         guard.create_album(&album).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
@@ -1414,7 +1412,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         guard.update_smart_album_query(&album_id, &query).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::SmartAlbumUpdated, Msg::DbError),
@@ -1541,7 +1539,7 @@ impl App {
                 self.detail.pending_tags.retain(|(t, _)| t != &tag);
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.accept_pending_tag(&fid, &tag).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
@@ -1555,7 +1553,7 @@ impl App {
                 self.detail.pending_tags.retain(|(t, _)| t != &tag);
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.reject_pending_tag(&fid, &tag).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
@@ -1569,7 +1567,7 @@ impl App {
                 self.detail.pending_tags.clear();
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.accept_all_pending(&fid).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
@@ -1583,7 +1581,7 @@ impl App {
                 self.detail.pending_tags.clear();
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.reject_all_pending(&fid).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
@@ -1656,7 +1654,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.set_file_rating(&fid, new_rating).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::NoOp, Msg::DbError),
@@ -1684,7 +1682,7 @@ impl App {
                 let ids_clone = ids;
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.set_files_flag(&ids_clone, flag_clone).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::FlagsApplied, Msg::DbError),
@@ -1723,7 +1721,7 @@ impl App {
                 let ids_clone = ids;
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.set_files_rating(&ids_clone, rating).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::RatingsApplied, Msg::DbError),
@@ -1844,7 +1842,7 @@ impl App {
                     if let Some(conn) = self.catalog.clone() {
                         tasks.push(Task::perform(
                             async move {
-                                let cat = conn.lock().unwrap_or_else(|e| e.into_inner());
+                                let cat = conn.lock_unwrap();
                                 for event in file_events {
                                     match event {
                                         FileEvent::Created(path) | FileEvent::Modified(path) => {
@@ -2114,7 +2112,7 @@ impl App {
                 self.pending_album_select = Some(new_id.clone());
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         let new_album = Album {
                             id: new_id.clone(),
                             name: format!("{} copy", src.name),
@@ -2155,7 +2153,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let guard = conn.lock_unwrap();
                         let failed = ids.iter()
                             .filter(|fid| guard.add_file_to_album(&album_id, fid).is_err())
                             .count();
@@ -2287,7 +2285,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.rename_prefixed_tags(&old, &new_name).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::TagBrowserTagRenamed, Msg::DbError),
@@ -2322,7 +2320,7 @@ impl App {
                 };
                 Task::perform(
                     async move {
-                        let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                        let g = conn.lock_unwrap();
                         g.delete_tag_with_descendants(&tag).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::TagBrowserTagDeleted, Msg::DbError),
@@ -2362,7 +2360,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                let g = conn.lock_unwrap();
                 let err = g.upsert_tags(&fid, &tags).err().map(|e| e.to_string());
                 let all_tags = g.get_all_tags()
                     .unwrap_or_default()
@@ -2382,7 +2380,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                let g = conn.lock_unwrap();
                 g.add_tag_to_files(&file_ids, &tag).err().map(|e| e.to_string())
             },
             |e| e.map_or(Msg::BatchTagsChanged, Msg::DbError),
@@ -2396,7 +2394,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                let g = conn.lock_unwrap();
                 g.remove_tag_from_files(&file_ids, &tag).err().map(|e| e.to_string())
             },
             |e| e.map_or(Msg::BatchTagsChanged, Msg::DbError),
@@ -2411,7 +2409,7 @@ impl App {
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    let cat = conn.lock().unwrap_or_else(|e| e.into_inner());
+                    let cat = conn.lock_unwrap();
                     cat.scan_folder(&path, &|prog| {
                         let _ = wtx.try_send(FileEvent::ScanProgress(prog));
                     })
@@ -2507,20 +2505,96 @@ fn generate_face_crops(
     results
 }
 
-fn extract_scored_tags(result: &serde_json::Value) -> Vec<(String, Option<f32>)> {
-    result
-        .get("tags")
-        .and_then(|t| t.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|t| {
-                    let tag = t.get("tag")?.as_str()?.to_string();
-                    let conf = t.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32);
-                    Some((tag, conf))
-                })
-                .collect()
+#[derive(serde::Serialize)]
+struct ClassifyRequest<'a> {
+    file_id: &'a str,
+    thumbnail_path: String,
+}
+
+#[derive(serde::Deserialize)]
+struct ClassifyResponse {
+    file_id: String,
+    #[serde(default)]
+    tags: Vec<ClassifyTag>,
+}
+
+#[derive(serde::Deserialize)]
+struct ClassifyTag {
+    tag: String,
+    confidence: Option<f32>,
+}
+
+#[derive(serde::Serialize)]
+struct ClusterFacesRequest {
+    files: Vec<ClusterFaceFile>,
+    force_full: bool,
+}
+
+#[derive(serde::Serialize)]
+struct ClusterFaceFile {
+    file_id: String,
+    image_path: String,
+    file_mtime: i64,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ClusterFacesResponse {
+    #[serde(default)]
+    clusters: Vec<ClusterGroup>,
+    #[serde(default)]
+    noise: Vec<ClusterMemberDto>,
+}
+
+#[derive(serde::Deserialize)]
+struct ClusterGroup {
+    id: String,
+    #[serde(default)]
+    members: Vec<ClusterMemberDto>,
+}
+
+#[derive(serde::Deserialize)]
+struct ClusterMemberDto {
+    file_id: String,
+    #[serde(default)]
+    bbox: BboxDto,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct BboxDto {
+    #[serde(default)]
+    x: f64,
+    #[serde(default)]
+    y: f64,
+    #[serde(default)]
+    w: f64,
+    #[serde(default)]
+    h: f64,
+}
+
+fn extract_scored_tags(result: serde_json::Value) -> Vec<(String, Option<f32>)> {
+    let Ok(resp) = serde_json::from_value::<ClassifyResponse>(result) else {
+        return Vec::new();
+    };
+    resp.tags.into_iter().map(|t| (t.tag, t.confidence)).collect()
+}
+
+fn classify_request_params(file_id: &str, thumbnail_path: String) -> serde_json::Value {
+    serde_json::to_value(ClassifyRequest { file_id, thumbnail_path }).unwrap_or_default()
+}
+
+fn cluster_faces_request_params(
+    files: &[(String, String, i64)],
+    force_full: bool,
+) -> serde_json::Value {
+    let files = files
+        .iter()
+        .map(|(id, path, mtime)| ClusterFaceFile {
+            file_id: id.clone(),
+            image_path: path.clone(),
+            file_mtime: *mtime,
         })
-        .unwrap_or_default()
+        .collect();
+    serde_json::to_value(ClusterFacesRequest { files, force_full }).unwrap_or_default()
 }
 
 impl App {
@@ -2530,7 +2604,7 @@ impl App {
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                    let g = conn.lock_unwrap();
                     let reps = g.get_face_cluster_representatives().unwrap_or_default();
                     let crops = generate_face_crops(&catalog_dir, &reps);
                     crops
@@ -2655,40 +2729,33 @@ fn next_sort_field(f: SortField) -> SortField {
 
 const UNKNOWN_FACES_CLUSTER: &str = "face-unknown";
 
-fn parse_member(member: &serde_json::Value, cluster_id: &str) -> Option<FaceClusterMember> {
-    let file_id = member.get("file_id").and_then(|v| v.as_str())?.to_string();
-    let bbox = member.get("bbox").unwrap_or(&serde_json::Value::Null);
-    Some(FaceClusterMember {
-        cluster_id: cluster_id.to_string(),
-        file_id,
-        bbox_x: bbox.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        bbox_y: bbox.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        bbox_w: bbox.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        bbox_h: bbox.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0),
-    })
-}
-
-fn parse_cluster_response(v: &serde_json::Value) -> Vec<FaceClusterMember> {
-    let mut rows = Vec::new();
-    if let Some(clusters) = v.get("clusters").and_then(|c| c.as_array()) {
-        for cluster in clusters {
-            let cluster_id = cluster.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            if cluster_id.is_empty() { continue; }
-            if let Some(members) = cluster.get("members").and_then(|m| m.as_array()) {
-                for member in members {
-                    if let Some(m) = parse_member(member, cluster_id) {
-                        rows.push(m);
-                    }
-                }
-            }
-        }
-    }
-    if let Some(noise) = v.get("noise").and_then(|n| n.as_array()) {
-        for member in noise {
-            if let Some(m) = parse_member(member, UNKNOWN_FACES_CLUSTER) {
-                rows.push(m);
-            }
-        }
+fn parse_cluster_response(v: serde_json::Value) -> Vec<FaceClusterMember> {
+    let resp: ClusterFacesResponse = serde_json::from_value(v).unwrap_or_default();
+    let mut rows: Vec<FaceClusterMember> = resp
+        .clusters
+        .into_iter()
+        .filter(|c| !c.id.is_empty())
+        .flat_map(|c| {
+            let cluster_id = c.id;
+            c.members.into_iter().map(move |m| FaceClusterMember {
+                cluster_id: cluster_id.clone(),
+                file_id: m.file_id,
+                bbox_x: m.bbox.x,
+                bbox_y: m.bbox.y,
+                bbox_w: m.bbox.w,
+                bbox_h: m.bbox.h,
+            })
+        })
+        .collect();
+    for m in resp.noise {
+        rows.push(FaceClusterMember {
+            cluster_id: UNKNOWN_FACES_CLUSTER.to_string(),
+            file_id: m.file_id,
+            bbox_x: m.bbox.x,
+            bbox_y: m.bbox.y,
+            bbox_w: m.bbox.w,
+            bbox_h: m.bbox.h,
+        });
     }
     rows
 }
