@@ -316,6 +316,12 @@ impl App {
                 self.load_files_task()
             }
 
+            Msg::SetLocationFilter(val) => {
+                self.criteria.has_location = val;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
             Msg::Undo => self.apply_undo_op(true),
             Msg::Redo => self.apply_undo_op(false),
 

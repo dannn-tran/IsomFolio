@@ -92,6 +92,7 @@ impl App {
             | Msg::ToggleHideRejects
             | Msg::SetFlagFilter(_)
             | Msg::SetRatingFilter(_)
+            | Msg::SetLocationFilter(_)
             | Msg::Undo
             | Msg::Redo
             | Msg::UndoApplied => self.handle_detail_msg(msg),
@@ -210,6 +211,7 @@ impl App {
                                 q.date_to.map(unix_to_date_str).unwrap_or_default();
                             self.criteria.exts = q.extensions.iter().cloned().collect();
                             self.search_text = q.text.clone().unwrap_or_default();
+                            self.criteria.has_location = q.has_location;
                             self.criteria.show = true;
                         }
                     }

@@ -367,6 +367,19 @@ impl App {
         }
         col = col.push(rating_row);
 
+        let mut loc_row = row![text("Location").size(TEXT_SM).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for (label, val) in [("Any", None), ("With GPS", Some(true)), ("Without GPS", Some(false))] {
+            let active = self.criteria.has_location == val;
+            loc_row = loc_row.push(
+                button(text(label).size(TEXT_SM))
+                    .on_press(Msg::SetLocationFilter(val))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+        col = col.push(loc_row);
+
         if self.criteria_has_any() {
             let is_smart = self.current_album_is_smart();
             let mut action_row = row![
@@ -728,6 +741,16 @@ impl App {
                             .size(TEXT_SM)
                             .color(FG_MUTED),
                     );
+                }
+            }
+
+            if let Some(file) = self.detail_file() {
+                if let (Some(lat), Some(lon)) = (file.gps_lat, file.gps_lon) {
+                    let lat_str = if lat >= 0.0 { format!("{:.4}° N", lat) } else { format!("{:.4}° S", -lat) };
+                    let lon_str = if lon >= 0.0 { format!("{:.4}° E", lon) } else { format!("{:.4}° W", -lon) };
+                    col = col.push(Space::new().height(SPACE_2));
+                    col = col.push(text("Location").size(TEXT_SM).color(FG_DIM));
+                    col = col.push(text(format!("{lat_str}  {lon_str}")).size(TEXT_SM).color(FG_MUTED));
                 }
             }
         }

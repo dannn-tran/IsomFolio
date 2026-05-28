@@ -437,6 +437,7 @@ impl App {
             || self.criteria.flag_filter != FlagFilter::All
             || self.criteria.rating_min.is_some()
             || self.criteria.hide_rejects
+            || self.criteria.has_location.is_some()
     }
 
     pub fn current_album_is_smart(&self) -> bool {
@@ -481,6 +482,7 @@ impl App {
             sort_asc: self.sort_asc,
             flag_filter: effective_flag,
             rating_min: self.criteria.rating_min,
+            has_location: self.criteria.has_location,
             ..Default::default()
         }
     }

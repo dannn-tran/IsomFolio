@@ -90,6 +90,7 @@ pub struct SearchQuery {
     pub flag_filter: FlagFilter,
     pub rating_min: Option<i32>,
     pub has_faces: Option<bool>,
+    pub has_location: Option<bool>,
 }
 
 impl Default for SearchQuery {
@@ -107,6 +108,7 @@ impl Default for SearchQuery {
             flag_filter: FlagFilter::All,
             rating_min: None,
             has_faces: None,
+            has_location: None,
         }
     }
 }

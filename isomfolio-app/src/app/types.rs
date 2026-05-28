@@ -239,6 +239,7 @@ pub enum Msg {
     ToggleHideRejects,
     SetFlagFilter(FlagFilter),
     SetRatingFilter(Option<i32>),
+    SetLocationFilter(Option<bool>),
 
     ExtensionsDiscovered(Vec<Arc<ExtensionProcess>>),
     RunExtension { addon_idx: usize, method: String, file_ids: Vec<String> },
@@ -319,6 +320,7 @@ pub struct CriteriaState {
     pub flag_filter: FlagFilter,
     pub rating_min: Option<i32>,
     pub hide_rejects: bool,
+    pub has_location: Option<bool>,
 }
 
 impl Default for CriteriaState {
@@ -334,6 +336,7 @@ impl Default for CriteriaState {
             flag_filter: FlagFilter::All,
             rating_min: None,
             hide_rejects: false,
+            has_location: None,
         }
     }
 }

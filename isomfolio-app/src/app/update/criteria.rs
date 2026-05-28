@@ -98,6 +98,7 @@ impl App {
                 self.criteria.exts.clear();
                 self.criteria.flag_filter = isomfolio_core::models::FlagFilter::All;
                 self.criteria.rating_min = None;
+                self.criteria.has_location = None;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }

@@ -167,6 +167,14 @@ fn execute_query_inner(
         }
     }
 
+    if let Some(has_location) = query.has_location {
+        if has_location {
+            sql.push_str(" AND f.gps_lat IS NOT NULL");
+        } else {
+            sql.push_str(" AND f.gps_lat IS NULL");
+        }
+    }
+
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
     sql.push_str(&format!(" ORDER BY {} {}", sort_column(query.sort_by), dir));
 
