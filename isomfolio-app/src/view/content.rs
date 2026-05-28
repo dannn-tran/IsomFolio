@@ -513,19 +513,23 @@ impl App {
             );
 
             for tag in &self.detail.tags {
-                let is_ai = self.detail.tag_origins.get(tag).map(|o| o == "ai").unwrap_or(false);
+                let origin = self.detail.tag_origins.get(tag).map(|s| s.as_str()).unwrap_or("manual");
                 let mut tag_row = row![
                     render_tag_name(tag.as_str()),
                 ]
                 .align_y(Alignment::Center);
-                if is_ai {
-                    let conf_label = match self.detail.tag_confidence.get(tag) {
-                        Some(c) => format!(" AI {:.0}%", c * 100.0),
-                        None => " AI".to_string(),
-                    };
-                    tag_row = tag_row.push(
-                        text(conf_label).size(TEXT_XS).color(FG_MUTED),
-                    );
+                match origin {
+                    "ai" => {
+                        let conf_label = match self.detail.tag_confidence.get(tag) {
+                            Some(c) => format!(" AI {:.0}%", c * 100.0),
+                            None => " AI".to_string(),
+                        };
+                        tag_row = tag_row.push(text(conf_label).size(TEXT_XS).color(FG_MUTED));
+                    }
+                    "xmp" => {
+                        tag_row = tag_row.push(text(" XMP").size(TEXT_XS).color(FG_MUTED));
+                    }
+                    _ => {}
                 }
                 tag_row = tag_row
                     .push(Space::new().width(Length::Fill))

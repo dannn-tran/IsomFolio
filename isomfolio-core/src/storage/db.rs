@@ -547,6 +547,20 @@ pub fn upsert_metadata(
     )?;
     tx.commit()?;
 
+    sync_xmp_tags(conn, file_id, &subjects)?;
+    Ok(())
+}
+
+fn sync_xmp_tags(conn: &Connection, file_id: &str, subjects: &[String]) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    conn.execute("DELETE FROM tags WHERE file_id = ?1 AND origin = 'xmp'", [file_id])?;
+    for tag in subjects {
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (file_id, tag, origin) VALUES (?1, ?2, 'xmp')",
+            params![file_id, tag],
+        )?;
+    }
+    tx.commit()?;
     rebuild_fts_for_file(conn, file_id)?;
     Ok(())
 }
@@ -1238,6 +1252,53 @@ mod tests {
             assert_eq!(n, 1);
             let tags = get_tags_for_file(&conn, "f1").unwrap();
             assert_eq!(tags, vec!["keep".to_string()]);
+        }
+
+        #[test]
+        fn xmp_tags_have_xmp_origin() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            sync_xmp_tags(&conn, "f1", &["paris".into(), "travel".into()]).unwrap();
+            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            assert_eq!(tags.len(), 2);
+            assert!(tags.iter().all(|(_, o, _)| o == "xmp"));
+        }
+
+        #[test]
+        fn xmp_sync_does_not_duplicate_manual_tag() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            upsert_tags(&conn, "f1", &["paris".into()]).unwrap();
+            sync_xmp_tags(&conn, "f1", &["paris".into()]).unwrap();
+            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            // INSERT OR IGNORE: manual row kept, no xmp duplicate
+            assert_eq!(tags.len(), 1);
+            assert_eq!(tags[0].1, "manual");
+        }
+
+        #[test]
+        fn xmp_sync_removes_stale_xmp_tags() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            sync_xmp_tags(&conn, "f1", &["paris".into(), "travel".into()]).unwrap();
+            // Simulate XMP sidecar updated: "travel" removed
+            sync_xmp_tags(&conn, "f1", &["paris".into()]).unwrap();
+            let tags = get_tags_for_file(&conn, "f1").unwrap();
+            assert_eq!(tags, vec!["paris".to_string()]);
+        }
+
+        #[test]
+        fn xmp_sync_preserves_manual_and_ai_tags() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            upsert_tags(&conn, "f1", &["street".into()]).unwrap();
+            add_tags_merge(&conn, "f1", &["architecture".into()]).unwrap();
+            sync_xmp_tags(&conn, "f1", &["paris".into()]).unwrap();
+            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            assert_eq!(tags.len(), 3);
+            assert!(tags.iter().any(|(t, o, _)| t == "street" && o == "manual"));
+            assert!(tags.iter().any(|(t, o, _)| t == "architecture" && o == "ai"));
+            assert!(tags.iter().any(|(t, o, _)| t == "paris" && o == "xmp"));
         }
     }
 
