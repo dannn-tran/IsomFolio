@@ -103,24 +103,20 @@ fn main() {
     let config: Config = sdk::load_config(&mut out);
     let batch_size = resolve_batch_size(&config, &mut out);
 
-    if sdk::is_install_mode() {
-        let data_dir = sdk::data_dir().unwrap_or_else(|| {
-            eprintln!("usage: autotag-clip install --data-dir <path>");
-            std::process::exit(1);
-        });
+    let models_dir = sdk::models_dir().unwrap_or_else(|| {
+        eprintln!("[autotag-clip] could not resolve executable path");
+        std::process::exit(1);
+    });
+
+    if sdk::is_setup_mode() {
         let (subdir, vision_url, text_url, tokenizer_url) = model_urls(&config);
-        let model_dir = data_dir.join(subdir);
+        let model_dir = models_dir.join(subdir);
         if let Err(e) = ensure_models(&model_dir, vision_url, text_url, tokenizer_url, &mut out) {
-            sdk::emit_log(&mut out, "error", &format!("install failed: {e}"));
+            sdk::emit_log(&mut out, "error", &format!("setup failed: {e}"));
             std::process::exit(1);
         }
         return;
     }
-
-    let data_dir = sdk::data_dir().unwrap_or_else(|| {
-        eprintln!("usage: autotag-clip --data-dir <path>");
-        std::process::exit(1);
-    });
 
     // Phase 1: respond to handshake immediately, before any model loading
     {
@@ -141,7 +137,7 @@ fn main() {
     } // stdin lock released here
 
     // Phase 2: load models from disk
-    let (vision_model, vocab_labels, vocab_embeds) = match load(&config, &data_dir, batch_size, &mut out) {
+    let (vision_model, vocab_labels, vocab_embeds) = match load(&config, &models_dir, batch_size, &mut out) {
         Ok(r) => r,
         Err(InitError::ModelsMissing(msg)) => { sdk::emit_fatal(&mut out, true, &msg); return; }
         Err(InitError::Other(msg)) => { sdk::emit_fatal(&mut out, false, &msg); return; }
@@ -169,7 +165,7 @@ fn load(
     for path in [&vision_path, &text_path, &tokenizer_path] {
         if !path.exists() {
             return Err(InitError::ModelsMissing(format!(
-                "{} not found — run installer to repair",
+                "{} not found — run setup to repair",
                 path.display()
             )));
         }

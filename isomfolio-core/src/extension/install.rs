@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 use zip::ZipArchive;
 
-use crate::app_paths::{extensions_dir, models_dir};
+use crate::app_paths::extensions_dir;
 
 use super::manifest::{ExtensionManifest, discover_extensions};
 
@@ -66,33 +66,31 @@ pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifes
             )
         })?;
 
-    if installed.has_install_step {
-        run_install_step(&installed)?;
+    if installed.needs_setup {
+        run_setup(&installed)?;
     }
 
     Ok(installed)
 }
 
-fn run_install_step(manifest: &ExtensionManifest) -> Result<(), String> {
+fn run_setup(manifest: &ExtensionManifest) -> Result<(), String> {
     let mut child = Command::new(&manifest.executable)
-        .arg("install")
-        .arg("--data-dir")
-        .arg(models_dir())
+        .arg("setup")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("spawn installer for '{}': {e}", manifest.name))?;
+        .map_err(|e| format!("spawn setup for '{}': {e}", manifest.name))?;
 
     let stdout = child.stdout.take().unwrap();
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
-        eprintln!("[{} install] {line}", manifest.name);
+        eprintln!("[{} setup] {line}", manifest.name);
     }
 
-    let status = child.wait().map_err(|e| format!("wait for installer: {e}"))?;
+    let status = child.wait().map_err(|e| format!("wait for setup: {e}"))?;
     if !status.success() {
         return Err(format!(
-            "'{}' installer exited with {}",
+            "'{}' setup exited with {}",
             manifest.name,
             status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string())
         ));
@@ -121,31 +119,31 @@ mod tests {
             version: "1.0.0".to_string(),
             capabilities: vec![],
             description: "test".to_string(),
-            has_install_step: true,
+            needs_setup: true,
             config_schema: vec![],
             executable: exe,
         }
     }
 
     #[test]
-    fn install_step_is_invoked() {
+    fn setup_is_invoked() {
         let tmp = TempDir::new().unwrap();
-        let sentinel = tmp.path().join("install_ran");
+        let sentinel = tmp.path().join("setup_ran");
         let exe = write_script(tmp.path(), "test-extension", &format!("touch {}", sentinel.display()));
-        run_install_step(&make_manifest(exe)).expect("install step failed");
-        assert!(sentinel.exists(), "install step was not run");
+        run_setup(&make_manifest(exe)).expect("setup failed");
+        assert!(sentinel.exists(), "setup was not run");
     }
 
     #[test]
-    fn install_step_failure_returns_error() {
+    fn setup_failure_returns_error() {
         let tmp = TempDir::new().unwrap();
         let exe = write_script(tmp.path(), "test-extension", "exit 1");
-        let err = run_install_step(&make_manifest(exe)).unwrap_err();
-        assert!(err.contains("installer exited with 1"), "unexpected: {err}");
+        let err = run_setup(&make_manifest(exe)).unwrap_err();
+        assert!(err.contains("setup exited with 1"), "unexpected: {err}");
     }
 }
 
-/// Remove an installed extension by name. Leaves model weights untouched.
+/// Remove an installed extension by name, including its downloaded model weights.
 pub fn uninstall_extension(name: &str) -> Result<(), String> {
     let extension_dir = extensions_dir().join(name);
     if extension_dir.exists() {

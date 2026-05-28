@@ -73,15 +73,12 @@ pub fn send_error(out: &mut impl Write, id: u64, error: String) {
     let _ = out.flush();
 }
 
-pub fn data_dir() -> Option<PathBuf> {
-    let args: Vec<String> = std::env::args().collect();
-    args.windows(2)
-        .find(|w| w[0] == "--data-dir")
-        .map(|w| PathBuf::from(&w[1]))
+pub fn models_dir() -> Option<PathBuf> {
+    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("models")))
 }
 
-pub fn is_install_mode() -> bool {
-    std::env::args().nth(1).as_deref() == Some("install")
+pub fn is_setup_mode() -> bool {
+    std::env::args().nth(1).as_deref() == Some("setup")
 }
 
 pub fn emit_fatal(out: &mut impl Write, repairable: bool, message: &str) {

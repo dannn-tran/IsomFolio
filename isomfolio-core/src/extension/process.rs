@@ -370,7 +370,7 @@ mod tests {
             version: "1.0.0".to_string(),
             capabilities: vec!["echo".to_string()],
             description: "test extension".to_string(),
-            has_install_step: false,
+            needs_setup: false,
             config_schema: vec![],
             executable: exe,
         }
