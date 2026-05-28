@@ -120,22 +120,39 @@ where
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_thread = Arc::clone(&shutdown);
 
-    // Debounce flusher thread
+    // Notification channel: event thread signals flusher whenever pending changes.
+    let (notify_tx, notify_rx) = std::sync::mpsc::channel::<()>();
+
+    // Debounce flusher thread — blocks until the next expiry rather than polling.
     std::thread::spawn(move || {
+        let debounce = Duration::from_millis(DEBOUNCE_MS);
         loop {
-            std::thread::sleep(Duration::from_millis(50));
+            let sleep_dur = {
+                let map = pending_dispatch.lock().unwrap_or_else(|e| e.into_inner());
+                if map.is_empty() {
+                    Duration::from_secs(60)
+                } else {
+                    map.values()
+                        .map(|(_, ts)| debounce.saturating_sub(ts.elapsed()))
+                        .min()
+                        .unwrap_or(debounce)
+                }
+            };
+            let _ = notify_rx.recv_timeout(sleep_dur);
             if shutdown_thread.load(Ordering::Relaxed) {
                 break;
             }
-            let mut map = pending_dispatch.lock().unwrap_or_else(|e| e.into_inner());
-            let now = Instant::now();
-            let ready: Vec<(String, FileEvent)> = map
-                .iter()
-                .filter(|(_, (_, ts))| now.duration_since(*ts) >= Duration::from_millis(DEBOUNCE_MS))
-                .map(|(k, (ev, _))| (k.clone(), ev.clone()))
-                .collect();
-            for (key, ev) in ready {
-                map.remove(&key);
+            let ready: Vec<FileEvent> = {
+                let mut map = pending_dispatch.lock().unwrap_or_else(|e| e.into_inner());
+                let now = Instant::now();
+                let keys: Vec<String> = map
+                    .iter()
+                    .filter(|(_, (_, ts))| now.duration_since(*ts) >= debounce)
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                keys.into_iter().filter_map(|k| map.remove(&k).map(|(ev, _)| ev)).collect()
+            };
+            for ev in ready {
                 dispatch_clone(ev);
             }
         }
@@ -170,8 +187,11 @@ where
                     FileEvent::Renamed { new_path, .. } => new_path.clone(),
                     FileEvent::ScanProgress(_) => continue,
                 };
-                let mut map = pending.lock().unwrap_or_else(|e| e.into_inner());
-                map.insert(debounce_key, (file_event, Instant::now()));
+                {
+                    let mut map = pending.lock().unwrap_or_else(|e| e.into_inner());
+                    map.insert(debounce_key, (file_event, Instant::now()));
+                }
+                let _ = notify_tx.send(());
             }
         }
     });

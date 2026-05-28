@@ -234,50 +234,57 @@ impl App {
                     }
                 };
 
+                enum ClusterPoll {
+                    Progress(u8),
+                    Done(Vec<isomfolio_core::models::FaceClusterSummary>),
+                    Failed(String),
+                    Pending,
+                }
+
                 let stream = futures::stream::unfold(
                     (handle, conn, false),
                     |(handle, conn, done)| async move {
                         if done { return None; }
 
-                        let handle_result = |conn: &Arc<std::sync::Mutex<isomfolio_core::Catalog>>, result: serde_json::Value| {
-                            let clusters = parse_cluster_response(result);
-                            let g = conn.lock_unwrap();
-                            if let Err(e) = g.save_face_clusters(&clusters) {
-                                eprintln!("[db] save_face_clusters failed: {e}");
+                        let conn2 = conn.clone();
+                        let (poll, handle) = tokio::task::spawn_blocking(move || -> Option<(ClusterPoll, _)> {
+                            let result = match handle.progress_rx.recv_timeout(Duration::from_millis(200)) {
+                                Ok(percent) => return Some((ClusterPoll::Progress(percent), handle)),
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                    match handle.result_rx.try_recv() {
+                                        Ok(r) => r,
+                                        Err(_) => return Some((ClusterPoll::Pending, handle)),
+                                    }
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                    handle.result_rx.recv().ok()?
+                                }
+                            };
+                            match result {
+                                Ok(value) => {
+                                    let clusters = parse_cluster_response(value);
+                                    let g = conn2.lock_unwrap();
+                                    if let Err(e) = g.save_face_clusters(&clusters) {
+                                        eprintln!("[db] save_face_clusters failed: {e}");
+                                    }
+                                    let summaries = g.get_face_cluster_summaries().unwrap_or_default();
+                                    Some((ClusterPoll::Done(summaries), handle))
+                                }
+                                Err(e) => Some((ClusterPoll::Failed(e), handle)),
                             }
-                            g.get_face_cluster_summaries().unwrap_or_default()
-                        };
+                        }).await.ok().flatten()?;
 
-                        match handle.progress_rx.recv_timeout(Duration::from_millis(200)) {
-                            Ok(percent) => {
-                                Some((Msg::ExtensionBatchProgress { name: "Clustering faces".into(), done: percent as usize, total: 100 }, (handle, conn, false)))
+                        match poll {
+                            ClusterPoll::Progress(percent) => Some((
+                                Msg::ExtensionBatchProgress { name: "Clustering faces".into(), done: percent as usize, total: 100 },
+                                (handle, conn, false),
+                            )),
+                            ClusterPoll::Done(summaries) => Some((Msg::FaceClusteringDone(summaries), (handle, conn, true))),
+                            ClusterPoll::Failed(e) => {
+                                eprintln!("[faces] cluster_faces error: {e}");
+                                Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, true)))
                             }
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                match handle.result_rx.try_recv() {
-                                    Ok(Ok(result)) => {
-                                        let summaries = handle_result(&conn, result);
-                                        Some((Msg::FaceClusteringDone(summaries), (handle, conn, true)))
-                                    }
-                                    Ok(Err(e)) => {
-                                        eprintln!("[faces] cluster_faces error: {e}");
-                                        Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, true)))
-                                    }
-                                    Err(_) => Some((Msg::NoOp, (handle, conn, false)))
-                                }
-                            }
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                match handle.result_rx.recv() {
-                                    Ok(Ok(result)) => {
-                                        let summaries = handle_result(&conn, result);
-                                        Some((Msg::FaceClusteringDone(summaries), (handle, conn, true)))
-                                    }
-                                    Ok(Err(e)) => {
-                                        eprintln!("[faces] cluster_faces error: {e}");
-                                        Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, true)))
-                                    }
-                                    Err(_) => None,
-                                }
-                            }
+                            ClusterPoll::Pending => Some((Msg::NoOp, (handle, conn, false))),
                         }
                     },
                 );
