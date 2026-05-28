@@ -1,0 +1,43 @@
+---
+title: IsomFolio
+description: A fast, local-first photo library manager for macOS with AI-powered tagging and face recognition.
+template: splash
+hero:
+  tagline: Your photos. Your machine. Your rules.
+  image:
+    file: ../../assets/houston.webp
+  actions:
+    - text: Get Started
+      link: /getting-started/introduction/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/picas9dan/isomfolio
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why IsomFolio?
+
+<CardGrid stagger>
+  <Card title="Local-first, always" icon="laptop">
+    Your photos never leave your machine. No subscriptions, no cloud sync required, no usage limits. Everything runs on your hardware.
+  </Card>
+  <Card title="Built for speed" icon="rocket">
+    Written in Rust. Thumbnails generate in parallel and cache to disk. Browsing a library of 50,000 photos feels instant.
+  </Card>
+  <Card title="AI that you control" icon="puzzle">
+    Auto-tagging and face recognition are opt-in extensions — separate executables you install only when you want them. The core app ships without any AI dependencies or network calls.
+  </Card>
+  <Card title="Professional culling workflow" icon="star">
+    Ratings, pick/reject flags, smart albums, and a full undo history let you cull a shoot the way professionals do.
+  </Card>
+  <Card title="Smart albums" icon="document">
+    Define criteria once — tags, ratings, flags, date ranges, file types — and the album keeps itself up to date automatically.
+  </Card>
+  <Card title="Open catalog format" icon="open-book">
+    Catalogs are plain directories containing a SQLite database and a thumbnail cache. No proprietary lock-in — inspect or migrate your data any time.
+  </Card>
+</CardGrid>
