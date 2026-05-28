@@ -8,21 +8,21 @@ public class RequestHandlerFactory(IAddonLogger logger, IMessageWriter writer)
     private const string DetFilename = "det_10g.onnx";
     private const string RecFilename = "w600k_r50.onnx";
 
-    public async Task<RequestHandler> CreateAsync(string dataDir, CancellationToken ct = default)
+    public async Task<RequestHandler> CreateAsync(string extDir, CancellationToken ct = default)
     {
-        var modelDir = Path.Combine(dataDir, "buffalo_l");
+        var modelDir = Path.Combine(extDir, "models", "buffalo_l");
         var detPath = Path.Combine(modelDir, DetFilename);
         var recPath = Path.Combine(modelDir, RecFilename);
 
         if (!File.Exists(detPath))
-            throw new FileNotFoundException($"{DetFilename} not found — run installer to repair", detPath);
+            throw new FileNotFoundException($"{DetFilename} not found — run setup to repair", detPath);
         if (!File.Exists(recPath))
-            throw new FileNotFoundException($"{RecFilename} not found — run installer to repair", recPath);
+            throw new FileNotFoundException($"{RecFilename} not found — run setup to repair", recPath);
 
         var (detector, recognizer) = await Task.Run(
             () => (new FaceDetector(detPath), new FaceRecognizer(recPath)), ct);
 
-        var stateDbPath = Path.Combine(dataDir, "faces", "state.db");
+        var stateDbPath = Path.Combine(extDir, "state.db");
         Directory.CreateDirectory(Path.GetDirectoryName(stateDbPath)!);
         var cache = new EmbeddingCache(stateDbPath);
 

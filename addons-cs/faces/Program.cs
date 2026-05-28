@@ -6,21 +6,13 @@ public static class Program
 {
     public static async Task Main(string[] args)
     {
-        var dataDir = SdkArgs.DataDir(args);
-        if (dataDir is null)
-        {
-            await Console.Error.WriteLineAsync("usage: faces [install] --data-dir <path>");
-            Environment.Exit(1);
-            return;
-        }
-
-        if (SdkArgs.IsInstallMode(args))
-            await RunInstallAsync(dataDir);
+        if (SdkArgs.IsSetupMode(args))
+            await RunSetupAsync();
         else
-            await RunRuntimeAsync(dataDir);
+            await RunAsync();
     }
 
-    private static async Task RunRuntimeAsync(string dataDir)
+    private static async Task RunAsync()
     {
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -31,11 +23,9 @@ public static class Program
             // Phase 1: respond to handshake immediately, before any heavy work
             await foreach (var msg in MessageReader.ReadAllAsync(Console.In, writer, cts.Token))
             {
-                if (msg is HandshakeRequest req)
-                {
-                    await writer.SendHandshakeResponseAsync(req.Id, AddonInfo.Version, [AddonCapability.ClusterFaces]);
-                    break;
-                }
+                if (msg is not HandshakeRequest req) continue;
+                await writer.SendHandshakeResponseAsync(req.Id, AddonInfo.Version, [AddonCapability.ClusterFaces]);
+                break;
             }
 
             // Phase 2: load models from disk
@@ -43,7 +33,7 @@ public static class Program
             try
             {
                 await writer.LogAsync(LogLevel.Info, "loading face models…");
-                handler = await new RequestHandlerFactory(writer, writer).CreateAsync(dataDir, cts.Token);
+                handler = await new RequestHandlerFactory(writer, writer).CreateAsync(AppContext.BaseDirectory, cts.Token);
             }
             catch (Exception ex)
             {
@@ -82,19 +72,18 @@ public static class Program
         catch (OperationCanceledException) { }
     }
 
-    private static async Task RunInstallAsync(string dataDir)
+    private static async Task RunSetupAsync()
     {
         using var writer = new MessageWriter(Console.Out);
         try
         {
-            await new ModelDownloader(writer).EnsureModelsDownloadedAsync(dataDir);
-            await writer.LogAsync(LogLevel.Info, "installation complete");
+            await new ModelDownloader(writer).EnsureModelsDownloadedAsync(SdkArgs.ModelsDir());
+            await writer.LogAsync(LogLevel.Info, "setup complete");
         }
         catch (Exception ex)
         {
-            await writer.LogAsync(LogLevel.Error, $"installation failed: {ex.Message}");
+            await writer.LogAsync(LogLevel.Error, $"setup failed: {ex.Message}");
             Environment.Exit(1);
         }
     }
-
 }
