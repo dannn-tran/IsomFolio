@@ -54,16 +54,6 @@ impl App {
                     }
                 };
 
-                struct ClassifyState {
-                    handle: isomfolio_core::extension::BatchHandle,
-                    conn: std::sync::Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
-                    name: String,
-                    addon_idx: usize,
-                    done: usize,
-                    applied: usize,
-                    failed: usize,
-                }
-
                 let stream = futures::stream::unfold(
                     ClassifyState { handle, conn, name: extension_name, addon_idx, done: 0, applied: 0, failed: 0 },
                     |mut s| async move {
@@ -82,65 +72,18 @@ impl App {
                                     }
                                 }
                                 s.done += 1;
-                                if s.done >= s.handle.total {
-                                    Some((
-                                        Msg::ExtensionBatchDone {
-                                            addon_idx: s.addon_idx,
-                                            method: "classify".into(),
-                                            applied: s.applied,
-                                            failed: s.failed,
-                                        },
-                                        s,
-                                    ))
-                                } else {
-                                    Some((
-                                        Msg::ExtensionBatchProgress {
-                                            name: s.name.clone(),
-                                            done: s.done,
-                                            total: s.handle.total,
-                                        },
-                                        s,
-                                    ))
-                                }
+                                s.into_next_msg()
                             }
                             Ok(Ok(Err(e))) => {
                                 eprintln!("[extension] classify error: {e}");
                                 s.done += 1;
                                 s.failed += 1;
-                                if s.done >= s.handle.total {
-                                    Some((
-                                        Msg::ExtensionBatchDone {
-                                            addon_idx: s.addon_idx,
-                                            method: "classify".into(),
-                                            applied: s.applied,
-                                            failed: s.failed,
-                                        },
-                                        s,
-                                    ))
-                                } else {
-                                    Some((
-                                        Msg::ExtensionBatchProgress {
-                                            name: s.name.clone(),
-                                            done: s.done,
-                                            total: s.handle.total,
-                                        },
-                                        s,
-                                    ))
-                                }
+                                s.into_next_msg()
                             }
                             _ => {
-                                let remaining = s.handle.total.saturating_sub(s.done);
-                                s.failed += remaining;
+                                s.failed += s.handle.total.saturating_sub(s.done);
                                 s.done = s.handle.total;
-                                Some((
-                                    Msg::ExtensionBatchDone {
-                                        addon_idx: s.addon_idx,
-                                        method: "classify".into(),
-                                        applied: s.applied,
-                                        failed: s.failed,
-                                    },
-                                    s,
-                                ))
+                                s.into_next_msg()
                             }
                         }
                     },
@@ -568,6 +511,41 @@ fn generate_face_crops(
         }
     }
     results
+}
+
+struct ClassifyState {
+    handle: isomfolio_core::extension::BatchHandle,
+    conn: Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
+    name: String,
+    addon_idx: usize,
+    done: usize,
+    applied: usize,
+    failed: usize,
+}
+
+impl ClassifyState {
+    fn into_next_msg(self) -> Option<(Msg, Self)> {
+        if self.done >= self.handle.total {
+            Some((
+                Msg::ExtensionBatchDone {
+                    addon_idx: self.addon_idx,
+                    method: "classify".into(),
+                    applied: self.applied,
+                    failed: self.failed,
+                },
+                self,
+            ))
+        } else {
+            Some((
+                Msg::ExtensionBatchProgress {
+                    name: self.name.clone(),
+                    done: self.done,
+                    total: self.handle.total,
+                },
+                self,
+            ))
+        }
+    }
 }
 
 #[derive(serde::Serialize)]
