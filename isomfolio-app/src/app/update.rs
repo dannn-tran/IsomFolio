@@ -1376,14 +1376,22 @@ impl App {
             Msg::ThumbnailCompleted { file_id, path } => {
                 self.thumbnails.insert(file_id.clone(), ThumbnailState::Ready(path.clone()));
                 self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
-                if self.thumb_ctx.pending == 0
-                    && self.thumb_ctx.total > 0
-                    && self.thumb_ctx.done_at.is_none()
-                {
-                    self.thumb_ctx.done_at = Some(Instant::now());
-                }
+                let clear_task = if self.thumb_ctx.pending == 0 && self.thumb_ctx.total > 0 {
+                    let gen = self.thumb_ctx.done_gen;
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                std::thread::sleep(std::time::Duration::from_secs(2));
+                                gen
+                            }).await.unwrap_or(gen)
+                        },
+                        Msg::ClearThumbnailProgress,
+                    )
+                } else {
+                    Task::none()
+                };
                 let fid2 = file_id.clone();
-                Task::perform(
+                let load_task = Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             image::open(&path).ok().map(|img| {
@@ -1400,19 +1408,27 @@ impl App {
                         Some((fid, handle)) => Msg::ThumbnailHandleReady { file_id: fid, handle },
                         None => Msg::NoOp,
                     },
-                )
+                );
+                Task::batch([load_task, clear_task])
             }
 
             Msg::ThumbnailFailed { file_id } => {
                 self.thumbnails.insert(file_id, ThumbnailState::Failed(0));
                 self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
-                if self.thumb_ctx.pending == 0
-                    && self.thumb_ctx.total > 0
-                    && self.thumb_ctx.done_at.is_none()
-                {
-                    self.thumb_ctx.done_at = Some(Instant::now());
+                if self.thumb_ctx.pending == 0 && self.thumb_ctx.total > 0 {
+                    let gen = self.thumb_ctx.done_gen;
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                std::thread::sleep(std::time::Duration::from_secs(2));
+                                gen
+                            }).await.unwrap_or(gen)
+                        },
+                        Msg::ClearThumbnailProgress,
+                    )
+                } else {
+                    Task::none()
                 }
-                Task::none()
             }
 
             Msg::FileWatcherEvent(event) => {
@@ -1468,29 +1484,22 @@ impl App {
                 }
             }
 
-            Msg::Tick => {
-                let mut tasks: Vec<Task<Msg>> = Vec::new();
-
-                if let Some(done_at) = self.thumb_ctx.done_at {
-                    if done_at.elapsed() >= Duration::from_secs(2) {
-                        self.thumb_ctx.total = 0;
-                        self.thumb_ctx.done_at = None;
-                    }
+            Msg::ClearThumbnailProgress(gen) => {
+                if gen == self.thumb_ctx.done_gen {
+                    self.thumb_ctx.total = 0;
                 }
+                Task::none()
+            }
 
-                if let Some((text, ts)) = self.pending_search.take() {
-                    if ts.elapsed() >= Duration::from_millis(300) {
-                        self.search_text = text;
-                        self.scroll_y = 0.0;
-                        self.files.clear();
-                        self.grid_selected.clear();
-                        tasks.push(self.load_files_task());
-                    } else {
-                        self.pending_search = Some((text, ts));
-                    }
+            Msg::SearchDebounceTimer { id, text } => {
+                if id != self.search_debounce_id {
+                    return Task::none();
                 }
-
-                Task::batch(tasks)
+                self.search_text = text;
+                self.scroll_y = 0.0;
+                self.files.clear();
+                self.grid_selected.clear();
+                self.load_files_task()
             }
 
             Msg::DbError(e) => {
@@ -1626,7 +1635,7 @@ impl App {
                 self.thumb_ctx.pending = 0;
                 self.thumb_ctx.total = 0;
                 self.thumb_ctx.start_at = None;
-                self.thumb_ctx.done_at = None;
+                self.thumb_ctx.done_gen += 1;
                 self.files.clear();
                 self.file_ratings.clear();
                 self.thumbnails.clear();
@@ -1636,7 +1645,7 @@ impl App {
                 self.grid_selected.clear();
                 self.drag.state = None;
                 self.drag.ids.clear();
-                self.pending_search = None;
+                self.search_debounce_id += 1;
                 self.search_text.clear();
                 self.criteria = CriteriaState::default();
                 self.detail = DetailState::default();
@@ -2778,8 +2787,17 @@ impl App {
 
             Msg::SearchChanged(text) => {
                 self.mark_smart_dirty();
-                self.pending_search = Some((text, Instant::now()));
-                Task::none()
+                self.search_debounce_id += 1;
+                let id = self.search_debounce_id;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                            (id, text)
+                        }).await.unwrap_or((id, String::new()))
+                    },
+                    |(id, text)| Msg::SearchDebounceTimer { id, text },
+                )
             }
 
             Msg::ToggleCriteria => {

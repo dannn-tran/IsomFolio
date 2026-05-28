@@ -202,7 +202,8 @@ pub enum Msg {
     Reload,
     DbError(String),
     TagsSavedResult(Vec<String>, Option<String>),
-    Tick,
+    SearchDebounceTimer { id: u64, text: String },
+    ClearThumbnailProgress(u64),
     DragHoverAlbum(Option<AlbumId>),
     SidebarScrolled(f32),
 

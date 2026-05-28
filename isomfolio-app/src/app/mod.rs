@@ -41,7 +41,7 @@ pub struct ThumbnailContext {
     pub pending: usize,
     pub total: usize,
     pub start_at: Option<Instant>,
-    pub done_at: Option<Instant>,
+    pub done_gen: u64,
     pub handles: HashMap<String, iced::widget::image::Handle>,
 }
 
@@ -114,7 +114,7 @@ pub struct App {
     pub watchers: Vec<(String, FileWatcher)>,
 
     pub search_text: String,
-    pub pending_search: Option<(String, Instant)>,
+    pub search_debounce_id: u64,
     pub create_album_input: Option<String>,
     pub rename_album_id: Option<AlbumId>,
     pub rename_album_input: String,
@@ -311,14 +311,14 @@ impl App {
                 pending: 0,
                 total: 0,
                 start_at: None,
-                done_at: None,
+                done_gen: 0,
                 handles: HashMap::new(),
             },
             watcher_tx: wtx,
             watcher_rx: wrx_arc,
             watchers: Vec::new(),
             search_text: String::new(),
-            pending_search: None,
+            search_debounce_id: 0,
             create_album_input: None,
             rename_album_id: None,
             rename_album_input: String::new(),
@@ -512,10 +512,10 @@ impl App {
             }
         }
         if newly_enqueued > 0 {
+            self.thumb_ctx.done_gen += 1;
             if self.thumb_ctx.pending == 0 {
                 self.thumb_ctx.total = newly_enqueued;
                 self.thumb_ctx.start_at = Some(Instant::now());
-                self.thumb_ctx.done_at = None;
             } else {
                 self.thumb_ctx.total += newly_enqueued;
             }
@@ -762,8 +762,6 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Msg> {
-        let tick_sub = iced::time::every(std::time::Duration::from_millis(41)).map(|_| Msg::Tick);
-
         let event_sub = event::listen_with(|event, status, _id| {
             let ignored = status == iced::event::Status::Ignored;
             match event {
@@ -788,7 +786,7 @@ impl App {
             rx: Arc::clone(&self.watcher_rx),
         });
 
-        Subscription::batch([tick_sub, event_sub, thumb_sub, watcher_sub])
+        Subscription::batch([event_sub, thumb_sub, watcher_sub])
     }
 }
 
