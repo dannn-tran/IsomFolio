@@ -2,9 +2,9 @@
 members = [
     "isomfolio-core",
     "isomfolio-app",
-    "addons/isfx-sdk",
-    "addons/test-addon",
-    "addons/autotag-clip",
-    "addons/autotag-openai",
+    "extensions/isfx-sdk",
+    "extensions/test-addon",
+    "extensions/autotag-clip",
+    "extensions/autotag-openai",
 ]
 resolver = "2"
