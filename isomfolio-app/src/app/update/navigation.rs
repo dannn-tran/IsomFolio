@@ -477,8 +477,8 @@ impl App {
                     return Task::none();
                 }
                 let mut sel = self.grid_selected.iter();
-                let id0 = sel.next().unwrap().clone();
-                let id1 = sel.next().unwrap().clone();
+                let id0 = sel.next().expect("grid_selected.len() == 2 checked above").clone();
+                let id1 = sel.next().expect("grid_selected.len() == 2 checked above").clone();
                 let f0 = self.files.iter().find(|f| f.id == id0).cloned();
                 let f1 = self.files.iter().find(|f| f.id == id1).cloned();
                 self.compare = super::super::CompareState { files: [f0, f1], handles: [None, None] };

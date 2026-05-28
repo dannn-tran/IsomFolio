@@ -175,17 +175,12 @@ impl App {
         depth: usize,
     ) -> Element<'_, Msg> {
         let indent = depth as f32 * INDENT_PX;
-        let is_rename_target = tb
-            .rename
-            .as_ref()
-            .map(|(orig, _)| orig.as_str() == tag)
-            .unwrap_or(false);
+        let rename_input = tb.rename.as_ref().filter(|(orig, _)| orig.as_str() == tag).map(|(_, v)| v.as_str());
         let is_delete_armed = tb.delete_armed.as_deref() == Some(tag);
         let tag_owned = tag.to_string();
         let leaf_owned = leaf.to_string();
 
-        if is_rename_target {
-            let (_, input) = tb.rename.as_ref().unwrap();
+        if let Some(input) = rename_input {
             container(
                 row![
                     Space::new().width(indent),

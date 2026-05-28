@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufReader, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -8,6 +8,7 @@ use zip::ZipArchive;
 use crate::app_paths::extensions_dir;
 
 use super::manifest::{ExtensionManifest, discover_extensions};
+use super::process::BoundedLines;
 
 /// Install an `.isfx` zip package into `extensions_dir()`.
 ///
@@ -81,8 +82,8 @@ fn run_setup(manifest: &ExtensionManifest) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("spawn setup for '{}': {e}", manifest.name))?;
 
-    let stdout = child.stdout.take().unwrap();
-    for line in BufReader::new(stdout).lines() {
+    let stdout = child.stdout.take().expect("stdout piped on spawn");
+    for line in BoundedLines(BufReader::new(stdout)) {
         let Ok(line) = line else { break };
         eprintln!("[{} setup] {line}", manifest.name);
     }

@@ -8,6 +8,44 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 const STDERR_RING_SIZE: usize = 100;
+pub(super) const MAX_LINE_BYTES: u64 = 1 << 20; // 1 MiB — guard against misbehaving extensions
+
+pub(super) struct BoundedLines<R: BufRead>(pub(super) R);
+
+impl<R: BufRead> Iterator for BoundedLines<R> {
+    type Item = std::io::Result<String>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = String::new();
+        let truncated = {
+            let mut limited = std::io::Read::take(&mut self.0, MAX_LINE_BYTES);
+            match limited.read_line(&mut buf) {
+                Ok(0) => return None,
+                Err(e) => return Some(Err(e)),
+                Ok(_) => !buf.ends_with('\n'),
+            }
+        };
+        if truncated {
+            // Line exceeded limit — drain the remainder without buffering it
+            loop {
+                let available = match self.0.fill_buf() {
+                    Ok(b) => b,
+                    Err(_) => break,
+                };
+                if available.is_empty() { break; }
+                if let Some(pos) = available.iter().position(|&b| b == b'\n') {
+                    self.0.consume(pos + 1);
+                    break;
+                }
+                let len = available.len();
+                self.0.consume(len);
+            }
+        } else {
+            buf.pop(); // '\n'
+            if buf.ends_with('\r') { buf.pop(); }
+        }
+        Some(Ok(buf))
+    }
+}
 
 use crate::app_paths::models_dir;
 use crate::models::AppError;
@@ -47,9 +85,9 @@ impl ExtensionProcess {
             .spawn()
             .map_err(|e| AppError::Extension(format!("failed to spawn {}: {}", manifest.name, e)))?;
 
-        let mut stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
+        let mut stdin = child.stdin.take().expect("stdin piped on spawn");
+        let stdout = child.stdout.take().expect("stdout piped on spawn");
+        let stderr = child.stderr.take().expect("stderr piped on spawn");
 
         let stderr_buf: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
         let stderr_buf_writer = Arc::clone(&stderr_buf);
@@ -90,8 +128,7 @@ impl ExtensionProcess {
         let extension_name_for_reader = manifest.name.clone();
 
         let reader = std::thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
+            let mut lines = BoundedLines(BufReader::new(stdout));
 
             // Phase 1: wait for handshake Ok response
             let mut handshake_ok = false;
