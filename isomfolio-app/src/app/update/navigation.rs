@@ -2,19 +2,20 @@ use iced::Task;
 
 use super::super::{
     App, ContextMenuState, ContextMenuTarget, DragState, LoupeState, Msg, SidebarItem, ViewMode,
-    ALBUM_ITEM_HEIGHT, SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_HANDLE_WIDTH,
+    ALBUM_ITEM_HEIGHT, ALBUM_ROW_GAP, SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_HANDLE_WIDTH,
+    SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, TILE_SIZE_MAX, TILE_SIZE_MIN, TILE_SIZE_STEP,
 };
 
 impl App {
     pub(super) fn handle_navigation_msg(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::TileSizeUp => {
-                self.tile_px = (self.tile_px + 40.0).min(400.0);
+                self.tile_px = (self.tile_px + TILE_SIZE_STEP).min(TILE_SIZE_MAX);
                 if let Some(idx) = self.anchor_idx { self.scroll_to_index(idx) } else { Task::none() }
             }
 
             Msg::TileSizeDown => {
-                self.tile_px = (self.tile_px - 40.0).max(80.0);
+                self.tile_px = (self.tile_px - TILE_SIZE_STEP).max(TILE_SIZE_MIN);
                 if let Some(idx) = self.anchor_idx { self.scroll_to_index(idx) } else { Task::none() }
             }
 
@@ -140,7 +141,7 @@ impl App {
             Msg::MouseMoved(pos) => {
                 self.cursor = pos;
                 if self.sidebar_resizing {
-                    self.sidebar_width = pos.x.clamp(140.0, 400.0);
+                    self.sidebar_width = pos.x.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
                     return Task::none();
                 }
                 if let Some(ref mut d) = self.drag.state {
@@ -164,9 +165,9 @@ impl App {
                     if pos.x < self.sidebar_width + SIDEBAR_HANDLE_WIDTH {
                         let n_folders = self.folders.len();
                         let albums_top =
-                            SIDEBAR_ALBUMS_BASE_Y + n_folders as f32 * (ALBUM_ITEM_HEIGHT + 2.0);
+                            SIDEBAR_ALBUMS_BASE_Y + n_folders as f32 * (ALBUM_ITEM_HEIGHT + ALBUM_ROW_GAP);
                         let y_in_content = pos.y + self.sidebar_scroll_y - albums_top;
-                        let row_h = ALBUM_ITEM_HEIGHT + 2.0;
+                        let row_h = ALBUM_ITEM_HEIGHT + ALBUM_ROW_GAP;
                         self.drag.hover_album = if y_in_content >= 0.0 {
                             let idx = (y_in_content / row_h) as usize;
                             self.albums.get(idx).and_then(|a| {

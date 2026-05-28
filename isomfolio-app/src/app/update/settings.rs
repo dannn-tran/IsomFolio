@@ -3,7 +3,7 @@ use std::sync::Arc;
 use iced::Task;
 use isomfolio_core::extension::{
     install_extension_package, load_extension_config, save_extension_config, uninstall_extension,
-    ExtensionProcess,
+    ConfigFieldKind, ExtensionProcess,
 };
 
 use super::super::{App, Msg, SettingsState};
@@ -42,7 +42,6 @@ impl App {
             }
 
             Msg::SettingsConfigChanged { extension_name, key, value } => {
-                use isomfolio_core::extension::ConfigFieldKind;
                 let kind = self
                     .extensions
                     .iter()
@@ -83,7 +82,6 @@ impl App {
                     let config: serde_json::Value = fields
                         .iter()
                         .map(|(k, v)| {
-                            use isomfolio_core::extension::ConfigFieldKind;
                             let kind = schema
                                 .and_then(|s| s.iter().find(|f| &f.key == k))
                                 .map(|f| &f.kind);

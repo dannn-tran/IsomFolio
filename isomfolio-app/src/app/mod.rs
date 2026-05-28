@@ -21,6 +21,16 @@ use isomfolio_core::indexing::watcher::{create_watcher, FileWatcher};
 use isomfolio_core::models::SearchQuery;
 use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, SortField, ThumbnailState};
 
+pub trait LockUnwrap<T> {
+    fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockUnwrap<T> for Mutex<T> {
+    fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
 pub struct LoupeState {
     pub idx: usize,
     pub full_res: Option<(usize, iced::widget::image::Handle)>,
@@ -558,7 +568,7 @@ impl App {
 
         Task::perform(
             async move {
-                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                let cat = catalog.lock_unwrap();
                 match item {
                     SidebarItem::AllFiles => cat.search(&query).unwrap_or_default(),
                     SidebarItem::Folder(path) => {
@@ -591,7 +601,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                let cat = catalog.lock_unwrap();
                 let raw_folders = cat.get_folder_counts().unwrap_or_default();
                 let albums = cat.get_all_albums().unwrap_or_default();
                 let album_counts = cat.get_all_album_file_counts().unwrap_or_default();
@@ -642,7 +652,7 @@ impl App {
             }
             return Task::perform(
                 async move {
-                    let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                    let cat = catalog.lock_unwrap();
                     let tags_with_origin = cat.get_tags_with_origin(&file_id).unwrap_or_default();
                     let tags: Vec<String> = tags_with_origin.iter().map(|(t, _, _)| t.clone()).collect();
                     let tag_origins: std::collections::HashMap<String, String> = tags_with_origin.iter().map(|(t, o, _)| (t.clone(), o.clone())).collect();
@@ -676,7 +686,7 @@ impl App {
         let file_ids: Vec<String> = self.grid_selected.iter().cloned().collect();
         Task::perform(
             async move {
-                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                let cat = catalog.lock_unwrap();
                 let shared_tags = cat.get_shared_tags(&file_ids).unwrap_or_default();
                 (file_ids, shared_tags)
             },
@@ -690,7 +700,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                let cat = catalog.lock_unwrap();
                 cat.get_all_tags()
                     .unwrap_or_default()
                     .into_iter()
@@ -711,7 +721,7 @@ impl App {
         }
         Task::perform(
             async move {
-                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                let cat = catalog.lock_unwrap();
                 file_ids
                     .iter()
                     .filter_map(|id| {
@@ -731,7 +741,7 @@ impl App {
         };
         Task::perform(
             async move {
-                let cat = catalog.lock().unwrap_or_else(|e| e.into_inner());
+                let cat = catalog.lock_unwrap();
                 cat.get_all_tags().unwrap_or_default()
             },
             Msg::TagBrowserLoaded,

@@ -15,15 +15,7 @@ use super::{
     unix_to_date_str, AlbumKind, App, Msg, SidebarItem,
 };
 
-pub(super) trait LockUnwrap<T> {
-    fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T>;
-}
-
-impl<T> LockUnwrap<T> for std::sync::Mutex<T> {
-    fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T> {
-        self.lock().unwrap_or_else(|e| e.into_inner())
-    }
-}
+pub(super) use super::LockUnwrap;
 
 impl App {
     pub fn update(&mut self, msg: Msg) -> Task<Msg> {
