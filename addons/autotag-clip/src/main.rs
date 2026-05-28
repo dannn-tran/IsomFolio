@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 
 use isfx_sdk as sdk;
@@ -269,8 +269,30 @@ fn download_if_missing(path: PathBuf, url: &str, out: &mut impl Write) -> Result
     let name = path.file_name().unwrap().to_string_lossy().to_string();
     sdk::emit_log(out, "info", &format!("downloading {name}…"));
     let response = ureq::get(url).call().map_err(|e| format!("{url}: {e}"))?;
+    let total: u64 = response.headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let mut body = response.into_body();
+    let mut reader = body.as_reader();
     let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
-    std::io::copy(&mut response.into_body().as_reader(), &mut file).map_err(|e| e.to_string())?;
+    let mut buf = [0u8; 65536];
+    let mut downloaded: u64 = 0;
+    let mut last_bucket = u64::MAX;
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        downloaded += n as u64;
+        if total > 0 {
+            let bucket = downloaded * 10 / total;
+            if bucket != last_bucket {
+                last_bucket = bucket;
+                sdk::emit_log(out, "info", &format!("downloading {name}… {}%", bucket * 10));
+            }
+        }
+    }
     sdk::emit_log(out, "info", &format!("{name} ready"));
     Ok(())
 }
