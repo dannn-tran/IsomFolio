@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 isomfolio-core = { path = "../isomfolio-core" }
-iced = { version = "0.14", features = ["image", "tokio"] }
+iced = { version = "0.14", features = ["image", "tokio", "advanced"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff"] }
 rfd = "0.17.2"
 tokio = { version = "1", features = ["rt-multi-thread"] }

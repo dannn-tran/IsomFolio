@@ -166,6 +166,7 @@ pub fn generate_thumbnail(
 #[derive(Debug)]
 pub enum ThumbnailMsg {
     Enqueue { file_id: String, file_path: String, priority: i32, retry_count: u32 },
+    Done { file_id: String, success: bool, msg: String },
     CancelAll,
     Shutdown,
 }
@@ -249,49 +250,62 @@ pub fn create_worker_pool(
     let (tx, rx) = std::sync::mpsc::channel::<ThumbnailMsg>();
     let on_ready = Arc::new(on_ready);
     let on_failed = Arc::new(on_failed);
-    let tx_clone = tx.clone();
+    let tx_worker = tx.clone();
 
     std::thread::spawn(move || {
         let state = Arc::new(Mutex::new(PoolState::new()));
-        let (done_tx, done_rx) = std::sync::mpsc::channel::<(String, bool, String)>();
 
-        loop {
-            // Process all available messages
-            loop {
-                match rx.try_recv() {
-                    Ok(ThumbnailMsg::Shutdown) => return,
-                    Ok(ThumbnailMsg::CancelAll) => {
-                        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-                        s.queue.clear();
-                        s.queued.clear();
-                    }
-                    Ok(ThumbnailMsg::Enqueue { file_id, file_path, priority, retry_count }) => {
-                        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-                        s.enqueue(file_id, file_path, priority, retry_count);
-                    }
-                    Err(_) => break,
+        let process_msg = |msg: ThumbnailMsg| -> bool {
+            match msg {
+                ThumbnailMsg::Shutdown => return false,
+                ThumbnailMsg::CancelAll => {
+                    let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
+                    s.queue.clear();
+                    s.queued.clear();
                 }
-            }
-
-            // Drain completed workers
-            loop {
-                match done_rx.try_recv() {
-                    Ok((file_id, success, msg)) => {
+                ThumbnailMsg::Enqueue { file_id, file_path, priority, retry_count } => {
+                    let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
+                    s.enqueue(file_id, file_path, priority, retry_count);
+                }
+                ThumbnailMsg::Done { file_id, success, msg } => {
+                    {
                         let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
                         s.in_flight.remove(&file_id);
                         s.active_count = s.active_count.saturating_sub(1);
-                        drop(s);
-                        if success {
-                            on_ready(file_id, msg);
-                        } else {
-                            on_failed(file_id, msg);
-                        }
                     }
-                    Err(_) => break,
+                    if success {
+                        on_ready(file_id, msg);
+                    } else {
+                        on_failed(file_id, msg);
+                    }
+                }
+            }
+            true
+        };
+
+        loop {
+            // Block when idle; drain non-blocking when busy.
+            let idle = {
+                let s = state.lock().unwrap_or_else(|e| e.into_inner());
+                s.active_count == 0 && s.queue.is_empty()
+            };
+
+            if idle {
+                match rx.recv() {
+                    Err(_) => return,
+                    Ok(msg) => if !process_msg(msg) { return; }
+                }
+            } else {
+                loop {
+                    match rx.try_recv() {
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                        Ok(msg) => if !process_msg(msg) { return; }
+                    }
                 }
             }
 
-            // Spawn workers up to concurrency limit
+            // Spawn workers up to concurrency limit.
             loop {
                 let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
                 if s.active_count >= concurrency {
@@ -305,18 +319,20 @@ pub fn create_worker_pool(
                         drop(s);
 
                         let catalog = catalog_dir.clone();
-                        let done = done_tx.clone();
-                        let tx_retry = tx_clone.clone();
+                        let tx_done = tx_worker.clone();
 
                         std::thread::spawn(move || {
                             match generate_thumbnail(&catalog, &file_id, &file_path) {
                                 Ok(path) => {
-                                    let _ = done.send((file_id, true, path));
+                                    let _ = tx_done.send(ThumbnailMsg::Done {
+                                        file_id, success: true, msg: path,
+                                    });
                                 }
                                 Err(e) => {
                                     if retry < 1 {
                                         let fid = file_id.clone();
                                         let fp = file_path.clone();
+                                        let tx_retry = tx_done.clone();
                                         std::thread::spawn(move || {
                                             std::thread::sleep(Duration::from_secs(RETRY_DELAY_SECS));
                                             let _ = tx_retry.send(ThumbnailMsg::Enqueue {
@@ -326,11 +342,13 @@ pub fn create_worker_pool(
                                                 retry_count: retry + 1,
                                             });
                                         });
-                                        // Don't signal done — worker slot freed by not sending
-                                        // Actually we must free the slot:
-                                        let _ = done.send((file_id, false, format!("retry scheduled: {e}")));
+                                        let _ = tx_done.send(ThumbnailMsg::Done {
+                                            file_id, success: false, msg: format!("retry scheduled: {e}"),
+                                        });
                                     } else {
-                                        let _ = done.send((file_id, false, e.to_string()));
+                                        let _ = tx_done.send(ThumbnailMsg::Done {
+                                            file_id, success: false, msg: e.to_string(),
+                                        });
                                     }
                                 }
                             }
@@ -338,8 +356,6 @@ pub fn create_worker_pool(
                     }
                 }
             }
-
-            std::thread::sleep(Duration::from_millis(20));
         }
     });
 

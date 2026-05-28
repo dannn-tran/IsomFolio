@@ -36,7 +36,8 @@ impl Default for LoupeState {
 pub struct ThumbnailContext {
     pub pool: Option<ThumbnailPool>,
     pub tx: mpsc::SyncSender<ThumbnailEvent>,
-    pub rx: mpsc::Receiver<ThumbnailEvent>,
+    pub rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<ThumbnailEvent>>>>,
+    pub sub_id: u64,
     pub pending: usize,
     pub total: usize,
     pub start_at: Option<Instant>,
@@ -170,9 +171,56 @@ impl Default for CompareState {
     }
 }
 
+struct ThumbnailRecipe {
+    rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<ThumbnailEvent>>>>,
+    id: u64,
+}
+
+impl iced::advanced::subscription::Recipe for ThumbnailRecipe {
+    type Output = Msg;
+
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
+        use std::hash::Hash;
+        std::any::TypeId::of::<Self>().hash(state);
+        self.id.hash(state);
+    }
+
+    fn stream(
+        self: Box<Self>,
+        _input: iced::advanced::subscription::EventStream,
+    ) -> std::pin::Pin<Box<dyn iced::futures::Stream<Item = Self::Output> + Send + 'static>> {
+        let rx_arc = self.rx;
+        Box::pin(iced::futures::stream::unfold(
+            None::<mpsc::Receiver<ThumbnailEvent>>,
+            move |rx| {
+                let rx_arc = rx_arc.clone();
+                async move {
+                    let rx = match rx {
+                        Some(r) => r,
+                        None => rx_arc.lock().ok()?.take()?,
+                    };
+                    let result = tokio::task::spawn_blocking(move || {
+                        rx.recv().ok().map(|ev| (ev, rx))
+                    })
+                    .await
+                    .ok()
+                    .flatten()?;
+                    let (event, rx) = result;
+                    let msg = match event {
+                        ThumbnailEvent::Ready(fid, path) => Msg::ThumbnailCompleted { file_id: fid, path },
+                        ThumbnailEvent::Failed(fid, _) => Msg::ThumbnailFailed { file_id: fid },
+                    };
+                    Some((msg, Some(rx)))
+                }
+            },
+        ))
+    }
+}
+
 impl App {
     pub fn new(catalog_dir: Option<String>) -> (Self, Task<Msg>) {
         let (tx, rx) = mpsc::sync_channel::<ThumbnailEvent>(500);
+        let rx_arc = Arc::new(std::sync::Mutex::new(Some(rx)));
         let (wtx, wrx) = mpsc::sync_channel::<FileEvent>(200);
 
         let recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
@@ -217,7 +265,8 @@ impl App {
             thumb_ctx: ThumbnailContext {
                 pool: None,
                 tx,
-                rx,
+                rx: rx_arc,
+                sub_id: 0,
                 pending: 0,
                 total: 0,
                 start_at: None,
@@ -689,7 +738,12 @@ impl App {
             }
         });
 
-        Subscription::batch([tick_sub, event_sub])
+        let thumb_sub = iced::advanced::subscription::from_recipe(ThumbnailRecipe {
+            rx: Arc::clone(&self.thumb_ctx.rx),
+            id: self.thumb_ctx.sub_id,
+        });
+
+        Subscription::batch([tick_sub, event_sub, thumb_sub])
     }
 }
 

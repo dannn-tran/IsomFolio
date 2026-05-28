@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use iced::Task;
@@ -1373,49 +1373,51 @@ impl App {
                 Task::batch([t1, t2])
             }
 
-            Msg::Tick => {
-                let mut tasks: Vec<Task<Msg>> = Vec::new();
-                while let Ok(ev) = self.thumb_ctx.rx.try_recv() {
-                    match ev {
-                        super::ThumbnailEvent::Ready(fid, path) => {
-                            self.thumbnails.insert(
-                                fid.clone(),
-                                isomfolio_core::models::ThumbnailState::Ready(path.clone()),
-                            );
-                            self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
-                            let fid2 = fid.clone();
-                            tasks.push(Task::perform(
-                                async move {
-                                    tokio::task::spawn_blocking(move || {
-                                        image::open(&path).ok().map(|img| {
-                                            let rgba = img.into_rgba8();
-                                            let (w, h) = (rgba.width(), rgba.height());
-                                            (fid2, iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
-                                        })
-                                    })
-                                    .await
-                                    .ok()
-                                    .flatten()
-                                },
-                                |res| match res {
-                                    Some((fid, handle)) => Msg::ThumbnailHandleReady { file_id: fid, handle },
-                                    None => Msg::NoOp,
-                                },
-                            ));
-                        }
-                        super::ThumbnailEvent::Failed(fid, _err) => {
-                            self.thumbnails
-                                .insert(fid, isomfolio_core::models::ThumbnailState::Failed(0));
-                            self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
-                        }
-                    }
-                }
+            Msg::ThumbnailCompleted { file_id, path } => {
+                self.thumbnails.insert(file_id.clone(), ThumbnailState::Ready(path.clone()));
+                self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
                 if self.thumb_ctx.pending == 0
                     && self.thumb_ctx.total > 0
                     && self.thumb_ctx.done_at.is_none()
                 {
                     self.thumb_ctx.done_at = Some(Instant::now());
                 }
+                let fid2 = file_id.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            image::open(&path).ok().map(|img| {
+                                let rgba = img.into_rgba8();
+                                let (w, h) = (rgba.width(), rgba.height());
+                                (fid2, iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
+                            })
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                    },
+                    |res| match res {
+                        Some((fid, handle)) => Msg::ThumbnailHandleReady { file_id: fid, handle },
+                        None => Msg::NoOp,
+                    },
+                )
+            }
+
+            Msg::ThumbnailFailed { file_id } => {
+                self.thumbnails.insert(file_id, ThumbnailState::Failed(0));
+                self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
+                if self.thumb_ctx.pending == 0
+                    && self.thumb_ctx.total > 0
+                    && self.thumb_ctx.done_at.is_none()
+                {
+                    self.thumb_ctx.done_at = Some(Instant::now());
+                }
+                Task::none()
+            }
+
+            Msg::Tick => {
+                let mut tasks: Vec<Task<Msg>> = Vec::new();
+
                 if let Some(done_at) = self.thumb_ctx.done_at {
                     if done_at.elapsed() >= Duration::from_secs(2) {
                         self.thumb_ctx.total = 0;
@@ -1614,6 +1616,10 @@ impl App {
                 isomfolio_core::app_paths::save_recent_catalog(&path);
                 self.watchers.clear();
                 self.thumb_ctx.pool = None;
+                let (new_tx, new_rx) = mpsc::sync_channel::<super::ThumbnailEvent>(500);
+                self.thumb_ctx.tx = new_tx;
+                self.thumb_ctx.rx = Arc::new(std::sync::Mutex::new(Some(new_rx)));
+                self.thumb_ctx.sub_id += 1;
                 self.thumb_ctx.pending = 0;
                 self.thumb_ctx.total = 0;
                 self.thumb_ctx.start_at = None;
