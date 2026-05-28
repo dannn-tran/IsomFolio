@@ -263,6 +263,9 @@ pub enum Msg {
     SelectAll,
     DeselectAll,
     OpenFaceClusterMenu(String),
+    Undo,
+    Redo,
+    UndoApplied,
     SortCycleAll,
     NoOp,
 
@@ -282,6 +285,13 @@ pub enum Msg {
 }
 
 use isomfolio_core::models::FlagFilter;
+
+pub enum UndoOp {
+    AddedTag { file_ids: Vec<String>, tag: String },
+    RemovedTag { file_ids: Vec<String>, tag: String },
+    SetRatings { before: Vec<(String, Option<i32>)> },
+    SetFlags { before: Vec<(String, Flag)> },
+}
 
 pub struct CriteriaState {
     pub show: bool,

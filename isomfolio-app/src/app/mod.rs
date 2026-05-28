@@ -151,6 +151,9 @@ pub struct App {
     pub settings: SettingsState,
 
     pub faces: FaceState,
+
+    pub undo_stack: Vec<UndoOp>,
+    pub redo_stack: Vec<UndoOp>,
 }
 
 impl App {
@@ -248,6 +251,8 @@ impl App {
             addons: Vec::new(),
             settings: SettingsState::default(),
             faces: FaceState::default(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         };
 
         (app, task)
