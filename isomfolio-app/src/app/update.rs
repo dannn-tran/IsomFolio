@@ -57,7 +57,18 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([sidebar_task, addon_task, face_task])
+                let orphan_task = if let Some(conn) = self.catalog.clone() {
+                    Task::perform(
+                        async move {
+                            let g = conn.lock().unwrap_or_else(|e| e.into_inner());
+                            g.purge_old_orphans(30).ok();
+                        },
+                        |()| Msg::NoOp,
+                    )
+                } else {
+                    Task::none()
+                };
+                Task::batch([sidebar_task, addon_task, face_task, orphan_task])
             }
 
             Msg::AddonsDiscovered(addons) => {
@@ -2051,6 +2062,15 @@ impl App {
                 Task::none()
             }
 
+            Msg::OpenFaceClusterMenu(cluster_id) => {
+                self.context_menu = Some(ContextMenuState {
+                    position: self.cursor,
+                    target: ContextMenuTarget::FaceCluster(cluster_id),
+                    submenu_open: false,
+                });
+                Task::none()
+            }
+
             Msg::ToggleAddToAlbumSubmenu => {
                 if let Some(ref mut cm) = self.context_menu {
                     cm.submenu_open = !cm.submenu_open;
@@ -2186,6 +2206,20 @@ impl App {
             | Msg::TagBrowserDeleteCancel
             | Msg::TagBrowserTagRenamed
             | Msg::TagBrowserTagDeleted => self.handle_tag_browser(msg),
+
+            Msg::SelectAll => {
+                self.grid_selected = self.files.iter().map(|f| f.id.clone()).collect();
+                if self.anchor_idx.is_none() && !self.files.is_empty() {
+                    self.anchor_idx = Some(0);
+                }
+                Task::none()
+            }
+
+            Msg::DeselectAll => {
+                self.grid_selected.clear();
+                self.anchor_idx = None;
+                Task::none()
+            }
 
             Msg::NoOp => Task::none(),
         }

@@ -33,6 +33,7 @@ pub struct Mods {
 impl Mods {
     pub const NONE: Self = Mods { command: false, shift: false };
     pub const CMD: Self = Mods { command: true, shift: false };
+    pub const CMD_SHIFT: Self = Mods { command: true, shift: true };
 
     pub fn matches(self, m: keyboard::Modifiers) -> bool {
         m.command() == self.command && m.shift() == self.shift
@@ -79,6 +80,10 @@ pub fn default_bindings() -> Vec<KeyBind> {
         KeyBind { key: Char("3"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(3)), label: "3 Stars",      category: Culling },
         KeyBind { key: Char("4"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(4)), label: "4 Stars",      category: Culling },
         KeyBind { key: Char("5"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(5)), label: "5 Stars",      category: Culling },
+
+        // Selection
+        KeyBind { key: Char("a"), mods: Mods::CMD,       when_ignored: true, action: || Msg::SelectAll,   label: "Select All",   category: Navigation },
+        KeyBind { key: Char("a"), mods: Mods::CMD_SHIFT,  when_ignored: true, action: || Msg::DeselectAll, label: "Deselect All", category: Navigation },
 
         // Tagging
         KeyBind { key: Char("."), mods: Mods::NONE, when_ignored: true, action: || Msg::RepeatLastTag, label: "Repeat Last Tag", category: Tagging },

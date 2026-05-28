@@ -28,29 +28,55 @@ impl App {
         let mut menu_layers: Vec<Element<Msg>> = vec![menu_panel(menu_col, MENU_WIDTH)];
 
         if cm.submenu_open {
-            let manual_albums: Vec<_> = self
-                .albums
-                .iter()
-                .filter(|a| matches!(a.kind, AlbumKind::Manual))
-                .collect();
-            let submenu = if manual_albums.is_empty() {
-                column![
-                    text("No albums yet").size(TEXT_MD).color(FG_DIM)
-                ]
-                .padding([SPACE_1, SPACE_1_5])
-            } else {
-                let mut col = column![].spacing(0);
-                for album in &manual_albums {
-                    let id = album.id.clone();
-                    col = col.push(
-                        button(text(&album.name).size(TEXT_MD).color(FG))
-                            .on_press(Msg::AddSelectionToAlbum(id))
-                            .style(menu_item_style)
-                            .height(ITEM_HEIGHT)
-                            .width(Length::Fill),
-                    );
+            let submenu = match &cm.target {
+                ContextMenuTarget::FaceCluster(source_id) => {
+                    let others: Vec<_> = self.faces.clusters.iter()
+                        .filter(|c| &c.cluster_id != source_id)
+                        .collect();
+                    if others.is_empty() {
+                        column![text("No other clusters").size(TEXT_MD).color(FG_DIM)]
+                            .padding([SPACE_1, SPACE_1_5])
+                    } else {
+                        let mut col = column![].spacing(0);
+                        for cluster in &others {
+                            let target = cluster.cluster_id.clone();
+                            let src = source_id.clone();
+                            let label = cluster.name.as_deref().unwrap_or("?").to_string();
+                            col = col.push(
+                                button(text(label).size(TEXT_MD).color(FG))
+                                    .on_press(Msg::MergeFaceClusters(target, src))
+                                    .style(menu_item_style)
+                                    .height(ITEM_HEIGHT)
+                                    .width(Length::Fill),
+                            );
+                        }
+                        col.padding([SPACE_1, 0.0])
+                    }
                 }
-                col.padding([SPACE_1, 0.0])
+                _ => {
+                    let manual_albums: Vec<_> = self
+                        .albums
+                        .iter()
+                        .filter(|a| matches!(a.kind, AlbumKind::Manual))
+                        .collect();
+                    if manual_albums.is_empty() {
+                        column![text("No albums yet").size(TEXT_MD).color(FG_DIM)]
+                            .padding([SPACE_1, SPACE_1_5])
+                    } else {
+                        let mut col = column![].spacing(0);
+                        for album in &manual_albums {
+                            let id = album.id.clone();
+                            col = col.push(
+                                button(text(&album.name).size(TEXT_MD).color(FG))
+                                    .on_press(Msg::AddSelectionToAlbum(id))
+                                    .style(menu_item_style)
+                                    .height(ITEM_HEIGHT)
+                                    .width(Length::Fill),
+                            );
+                        }
+                        col.padding([SPACE_1, 0.0])
+                    }
+                }
             };
             menu_layers.push(
                 container(submenu)
@@ -104,6 +130,17 @@ impl App {
                 None,
                 Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
             ],
+            ContextMenuTarget::FaceCluster(cluster_id) => {
+                let id = cluster_id.clone();
+                let mut items: Vec<Option<(String, Msg, bool)>> = vec![
+                    Some(("Rename".into(), Msg::RenameFaceCluster(id.clone()), false)),
+                ];
+                let has_others = self.faces.clusters.iter().any(|c| &c.cluster_id != cluster_id);
+                if has_others {
+                    items.push(Some(("Merge into ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)));
+                }
+                items
+            }
             ContextMenuTarget::GridTiles => {
                 let n = self.grid_selected.len();
                 let mut items: Vec<Option<(String, Msg, bool)>> = Vec::new();

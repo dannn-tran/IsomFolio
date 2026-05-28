@@ -14,6 +14,7 @@ pub enum ContextMenuTarget {
     ManualAlbum(AlbumId),
     SmartAlbum(AlbumId),
     GridTiles,
+    FaceCluster(String),
 }
 
 #[derive(Debug, Clone)]
@@ -259,6 +260,9 @@ pub enum Msg {
     FaceCropsReady(Vec<(String, iced::widget::image::Handle)>),
     OpenPeopleView,
 
+    SelectAll,
+    DeselectAll,
+    OpenFaceClusterMenu(String),
     SortCycleAll,
     NoOp,
 

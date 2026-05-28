@@ -1,5 +1,5 @@
 use iced::{
-    widget::{button, column, container, image, row, scrollable, text, text_input, Space},
+    widget::{button, column, container, image, mouse_area, row, scrollable, text, text_input, Space},
     Alignment, Background, Border, Element, Length, Theme,
 };
 
@@ -130,7 +130,7 @@ impl App {
                 .into(),
         };
 
-        let click_target = button(face_img)
+        let img_btn = button(face_img)
             .on_press(Msg::SidebarItemClicked(SidebarItem::FaceCluster(cluster_id.clone())))
             .style(|_: &Theme, _| button::Style {
                 background: None,
@@ -139,6 +139,10 @@ impl App {
                 shadow: iced::Shadow::default(),
                 snap: false,
             });
+
+        let cid = cluster_id.clone();
+        let click_target = mouse_area(img_btn)
+            .on_right_press(Msg::OpenFaceClusterMenu(cid));
 
         let label: Element<Msg> = if is_renaming {
             row![
@@ -155,21 +159,11 @@ impl App {
                 if cluster_id == "face-unknown" { "Unknown" } else { "?" }
             );
             let count = cluster.file_count;
-            button(
-                column![
-                    text(display).size(TEXT_SM).color(FG),
-                    text(format!("{count}")).size(TEXT_SM).color(FG_MUTED),
-                ]
-                .align_x(Alignment::Center),
-            )
-            .on_press(Msg::RenameFaceCluster(cluster_id.clone()))
-            .style(|_: &Theme, _| button::Style {
-                background: None,
-                text_color: FG,
-                border: Border::default(),
-                shadow: iced::Shadow::default(),
-                snap: false,
-            })
+            column![
+                text(display).size(TEXT_SM).color(FG),
+                text(format!("{count}")).size(TEXT_SM).color(FG_MUTED),
+            ]
+            .align_x(Alignment::Center)
             .into()
         };
 
