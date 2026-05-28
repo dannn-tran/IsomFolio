@@ -668,6 +668,51 @@ impl App {
             body = body.push(Space::new().height(SPACE_3));
         }
 
+        // Capability defaults — only shown when 2+ addons share a capability
+        let mut cap_map: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for addon in &self.addons {
+            for cap in &addon.manifest.capabilities {
+                cap_map.entry(cap.clone()).or_default().push(addon.manifest.name.clone());
+            }
+        }
+        let mut contested: Vec<(String, Vec<String>)> = cap_map
+            .into_iter()
+            .filter(|(_, names)| names.len() > 1)
+            .collect();
+        contested.sort_by(|a, b| a.0.cmp(&b.0));
+        if !contested.is_empty() {
+            body = body.push(Space::new().height(SPACE_4));
+            body = body.push(text("Defaults").size(TEXT_SM).color(FG_DIM));
+            body = body.push(Space::new().height(SPACE_2));
+            for (cap, names) in contested {
+                let current = self.prefs.preferred_addon.get(&cap).cloned()
+                    .unwrap_or_else(|| names[0].clone());
+                body = body.push(text(format!("Auto-{cap}:")).size(TEXT_MD).color(FG));
+                body = body.push(Space::new().height(SPACE_1_5));
+                let mut chip_row = row![].spacing(SPACE_1_5);
+                for n in names {
+                    let selected = current == n;
+                    let cap2 = cap.clone();
+                    let n2 = n.clone();
+                    let n_label = n.clone();
+                    chip_row = chip_row.push(
+                        button(text(n_label).size(TEXT_MD))
+                            .on_press(Msg::SetPreferredAddon {
+                                capability: cap2,
+                                addon_name: n2,
+                            })
+                            .style(move |t: &Theme, s| {
+                                if selected { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+                            }),
+                    );
+                }
+                body = body.push(chip_row);
+                body = body.push(Space::new().height(SPACE_2));
+            }
+        }
+
+        body = body.push(Space::new().height(SPACE_2));
         body = body.push(
             button(text("Install from file…").size(TEXT_BASE))
                 .on_press(Msg::InstallAddonPickFile)

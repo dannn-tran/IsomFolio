@@ -249,6 +249,7 @@ pub enum Msg {
     AddonInstalled(Arc<AddonProcess>),
     AddonInstallFailed(String),
     UninstallAddon(String),
+    SetPreferredAddon { capability: String, addon_name: String },
 
     RunFaceClustering { force_full: bool },
     FaceClusteringDone(Vec<isomfolio_core::models::FaceClusterSummary>),

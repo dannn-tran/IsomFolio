@@ -37,7 +37,12 @@ pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, Strin
         if entry.is_dir() {
             continue;
         }
-        let entry_name = entry.name().to_string();
+        // Strip any path components from the entry name — prevents zip slip (path traversal).
+        let entry_name = Path::new(entry.name())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| format!("zip entry '{}' has no valid filename", entry.name()))?
+            .to_string();
         let dest = addon_dir.join(&entry_name);
         let mut out = fs::File::create(&dest).map_err(|e| format!("create {entry_name}: {e}"))?;
         io::copy(&mut entry, &mut out).map_err(|e| format!("extract {entry_name}: {e}"))?;

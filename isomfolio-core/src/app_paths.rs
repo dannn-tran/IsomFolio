@@ -58,6 +58,32 @@ pub fn create_catalog(parent_dir: &str, name: &str) -> Result<String, std::io::E
     Ok(catalog_path.to_string_lossy().into_owned())
 }
 
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct Prefs {
+    /// Maps capability name (e.g. "classify") to preferred addon name.
+    pub preferred_addon: std::collections::HashMap<String, String>,
+}
+
+fn prefs_path() -> PathBuf {
+    app_data_root().join("prefs.json")
+}
+
+pub fn read_prefs() -> Prefs {
+    let path = prefs_path();
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_prefs(prefs: &Prefs) {
+    let path = prefs_path();
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Ok(data) = serde_json::to_string(prefs) {
+        let _ = std::fs::write(path, data);
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Session {
     pub catalog_path: String,

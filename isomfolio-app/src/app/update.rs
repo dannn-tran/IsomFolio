@@ -409,7 +409,8 @@ impl App {
             | Msg::AddonPackagePicked(_)
             | Msg::AddonInstalled(_)
             | Msg::AddonInstallFailed(_)
-            | Msg::UninstallAddon(_) => self.handle_settings(msg),
+            | Msg::UninstallAddon(_)
+            | Msg::SetPreferredAddon { .. } => self.handle_settings(msg),
 
             Msg::SidebarItemClicked(item) => {
                 if let SidebarItem::Album(ref id) = item {
@@ -2360,10 +2361,14 @@ impl App {
     }
 
     fn auto_tag_task(&self, new_file_ids: Vec<String>) -> Task<Msg> {
-        let classify_idx = self
-            .addons
-            .iter()
-            .position(|a| a.manifest.capabilities.iter().any(|c| c == "classify"));
+        let preferred = self.prefs.preferred_addon.get("classify").map(|s| s.as_str());
+        let classify_idx = self.addons.iter().position(|a| {
+            a.manifest.capabilities.iter().any(|c| c == "classify")
+                && preferred.map_or(true, |p| a.manifest.name == p)
+        }).or_else(|| {
+            // Fall back to first capable addon if preference no longer installed
+            self.addons.iter().position(|a| a.manifest.capabilities.iter().any(|c| c == "classify"))
+        });
         let Some(addon_idx) = classify_idx else {
             return Task::none();
         };
@@ -2979,11 +2984,20 @@ impl App {
                 if let Some(idx) = self.addons.iter().position(|a| a.manifest.name == name) {
                     self.addons.remove(idx);
                 }
+                // Remove any capability preferences that pointed to this addon
+                self.prefs.preferred_addon.retain(|_, v| v != &name);
                 if let Err(e) = uninstall_addon(&name) {
                     self.settings.status = Some(format!("Uninstall failed: {e}"));
                 } else {
                     self.settings.status = Some(format!("'{name}' removed"));
                 }
+                isomfolio_core::app_paths::save_prefs(&self.prefs);
+                Task::none()
+            }
+
+            Msg::SetPreferredAddon { capability, addon_name } => {
+                self.prefs.preferred_addon.insert(capability, addon_name);
+                isomfolio_core::app_paths::save_prefs(&self.prefs);
                 Task::none()
             }
 

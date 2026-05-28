@@ -149,6 +149,7 @@ pub struct App {
 
     pub addons: Vec<Arc<AddonProcess>>,
     pub settings: SettingsState,
+    pub prefs: isomfolio_core::app_paths::Prefs,
 
     pub faces: FaceState,
 
@@ -263,6 +264,7 @@ impl App {
             sidebar_resizing: false,
             addons: Vec::new(),
             settings: SettingsState::default(),
+            prefs: isomfolio_core::app_paths::read_prefs(),
             faces: FaceState::default(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
