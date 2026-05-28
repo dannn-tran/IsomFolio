@@ -45,6 +45,10 @@ impl Catalog {
         db::mark_orphaned(&self.conn, file_id)
     }
 
+    pub fn mark_orphaned_batch(&self, file_ids: &[String]) -> Result<(), AppError> {
+        db::mark_orphaned_batch(&self.conn, file_ids)
+    }
+
     pub fn unmark_orphaned(&self, file_id: &str) -> Result<(), AppError> {
         db::unmark_orphaned(&self.conn, file_id)
     }

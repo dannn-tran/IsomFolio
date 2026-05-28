@@ -1432,56 +1432,75 @@ impl App {
             }
 
             Msg::FileWatcherEvent(event) => {
-                match event {
-                    FileEvent::ScanProgress(prog) => {
-                        self.status = format!("Scanning {}… {} found", prog.folder_name, prog.total_found);
-                        Task::none()
-                    }
-                    FileEvent::Created(path) | FileEvent::Modified(path) => {
-                        let Some(conn) = self.catalog.clone() else { return Task::none(); };
-                        Task::perform(
-                            async move { let cat = conn.lock_unwrap(); let _ = cat.resync_files(&[path]); },
-                            |()| Msg::Reload,
-                        )
-                    }
-                    FileEvent::Deleted(path) => {
-                        let Some(conn) = self.catalog.clone() else { return Task::none(); };
-                        Task::perform(
-                            async move {
-                                let cat = conn.lock_unwrap();
-                                let norm = normalize_path(&path);
-                                let fid = compute_file_id(&norm);
-                                if let Err(e) = cat.mark_orphaned(&fid) {
-                                    eprintln!("[db] mark_orphaned failed: {e}");
-                                }
-                            },
-                            |()| Msg::Reload,
-                        )
-                    }
-                    FileEvent::Renamed { old_path, new_path } => {
-                        let Some(conn) = self.catalog.clone() else { return Task::none(); };
-                        Task::perform(
-                            async move {
-                                let cat = conn.lock_unwrap();
-                                let norm = normalize_path(&old_path);
-                                let old_fid = compute_file_id(&norm);
-                                if let Err(e) = cat.mark_orphaned(&old_fid) {
-                                    eprintln!("[db] mark_orphaned failed: {e}");
-                                }
-                                let _ = cat.resync_files(&[new_path]);
-                            },
-                            |()| Msg::Reload,
-                        )
-                    }
-                    FileEvent::SidecarChanged(path) => {
-                        let Some(conn) = self.catalog.clone() else { return Task::none(); };
-                        Task::perform(
-                            async move { let cat = conn.lock_unwrap(); let _ = cat.resync_sidecar_files(&[path]); },
-                            |()| Msg::Reload,
-                        )
-                    }
-                    FileEvent::SidecarRemoved(_) => Task::none(),
+                if let FileEvent::ScanProgress(prog) = event {
+                    self.status = format!("Scanning {}… {} found", prog.folder_name, prog.total_found);
+                    return Task::none();
                 }
+                self.pending_file_events.push(event);
+                self.watcher_debounce_id += 1;
+                let id = self.watcher_debounce_id;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                            id
+                        }).await.unwrap_or(id)
+                    },
+                    Msg::FlushFileEvents,
+                )
+            }
+
+            Msg::FlushFileEvents(id) => {
+                if id != self.watcher_debounce_id {
+                    return Task::none();
+                }
+                let events: Vec<FileEvent> = std::mem::take(&mut self.pending_file_events);
+                let Some(conn) = self.catalog.clone() else { return Task::none(); };
+
+                let mut upsert: Vec<String> = Vec::new();
+                let mut orphan_ids: Vec<String> = Vec::new();
+                let mut sidecar: Vec<String> = Vec::new();
+
+                for event in events {
+                    match event {
+                        FileEvent::Created(p) | FileEvent::Modified(p) => upsert.push(p),
+                        FileEvent::Deleted(p) => orphan_ids.push(compute_file_id(&normalize_path(&p))),
+                        FileEvent::Renamed { old_path, new_path } => {
+                            orphan_ids.push(compute_file_id(&normalize_path(&old_path)));
+                            upsert.push(new_path);
+                        }
+                        FileEvent::SidecarChanged(p) => sidecar.push(p),
+                        FileEvent::ScanProgress(_) | FileEvent::SidecarRemoved(_) => {}
+                    }
+                }
+
+                if upsert.is_empty() && orphan_ids.is_empty() && sidecar.is_empty() {
+                    return Task::none();
+                }
+
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let cat = conn.lock_unwrap();
+                            if !upsert.is_empty() {
+                                if let Err(e) = cat.resync_files(&upsert) {
+                                    eprintln!("[db] resync_files failed: {e}");
+                                }
+                            }
+                            if !orphan_ids.is_empty() {
+                                if let Err(e) = cat.mark_orphaned_batch(&orphan_ids) {
+                                    eprintln!("[db] mark_orphaned_batch failed: {e}");
+                                }
+                            }
+                            if !sidecar.is_empty() {
+                                if let Err(e) = cat.resync_sidecar_files(&sidecar) {
+                                    eprintln!("[db] resync_sidecar_files failed: {e}");
+                                }
+                            }
+                        }).await.ok();
+                    },
+                    |()| Msg::Reload,
+                )
             }
 
             Msg::ClearThumbnailProgress(gen) => {

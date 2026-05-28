@@ -112,6 +112,8 @@ pub struct App {
     pub watcher_tx: mpsc::SyncSender<FileEvent>,
     pub watcher_rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<FileEvent>>>>,
     pub watchers: Vec<(String, FileWatcher)>,
+    pub pending_file_events: Vec<FileEvent>,
+    pub watcher_debounce_id: u64,
 
     pub search_text: String,
     pub search_debounce_id: u64,
@@ -317,6 +319,8 @@ impl App {
             watcher_tx: wtx,
             watcher_rx: wrx_arc,
             watchers: Vec::new(),
+            pending_file_events: Vec::new(),
+            watcher_debounce_id: 0,
             search_text: String::new(),
             search_debounce_id: 0,
             create_album_input: None,

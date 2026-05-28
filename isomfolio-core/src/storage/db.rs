@@ -176,6 +176,22 @@ pub fn mark_orphaned(conn: &Connection, file_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+pub fn mark_orphaned_batch(conn: &Connection, file_ids: &[String]) -> Result<(), AppError> {
+    if file_ids.is_empty() {
+        return Ok(());
+    }
+    let ts = now_unix();
+    let tx = conn.unchecked_transaction()?;
+    for fid in file_ids {
+        tx.execute(
+            "UPDATE files SET is_orphaned = 1, orphaned_at = ?1 WHERE id = ?2",
+            params![ts, fid],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn unmark_orphaned(conn: &Connection, file_id: &str) -> Result<(), AppError> {
     conn.execute(
         "UPDATE files SET is_orphaned = 0, orphaned_at = NULL WHERE id = ?1",

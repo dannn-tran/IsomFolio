@@ -290,6 +290,7 @@ pub enum Msg {
     ThumbnailCompleted { file_id: String, path: String },
     ThumbnailFailed { file_id: String },
     FileWatcherEvent(isomfolio_core::indexing::types::FileEvent),
+    FlushFileEvents(u64),
 }
 
 use isomfolio_core::models::FlagFilter;
