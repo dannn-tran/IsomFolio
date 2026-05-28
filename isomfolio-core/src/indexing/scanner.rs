@@ -7,7 +7,7 @@ use crate::file_index::{asset_file_from_path, is_supported_extension};
 use crate::indexing::types::{ReconcileResult, ScanProgress, ScanResult};
 use crate::metadata;
 use crate::models::{AppError, AssetFile};
-use crate::path_utils::normalize_path;
+use crate::path_utils::{normalize_path, CATALOG_EXT};
 use crate::storage::db;
 
 pub struct ScannedFile {
@@ -36,7 +36,7 @@ fn discover_paths(root_path: &str) -> Vec<String> {
                 let is_catalog = Path::new(&path)
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .map_or(false, |n| n.ends_with(".isfcatalog"));
+                    .map_or(false, |n| n.ends_with(&format!(".{CATALOG_EXT}")));
                 if !is_catalog {
                     dirs.push(path);
                 }

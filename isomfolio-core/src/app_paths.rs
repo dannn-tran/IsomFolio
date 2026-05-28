@@ -53,7 +53,7 @@ pub fn ensure_directories(catalog_dir: &str) {
 }
 
 pub fn create_catalog(parent_dir: &str, name: &str) -> Result<String, std::io::Error> {
-    let catalog_path = Path::new(parent_dir).join(format!("{}.isfcatalog", name));
+    let catalog_path = Path::new(parent_dir).join(format!("{}.{}", name, crate::path_utils::CATALOG_EXT));
     std::fs::create_dir_all(catalog_path.join("thumbnails"))?;
     Ok(catalog_path.to_string_lossy().into_owned())
 }

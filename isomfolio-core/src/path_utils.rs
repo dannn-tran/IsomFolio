@@ -1,5 +1,7 @@
 use std::path::{Path, MAIN_SEPARATOR};
 
+pub const CATALOG_EXT: &str = "isfcatalog";
+
 pub fn normalize_path(path: &str) -> String {
     if path.trim().is_empty() {
         return path.to_string();
@@ -17,31 +19,17 @@ pub fn normalize_path(path: &str) -> String {
     }
 }
 
-pub fn same_path(a: &str, b: &str) -> bool {
-    a == b
-}
-
-pub fn is_descendant_path(ancestor: &str, candidate: &str) -> bool {
-    if same_path(ancestor, candidate) {
-        return false;
-    }
-    let prefix = format!("{}{}", ancestor, MAIN_SEPARATOR);
-    candidate.starts_with(&prefix)
-}
-
-pub fn is_within_subtree(root: &str, path: &str) -> bool {
-    same_path(root, path) || is_descendant_path(root, path)
-}
 
 pub fn is_under_catalog_dir(path: &str) -> bool {
+    let suffix = format!(".{CATALOG_EXT}");
     Path::new(path)
         .components()
-        .any(|c| c.as_os_str().to_string_lossy().ends_with(".isfcatalog"))
+        .any(|c| c.as_os_str().to_string_lossy().ends_with(&suffix))
 }
 
 pub fn is_catalog_dir(path: &str) -> bool {
     let p = Path::new(path);
-    p.extension().map_or(false, |ext| ext == "isomfolio")
+    p.extension().map_or(false, |ext| ext == CATALOG_EXT)
         && p.join("catalog.db").exists()
 }
 
