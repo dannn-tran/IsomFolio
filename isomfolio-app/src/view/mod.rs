@@ -686,7 +686,7 @@ impl App {
             body = body.push(text("Defaults").size(TEXT_SM).color(FG_DIM));
             body = body.push(Space::new().height(SPACE_2));
             for (cap, names) in contested {
-                let current = self.prefs.preferred_extension.get(&cap).cloned()
+                let current = self.app_settings.preferred_extension.get(&cap).cloned()
                     .unwrap_or_else(|| names[0].clone());
                 body = body.push(text(format!("Auto-{cap}:")).size(TEXT_MD).color(FG));
                 body = body.push(Space::new().height(SPACE_1_5));
@@ -712,7 +712,25 @@ impl App {
             }
         }
 
+        body = body.push(Space::new().height(SPACE_4));
+        body = body.push(text("Behaviour").size(TEXT_SM).color(FG_DIM));
         body = body.push(Space::new().height(SPACE_2));
+        let auto_face = self.app_settings.auto_face_cluster;
+        body = body.push(
+            row![
+                button(
+                    text(if auto_face { "Auto face clustering  ●" } else { "Auto face clustering" })
+                        .size(TEXT_MD)
+                )
+                .on_press(Msg::ToggleAutoFaceCluster)
+                .style(if auto_face { active_chip_style } else { ghost_btn_style }),
+                text("Run after each scan that finds new photos").size(TEXT_SM).color(FG_DIM),
+            ]
+            .spacing(SPACE_2)
+            .align_y(Alignment::Center),
+        );
+
+        body = body.push(Space::new().height(SPACE_4));
         body = body.push(
             button(text("Install from file…").size(TEXT_BASE))
                 .on_press(Msg::InstallExtensionPickFile)

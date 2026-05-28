@@ -68,6 +68,7 @@ impl App {
                 let has_new = !new_file_ids.is_empty();
                 let t_autotag = if has_new { self.auto_tag_task(new_file_ids) } else { Task::none() };
                 let t_faces = if has_new
+                    && self.app_settings.auto_face_cluster
                     && self
                         .extensions
                         .iter()

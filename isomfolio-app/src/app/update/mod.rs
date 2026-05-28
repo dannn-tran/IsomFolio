@@ -182,7 +182,8 @@ impl App {
             | Msg::ExtensionInstalled(_)
             | Msg::ExtensionInstallFailed(_)
             | Msg::UninstallExtension(_)
-            | Msg::SetPreferredExtension { .. } => self.handle_settings(msg),
+            | Msg::SetPreferredExtension { .. }
+            | Msg::ToggleAutoFaceCluster => self.handle_settings(msg),
 
             // — tag browser —
             Msg::OpenTagBrowser

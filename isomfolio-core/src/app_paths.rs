@@ -58,28 +58,42 @@ pub fn create_catalog(parent_dir: &str, name: &str) -> Result<String, std::io::E
     Ok(catalog_path.to_string_lossy().into_owned())
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct Prefs {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppSettings {
     /// Maps capability name (e.g. "classify") to preferred extension name.
     pub preferred_extension: std::collections::HashMap<String, String>,
+    /// Automatically run face clustering after a scan finds new files.
+    #[serde(default = "default_true")]
+    pub auto_face_cluster: bool,
 }
 
-fn prefs_path() -> PathBuf {
-    app_data_root().join("prefs.json")
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            preferred_extension: std::collections::HashMap::new(),
+            auto_face_cluster: true,
+        }
+    }
 }
 
-pub fn read_prefs() -> Prefs {
-    let path = prefs_path();
+fn default_true() -> bool { true }
+
+fn settings_path() -> PathBuf {
+    app_data_root().join("settings.json")
+}
+
+pub fn read_settings() -> AppSettings {
+    let path = settings_path();
     std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
-pub fn save_prefs(prefs: &Prefs) {
-    let path = prefs_path();
+pub fn save_settings(settings: &AppSettings) {
+    let path = settings_path();
     let _ = std::fs::create_dir_all(path.parent().unwrap());
-    if let Ok(data) = serde_json::to_string(prefs) {
+    if let Ok(data) = serde_json::to_string(settings) {
         let _ = std::fs::write(path, data);
     }
 }

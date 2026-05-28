@@ -367,7 +367,7 @@ impl App {
 
     pub(super) fn auto_tag_task(&self, new_file_ids: Vec<String>) -> Task<Msg> {
         let preferred =
-            self.prefs.preferred_extension.get("classify").map(|s| s.as_str());
+            self.app_settings.preferred_extension.get("classify").map(|s| s.as_str());
         let classify_idx = self
             .extensions
             .iter()

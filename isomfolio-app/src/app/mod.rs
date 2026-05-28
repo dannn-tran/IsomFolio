@@ -162,7 +162,7 @@ pub struct App {
 
     pub extensions: Vec<Arc<ExtensionProcess>>,
     pub settings: SettingsState,
-    pub prefs: isomfolio_core::app_paths::Prefs,
+    pub app_settings: isomfolio_core::app_paths::AppSettings,
 
     pub faces: FaceState,
 
@@ -368,7 +368,7 @@ impl App {
             sidebar_resizing: false,
             extensions: Vec::new(),
             settings: SettingsState::default(),
-            prefs: isomfolio_core::app_paths::read_prefs(),
+            app_settings: isomfolio_core::app_paths::read_settings(),
             faces: FaceState::default(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),

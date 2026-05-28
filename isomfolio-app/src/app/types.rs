@@ -250,6 +250,7 @@ pub enum Msg {
 
     OpenSettings,
     CloseSettings,
+    ToggleAutoFaceCluster,
     SettingsConfigChanged { extension_name: String, key: String, value: String },
     SaveSettings,
     InstallExtensionPickFile,

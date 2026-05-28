@@ -176,19 +176,25 @@ impl App {
                 if let Some(idx) = self.extensions.iter().position(|a| a.manifest.name == name) {
                     self.extensions.remove(idx);
                 }
-                self.prefs.preferred_extension.retain(|_, v| v != &name);
+                self.app_settings.preferred_extension.retain(|_, v| v != &name);
                 if let Err(e) = uninstall_extension(&name) {
                     self.settings.status = Some(format!("Uninstall failed: {e}"));
                 } else {
                     self.settings.status = Some(format!("'{name}' removed"));
                 }
-                isomfolio_core::app_paths::save_prefs(&self.prefs);
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
                 Task::none()
             }
 
             Msg::SetPreferredExtension { capability, extension_name } => {
-                self.prefs.preferred_extension.insert(capability, extension_name);
-                isomfolio_core::app_paths::save_prefs(&self.prefs);
+                self.app_settings.preferred_extension.insert(capability, extension_name);
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                Task::none()
+            }
+
+            Msg::ToggleAutoFaceCluster => {
+                self.app_settings.auto_face_cluster = !self.app_settings.auto_face_cluster;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
                 Task::none()
             }
 
