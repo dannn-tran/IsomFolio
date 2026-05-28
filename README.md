@@ -14,21 +14,21 @@ Photo library manager for macOS. Organizes images into catalogs with tagging, sm
 cargo run -p isomfolio-app
 
 # Pass a catalog directory explicitly (created on first run)
-cargo run -p isomfolio-app -- /path/to/MyPhotos.isomfolio
+cargo run -p isomfolio-app -- /path/to/MyPhotos.isfcatalog
 
 # Release build
 cargo build --release -p isomfolio-app
-./target/release/isomfolio-app /path/to/MyPhotos.isomfolio
+./target/release/isomfolio-app /path/to/MyPhotos.isfcatalog
 ```
 
-If no catalog path is given, the app defaults to `./IsomFolio-Catalog.isomfolio` in the working directory.
+If no catalog path is given, the app defaults to `./IsomFolio-Catalog.isfcatalog` in the working directory.
 
 ## Catalog format
 
-A catalog is a directory with a `.isomfolio` extension containing:
+A catalog is a directory with a `.isfcatalog` extension containing:
 
 ```
-MyPhotos.isomfolio/
+MyPhotos.isfcatalog/
 ├── catalog.db       # SQLite database (auto-created)
 └── thumbnails/      # JPEG thumbnail cache (auto-created)
 ```
@@ -48,7 +48,8 @@ Tests in `isomfolio-core` use temporary SQLite databases for isolation. No fixtu
 ```
 isomfolio-core/   # Library: DB, indexing, scanning, thumbnails, search
 isomfolio-app/    # Binary: iced UI (app.rs + view.rs)
-docs/             # Design notes and tech debt log
+docs/             # Astro + Starlight documentation site
+dev-docs/         # Internal design docs and engineering notes
 ```
 
 ## Supported image formats
