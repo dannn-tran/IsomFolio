@@ -1,7 +1,9 @@
+use std::path::Path;
+
 use iced::Task;
 use isomfolio_core::file_index::compute_file_id;
 use isomfolio_core::indexing::types::FileEvent;
-use isomfolio_core::path_utils::{is_under_catalog_dir, normalize_path};
+use isomfolio_core::path_utils::{normalize_path, CATALOG_EXT};
 
 use super::LockUnwrap;
 use super::super::{App, Msg};
@@ -229,4 +231,10 @@ impl App {
             |(count, new_file_ids)| Msg::ScanComplete { count, new_file_ids },
         )
     }
+}
+
+fn is_under_catalog_dir(path: &str) -> bool {
+    std::path::Path::new(path)
+        .components()
+        .any(|c| Path::new(c.as_os_str()).extension().map_or(false, |ext| ext == CATALOG_EXT))
 }

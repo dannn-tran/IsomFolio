@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc};
 use iced::Task;
 use isomfolio_core::app_paths::{db_path, extensions_dir};
 use isomfolio_core::extension::{discover_extensions, ExtensionProcess};
-use isomfolio_core::path_utils::is_catalog_dir;
+use isomfolio_core::path_utils::CATALOG_EXT;
 
 use super::LockUnwrap;
 use super::super::{App, CriteriaState, DetailState, Msg, SidebarItem, ViewMode};
@@ -226,4 +226,9 @@ impl App {
             _ => Task::none(),
         }
     }
+}
+
+fn is_catalog_dir(path: &str) -> bool {
+    let p = std::path::Path::new(path);
+    p.extension().map_or(false, |ext| ext == CATALOG_EXT) && p.join("catalog.db").exists()
 }
