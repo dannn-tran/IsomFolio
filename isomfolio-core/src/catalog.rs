@@ -98,6 +98,10 @@ impl Catalog {
         db::delete_all_ai_tags(&self.conn)
     }
 
+    pub fn purge_old_orphans(&self, older_than_days: u32) -> Result<usize, AppError> {
+        db::purge_old_orphans(&self.conn, older_than_days)
+    }
+
     pub fn insert_pending_tags(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
         db::insert_pending_tags(&self.conn, file_id, tags)
     }
