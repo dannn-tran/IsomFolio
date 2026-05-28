@@ -40,7 +40,7 @@ impl App {
             Msg::CatalogReady => {
                 self.start_thumbnail_pool();
                 let sidebar_task = self.load_sidebar_task();
-                let addon_task = Task::perform(
+                let extension_task = Task::perform(
                     async move {
                         let dir = extensions_dir();
                         let manifests = discover_extensions(&dir);
@@ -49,7 +49,7 @@ impl App {
                             .filter_map(|m| {
                                 ExtensionProcess::launch(m)
                                     .map(Arc::new)
-                                    .map_err(|e| eprintln!("[addon] launch failed: {e}"))
+                                    .map_err(|e| eprintln!("[extension] launch failed: {e}"))
                                     .ok()
                             })
                             .collect::<Vec<_>>()
@@ -78,26 +78,26 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([sidebar_task, addon_task, face_task, orphan_task])
+                Task::batch([sidebar_task, extension_task, face_task, orphan_task])
             }
 
-            Msg::ExtensionsDiscovered(addons) => {
-                let count = addons.len();
-                self.extensions = addons;
+            Msg::ExtensionsDiscovered(extensions) => {
+                let count = extensions.len();
+                self.extensions = extensions;
                 if count > 0 {
-                    self.status = format!("{count} addon{} loaded", if count == 1 { "" } else { "s" });
+                    self.status = format!("{count} extension{} loaded", if count == 1 { "" } else { "s" });
                 }
                 Task::none()
             }
 
             Msg::RunExtension { addon_idx, method, file_ids } => {
-                let Some(addon) = self.extensions.get(addon_idx).cloned() else {
+                let Some(ext) = self.extensions.get(addon_idx).cloned() else {
                     return Task::none();
                 };
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let catalog_dir = self.catalog_dir.clone();
                 let total = file_ids.len();
-                let extension_name = addon.manifest.name.clone();
+                let extension_name = ext.manifest.name.clone();
                 self.status = format!("{extension_name}… (0/{total})");
 
                 let requests: Vec<(&str, serde_json::Value)> = file_ids
@@ -111,10 +111,10 @@ impl App {
                     })
                     .collect();
 
-                let handle = match addon.send_many(&requests) {
+                let handle = match ext.send_many(&requests) {
                     Ok(h) => h,
                     Err(e) => {
-                        self.status = format!("addon error: {e}");
+                        self.status = format!("extension error: {e}");
                         return Task::none();
                     }
                 };
@@ -145,7 +145,7 @@ impl App {
                                 }
                             }
                             Ok(Ok(Err(e))) => {
-                                eprintln!("[addon] classify error: {e}");
+                                eprintln!("[extension] classify error: {e}");
                                 done += 1;
                                 failed += 1;
                                 if done >= handle.total {
@@ -189,10 +189,10 @@ impl App {
                     return Task::none();
                 }
                 let report_path = self.extensions.get(addon_idx)
-                    .and_then(|addon| write_crash_report(addon, applied, failed));
+                    .and_then(|ext| write_crash_report(ext, applied, failed));
                 self.status = match &report_path {
                     Some(path) => format!("{method} done — {applied} updated, {failed} failed — report: {path}"),
-                    None => format!("{method} done — {applied} updated, {failed} failed (addon crashed)"),
+                    None => format!("{method} done — {applied} updated, {failed} failed (extension crashed)"),
                 };
                 let manifest = self.extensions.get(addon_idx).map(|a| a.manifest.clone());
                 if let Some(manifest) = manifest {
@@ -206,13 +206,13 @@ impl App {
             }
 
             Msg::RunFaceClustering { force_full } => {
-                let Some(addon) = self
+                let Some(ext) = self
                     .extensions
                     .iter()
                     .find(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
                     .cloned()
                 else {
-                    self.faces.status = Some("No face clustering addon installed".to_string());
+                    self.faces.status = Some("No face clustering extension installed".to_string());
                     return Task::none();
                 };
                 let Some(conn) = self.catalog.clone() else {
@@ -226,7 +226,7 @@ impl App {
                 };
                 let params = cluster_faces_request_params(&files, force_full);
 
-                let handle = match addon.send("cluster_faces", params) {
+                let handle = match ext.send("cluster_faces", params) {
                     Ok(h) => h,
                     Err(e) => {
                         self.faces.status = Some(format!("face clustering error: {e}"));
@@ -396,9 +396,9 @@ impl App {
                     } else {
                         self.extensions.push(p);
                     }
-                    "Addon restarted".to_string()
+                    "Extension restarted".to_string()
                 } else {
-                    "Addon restart failed — check logs".to_string()
+                    "Extension restart failed — check logs".to_string()
                 };
                 if self.settings.show {
                     self.settings.status = Some(msg);
@@ -2203,7 +2203,7 @@ impl App {
 
 }
 
-fn write_crash_report(addon: &ExtensionProcess, applied: usize, failed: usize) -> Option<String> {
+fn write_crash_report(ext: &ExtensionProcess, applied: usize, failed: usize) -> Option<String> {
     use isomfolio_core::app_paths::crash_reports_dir;
     let dir = crash_reports_dir();
     let _ = std::fs::create_dir_all(&dir);
@@ -2211,20 +2211,20 @@ fn write_crash_report(addon: &ExtensionProcess, applied: usize, failed: usize) -
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let path = dir.join(format!("{}-{ts}.txt", addon.manifest.name));
+    let path = dir.join(format!("{}-{ts}.txt", ext.manifest.name));
 
-    let stderr_lines = addon.last_stderr();
+    let stderr_lines = ext.last_stderr();
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
 
-    let addon_dir = addon.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
-    let config = isomfolio_core::extension::load_extension_config(addon_dir);
+    let ext_dir = ext.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
+    let config = isomfolio_core::extension::load_extension_config(ext_dir);
     let config_redacted: serde_json::Map<String, serde_json::Value> = config
         .as_object()
         .cloned()
         .unwrap_or_default()
         .into_iter()
         .map(|(k, v)| {
-            let is_secret = addon.manifest.config_schema.iter().any(|f| {
+            let is_secret = ext.manifest.config_schema.iter().any(|f| {
                 f.key == k && matches!(f.kind, isomfolio_core::extension::ConfigFieldKind::Secret)
             });
             if is_secret { (k, serde_json::Value::String("***".into())) } else { (k, v) }
@@ -2232,7 +2232,7 @@ fn write_crash_report(addon: &ExtensionProcess, applied: usize, failed: usize) -
         .collect();
 
     let mut report = String::new();
-    report.push_str(&format!("Addon: {}\n", addon.manifest.name));
+    report.push_str(&format!("Extension: {}\n", ext.manifest.name));
     report.push_str(&format!("OS: {} {}\n", std::env::consts::OS, std::env::consts::ARCH));
     report.push_str(&format!("CPU cores: {cores}\n"));
     report.push_str(&format!("Config: {}\n", serde_json::to_string(&config_redacted).unwrap_or_default()));
@@ -2894,15 +2894,15 @@ impl App {
     fn handle_settings(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::OpenSettings => {
-                let mut addon_configs = std::collections::HashMap::new();
-                for addon in &self.extensions {
-                    if addon.manifest.config_schema.is_empty() {
+                let mut extension_configs = std::collections::HashMap::new();
+                for ext in &self.extensions {
+                    if ext.manifest.config_schema.is_empty() {
                         continue;
                     }
-                    let addon_dir = addon.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
-                    let stored = load_extension_config(addon_dir);
+                    let ext_dir = ext.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
+                    let stored = load_extension_config(ext_dir);
                     let mut fields = std::collections::HashMap::new();
-                    for field in &addon.manifest.config_schema {
+                    for field in &ext.manifest.config_schema {
                         let val = stored
                             .get(&field.key)
                             .and_then(|v| v.as_str())
@@ -2910,9 +2910,9 @@ impl App {
                             .to_string();
                         fields.insert(field.key.clone(), val);
                     }
-                    addon_configs.insert(addon.manifest.name.clone(), fields);
+                    extension_configs.insert(ext.manifest.name.clone(), fields);
                 }
-                self.settings = SettingsState { show: true, addon_configs, install_error: None, status: None };
+                self.settings = SettingsState { show: true, extension_configs, install_error: None, status: None };
                 Task::none()
             }
 
@@ -2934,7 +2934,7 @@ impl App {
                 };
                 if valid {
                     self.settings
-                        .addon_configs
+                        .extension_configs
                         .entry(extension_name)
                         .or_default()
                         .insert(key, value);
@@ -2945,7 +2945,7 @@ impl App {
             Msg::SaveSettings => {
                 self.settings.show = false;
                 let mut restart_tasks = Vec::new();
-                for (extension_name, fields) in &self.settings.addon_configs {
+                for (extension_name, fields) in &self.settings.extension_configs {
                     let schema = self.extensions.iter()
                         .find(|a| &a.manifest.name == extension_name)
                         .map(|a| &a.manifest.config_schema);
@@ -2967,11 +2967,11 @@ impl App {
                         })
                         .collect::<serde_json::Map<_, _>>()
                         .into();
-                    let addon_dir = self.extensions.iter()
+                    let ext_dir = self.extensions.iter()
                         .find(|a| &a.manifest.name == extension_name)
                         .and_then(|a| a.manifest.executable.parent().map(|p| p.to_path_buf()))
                         .unwrap_or_default();
-                    if let Err(e) = save_extension_config(&addon_dir, &config) {
+                    if let Err(e) = save_extension_config(&ext_dir, &config) {
                         self.status = format!("Settings save failed: {e}");
                         return Task::none();
                     }
@@ -2987,7 +2987,7 @@ impl App {
                 if restart_tasks.is_empty() {
                     Task::none()
                 } else {
-                    self.settings.status = Some("Saving & restarting addons…".to_string());
+                    self.settings.status = Some("Saving & restarting extensions…".to_string());
                     Task::batch(restart_tasks)
                 }
             }
@@ -3007,7 +3007,7 @@ impl App {
 
             Msg::ExtensionPackagePicked(Some(path)) => {
                 self.settings.install_error = None;
-                self.settings.status = Some("Installing addon…".to_string());
+                self.settings.status = Some("Installing extension…".to_string());
                 Task::perform(
                     async move {
                         let path = std::path::PathBuf::from(path);

@@ -549,13 +549,13 @@ impl App {
         .width(440);
 
         if self.extensions.is_empty() {
-            body = body.push(text("No addons installed.").size(TEXT_MD).color(FG_MUTED));
+            body = body.push(text("No extensions installed.").size(TEXT_MD).color(FG_MUTED));
             body = body.push(Space::new().height(SPACE_2));
         }
 
-        for addon in &self.extensions {
-            let name = addon.manifest.name.clone();
-            let desc = addon.manifest.description.clone();
+        for ext in &self.extensions {
+            let name = ext.manifest.name.clone();
+            let desc = ext.manifest.description.clone();
 
             // Header row: name + uninstall button
             body = body.push(
@@ -588,9 +588,9 @@ impl App {
 
             // Config fields
             let empty_map = std::collections::HashMap::new();
-            let field_values = self.settings.addon_configs.get(&name).unwrap_or(&empty_map);
+            let field_values = self.settings.extension_configs.get(&name).unwrap_or(&empty_map);
 
-            for field in &addon.manifest.config_schema {
+            for field in &ext.manifest.config_schema {
                 let current = field_values.get(&field.key).cloned().unwrap_or_default();
                 let key = field.key.clone();
                 let extension_name = name.clone();
@@ -668,12 +668,12 @@ impl App {
             body = body.push(Space::new().height(SPACE_3));
         }
 
-        // Capability defaults — only shown when 2+ addons share a capability
+        // Capability defaults — only shown when 2+ extensions share a capability
         let mut cap_map: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
-        for addon in &self.extensions {
-            for cap in &addon.manifest.capabilities {
-                cap_map.entry(cap.clone()).or_default().push(addon.manifest.name.clone());
+        for ext in &self.extensions {
+            for cap in &ext.manifest.capabilities {
+                cap_map.entry(cap.clone()).or_default().push(ext.manifest.name.clone());
             }
         }
         let mut contested: Vec<(String, Vec<String>)> = cap_map

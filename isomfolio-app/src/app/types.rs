@@ -383,7 +383,7 @@ impl Default for DetailState {
 pub struct SettingsState {
     pub show: bool,
     /// extension_name -> key -> current edited value
-    pub addon_configs: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    pub extension_configs: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     pub install_error: Option<String>,
     pub status: Option<String>,
 }
@@ -392,7 +392,7 @@ impl Default for SettingsState {
     fn default() -> Self {
         Self {
             show: false,
-            addon_configs: std::collections::HashMap::new(),
+            extension_configs: std::collections::HashMap::new(),
             install_error: None,
             status: None,
         }

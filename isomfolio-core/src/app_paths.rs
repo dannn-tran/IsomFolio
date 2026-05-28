@@ -60,7 +60,7 @@ pub fn create_catalog(parent_dir: &str, name: &str) -> Result<String, std::io::E
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Prefs {
-    /// Maps capability name (e.g. "classify") to preferred addon name.
+    /// Maps capability name (e.g. "classify") to preferred extension name.
     pub preferred_extension: std::collections::HashMap<String, String>,
 }
 

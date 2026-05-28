@@ -80,7 +80,7 @@ fn classify_one(config: &Config, vocab: &[String], params: &Value) -> Result<Val
 
     let api_key = config.api_key.as_deref().unwrap_or("");
     if api_key.is_empty() {
-        return Err("api_key not configured — add it in Settings → Addons → autotag-openai".to_string());
+        return Err("api_key not configured — add it in Settings → Extensions → autotag-openai".to_string());
     }
     let bytes = std::fs::read(thumb_path).map_err(|e| format!("read image: {e}"))?;
 
