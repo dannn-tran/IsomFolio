@@ -34,6 +34,8 @@ pub struct AddonManifest {
     pub capabilities: Vec<String>,
     pub description: String,
     #[serde(default)]
+    pub has_install_step: bool,
+    #[serde(default)]
     pub config_schema: Vec<ConfigField>,
     #[serde(skip)]
     pub executable: PathBuf,

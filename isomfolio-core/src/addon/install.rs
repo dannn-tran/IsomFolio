@@ -1,10 +1,11 @@
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use zip::ZipArchive;
 
-use crate::app_paths::addons_dir;
+use crate::app_paths::{addons_dir, models_dir};
 
 use super::manifest::{AddonManifest, discover_addons};
 
@@ -50,7 +51,7 @@ pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, Strin
     }
 
     // Re-discover to get the executable path resolved properly
-    discover_addons(&addons_dir())
+    let installed = discover_addons(&addons_dir())
         .into_iter()
         .find(|m| m.name == manifest.name)
         .ok_or_else(|| {
@@ -58,7 +59,85 @@ pub fn install_addon_package(package_path: &Path) -> Result<AddonManifest, Strin
                 "installed '{}' but executable not found — check the binary name matches the addon name",
                 manifest.name
             )
-        })
+        })?;
+
+    if installed.has_install_step {
+        run_install_step(&installed)?;
+    }
+
+    Ok(installed)
+}
+
+fn run_install_step(manifest: &AddonManifest) -> Result<(), String> {
+    let mut child = Command::new(&manifest.executable)
+        .arg("install")
+        .arg("--data-dir")
+        .arg(models_dir())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawn installer for '{}': {e}", manifest.name))?;
+
+    let stdout = child.stdout.take().unwrap();
+    for line in BufReader::new(stdout).lines() {
+        let Ok(line) = line else { break };
+        eprintln!("[{} install] {line}", manifest.name);
+    }
+
+    let status = child.wait().map_err(|e| format!("wait for installer: {e}"))?;
+    if !status.success() {
+        return Err(format!(
+            "'{}' installer exited with {}",
+            manifest.name,
+            status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string())
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::TempDir;
+
+    fn write_script(dir: &Path, name: &str, script: &str) -> std::path::PathBuf {
+        let exe = dir.join(name);
+        fs::write(&exe, format!("#!/bin/sh\n{script}")).unwrap();
+        let mut perms = fs::metadata(&exe).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&exe, perms).unwrap();
+        exe
+    }
+
+    fn make_manifest(exe: std::path::PathBuf) -> AddonManifest {
+        AddonManifest {
+            name: "test-addon".to_string(),
+            version: "1.0.0".to_string(),
+            capabilities: vec![],
+            description: "test".to_string(),
+            has_install_step: true,
+            config_schema: vec![],
+            executable: exe,
+        }
+    }
+
+    #[test]
+    fn install_step_is_invoked() {
+        let tmp = TempDir::new().unwrap();
+        let sentinel = tmp.path().join("install_ran");
+        let exe = write_script(tmp.path(), "test-addon", &format!("touch {}", sentinel.display()));
+        run_install_step(&make_manifest(exe)).expect("install step failed");
+        assert!(sentinel.exists(), "install step was not run");
+    }
+
+    #[test]
+    fn install_step_failure_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        let exe = write_script(tmp.path(), "test-addon", "exit 1");
+        let err = run_install_step(&make_manifest(exe)).unwrap_err();
+        assert!(err.contains("installer exited with 1"), "unexpected: {err}");
+    }
 }
 
 /// Remove an installed addon by name. Leaves model weights untouched.

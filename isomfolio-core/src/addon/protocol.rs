@@ -22,6 +22,7 @@ pub enum StdoutLine {
     Ok { id: u64, result: serde_json::Value },
     Error { id: u64, error: String },
     Ready,
+    Fatal { repairable: bool, message: String },
     Progress { id: u64, percent: u8 },
     Log { level: String, message: String },
 }

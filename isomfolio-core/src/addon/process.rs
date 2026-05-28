@@ -118,6 +118,10 @@ impl AddonProcess {
                         let _ = handshake_tx.send(Err(error));
                         return;
                     }
+                    Ok(StdoutLine::Fatal { message, .. }) => {
+                        let _ = handshake_tx.send(Err(format!("fatal: {message}")));
+                        return;
+                    }
                     Ok(StdoutLine::Log { level, message }) => {
                         eprintln!("[{addon_name_for_reader}] [{level}] {message}");
                     }
@@ -140,6 +144,10 @@ impl AddonProcess {
                     Ok(StdoutLine::Ready) => {
                         let _ = ready_tx.send(Ok(()));
                         break;
+                    }
+                    Ok(StdoutLine::Fatal { message, .. }) => {
+                        let _ = ready_tx.send(Err(format!("fatal: {message}")));
+                        return;
                     }
                     Ok(StdoutLine::Log { level, message }) => {
                         eprintln!("[{addon_name_for_reader}] [{level}] {message}");
@@ -327,6 +335,9 @@ fn reader_loop(
             Ok(StdoutLine::Ready) => {
                 eprintln!("[{addon_name}] unexpected ready after startup");
             }
+            Ok(StdoutLine::Fatal { message, .. }) => {
+                eprintln!("[{addon_name}] fatal after startup: {message}");
+            }
             Err(e) => {
                 eprintln!("[{addon_name}] unrecognised stdout line: {e}: {line}");
             }
@@ -359,6 +370,7 @@ mod tests {
             version: "1.0.0".to_string(),
             capabilities: vec!["echo".to_string()],
             description: "test addon".to_string(),
+            has_install_step: false,
             config_schema: vec![],
             executable: exe,
         }
@@ -546,6 +558,19 @@ done
             let result = proc.call("echo", serde_json::json!({"i": i})).expect("call failed");
             assert_eq!(result["ok"], true);
         }
+    }
+
+    #[test]
+    fn fatal_during_ready_phase_fails_launch() {
+        let tmp = TempDir::new().unwrap();
+        let script = r#"IFS= read -r hs_line
+hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"addon_version":"1.0.0","capabilities":[]}}\n' "$hs_id"
+printf '{"type":"fatal","repairable":true,"message":"models missing"}\n'
+"#;
+        let exe = write_test_addon(tmp.path(), script);
+        let err = AddonProcess::launch(make_manifest(exe)).unwrap_err();
+        assert!(err.to_string().contains("models missing"), "unexpected error: {err}");
     }
 
     #[test]
