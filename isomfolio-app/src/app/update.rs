@@ -401,157 +401,15 @@ impl App {
                 Task::none()
             }
 
-            Msg::OpenSettings => {
-                let mut addon_configs = std::collections::HashMap::new();
-                for addon in &self.addons {
-                    if addon.manifest.config_schema.is_empty() {
-                        continue;
-                    }
-                    let addon_dir = addon.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
-                    let stored = load_addon_config(addon_dir);
-                    let mut fields = std::collections::HashMap::new();
-                    for field in &addon.manifest.config_schema {
-                        let val = stored
-                            .get(&field.key)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(field.default.as_deref().unwrap_or(""))
-                            .to_string();
-                        fields.insert(field.key.clone(), val);
-                    }
-                    addon_configs.insert(addon.manifest.name.clone(), fields);
-                }
-                self.settings = SettingsState { show: true, addon_configs, install_error: None, status: None };
-                Task::none()
-            }
-
-            Msg::CloseSettings => {
-                self.settings.show = false;
-                Task::none()
-            }
-
-            Msg::SettingsConfigChanged { addon_name, key, value } => {
-                use isomfolio_core::addon::ConfigFieldKind;
-                let kind = self.addons.iter()
-                    .find(|a| a.manifest.name == addon_name)
-                    .and_then(|a| a.manifest.config_schema.iter().find(|f| f.key == key))
-                    .map(|f| &f.kind);
-                let valid = match kind {
-                    Some(ConfigFieldKind::Number) => value.is_empty() || value == "." || value == "-" || value.parse::<f64>().is_ok(),
-                    Some(ConfigFieldKind::Integer) => value.is_empty() || value == "-" || value.parse::<i64>().is_ok(),
-                    _ => true,
-                };
-                if valid {
-                    self.settings
-                        .addon_configs
-                        .entry(addon_name)
-                        .or_default()
-                        .insert(key, value);
-                }
-                Task::none()
-            }
-
-            Msg::SaveSettings => {
-                self.settings.show = false;
-                let mut restart_tasks = Vec::new();
-                for (addon_name, fields) in &self.settings.addon_configs {
-                    let schema = self.addons.iter()
-                        .find(|a| &a.manifest.name == addon_name)
-                        .map(|a| &a.manifest.config_schema);
-                    let config: serde_json::Value = fields
-                        .iter()
-                        .map(|(k, v)| {
-                            use isomfolio_core::addon::ConfigFieldKind;
-                            let kind = schema.and_then(|s| s.iter().find(|f| &f.key == k)).map(|f| &f.kind);
-                            let val = match kind {
-                                Some(ConfigFieldKind::Number) => v.parse::<f64>()
-                                    .map(serde_json::Value::from)
-                                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
-                                Some(ConfigFieldKind::Integer) => v.parse::<i64>()
-                                    .map(serde_json::Value::from)
-                                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
-                                _ => serde_json::Value::String(v.clone()),
-                            };
-                            (k.clone(), val)
-                        })
-                        .collect::<serde_json::Map<_, _>>()
-                        .into();
-                    let addon_dir = self.addons.iter()
-                        .find(|a| &a.manifest.name == addon_name)
-                        .and_then(|a| a.manifest.executable.parent().map(|p| p.to_path_buf()))
-                        .unwrap_or_default();
-                    if let Err(e) = save_addon_config(&addon_dir, &config) {
-                        self.status = format!("Settings save failed: {e}");
-                        return Task::none();
-                    }
-                    let idx = self.addons.iter().position(|a| &a.manifest.name == addon_name);
-                    if let Some(idx) = idx {
-                        let manifest = self.addons[idx].manifest.clone();
-                        restart_tasks.push(Task::perform(
-                            async move { AddonProcess::launch(manifest).map(Arc::new).ok() },
-                            move |p| Msg::AddonRestarted { idx, process: p },
-                        ));
-                    }
-                }
-                if restart_tasks.is_empty() {
-                    Task::none()
-                } else {
-                    self.settings.status = Some("Saving & restarting addons…".to_string());
-                    Task::batch(restart_tasks)
-                }
-            }
-
-            Msg::InstallAddonPickFile => Task::perform(
-                async {
-                    rfd::AsyncFileDialog::new()
-                        .add_filter("IsomFolio Extension", &["isfx"])
-                        .pick_file()
-                        .await
-                        .map(|f| f.path().to_string_lossy().into_owned())
-                },
-                Msg::AddonPackagePicked,
-            ),
-
-            Msg::AddonPackagePicked(None) => Task::none(),
-
-            Msg::AddonPackagePicked(Some(path)) => {
-                self.settings.install_error = None;
-                self.settings.status = Some("Installing addon…".to_string());
-                Task::perform(
-                    async move {
-                        let path = std::path::PathBuf::from(path);
-                        install_addon_package(&path)
-                            .and_then(|m| AddonProcess::launch(m).map(Arc::new).map_err(|e| e.to_string()))
-                    },
-                    |result| match result {
-                        Ok(p) => Msg::AddonInstalled(p),
-                        Err(e) => Msg::AddonInstallFailed(e),
-                    },
-                )
-            }
-
-            Msg::AddonInstalled(process) => {
-                self.settings.status = Some(format!("'{}' installed", process.manifest.name));
-                self.settings.install_error = None;
-                self.addons.push(process);
-                Task::none()
-            }
-
-            Msg::AddonInstallFailed(e) => {
-                self.settings.install_error = Some(e);
-                Task::none()
-            }
-
-            Msg::UninstallAddon(name) => {
-                if let Some(idx) = self.addons.iter().position(|a| a.manifest.name == name) {
-                    self.addons.remove(idx);
-                }
-                if let Err(e) = uninstall_addon(&name) {
-                    self.settings.status = Some(format!("Uninstall failed: {e}"));
-                } else {
-                    self.settings.status = Some(format!("'{name}' removed"));
-                }
-                Task::none()
-            }
+            Msg::OpenSettings
+            | Msg::CloseSettings
+            | Msg::SettingsConfigChanged { .. }
+            | Msg::SaveSettings
+            | Msg::InstallAddonPickFile
+            | Msg::AddonPackagePicked(_)
+            | Msg::AddonInstalled(_)
+            | Msg::AddonInstallFailed(_)
+            | Msg::UninstallAddon(_) => self.handle_settings(msg),
 
             Msg::SidebarItemClicked(item) => {
                 if let SidebarItem::Album(ref id) = item {
@@ -1114,310 +972,41 @@ impl App {
                 Task::batch([t1, t2])
             }
 
-            Msg::StartCreateAlbum => {
-                self.create_album_input = Some(String::new());
-                Task::none()
-            }
+            Msg::StartCreateAlbum
+            | Msg::CreateAlbumInputChanged(_)
+            | Msg::ConfirmCreateAlbum
+            | Msg::CancelCreateAlbum
+            | Msg::AlbumCreated
+            | Msg::AlbumRenamed
+            | Msg::FilesRemovedFromAlbum
+            | Msg::StartRenameAlbum(_)
+            | Msg::RenameAlbumInputChanged(_)
+            | Msg::ConfirmRenameAlbum
+            | Msg::RequestDeleteAlbum(_)
+            | Msg::CancelDeleteAlbum
+            | Msg::DeleteAlbum(_)
+            | Msg::AlbumDeleted
+            | Msg::RemoveFromAlbum
+            | Msg::CancelRemoveFromAlbum
+            | Msg::ConfirmRemoveFromAlbum
+            | Msg::SaveAsSmartAlbum
+            | Msg::SmartAlbumNameChanged(_)
+            | Msg::ConfirmSmartAlbum
+            | Msg::SmartAlbumUpdated
+            | Msg::UpdateSmartAlbum => self.handle_album(msg),
 
-            Msg::CreateAlbumInputChanged(s) => {
-                self.create_album_input = Some(s);
-                Task::none()
-            }
-
-            Msg::ConfirmCreateAlbum => {
-                let name = self.create_album_input.take().unwrap_or_default();
-                let name = name.trim().to_string();
-                if name.is_empty() {
-                    return Task::none();
-                }
-                let Some(conn) = self.catalog.clone() else {
-                    return Task::none();
-                };
-                let album = Album {
-                    id: new_album_id(),
-                    name,
-                    kind: AlbumKind::Manual,
-                    sort_order: 0,
-                };
-                self.pending_album_select = Some(album.id.clone());
-                Task::perform(
-                    async move {
-                        let guard = conn.lock_unwrap();
-                        guard.create_album(&album).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
-                )
-            }
-
-            Msg::CancelCreateAlbum => {
-                self.create_album_input = None;
-                Task::none()
-            }
-
-            Msg::AlbumCreated | Msg::AlbumRenamed => {
-                self.load_sidebar_task()
-            }
-
-            Msg::FilesRemovedFromAlbum => {
-                let t1 = self.load_sidebar_task();
-                let t2 = self.load_files_task();
-                Task::batch([t1, t2])
-            }
-
-            Msg::StartRenameAlbum(album_id) => {
-                let current_name = self
-                    .albums
-                    .iter()
-                    .find(|a| a.id == album_id)
-                    .map(|a| a.name.clone())
-                    .unwrap_or_default();
-                self.rename_album_id = Some(album_id);
-                self.rename_album_input = current_name;
-                Task::none()
-            }
-
-            Msg::RenameAlbumInputChanged(s) => {
-                self.rename_album_input = s;
-                Task::none()
-            }
-
-            Msg::ConfirmRenameAlbum => {
-                let name = self.rename_album_input.trim().to_string();
-                let Some(album_id) = self.rename_album_id.take() else {
-                    return Task::none();
-                };
-                if name.is_empty() {
-                    return Task::none();
-                }
-                let Some(conn) = self.catalog.clone() else {
-                    return Task::none();
-                };
-                Task::perform(
-                    async move {
-                        let guard = conn.lock_unwrap();
-                        guard.rename_album(&album_id, &name).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::AlbumRenamed, Msg::DbError),
-                )
-            }
-
-            Msg::RequestDeleteAlbum(album_id) => {
-                self.album_pending_delete = Some(album_id);
-                Task::none()
-            }
-
-            Msg::CancelDeleteAlbum => {
-                self.album_pending_delete = None;
-                Task::none()
-            }
-
-            Msg::DeleteAlbum(album_id) => {
-                self.album_pending_delete = None;
-                if self.selected_item == SidebarItem::Album(album_id.clone()) {
-                    self.selected_item = SidebarItem::AllFiles;
-                    self.files.clear();
-                }
-                let Some(conn) = self.catalog.clone() else {
-                    return Task::none();
-                };
-                Task::perform(
-                    async move {
-                        let guard = conn.lock_unwrap();
-                        guard.delete_album(&album_id).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::AlbumDeleted, Msg::DbError),
-                )
-            }
-
-            Msg::AlbumDeleted => {
-                let t1 = self.load_sidebar_task();
-                let t2 = self.load_files_task();
-                Task::batch([t1, t2])
-            }
-
-            Msg::RemoveFromAlbum => {
-                self.remove_from_album_pending = true;
-                Task::none()
-            }
-
-            Msg::CancelRemoveFromAlbum => {
-                self.remove_from_album_pending = false;
-                Task::none()
-            }
-
-            Msg::ConfirmRemoveFromAlbum => {
-                self.remove_from_album_pending = false;
-                let SidebarItem::Album(ref album_id) = self.selected_item else {
-                    return Task::none();
-                };
-                let album_id = album_id.clone();
-                let ids: Vec<String> = self.grid_selected.iter().cloned().collect();
-                let count = ids.len();
-                let name = self
-                    .albums
-                    .iter()
-                    .find(|a| a.id == album_id)
-                    .map(|a| a.name.clone())
-                    .unwrap_or_default();
-                self.status = format!("Removed {count} photo(s) from \"{name}\"");
-                self.grid_selected.clear();
-                let Some(conn) = self.catalog.clone() else {
-                    return Task::none();
-                };
-                Task::perform(
-                    async move {
-                        let guard = conn.lock_unwrap();
-                        let err = ids.iter()
-                            .find_map(|fid| guard.remove_file_from_album(&album_id, fid).err())
-                            .map(|e| e.to_string());
-                        err
-                    },
-                    |e| e.map_or(Msg::FilesRemovedFromAlbum, Msg::DbError),
-                )
-            }
-
-            Msg::SortFieldCycle => {
-                self.sort_by = next_sort_field(self.sort_by);
-                self.load_files_task()
-            }
-
-            Msg::SortDirToggle => {
-                self.sort_asc = !self.sort_asc;
-                self.load_files_task()
-            }
-
-            Msg::SortCycleAll => {
-                if self.sort_asc {
-                    self.sort_asc = false;
-                } else {
-                    self.sort_by = next_sort_field(self.sort_by);
-                    self.sort_asc = true;
-                }
-                self.load_files_task()
-            }
-
-            Msg::SearchChanged(text) => {
-                self.mark_smart_dirty();
-                self.pending_search = Some((text, Instant::now()));
-                Task::none()
-            }
-
-            Msg::ToggleCriteria => {
-                self.criteria.show = !self.criteria.show;
-                Task::none()
-            }
-
-            Msg::CriteriaTagInputChanged(s) => {
-                self.criteria.tag_input = s;
-                Task::none()
-            }
-
-            Msg::AddCriteriaTag => {
-                let tag = self.criteria.tag_input.trim().to_string();
-                self.criteria.tag_input.clear();
-                if !tag.is_empty() && !self.criteria.tags.contains(&tag) {
-                    self.criteria.tags.push(tag);
-                }
-                self.mark_smart_dirty();
-                self.load_files_task()
-            }
-
-            Msg::RemoveCriteriaTag(tag) => {
-                self.criteria.tags.retain(|t| t != &tag);
-                self.mark_smart_dirty();
-                self.load_files_task()
-            }
-
-            Msg::CriteriaDateFromChanged(s) => {
-                self.criteria.date_from = s;
-                self.mark_smart_dirty();
-                self.load_files_task()
-            }
-
-            Msg::CriteriaDateToChanged(s) => {
-                self.criteria.date_to = s;
-                self.mark_smart_dirty();
-                self.load_files_task()
-            }
-
-            Msg::ToggleCriteriaExt(ext) => {
-                if self.criteria.exts.contains(&ext) {
-                    self.criteria.exts.remove(&ext);
-                } else {
-                    self.criteria.exts.insert(ext);
-                }
-                self.mark_smart_dirty();
-                self.load_files_task()
-            }
-
-            Msg::ClearCriteria => {
-                self.criteria.tags.clear();
-                self.criteria.date_from.clear();
-                self.criteria.date_to.clear();
-                self.criteria.exts.clear();
-                self.criteria.flag_filter = isomfolio_core::models::FlagFilter::All;
-                self.criteria.rating_min = None;
-                self.mark_smart_dirty();
-                self.load_files_task()
-            }
-
-            Msg::SaveAsSmartAlbum => {
-                self.criteria.save_smart_input = Some(String::new());
-                Task::none()
-            }
-
-            Msg::SmartAlbumNameChanged(s) => {
-                self.criteria.save_smart_input = Some(s);
-                Task::none()
-            }
-
-            Msg::ConfirmSmartAlbum => {
-                let name = self.criteria.save_smart_input.take().unwrap_or_default();
-                let name = name.trim().to_string();
-                if name.is_empty() {
-                    return Task::none();
-                }
-                let query = self.build_search_query();
-                let Some(conn) = self.catalog.clone() else {
-                    return Task::none();
-                };
-                let album = Album {
-                    id: new_album_id(),
-                    name,
-                    kind: AlbumKind::Smart(query),
-                    sort_order: 0,
-                };
-                Task::perform(
-                    async move {
-                        let guard = conn.lock_unwrap();
-                        guard.create_album(&album).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
-                )
-            }
-
-            Msg::SmartAlbumUpdated => {
-                self.smart_album_dirty = false;
-                self.load_sidebar_task()
-            }
-
-            Msg::UpdateSmartAlbum => {
-                let SidebarItem::Album(ref id) = self.selected_item else {
-                    return Task::none();
-                };
-                let album_id = id.clone();
-                let query = self.build_search_query();
-                let Some(conn) = self.catalog.clone() else {
-                    return Task::none();
-                };
-                Task::perform(
-                    async move {
-                        let guard = conn.lock_unwrap();
-                        guard.update_smart_album_query(&album_id, &query).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::SmartAlbumUpdated, Msg::DbError),
-                )
-            }
+            Msg::SortFieldCycle
+            | Msg::SortDirToggle
+            | Msg::SortCycleAll
+            | Msg::SearchChanged(_)
+            | Msg::ToggleCriteria
+            | Msg::CriteriaTagInputChanged(_)
+            | Msg::AddCriteriaTag
+            | Msg::RemoveCriteriaTag(_)
+            | Msg::CriteriaDateFromChanged(_)
+            | Msg::CriteriaDateToChanged(_)
+            | Msg::ToggleCriteriaExt(_)
+            | Msg::ClearCriteria => self.handle_criteria(msg),
 
             Msg::ToggleDetail => {
                 self.detail.show = !self.detail.show;
@@ -2758,4 +2347,478 @@ fn parse_cluster_response(v: serde_json::Value) -> Vec<FaceClusterMember> {
         });
     }
     rows
+}
+
+impl App {
+    fn handle_album(&mut self, msg: Msg) -> Task<Msg> {
+        match msg {
+            Msg::StartCreateAlbum => {
+                self.create_album_input = Some(String::new());
+                Task::none()
+            }
+
+            Msg::CreateAlbumInputChanged(s) => {
+                self.create_album_input = Some(s);
+                Task::none()
+            }
+
+            Msg::ConfirmCreateAlbum => {
+                let name = self.create_album_input.take().unwrap_or_default();
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return Task::none();
+                }
+                let Some(conn) = self.catalog.clone() else {
+                    return Task::none();
+                };
+                let album = Album {
+                    id: new_album_id(),
+                    name,
+                    kind: AlbumKind::Manual,
+                    sort_order: 0,
+                };
+                self.pending_album_select = Some(album.id.clone());
+                Task::perform(
+                    async move {
+                        let guard = conn.lock_unwrap();
+                        guard.create_album(&album).err().map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
+                )
+            }
+
+            Msg::CancelCreateAlbum => {
+                self.create_album_input = None;
+                Task::none()
+            }
+
+            Msg::AlbumCreated | Msg::AlbumRenamed => self.load_sidebar_task(),
+
+            Msg::FilesRemovedFromAlbum => {
+                Task::batch([self.load_sidebar_task(), self.load_files_task()])
+            }
+
+            Msg::StartRenameAlbum(album_id) => {
+                let current_name = self
+                    .albums
+                    .iter()
+                    .find(|a| a.id == album_id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_default();
+                self.rename_album_id = Some(album_id);
+                self.rename_album_input = current_name;
+                Task::none()
+            }
+
+            Msg::RenameAlbumInputChanged(s) => {
+                self.rename_album_input = s;
+                Task::none()
+            }
+
+            Msg::ConfirmRenameAlbum => {
+                let name = self.rename_album_input.trim().to_string();
+                let Some(album_id) = self.rename_album_id.take() else {
+                    return Task::none();
+                };
+                if name.is_empty() {
+                    return Task::none();
+                }
+                let Some(conn) = self.catalog.clone() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let guard = conn.lock_unwrap();
+                        guard.rename_album(&album_id, &name).err().map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::AlbumRenamed, Msg::DbError),
+                )
+            }
+
+            Msg::RequestDeleteAlbum(album_id) => {
+                self.album_pending_delete = Some(album_id);
+                Task::none()
+            }
+
+            Msg::CancelDeleteAlbum => {
+                self.album_pending_delete = None;
+                Task::none()
+            }
+
+            Msg::DeleteAlbum(album_id) => {
+                self.album_pending_delete = None;
+                if self.selected_item == SidebarItem::Album(album_id.clone()) {
+                    self.selected_item = SidebarItem::AllFiles;
+                    self.files.clear();
+                }
+                let Some(conn) = self.catalog.clone() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let guard = conn.lock_unwrap();
+                        guard.delete_album(&album_id).err().map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::AlbumDeleted, Msg::DbError),
+                )
+            }
+
+            Msg::AlbumDeleted => {
+                Task::batch([self.load_sidebar_task(), self.load_files_task()])
+            }
+
+            Msg::RemoveFromAlbum => {
+                self.remove_from_album_pending = true;
+                Task::none()
+            }
+
+            Msg::CancelRemoveFromAlbum => {
+                self.remove_from_album_pending = false;
+                Task::none()
+            }
+
+            Msg::ConfirmRemoveFromAlbum => {
+                self.remove_from_album_pending = false;
+                let SidebarItem::Album(ref album_id) = self.selected_item else {
+                    return Task::none();
+                };
+                let album_id = album_id.clone();
+                let ids: Vec<String> = self.grid_selected.iter().cloned().collect();
+                let count = ids.len();
+                let name = self
+                    .albums
+                    .iter()
+                    .find(|a| a.id == album_id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_default();
+                self.status = format!("Removed {count} photo(s) from \"{name}\"");
+                self.grid_selected.clear();
+                let Some(conn) = self.catalog.clone() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let guard = conn.lock_unwrap();
+                        let err = ids
+                            .iter()
+                            .find_map(|fid| guard.remove_file_from_album(&album_id, fid).err())
+                            .map(|e| e.to_string());
+                        err
+                    },
+                    |e| e.map_or(Msg::FilesRemovedFromAlbum, Msg::DbError),
+                )
+            }
+
+            Msg::SaveAsSmartAlbum => {
+                self.criteria.save_smart_input = Some(String::new());
+                Task::none()
+            }
+
+            Msg::SmartAlbumNameChanged(s) => {
+                self.criteria.save_smart_input = Some(s);
+                Task::none()
+            }
+
+            Msg::ConfirmSmartAlbum => {
+                let name = self.criteria.save_smart_input.take().unwrap_or_default();
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return Task::none();
+                }
+                let query = self.build_search_query();
+                let Some(conn) = self.catalog.clone() else {
+                    return Task::none();
+                };
+                let album = Album {
+                    id: new_album_id(),
+                    name,
+                    kind: AlbumKind::Smart(query),
+                    sort_order: 0,
+                };
+                Task::perform(
+                    async move {
+                        let guard = conn.lock_unwrap();
+                        guard.create_album(&album).err().map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
+                )
+            }
+
+            Msg::SmartAlbumUpdated => {
+                self.smart_album_dirty = false;
+                self.load_sidebar_task()
+            }
+
+            Msg::UpdateSmartAlbum => {
+                let SidebarItem::Album(ref id) = self.selected_item else {
+                    return Task::none();
+                };
+                let album_id = id.clone();
+                let query = self.build_search_query();
+                let Some(conn) = self.catalog.clone() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        let guard = conn.lock_unwrap();
+                        guard.update_smart_album_query(&album_id, &query).err().map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::SmartAlbumUpdated, Msg::DbError),
+                )
+            }
+
+            _ => Task::none(),
+        }
+    }
+
+    fn handle_criteria(&mut self, msg: Msg) -> Task<Msg> {
+        match msg {
+            Msg::SortFieldCycle => {
+                self.sort_by = next_sort_field(self.sort_by);
+                self.load_files_task()
+            }
+
+            Msg::SortDirToggle => {
+                self.sort_asc = !self.sort_asc;
+                self.load_files_task()
+            }
+
+            Msg::SortCycleAll => {
+                if self.sort_asc {
+                    self.sort_asc = false;
+                } else {
+                    self.sort_by = next_sort_field(self.sort_by);
+                    self.sort_asc = true;
+                }
+                self.load_files_task()
+            }
+
+            Msg::SearchChanged(text) => {
+                self.mark_smart_dirty();
+                self.pending_search = Some((text, Instant::now()));
+                Task::none()
+            }
+
+            Msg::ToggleCriteria => {
+                self.criteria.show = !self.criteria.show;
+                Task::none()
+            }
+
+            Msg::CriteriaTagInputChanged(s) => {
+                self.criteria.tag_input = s;
+                Task::none()
+            }
+
+            Msg::AddCriteriaTag => {
+                let tag = self.criteria.tag_input.trim().to_string();
+                self.criteria.tag_input.clear();
+                if !tag.is_empty() && !self.criteria.tags.contains(&tag) {
+                    self.criteria.tags.push(tag);
+                }
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::RemoveCriteriaTag(tag) => {
+                self.criteria.tags.retain(|t| t != &tag);
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::CriteriaDateFromChanged(s) => {
+                self.criteria.date_from = s;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::CriteriaDateToChanged(s) => {
+                self.criteria.date_to = s;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::ToggleCriteriaExt(ext) => {
+                if self.criteria.exts.contains(&ext) {
+                    self.criteria.exts.remove(&ext);
+                } else {
+                    self.criteria.exts.insert(ext);
+                }
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::ClearCriteria => {
+                self.criteria.tags.clear();
+                self.criteria.date_from.clear();
+                self.criteria.date_to.clear();
+                self.criteria.exts.clear();
+                self.criteria.flag_filter = isomfolio_core::models::FlagFilter::All;
+                self.criteria.rating_min = None;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            _ => Task::none(),
+        }
+    }
+}
+
+impl App {
+    fn handle_settings(&mut self, msg: Msg) -> Task<Msg> {
+        match msg {
+            Msg::OpenSettings => {
+                let mut addon_configs = std::collections::HashMap::new();
+                for addon in &self.addons {
+                    if addon.manifest.config_schema.is_empty() {
+                        continue;
+                    }
+                    let addon_dir = addon.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
+                    let stored = load_addon_config(addon_dir);
+                    let mut fields = std::collections::HashMap::new();
+                    for field in &addon.manifest.config_schema {
+                        let val = stored
+                            .get(&field.key)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(field.default.as_deref().unwrap_or(""))
+                            .to_string();
+                        fields.insert(field.key.clone(), val);
+                    }
+                    addon_configs.insert(addon.manifest.name.clone(), fields);
+                }
+                self.settings = SettingsState { show: true, addon_configs, install_error: None, status: None };
+                Task::none()
+            }
+
+            Msg::CloseSettings => {
+                self.settings.show = false;
+                Task::none()
+            }
+
+            Msg::SettingsConfigChanged { addon_name, key, value } => {
+                use isomfolio_core::addon::ConfigFieldKind;
+                let kind = self.addons.iter()
+                    .find(|a| a.manifest.name == addon_name)
+                    .and_then(|a| a.manifest.config_schema.iter().find(|f| f.key == key))
+                    .map(|f| &f.kind);
+                let valid = match kind {
+                    Some(ConfigFieldKind::Number) => value.is_empty() || value == "." || value == "-" || value.parse::<f64>().is_ok(),
+                    Some(ConfigFieldKind::Integer) => value.is_empty() || value == "-" || value.parse::<i64>().is_ok(),
+                    _ => true,
+                };
+                if valid {
+                    self.settings
+                        .addon_configs
+                        .entry(addon_name)
+                        .or_default()
+                        .insert(key, value);
+                }
+                Task::none()
+            }
+
+            Msg::SaveSettings => {
+                self.settings.show = false;
+                let mut restart_tasks = Vec::new();
+                for (addon_name, fields) in &self.settings.addon_configs {
+                    let schema = self.addons.iter()
+                        .find(|a| &a.manifest.name == addon_name)
+                        .map(|a| &a.manifest.config_schema);
+                    let config: serde_json::Value = fields
+                        .iter()
+                        .map(|(k, v)| {
+                            use isomfolio_core::addon::ConfigFieldKind;
+                            let kind = schema.and_then(|s| s.iter().find(|f| &f.key == k)).map(|f| &f.kind);
+                            let val = match kind {
+                                Some(ConfigFieldKind::Number) => v.parse::<f64>()
+                                    .map(serde_json::Value::from)
+                                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
+                                Some(ConfigFieldKind::Integer) => v.parse::<i64>()
+                                    .map(serde_json::Value::from)
+                                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
+                                _ => serde_json::Value::String(v.clone()),
+                            };
+                            (k.clone(), val)
+                        })
+                        .collect::<serde_json::Map<_, _>>()
+                        .into();
+                    let addon_dir = self.addons.iter()
+                        .find(|a| &a.manifest.name == addon_name)
+                        .and_then(|a| a.manifest.executable.parent().map(|p| p.to_path_buf()))
+                        .unwrap_or_default();
+                    if let Err(e) = save_addon_config(&addon_dir, &config) {
+                        self.status = format!("Settings save failed: {e}");
+                        return Task::none();
+                    }
+                    let idx = self.addons.iter().position(|a| &a.manifest.name == addon_name);
+                    if let Some(idx) = idx {
+                        let manifest = self.addons[idx].manifest.clone();
+                        restart_tasks.push(Task::perform(
+                            async move { AddonProcess::launch(manifest).map(Arc::new).ok() },
+                            move |p| Msg::AddonRestarted { idx, process: p },
+                        ));
+                    }
+                }
+                if restart_tasks.is_empty() {
+                    Task::none()
+                } else {
+                    self.settings.status = Some("Saving & restarting addons…".to_string());
+                    Task::batch(restart_tasks)
+                }
+            }
+
+            Msg::InstallAddonPickFile => Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .add_filter("IsomFolio Extension", &["isfx"])
+                        .pick_file()
+                        .await
+                        .map(|f| f.path().to_string_lossy().into_owned())
+                },
+                Msg::AddonPackagePicked,
+            ),
+
+            Msg::AddonPackagePicked(None) => Task::none(),
+
+            Msg::AddonPackagePicked(Some(path)) => {
+                self.settings.install_error = None;
+                self.settings.status = Some("Installing addon…".to_string());
+                Task::perform(
+                    async move {
+                        let path = std::path::PathBuf::from(path);
+                        install_addon_package(&path)
+                            .and_then(|m| AddonProcess::launch(m).map(Arc::new).map_err(|e| e.to_string()))
+                    },
+                    |result| match result {
+                        Ok(p) => Msg::AddonInstalled(p),
+                        Err(e) => Msg::AddonInstallFailed(e),
+                    },
+                )
+            }
+
+            Msg::AddonInstalled(process) => {
+                self.settings.status = Some(format!("'{}' installed", process.manifest.name));
+                self.settings.install_error = None;
+                self.addons.push(process);
+                Task::none()
+            }
+
+            Msg::AddonInstallFailed(e) => {
+                self.settings.install_error = Some(e);
+                Task::none()
+            }
+
+            Msg::UninstallAddon(name) => {
+                if let Some(idx) = self.addons.iter().position(|a| a.manifest.name == name) {
+                    self.addons.remove(idx);
+                }
+                if let Err(e) = uninstall_addon(&name) {
+                    self.settings.status = Some(format!("Uninstall failed: {e}"));
+                } else {
+                    self.settings.status = Some(format!("'{name}' removed"));
+                }
+                Task::none()
+            }
+
+            _ => Task::none(),
+        }
+    }
 }
