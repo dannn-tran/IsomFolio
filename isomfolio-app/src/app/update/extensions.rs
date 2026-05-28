@@ -54,83 +54,92 @@ impl App {
                     }
                 };
 
+                struct ClassifyState {
+                    handle: isomfolio_core::extension::BatchHandle,
+                    conn: std::sync::Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
+                    name: String,
+                    addon_idx: usize,
+                    done: usize,
+                    applied: usize,
+                    failed: usize,
+                }
+
                 let stream = futures::stream::unfold(
-                    (handle, conn, extension_name, addon_idx, 0usize, 0usize, 0usize),
-                    |(handle, conn, name, addon_idx, mut done, mut applied, mut failed)| async move {
-                        let rx = handle.rx.clone();
+                    ClassifyState { handle, conn, name: extension_name, addon_idx, done: 0, applied: 0, failed: 0 },
+                    |mut s| async move {
+                        let rx = s.handle.rx.clone();
                         let result =
                             tokio::task::spawn_blocking(move || rx.lock_unwrap().recv()).await;
                         match result {
                             Ok(Ok(Ok(value))) => {
                                 if let Some((fid, tags)) = extract_scored_tags(value) {
                                     if !tags.is_empty() && !fid.is_empty() {
-                                        let g = conn.lock_unwrap();
+                                        let g = s.conn.lock_unwrap();
                                         if let Err(e) = g.insert_pending_tags(&fid, &tags) {
                                             eprintln!("[db] insert_pending_tags failed: {e}");
                                         }
-                                        applied += 1;
+                                        s.applied += 1;
                                     }
                                 }
-                                done += 1;
-                                if done >= handle.total {
+                                s.done += 1;
+                                if s.done >= s.handle.total {
                                     Some((
                                         Msg::ExtensionBatchDone {
-                                            addon_idx,
+                                            addon_idx: s.addon_idx,
                                             method: "classify".into(),
-                                            applied,
-                                            failed,
+                                            applied: s.applied,
+                                            failed: s.failed,
                                         },
-                                        (handle, conn, name, addon_idx, done, applied, failed),
+                                        s,
                                     ))
                                 } else {
                                     Some((
                                         Msg::ExtensionBatchProgress {
-                                            name: name.clone(),
-                                            done,
-                                            total: handle.total,
+                                            name: s.name.clone(),
+                                            done: s.done,
+                                            total: s.handle.total,
                                         },
-                                        (handle, conn, name, addon_idx, done, applied, failed),
+                                        s,
                                     ))
                                 }
                             }
                             Ok(Ok(Err(e))) => {
                                 eprintln!("[extension] classify error: {e}");
-                                done += 1;
-                                failed += 1;
-                                if done >= handle.total {
+                                s.done += 1;
+                                s.failed += 1;
+                                if s.done >= s.handle.total {
                                     Some((
                                         Msg::ExtensionBatchDone {
-                                            addon_idx,
+                                            addon_idx: s.addon_idx,
                                             method: "classify".into(),
-                                            applied,
-                                            failed,
+                                            applied: s.applied,
+                                            failed: s.failed,
                                         },
-                                        (handle, conn, name, addon_idx, done, applied, failed),
+                                        s,
                                     ))
                                 } else {
                                     Some((
                                         Msg::ExtensionBatchProgress {
-                                            name: name.clone(),
-                                            done,
-                                            total: handle.total,
+                                            name: s.name.clone(),
+                                            done: s.done,
+                                            total: s.handle.total,
                                         },
-                                        (handle, conn, name, addon_idx, done, applied, failed),
+                                        s,
                                     ))
                                 }
                             }
                             _ => {
-                                let total = handle.total;
-                                let remaining = total.saturating_sub(done);
-                                failed += remaining;
-                                done = total;
+                                let remaining = s.handle.total.saturating_sub(s.done);
+                                s.failed += remaining;
+                                s.done = s.handle.total;
                                 Some((
                                     Msg::ExtensionBatchDone {
-                                        addon_idx,
+                                        addon_idx: s.addon_idx,
                                         method: "classify".into(),
-                                        applied,
-                                        failed,
+                                        applied: s.applied,
+                                        failed: s.failed,
                                     },
-                                    (handle, conn, name, addon_idx, done, applied, failed),
+                                    s,
                                 ))
                             }
                         }
