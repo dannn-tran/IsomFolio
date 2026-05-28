@@ -110,7 +110,7 @@ pub struct App {
     pub thumb_ctx: ThumbnailContext,
 
     pub watcher_tx: mpsc::SyncSender<FileEvent>,
-    pub watcher_rx: mpsc::Receiver<FileEvent>,
+    pub watcher_rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<FileEvent>>>>,
     pub watchers: Vec<(String, FileWatcher)>,
 
     pub search_text: String,
@@ -217,11 +217,52 @@ impl iced::advanced::subscription::Recipe for ThumbnailRecipe {
     }
 }
 
+struct WatcherRecipe {
+    rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<FileEvent>>>>,
+}
+
+impl iced::advanced::subscription::Recipe for WatcherRecipe {
+    type Output = Msg;
+
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
+        use std::hash::Hash;
+        std::any::TypeId::of::<Self>().hash(state);
+    }
+
+    fn stream(
+        self: Box<Self>,
+        _input: iced::advanced::subscription::EventStream,
+    ) -> std::pin::Pin<Box<dyn iced::futures::Stream<Item = Self::Output> + Send + 'static>> {
+        let rx_arc = self.rx;
+        Box::pin(iced::futures::stream::unfold(
+            None::<mpsc::Receiver<FileEvent>>,
+            move |rx| {
+                let rx_arc = rx_arc.clone();
+                async move {
+                    let rx = match rx {
+                        Some(r) => r,
+                        None => rx_arc.lock().ok()?.take()?,
+                    };
+                    let result = tokio::task::spawn_blocking(move || {
+                        rx.recv().ok().map(|ev| (ev, rx))
+                    })
+                    .await
+                    .ok()
+                    .flatten()?;
+                    let (event, rx) = result;
+                    Some((Msg::FileWatcherEvent(event), Some(rx)))
+                }
+            },
+        ))
+    }
+}
+
 impl App {
     pub fn new(catalog_dir: Option<String>) -> (Self, Task<Msg>) {
         let (tx, rx) = mpsc::sync_channel::<ThumbnailEvent>(500);
         let rx_arc = Arc::new(std::sync::Mutex::new(Some(rx)));
         let (wtx, wrx) = mpsc::sync_channel::<FileEvent>(200);
+        let wrx_arc = Arc::new(std::sync::Mutex::new(Some(wrx)));
 
         let recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
 
@@ -274,7 +315,7 @@ impl App {
                 handles: HashMap::new(),
             },
             watcher_tx: wtx,
-            watcher_rx: wrx,
+            watcher_rx: wrx_arc,
             watchers: Vec::new(),
             search_text: String::new(),
             pending_search: None,
@@ -743,7 +784,11 @@ impl App {
             id: self.thumb_ctx.sub_id,
         });
 
-        Subscription::batch([tick_sub, event_sub, thumb_sub])
+        let watcher_sub = iced::advanced::subscription::from_recipe(WatcherRecipe {
+            rx: Arc::clone(&self.watcher_rx),
+        });
+
+        Subscription::batch([tick_sub, event_sub, thumb_sub, watcher_sub])
     }
 }
 

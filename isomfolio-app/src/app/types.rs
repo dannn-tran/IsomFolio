@@ -288,6 +288,7 @@ pub enum Msg {
     ThumbnailHandleReady { file_id: String, handle: iced::widget::image::Handle },
     ThumbnailCompleted { file_id: String, path: String },
     ThumbnailFailed { file_id: String },
+    FileWatcherEvent(isomfolio_core::indexing::types::FileEvent),
 }
 
 use isomfolio_core::models::FlagFilter;

@@ -1415,6 +1415,59 @@ impl App {
                 Task::none()
             }
 
+            Msg::FileWatcherEvent(event) => {
+                match event {
+                    FileEvent::ScanProgress(prog) => {
+                        self.status = format!("Scanning {}… {} found", prog.folder_name, prog.total_found);
+                        Task::none()
+                    }
+                    FileEvent::Created(path) | FileEvent::Modified(path) => {
+                        let Some(conn) = self.catalog.clone() else { return Task::none(); };
+                        Task::perform(
+                            async move { let cat = conn.lock_unwrap(); let _ = cat.resync_files(&[path]); },
+                            |()| Msg::Reload,
+                        )
+                    }
+                    FileEvent::Deleted(path) => {
+                        let Some(conn) = self.catalog.clone() else { return Task::none(); };
+                        Task::perform(
+                            async move {
+                                let cat = conn.lock_unwrap();
+                                let norm = normalize_path(&path);
+                                let fid = compute_file_id(&norm);
+                                if let Err(e) = cat.mark_orphaned(&fid) {
+                                    eprintln!("[db] mark_orphaned failed: {e}");
+                                }
+                            },
+                            |()| Msg::Reload,
+                        )
+                    }
+                    FileEvent::Renamed { old_path, new_path } => {
+                        let Some(conn) = self.catalog.clone() else { return Task::none(); };
+                        Task::perform(
+                            async move {
+                                let cat = conn.lock_unwrap();
+                                let norm = normalize_path(&old_path);
+                                let old_fid = compute_file_id(&norm);
+                                if let Err(e) = cat.mark_orphaned(&old_fid) {
+                                    eprintln!("[db] mark_orphaned failed: {e}");
+                                }
+                                let _ = cat.resync_files(&[new_path]);
+                            },
+                            |()| Msg::Reload,
+                        )
+                    }
+                    FileEvent::SidecarChanged(path) => {
+                        let Some(conn) = self.catalog.clone() else { return Task::none(); };
+                        Task::perform(
+                            async move { let cat = conn.lock_unwrap(); let _ = cat.resync_sidecar_files(&[path]); },
+                            |()| Msg::Reload,
+                        )
+                    }
+                    FileEvent::SidecarRemoved(_) => Task::none(),
+                }
+            }
+
             Msg::Tick => {
                 let mut tasks: Vec<Task<Msg>> = Vec::new();
 
@@ -1434,56 +1487,6 @@ impl App {
                         tasks.push(self.load_files_task());
                     } else {
                         self.pending_search = Some((text, ts));
-                    }
-                }
-
-                let mut file_events: Vec<FileEvent> = Vec::new();
-                while let Ok(ev) = self.watcher_rx.try_recv() {
-                    match ev {
-                        FileEvent::ScanProgress(prog) => {
-                            self.status = format!(
-                                "Scanning {}… {} found",
-                                prog.folder_name, prog.total_found
-                            );
-                        }
-                        other => file_events.push(other),
-                    }
-                }
-                if !file_events.is_empty() {
-                    if let Some(conn) = self.catalog.clone() {
-                        tasks.push(Task::perform(
-                            async move {
-                                let cat = conn.lock_unwrap();
-                                for event in file_events {
-                                    match event {
-                                        FileEvent::Created(path) | FileEvent::Modified(path) => {
-                                            let _ = cat.resync_files(&[path]);
-                                        }
-                                        FileEvent::Deleted(path) => {
-                                            let norm = normalize_path(&path);
-                                            let fid = compute_file_id(&norm);
-                                            if let Err(e) = cat.mark_orphaned(&fid) {
-                                                eprintln!("[db] mark_orphaned failed: {e}");
-                                            }
-                                        }
-                                        FileEvent::Renamed { old_path, new_path } => {
-                                            let norm = normalize_path(&old_path);
-                                            let old_fid = compute_file_id(&norm);
-                                            if let Err(e) = cat.mark_orphaned(&old_fid) {
-                                                eprintln!("[db] mark_orphaned failed: {e}");
-                                            }
-                                            let _ = cat.resync_files(&[new_path]);
-                                        }
-                                        FileEvent::SidecarChanged(path) => {
-                                            let _ = cat.resync_sidecar_files(&[path]);
-                                        }
-                                        FileEvent::SidecarRemoved(_) => {}
-                                        FileEvent::ScanProgress(_) => {}
-                                    }
-                                }
-                            },
-                            |()| Msg::Reload,
-                        ));
                     }
                 }
 
