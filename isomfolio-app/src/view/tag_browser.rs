@@ -35,7 +35,7 @@ fn build_tree_rows(tags: &[(String, usize)]) -> Vec<TreeRow> {
             }
         }
         let depth = parts.len() - 1;
-        let leaf = parts.last().unwrap().to_string();
+        let leaf = parts.last().copied().unwrap_or(tag).to_string();
         rows.push(TreeRow::Tag { tag: tag.to_string(), leaf, count, depth });
     }
     rows

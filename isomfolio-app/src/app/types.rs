@@ -199,6 +199,7 @@ pub enum Msg {
 
     Reload,
     DbError(String),
+    TagsSavedResult(Vec<String>, Option<String>),
     Tick,
     DragHoverAlbum(Option<AlbumId>),
     SidebarScrolled(f32),

@@ -521,7 +521,7 @@ impl App {
             return Task::none();
         }
         if n == 1 {
-            let file_id = self.grid_selected.iter().next().unwrap().clone();
+            let file_id = self.grid_selected.iter().next().expect("n == 1 guarantees one element").clone();
             if self.detail.file_id.as_deref() == Some(file_id.as_str()) {
                 return Task::none();
             }

@@ -19,8 +19,8 @@ use isomfolio_core::path_utils::{is_catalog_dir, is_under_catalog_dir, normalize
 
 use super::{
     unix_to_date_str, App, ContextMenuState, ContextMenuTarget, CriteriaState, DetailState,
-    DragState, Msg, SettingsState, SidebarItem, TagBrowserState, ViewMode, ALBUM_ITEM_HEIGHT,
-    SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_HANDLE_WIDTH,
+    DragState, LoupeState, Msg, SettingsState, SidebarItem, TagBrowserState, ViewMode,
+    ALBUM_ITEM_HEIGHT, SIDEBAR_ALBUMS_BASE_Y, SIDEBAR_HANDLE_WIDTH,
 };
 use isomfolio_core::app_paths::db_path;
 
@@ -296,6 +296,7 @@ impl App {
 
             Msg::OpenPeopleView => {
                 self.view_mode = ViewMode::People;
+                self.loupe = LoupeState::default();
                 Task::none()
             }
 
@@ -334,11 +335,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.rename_face_cluster( &cluster_id, &name) {
-                            eprintln!("[db] rename_face_cluster failed: {e}");
-                        }
+                        g.rename_face_cluster(&cluster_id, &name).err().map(|e| e.to_string())
                     },
-                    |_| Msg::NoOp,
+                    |e| e.map_or(Msg::NoOp, Msg::DbError),
                 )
             }
 
@@ -871,10 +870,8 @@ impl App {
                     self.detail.label = None;
                     self.detail.title = None;
                     self.detail.exif_tech = None;
-                    if self.grid_selected.is_empty() {
-                        self.detail.tags.clear();
-                        self.detail.batch_file_ids.clear();
-                    }
+                    self.detail.tags.clear();
+                    self.detail.batch_file_ids.clear();
                 }
                 Task::none()
             }
@@ -988,13 +985,18 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        for fid in &ids {
-                            if let Err(e) = guard.add_file_to_album( &album_id, fid) {
-                                eprintln!("[db] add_file_to_album failed: {e}");
-                            }
+                        let failed = ids.iter()
+                            .filter(|fid| guard.add_file_to_album(&album_id, fid).is_err())
+                            .count();
+                        (count, failed)
+                    },
+                    |(total, failed)| {
+                        if failed > 0 {
+                            Msg::DbError(format!("{} added, {failed} failed to add to album", total - failed))
+                        } else {
+                            Msg::DropCompleted
                         }
                     },
-                    |()| Msg::DropCompleted,
                 )
             }
 
@@ -1091,11 +1093,9 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = guard.delete_files_by_root_folder( &path) {
-                            eprintln!("[db] delete_files_by_root_folder failed: {e}");
-                        }
+                        guard.delete_files_by_root_folder(&path).err().map(|e| e.to_string())
                     },
-                    |()| Msg::FolderRemoved,
+                    |e| e.map_or(Msg::FolderRemoved, Msg::DbError),
                 )
             }
 
@@ -1134,11 +1134,9 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = guard.create_album( &album) {
-                            eprintln!("[db] create_album failed: {e}");
-                        }
+                        guard.create_album(&album).err().map(|e| e.to_string())
                     },
-                    |()| Msg::AlbumCreated,
+                    |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
                 )
             }
 
@@ -1188,11 +1186,9 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = guard.rename_album( &album_id, &name) {
-                            eprintln!("[db] rename_album failed: {e}");
-                        }
+                        guard.rename_album(&album_id, &name).err().map(|e| e.to_string())
                     },
-                    |()| Msg::AlbumRenamed,
+                    |e| e.map_or(Msg::AlbumRenamed, Msg::DbError),
                 )
             }
 
@@ -1218,11 +1214,9 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = guard.delete_album( &album_id) {
-                            eprintln!("[db] delete_album failed: {e}");
-                        }
+                        guard.delete_album(&album_id).err().map(|e| e.to_string())
                     },
-                    |()| Msg::AlbumDeleted,
+                    |e| e.map_or(Msg::AlbumDeleted, Msg::DbError),
                 )
             }
 
@@ -1264,13 +1258,12 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        for fid in &ids {
-                            if let Err(e) = guard.remove_file_from_album( &album_id, fid) {
-                                eprintln!("[db] remove_file_from_album failed: {e}");
-                            }
-                        }
+                        let err = ids.iter()
+                            .find_map(|fid| guard.remove_file_from_album(&album_id, fid).err())
+                            .map(|e| e.to_string());
+                        err
                     },
-                    |()| Msg::FilesRemovedFromAlbum,
+                    |e| e.map_or(Msg::FilesRemovedFromAlbum, Msg::DbError),
                 )
             }
 
@@ -1388,11 +1381,9 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = guard.create_album( &album) {
-                            eprintln!("[db] create_album failed: {e}");
-                        }
+                        guard.create_album(&album).err().map(|e| e.to_string())
                     },
-                    |()| Msg::AlbumCreated,
+                    |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
                 )
             }
 
@@ -1413,11 +1404,9 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = guard.update_smart_album_query( &album_id, &query) {
-                            eprintln!("[db] update_smart_album_query failed: {e}");
-                        }
+                        guard.update_smart_album_query(&album_id, &query).err().map(|e| e.to_string())
                     },
-                    |()| Msg::SmartAlbumUpdated,
+                    |e| e.map_or(Msg::SmartAlbumUpdated, Msg::DbError),
                 )
             }
 
@@ -1519,6 +1508,14 @@ impl App {
                 Task::none()
             }
 
+            Msg::TagsSavedResult(tags, err) => {
+                self.detail.all_tags = tags;
+                if let Some(e) = err {
+                    self.status = format!("Error saving tags: {e}");
+                }
+                Task::none()
+            }
+
             Msg::RepeatLastTag => {
                 let Some(tag) = self.detail.recent_tags.first().cloned() else {
                     return Task::none();
@@ -1534,11 +1531,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.accept_pending_tag(&fid, &tag) {
-                            eprintln!("[db] accept_pending_tag failed: {e}");
-                        }
+                        g.accept_pending_tag(&fid, &tag).err().map(|e| e.to_string())
                     },
-                    |()| Msg::PendingTagsUpdated,
+                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
                 )
             }
 
@@ -1550,11 +1545,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.reject_pending_tag(&fid, &tag) {
-                            eprintln!("[db] reject_pending_tag failed: {e}");
-                        }
+                        g.reject_pending_tag(&fid, &tag).err().map(|e| e.to_string())
                     },
-                    |()| Msg::PendingTagsUpdated,
+                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
                 )
             }
 
@@ -1566,11 +1559,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.accept_all_pending(&fid) {
-                            eprintln!("[db] accept_all_pending failed: {e}");
-                        }
+                        g.accept_all_pending(&fid).err().map(|e| e.to_string())
                     },
-                    |()| Msg::PendingTagsUpdated,
+                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
                 )
             }
 
@@ -1582,11 +1573,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.reject_all_pending(&fid) {
-                            eprintln!("[db] reject_all_pending failed: {e}");
-                        }
+                        g.reject_all_pending(&fid).err().map(|e| e.to_string())
                     },
-                    |()| Msg::PendingTagsUpdated,
+                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
                 )
             }
 
@@ -1618,7 +1607,7 @@ impl App {
                 match self.view_mode {
                     ViewMode::Preview => {
                         self.view_mode = ViewMode::Browse;
-                        self.loupe.full_res = None;
+                        self.loupe = LoupeState::default();
                     }
                     ViewMode::Browse => {
                         if let Some(idx) = self.anchor_idx {
@@ -1657,11 +1646,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.set_file_rating( &fid, new_rating) {
-                            eprintln!("[db] set_file_rating failed: {e}");
-                        }
+                        g.set_file_rating(&fid, new_rating).err().map(|e| e.to_string())
                     },
-                    |()| Msg::NoOp,
+                    |e| e.map_or(Msg::NoOp, Msg::DbError),
                 )
             }
 
@@ -1687,11 +1674,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.set_files_flag( &ids_clone, flag_clone) {
-                            eprintln!("[db] set_files_flag failed: {e}");
-                        }
+                        g.set_files_flag(&ids_clone, flag_clone).err().map(|e| e.to_string())
                     },
-                    |()| Msg::FlagsApplied,
+                    |e| e.map_or(Msg::FlagsApplied, Msg::DbError),
                 )
             }
 
@@ -1728,11 +1713,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.set_files_rating( &ids_clone, rating) {
-                            eprintln!("[db] set_files_rating failed: {e}");
-                        }
+                        g.set_files_rating(&ids_clone, rating).err().map(|e| e.to_string())
                     },
-                    |()| Msg::RatingsApplied,
+                    |e| e.map_or(Msg::RatingsApplied, Msg::DbError),
                 )
             }
 
@@ -1822,14 +1805,15 @@ impl App {
                     }
                 }
 
-                if let Some((_, ts)) = &self.pending_search {
+                if let Some((text, ts)) = self.pending_search.take() {
                     if ts.elapsed() >= Duration::from_millis(300) {
-                        let (text, _) = self.pending_search.take().unwrap();
                         self.search_text = text;
                         self.scroll_y = 0.0;
                         self.files.clear();
                         self.grid_selected.clear();
                         tasks.push(self.load_files_task());
+                    } else {
+                        self.pending_search = Some((text, ts));
                     }
                 }
 
@@ -2117,16 +2101,15 @@ impl App {
                             kind: src.kind.clone(),
                             sort_order: 0,
                         };
-                        if let Err(e) = guard.create_album( &new_album) {
-                            eprintln!("[db] create_album failed: {e}");
-                        }
-                        if matches!(src.kind, AlbumKind::Manual) {
-                            if let Err(e) = guard.copy_album_files( &album_id, &new_id) {
-                                eprintln!("[db] copy_album_files failed: {e}");
-                            }
-                        }
+                        let e1 = guard.create_album(&new_album).err();
+                        let e2 = if matches!(src.kind, AlbumKind::Manual) {
+                            guard.copy_album_files(&album_id, &new_id).err()
+                        } else {
+                            None
+                        };
+                        e1.or(e2).map(|e| e.to_string())
                     },
-                    |()| Msg::AlbumCreated,
+                    |e| e.map_or(Msg::AlbumCreated, Msg::DbError),
                 )
             }
 
@@ -2153,13 +2136,18 @@ impl App {
                 Task::perform(
                     async move {
                         let guard = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        for fid in &ids {
-                            if let Err(e) = guard.add_file_to_album( &album_id, fid) {
-                                eprintln!("[db] add_file_to_album failed: {e}");
-                            }
+                        let failed = ids.iter()
+                            .filter(|fid| guard.add_file_to_album(&album_id, fid).is_err())
+                            .count();
+                        (count, failed)
+                    },
+                    |(total, failed)| {
+                        if failed > 0 {
+                            Msg::DbError(format!("{} added, {failed} failed to add to album", total - failed))
+                        } else {
+                            Msg::DropCompleted
                         }
                     },
-                    |()| Msg::DropCompleted,
                 )
             }
 
@@ -2266,11 +2254,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.rename_prefixed_tags( &old, &new_name) {
-                            eprintln!("[db] rename_prefixed_tags failed: {e}");
-                        }
+                        g.rename_prefixed_tags(&old, &new_name).err().map(|e| e.to_string())
                     },
-                    |()| Msg::TagBrowserTagRenamed,
+                    |e| e.map_or(Msg::TagBrowserTagRenamed, Msg::DbError),
                 )
             }
             Msg::TagBrowserRenameCancel => {
@@ -2303,11 +2289,9 @@ impl App {
                 Task::perform(
                     async move {
                         let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Err(e) = g.delete_tag_with_descendants( &tag) {
-                            eprintln!("[db] delete_tag_with_descendants failed: {e}");
-                        }
+                        g.delete_tag_with_descendants(&tag).err().map(|e| e.to_string())
                     },
-                    |()| Msg::TagBrowserTagDeleted,
+                    |e| e.map_or(Msg::TagBrowserTagDeleted, Msg::DbError),
                 )
             }
             Msg::TagBrowserDeleteCancel => {
@@ -2345,16 +2329,15 @@ impl App {
         Task::perform(
             async move {
                 let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                if let Err(e) = g.upsert_tags(&fid, &tags) {
-                    eprintln!("[db] upsert_tags failed: {e}");
-                }
-                g.get_all_tags()
+                let err = g.upsert_tags(&fid, &tags).err().map(|e| e.to_string());
+                let all_tags = g.get_all_tags()
                     .unwrap_or_default()
                     .into_iter()
                     .map(|(t, _)| t)
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+                (all_tags, err)
             },
-            Msg::AllTagsLoaded,
+            |(tags, err)| Msg::TagsSavedResult(tags, err),
         )
     }
 
@@ -2366,11 +2349,9 @@ impl App {
         Task::perform(
             async move {
                 let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                if let Err(e) = g.add_tag_to_files(&file_ids, &tag) {
-                    eprintln!("[db] add_tag_to_files failed: {e}");
-                }
+                g.add_tag_to_files(&file_ids, &tag).err().map(|e| e.to_string())
             },
-            |()| Msg::BatchTagsChanged,
+            |e| e.map_or(Msg::BatchTagsChanged, Msg::DbError),
         )
     }
 
@@ -2382,11 +2363,9 @@ impl App {
         Task::perform(
             async move {
                 let g = conn.lock().unwrap_or_else(|e| e.into_inner());
-                if let Err(e) = g.remove_tag_from_files(&file_ids, &tag) {
-                    eprintln!("[db] remove_tag_from_files failed: {e}");
-                }
+                g.remove_tag_from_files(&file_ids, &tag).err().map(|e| e.to_string())
             },
-            |()| Msg::BatchTagsChanged,
+            |e| e.map_or(Msg::BatchTagsChanged, Msg::DbError),
         )
     }
 
