@@ -26,41 +26,58 @@ impl App {
             if self.sort_asc { "▲" } else { "▼" }
         );
 
-        let filter_toolbar = container(
-            row![
-                text_input("Search photos…", &self.search_text)
-                    .on_input(Msg::SearchChanged)
-                    .padding([SPACE_1_5, SPACE_2_5])
-                    .size(TEXT_BASE)
-                    .width(Length::Fill),
-                button(
-                    text(if criteria_active {
-                        "Filters ●"
-                    } else {
-                        "Filters"
-                    })
-                    .size(TEXT_MD)
-                )
-                .on_press(Msg::ToggleCriteria)
-                .style(move |t: &Theme, s| {
-                    if show_criteria {
-                        active_chip_style(t, s)
-                    } else {
-                        ghost_btn_style(t, s)
-                    }
-                }),
-                button(text(sort_label).size(TEXT_MD))
-                    .on_press(Msg::SortCycleAll)
-                    .style(ghost_btn_style),
-            ]
-            .spacing(SPACE_2)
-            .align_y(Alignment::Center),
-        )
-        .padding([SPACE_1_5, SPACE_3])
-        .width(Length::Fill);
+        let is_suggestions = matches!(self.selected_item, crate::app::SidebarItem::Suggestions);
 
+        let mut toolbar_row = row![
+            text_input("Search photos…", &self.search_text)
+                .on_input(Msg::SearchChanged)
+                .padding([SPACE_1_5, SPACE_2_5])
+                .size(TEXT_BASE)
+                .width(Length::Fill),
+            button(
+                text(if criteria_active { "Filters ●" } else { "Filters" })
+                    .size(TEXT_MD)
+            )
+            .on_press(Msg::ToggleCriteria)
+            .style(move |t: &Theme, s| {
+                if show_criteria {
+                    active_chip_style(t, s)
+                } else {
+                    ghost_btn_style(t, s)
+                }
+            }),
+            button(text(sort_label).size(TEXT_MD))
+                .on_press(Msg::SortCycleAll)
+                .style(ghost_btn_style),
+        ]
+        .spacing(SPACE_2)
+        .align_y(Alignment::Center);
+
+        if is_suggestions && !self.files.is_empty() {
+            toolbar_row = toolbar_row
+                .push(
+                    button(text("Accept all in view").size(TEXT_MD))
+                        .on_press(Msg::AcceptAllInView)
+                        .style(active_chip_style),
+                )
+                .push(
+                    button(text("Reject all in view").size(TEXT_MD).color(ERR))
+                        .on_press(Msg::RejectAllInView)
+                        .style(ghost_btn_style),
+                );
+        }
+
+        let filter_toolbar = container(toolbar_row)
+            .padding([SPACE_1_5, SPACE_3])
+            .width(Length::Fill);
+
+        let empty_msg = if is_suggestions {
+            "No pending suggestions"
+        } else {
+            "No photos in this view"
+        };
         let empty_or_grid: Element<Msg> = if self.files.is_empty() {
-            container(text("No photos in this view").size(TEXT_BASE).color(FG_DIM))
+            container(text(empty_msg).size(TEXT_BASE).color(FG_DIM))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_x(Alignment::Center)
@@ -270,6 +287,32 @@ impl App {
             .align_y(Alignment::End)
             .into();
             layers.push(banner);
+        }
+
+        if let Some(&n) = self.pending_counts_by_id.get(&file.id) {
+            if n > 0 {
+                let scrim = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.55 };
+                let badge: Element<Msg> = container(
+                    container(
+                        text(format!("+{n} AI"))
+                            .size(TEXT_XS)
+                            .color(ACCENT),
+                    )
+                    .padding([2.0, 4.0])
+                    .style(move |_: &Theme| container::Style {
+                        background: Some(Background::Color(scrim)),
+                        border: Border { radius: 3.0.into(), ..Default::default() },
+                        ..Default::default()
+                    }),
+                )
+                .width(tile_px)
+                .height(tile_px)
+                .padding([4.0, 5.0])
+                .align_x(Alignment::End)
+                .align_y(Alignment::Start)
+                .into();
+                layers.push(badge);
+            }
         }
 
         stack(layers).into()

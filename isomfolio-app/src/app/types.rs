@@ -59,6 +59,7 @@ pub enum SidebarItem {
     Folder(String),
     Album(AlbumId),
     FaceCluster(String),
+    Suggestions,
 }
 
 #[derive(Debug, Clone)]
@@ -189,6 +190,10 @@ pub enum Msg {
     AcceptAllPending,
     RejectAllPending,
     PendingTagsUpdated,
+    AcceptAllInView,
+    RejectAllInView,
+    PendingCountsLoaded { counts: HashMap<String, usize>, total: usize },
+    PendingTotalLoaded(usize),
 
     OpenTagBrowser,
     CloseTagBrowser,

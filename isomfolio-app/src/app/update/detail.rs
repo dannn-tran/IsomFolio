@@ -182,7 +182,52 @@ impl App {
 
             Msg::PendingTagsUpdated => {
                 self.detail.file_id = None;
-                self.maybe_load_detail()
+                Task::batch([self.maybe_load_detail(), self.refresh_pending_total_task()])
+            }
+
+            Msg::AcceptAllInView => {
+                let ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.pending_counts_by_id.clear();
+                self.detail.pending_tags.clear();
+                Task::perform(
+                    async move {
+                        let g = conn.lock_unwrap();
+                        g.accept_all_pending_batch(&ids).err().map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::Reload, Msg::DbError),
+                )
+            }
+
+            Msg::RejectAllInView => {
+                let ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.pending_counts_by_id.clear();
+                self.detail.pending_tags.clear();
+                Task::perform(
+                    async move {
+                        let g = conn.lock_unwrap();
+                        g.reject_all_pending_batch(&ids).err().map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::Reload, Msg::DbError),
+                )
+            }
+
+            Msg::PendingCountsLoaded { counts, total } => {
+                self.pending_counts_by_id = counts;
+                self.pending_tag_file_count = total;
+                Task::none()
+            }
+
+            Msg::PendingTotalLoaded(total) => {
+                self.pending_tag_file_count = total;
+                Task::none()
             }
 
             Msg::SetDetailRating(n) => {

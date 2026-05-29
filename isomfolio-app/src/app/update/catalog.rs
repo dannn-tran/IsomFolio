@@ -41,7 +41,8 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([sidebar_task, extension_task, face_task])
+                let pending_task = self.refresh_pending_total_task();
+                Task::batch([sidebar_task, extension_task, face_task, pending_task])
             }
 
             Msg::OpenCatalog(path) => {

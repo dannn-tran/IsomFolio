@@ -113,7 +113,7 @@ impl App {
                         "{method} done — {applied} file{} updated",
                         if applied == 1 { "" } else { "s" }
                     );
-                    return Task::none();
+                    return self.refresh_pending_total_task();
                 }
                 let report_path = self
                     .extensions

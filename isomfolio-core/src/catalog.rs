@@ -130,6 +130,25 @@ impl Catalog {
         db::accept_all_pending(&self.conn, file_id)
     }
 
+    pub fn get_files_with_pending_tags(&self) -> Result<Vec<AssetFile>, AppError> {
+        db::get_files_with_pending_tags(&self.conn)
+    }
+
+    pub fn get_pending_counts_for_files(
+        &self,
+        file_ids: &[String],
+    ) -> Result<HashMap<String, usize>, AppError> {
+        db::get_pending_counts_for_files(&self.conn, file_ids)
+    }
+
+    pub fn accept_all_pending_batch(&self, file_ids: &[String]) -> Result<usize, AppError> {
+        db::accept_all_pending_batch(&self.conn, file_ids)
+    }
+
+    pub fn reject_all_pending_batch(&self, file_ids: &[String]) -> Result<usize, AppError> {
+        db::reject_all_pending_batch(&self.conn, file_ids)
+    }
+
     pub fn reject_all_pending(&self, file_id: &str) -> Result<usize, AppError> {
         db::reject_all_pending(&self.conn, file_id)
     }

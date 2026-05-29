@@ -96,6 +96,10 @@ impl App {
             | Msg::AcceptAllPending
             | Msg::RejectAllPending
             | Msg::PendingTagsUpdated
+            | Msg::AcceptAllInView
+            | Msg::RejectAllInView
+            | Msg::PendingCountsLoaded { .. }
+            | Msg::PendingTotalLoaded(_)
             | Msg::SetDetailRating(_)
             | Msg::SetFlag(_)
             | Msg::FlagsApplied
@@ -232,12 +236,14 @@ impl App {
                         }
                     }
                 }
+                let going_to_suggestions = matches!(item, SidebarItem::Suggestions);
                 self.selected_item = item;
                 if matches!(self.view_mode, super::ViewMode::People) {
                     self.view_mode = super::ViewMode::Browse;
                 }
                 self.files.clear();
                 self.file_ratings.clear();
+                self.pending_counts_by_id.clear();
                 self.scroll_y = 0.0;
                 self.loupe.idx = 0;
                 self.grid_selected.clear();
@@ -247,6 +253,9 @@ impl App {
                 self.detail.file_id = None;
                 self.remove_from_album_pending = false;
                 self.smart_album_dirty = false;
+                if going_to_suggestions {
+                    self.detail.show = true;
+                }
                 self.load_files_task()
             }
 
@@ -256,7 +265,12 @@ impl App {
                 self.status = format!("{} photo(s)", self.files.len());
                 let t1 = self.maybe_load_detail();
                 let t2 = self.load_ratings_task();
-                Task::batch([t1, t2])
+                let t3 = if matches!(self.selected_item, SidebarItem::Suggestions) {
+                    self.load_pending_counts_task()
+                } else {
+                    Task::none()
+                };
+                Task::batch([t1, t2, t3])
             }
 
             Msg::SidebarLoaded { folders, albums, album_counts } => {

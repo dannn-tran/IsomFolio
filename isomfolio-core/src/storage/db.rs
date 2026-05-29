@@ -510,6 +510,92 @@ pub fn reject_all_pending(conn: &Connection, file_id: &str) -> Result<usize, App
     Ok(n)
 }
 
+/// Fetch every non-orphaned file that has at least one pending tag.
+/// Powers the global Suggestions inbox view.
+pub fn get_files_with_pending_tags(conn: &Connection) -> Result<Vec<AssetFile>, AppError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {FILE_COLS_PREFIXED} FROM files f \
+         WHERE f.is_orphaned = 0 AND EXISTS \
+             (SELECT 1 FROM pending_tags p WHERE p.file_id = f.id) \
+         ORDER BY f.filename"
+    ))?;
+    let rows = stmt.query_map([], read_asset_file)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Per-file counts of pending tags for the given file ids. Files with no pending
+/// tags are omitted from the returned map.
+pub fn get_pending_counts_for_files(
+    conn: &Connection,
+    file_ids: &[String],
+) -> Result<HashMap<String, usize>, AppError> {
+    if file_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let placeholders: Vec<String> = (1..=file_ids.len()).map(|i| format!("?{i}")).collect();
+    let sql = format!(
+        "SELECT file_id, COUNT(*) FROM pending_tags WHERE file_id IN ({}) GROUP BY file_id",
+        placeholders.join(",")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let params: Vec<&dyn rusqlite::ToSql> =
+        file_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let rows = stmt.query_map(params.as_slice(), |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))
+    })?;
+    rows.collect::<Result<HashMap<_, _>, _>>().map_err(Into::into)
+}
+
+/// Accept all pending tags for each given file id in a single transaction.
+/// Returns the total number of pending tags accepted across all files.
+pub fn accept_all_pending_batch(
+    conn: &Connection,
+    file_ids: &[String],
+) -> Result<usize, AppError> {
+    if file_ids.is_empty() {
+        return Ok(0);
+    }
+    let tx = conn.unchecked_transaction()?;
+    let mut total = 0usize;
+    for fid in file_ids {
+        let pending = get_pending_tags(conn, fid)?;
+        for (tag, conf) in &pending {
+            conn.execute(
+                "INSERT INTO tags (file_id, tag, confidence) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(file_id, tag) DO UPDATE SET confidence = COALESCE(?3, confidence)",
+                params![fid, tag, conf],
+            )?;
+        }
+        conn.execute("DELETE FROM pending_tags WHERE file_id = ?1", [fid])?;
+        total += pending.len();
+    }
+    tx.commit()?;
+    for fid in file_ids {
+        rebuild_fts_for_file(conn, fid)?;
+    }
+    Ok(total)
+}
+
+/// Reject all pending tags for each given file id in a single transaction.
+/// Returns the total number of pending tags rejected.
+pub fn reject_all_pending_batch(
+    conn: &Connection,
+    file_ids: &[String],
+) -> Result<usize, AppError> {
+    if file_ids.is_empty() {
+        return Ok(0);
+    }
+    let placeholders: Vec<String> = (1..=file_ids.len()).map(|i| format!("?{i}")).collect();
+    let sql = format!(
+        "DELETE FROM pending_tags WHERE file_id IN ({})",
+        placeholders.join(",")
+    );
+    let params: Vec<&dyn rusqlite::ToSql> =
+        file_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let n = conn.execute(&sql, params.as_slice())?;
+    Ok(n)
+}
+
 fn parse_json_strings(json: &str) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(json).unwrap_or_default()
 }
@@ -1504,6 +1590,77 @@ mod tests {
             assert_eq!(get_pending_tag_count(&conn).unwrap(), 0);
             insert_pending_tags(&conn, "f1", &[("a".into(), None)]).unwrap();
             assert_eq!(get_pending_tag_count(&conn).unwrap(), 1);
+        }
+
+        #[test]
+        fn files_with_pending_excludes_orphans_and_clean_files() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                make_file("f1", "/p/a.jpg"),
+                make_file("f2", "/p/b.jpg"),
+                make_file("f3", "/p/c.jpg"),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f1", &[("foo".into(), None)]).unwrap();
+            insert_pending_tags(&conn, "f3", &[("bar".into(), None)]).unwrap();
+            mark_orphaned(&conn, "f3").unwrap();
+            let files = get_files_with_pending_tags(&conn).unwrap();
+            let ids: Vec<&str> = files.iter().map(|f| f.id.as_str()).collect();
+            assert_eq!(ids, vec!["f1"]);
+        }
+
+        #[test]
+        fn counts_for_files_returns_per_file_counts() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                make_file("f1", "/p/a.jpg"),
+                make_file("f2", "/p/b.jpg"),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f1", &[
+                ("a".into(), None),
+                ("b".into(), None),
+                ("c".into(), None),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f2", &[("x".into(), None)]).unwrap();
+            let counts = get_pending_counts_for_files(
+                &conn,
+                &["f1".into(), "f2".into(), "missing".into()],
+            ).unwrap();
+            assert_eq!(counts.get("f1").copied(), Some(3));
+            assert_eq!(counts.get("f2").copied(), Some(1));
+            assert!(!counts.contains_key("missing"));
+        }
+
+        #[test]
+        fn accept_all_batch_clears_and_accepts() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                make_file("f1", "/p/a.jpg"),
+                make_file("f2", "/p/b.jpg"),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f1", &[("a".into(), Some(0.9))]).unwrap();
+            insert_pending_tags(&conn, "f2", &[
+                ("b".into(), Some(0.8)),
+                ("c".into(), Some(0.7)),
+            ]).unwrap();
+            let n = accept_all_pending_batch(&conn, &["f1".into(), "f2".into()]).unwrap();
+            assert_eq!(n, 3);
+            assert!(get_pending_tags(&conn, "f1").unwrap().is_empty());
+            assert!(get_pending_tags(&conn, "f2").unwrap().is_empty());
+            assert_eq!(get_tags_for_file(&conn, "f1").unwrap(), vec!["a".to_string()]);
+            assert_eq!(get_tags_for_file(&conn, "f2").unwrap().len(), 2);
+        }
+
+        #[test]
+        fn reject_all_batch_does_not_touch_tags() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[make_file("f1", "/p/a.jpg")]).unwrap();
+            upsert_tags(&conn, "f1", &["existing".into()]).unwrap();
+            insert_pending_tags(&conn, "f1", &[("pending".into(), None)]).unwrap();
+            let n = reject_all_pending_batch(&conn, &["f1".into()]).unwrap();
+            assert_eq!(n, 1);
+            assert!(get_pending_tags(&conn, "f1").unwrap().is_empty());
+            // Existing tags untouched.
+            assert_eq!(get_tags_for_file(&conn, "f1").unwrap(), vec!["existing".to_string()]);
         }
     }
 }

@@ -69,9 +69,54 @@ impl App {
         let mut content = column![
             catalog_header,
             Space::new().height(SPACE_1_5),
-            folders_header,
         ]
         .spacing(SPACE_0_5);
+
+        if self.pending_tag_file_count > 0 {
+            let selected = self.selected_item == SidebarItem::Suggestions;
+            let bg = if selected {
+                Color { r: ACCENT.r * 0.6, g: ACCENT.g * 0.6, b: ACCENT.b * 0.6, a: 0.4 }
+            } else {
+                Color::TRANSPARENT
+            };
+            let text_color = if selected { Color::WHITE } else { FG };
+            let label_btn = button(
+                row![
+                    container(
+                        text(format!("✨ Suggestions"))
+                            .size(TEXT_BASE)
+                            .color(text_color)
+                            .wrapping(iced::widget::text::Wrapping::None),
+                    )
+                    .width(Length::Fill)
+                    .clip(true),
+                    text(format!(" {}", self.pending_tag_file_count)).size(TEXT_SM).color(FG_MUTED),
+                ]
+                .align_y(Alignment::Center),
+            )
+            .on_press(Msg::SidebarItemClicked(SidebarItem::Suggestions))
+            .width(Length::Fill)
+            .style(|_: &Theme, _| button::Style {
+                background: Some(Background::Color(Color::TRANSPARENT)),
+                text_color: FG,
+                border: Border::default(),
+                shadow: iced::Shadow::default(),
+                snap: false,
+            });
+            let row_container = container(label_btn)
+                .height(FOLDER_ITEM_HEIGHT)
+                .align_y(Alignment::Center)
+                .padding([0.0, SPACE_1])
+                .style(move |_: &Theme| container::Style {
+                    background: Some(Background::Color(bg)),
+                    border: Border::default(),
+                    ..Default::default()
+                });
+            content = content.push(row_container);
+            content = content.push(Space::new().height(SPACE_1));
+        }
+
+        content = content.push(folders_header);
 
         for (path, display_name, count) in &self.folders {
             let name = display_name.clone();

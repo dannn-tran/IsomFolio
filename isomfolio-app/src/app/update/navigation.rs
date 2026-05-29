@@ -213,7 +213,9 @@ impl App {
                                     Some(ContextMenuTarget::ManualAlbum(id.clone()))
                                 }
                             }
-                            SidebarItem::AllFiles | SidebarItem::FaceCluster(_) => None,
+                            SidebarItem::AllFiles
+                            | SidebarItem::FaceCluster(_)
+                            | SidebarItem::Suggestions => None,
                         };
                         if let Some(t) = target {
                             self.context_menu = Some(ContextMenuState {

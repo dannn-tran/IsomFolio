@@ -111,6 +111,8 @@ pub struct App {
 
     pub files: Vec<AssetFile>,
     pub file_ratings: HashMap<String, i32>,
+    pub pending_counts_by_id: HashMap<String, usize>,
+    pub pending_tag_file_count: usize,
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
@@ -314,6 +316,8 @@ impl App {
             selected_item: SidebarItem::AllFiles,
             files: Vec::new(),
             file_ratings: HashMap::new(),
+            pending_counts_by_id: HashMap::new(),
+            pending_tag_file_count: 0,
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
@@ -607,9 +611,37 @@ impl App {
                     SidebarItem::FaceCluster(cluster_id) => {
                         cat.get_files_in_face_cluster(&cluster_id).unwrap_or_default()
                     }
+                    SidebarItem::Suggestions => {
+                        cat.get_files_with_pending_tags().unwrap_or_default()
+                    }
                 }
             },
             Msg::FilesLoaded,
+        )
+    }
+
+    pub fn load_pending_counts_task(&self) -> Task<Msg> {
+        let Some(catalog) = self.catalog.clone() else { return Task::none() };
+        let ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
+        Task::perform(
+            async move {
+                let cat = catalog.lock_unwrap();
+                let counts = cat.get_pending_counts_for_files(&ids).unwrap_or_default();
+                let total = cat.get_pending_tag_count().unwrap_or(0);
+                (counts, total)
+            },
+            |(counts, total)| Msg::PendingCountsLoaded { counts, total },
+        )
+    }
+
+    pub fn refresh_pending_total_task(&self) -> Task<Msg> {
+        let Some(catalog) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                let cat = catalog.lock_unwrap();
+                cat.get_pending_tag_count().unwrap_or(0)
+            },
+            Msg::PendingTotalLoaded,
         )
     }
 
