@@ -19,11 +19,23 @@ public class RequestHandler(DbscanConfig dbscanConfig, IExtensionLogger logger, 
 
         await logger.LogAsync(LogLevel.Info, $"processing {total} files…");
 
+        var logEvery = Math.Max(1, total / 20);
+        var lastPercent = -1;
+
         for (var i = 0; i < total; i++)
         {
             var file = files[i];
 
-            await writer.SendProgressAsync(request.Id, (int)((float)i / total * 80));
+            var percent = (int)Math.Ceiling((double)(i + 1) / total * 80);
+            if (percent != lastPercent)
+            {
+                await writer.SendProgressAsync(request.Id, percent);
+                lastPercent = percent;
+            }
+            if ((i + 1) % logEvery == 0 || i + 1 == total)
+            {
+                await logger.LogAsync(LogLevel.Info, $"processed {i + 1}/{total}");
+            }
 
             if (cache.IsCached(file.FileId, file.FileMtime)) continue;
             if (string.IsNullOrEmpty(file.ImagePath) || !File.Exists(file.ImagePath)) continue;
