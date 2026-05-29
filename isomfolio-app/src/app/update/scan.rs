@@ -170,11 +170,7 @@ impl App {
                             orphan_ids.push(compute_file_id(&normalize_path(&old_path)));
                             upsert.push(new_path);
                         }
-                        // XMP sidecar changes are not auto-applied; use Sync Folder or
-                        // right-click → Sync XMP Metadata for manual control.
-                        FileEvent::SidecarChanged(_)
-                        | FileEvent::SidecarRemoved(_)
-                        | FileEvent::ScanProgress(_) => {}
+                        FileEvent::ScanProgress(_) => {}
                     }
                 }
 

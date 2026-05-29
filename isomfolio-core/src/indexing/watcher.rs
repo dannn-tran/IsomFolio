@@ -11,62 +11,14 @@ use crate::indexing::types::FileEvent;
 use crate::path_utils::normalize_path;
 
 const DEBOUNCE_MS: u64 = 250;
-const SELF_WRITE_WINDOW_MS: u64 = 500;
 
-/// Register an XMP path as written by us so the next watcher event is suppressed.
-pub struct SelfWriteGuard {
-    registry: Arc<Mutex<HashMap<String, Instant>>>,
-}
-
-impl SelfWriteGuard {
-    pub fn register(&self, xmp_path: &str) {
-        let mut map = self.registry.lock().unwrap_or_else(|e| e.into_inner());
-        map.insert(xmp_path.to_string(), Instant::now());
-    }
-}
-
-fn is_self_write(registry: &Arc<Mutex<HashMap<String, Instant>>>, path: &str) -> bool {
-    let mut map = registry.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(&ts) = map.get(path) {
-        if ts.elapsed() < Duration::from_millis(SELF_WRITE_WINDOW_MS) {
-            map.remove(path);
-            return true;
-        }
-    }
-    false
-}
-
-fn resolve_xmp_to_image(xmp_path: &str) -> Option<String> {
-    let base = Path::new(xmp_path).with_extension("");
-    ["jpg", "jpeg", "png", "webp", "gif"].iter().find_map(|ext| {
-        let candidate = format!("{}.{}", base.display(), ext);
-        if Path::new(&candidate).exists() {
-            Some(normalize_path(&candidate))
-        } else {
-            None
-        }
-    })
-}
-
-fn classify_event(event: &Event, xmp_path: &str) -> Option<FileEvent> {
+fn classify_event(event: &Event) -> Option<FileEvent> {
     let path = event.paths.first()?.to_str()?;
     let ext = Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
-
-    if ext == "xmp" {
-        return match &event.kind {
-            EventKind::Create(_) | EventKind::Modify(_) => {
-                resolve_xmp_to_image(xmp_path).map(FileEvent::SidecarChanged)
-            }
-            EventKind::Remove(_) => {
-                resolve_xmp_to_image(xmp_path).map(FileEvent::SidecarRemoved)
-            }
-            _ => None,
-        };
-    }
 
     if !is_supported_extension(&ext) {
         return None;
@@ -92,7 +44,6 @@ fn classify_event(event: &Event, xmp_path: &str) -> Option<FileEvent> {
 
 pub struct FileWatcher {
     _watcher: RecommendedWatcher,
-    pub self_write: SelfWriteGuard,
     shutdown: Arc<AtomicBool>,
 }
 
@@ -106,11 +57,6 @@ pub fn create_watcher<F>(root_path: &str, dispatch: F) -> Result<FileWatcher, cr
 where
     F: Fn(FileEvent) + Send + Sync + 'static,
 {
-    let self_write_registry: Arc<Mutex<HashMap<String, Instant>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let registry_clone = Arc::clone(&self_write_registry);
-
-    // Pending debounce: path → (FileEvent, last_seen)
     let pending: Arc<Mutex<HashMap<String, (FileEvent, Instant)>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let pending_dispatch = Arc::clone(&pending);
@@ -120,7 +66,6 @@ where
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_thread = Arc::clone(&shutdown);
 
-    // Notification channel: event thread signals flusher whenever pending changes.
     let (notify_tx, notify_rx) = std::sync::mpsc::channel::<()>();
 
     // Debounce flusher thread — blocks until the next expiry rather than polling.
@@ -170,20 +115,11 @@ where
                 }
             };
 
-            let path_str = event.paths.first()
-                .and_then(|p| p.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            if is_self_write(&registry_clone, &path_str) {
-                continue;
-            }
-
-            if let Some(file_event) = classify_event(&event, &path_str) {
+            if let Some(file_event) = classify_event(&event) {
                 let debounce_key = match &file_event {
-                    FileEvent::Created(p) | FileEvent::Deleted(p)
-                    | FileEvent::Modified(p) | FileEvent::SidecarChanged(p)
-                    | FileEvent::SidecarRemoved(p) => p.clone(),
+                    FileEvent::Created(p) | FileEvent::Deleted(p) | FileEvent::Modified(p) => {
+                        p.clone()
+                    }
                     FileEvent::Renamed { new_path, .. } => new_path.clone(),
                     FileEvent::ScanProgress(_) => continue,
                 };
@@ -203,11 +139,7 @@ where
         .watch(Path::new(root_path), RecursiveMode::Recursive)
         .map_err(|e| crate::models::AppError::Watcher(e.to_string()))?;
 
-    Ok(FileWatcher {
-        _watcher: watcher,
-        self_write: SelfWriteGuard { registry: self_write_registry },
-        shutdown,
-    })
+    Ok(FileWatcher { _watcher: watcher, shutdown })
 }
 
 pub fn stop_watcher(_watcher: FileWatcher) {

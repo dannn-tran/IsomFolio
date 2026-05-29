@@ -6,8 +6,6 @@ pub enum FileEvent {
     Deleted(String),
     Renamed { old_path: String, new_path: String },
     Modified(String),
-    SidecarChanged(String),
-    SidecarRemoved(String),
     ScanProgress(ScanProgress),
 }
 
