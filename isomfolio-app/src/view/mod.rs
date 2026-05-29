@@ -751,11 +751,29 @@ impl App {
                 )
                 .on_press(Msg::ToggleImportXmpTags)
                 .style(if import_xmp { active_chip_style } else { ghost_btn_style }),
-                text("Add dc:subject keywords from XMP sidecars as tags during sync").size(TEXT_SM).color(FG_DIM),
+                text("Add dc:subject keywords as tags on first sync of a new photo").size(TEXT_SM).color(FG_DIM),
             ]
             .spacing(SPACE_2)
             .align_y(Alignment::Center),
         );
+
+        if cfg!(target_os = "macos") {
+            body = body.push(Space::new().height(SPACE_2));
+            let import_apple = self.app_settings.import_apple_tags;
+            body = body.push(
+                row![
+                    button(
+                        text(if import_apple { "Import Apple Finder tags  ●" } else { "Import Apple Finder tags" })
+                            .size(TEXT_MD)
+                    )
+                    .on_press(Msg::ToggleImportAppleTags)
+                    .style(if import_apple { active_chip_style } else { ghost_btn_style }),
+                    text("Add macOS Finder tags (kMDItemUserTags) as tags on first sync of a new photo").size(TEXT_SM).color(FG_DIM),
+                ]
+                .spacing(SPACE_2)
+                .align_y(Alignment::Center),
+            );
+        }
 
         body = body.push(Space::new().height(SPACE_4));
         body = body.push(

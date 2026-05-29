@@ -65,7 +65,8 @@ impl App {
             | Msg::SyncFolder(_)
             | Msg::FileWatcherEvent(_)
             | Msg::FlushFileEvents(_)
-            | Msg::SyncXmpForSelection => self.handle_sync_msg(msg),
+            | Msg::SyncXmpForSelection
+            | Msg::SyncAppleTagsForSelection => self.handle_sync_msg(msg),
 
             Msg::RequestRemoveMissing(_)
             | Msg::ConfirmRemoveMissing
@@ -191,7 +192,8 @@ impl App {
             | Msg::UninstallExtension(_)
             | Msg::SetPreferredExtension { .. }
             | Msg::ToggleAutoFaceCluster
-            | Msg::ToggleImportXmpTags => self.handle_settings(msg),
+            | Msg::ToggleImportXmpTags
+            | Msg::ToggleImportAppleTags => self.handle_settings(msg),
 
             // — tag browser —
             Msg::OpenTagBrowser

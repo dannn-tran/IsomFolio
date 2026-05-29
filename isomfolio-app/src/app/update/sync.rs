@@ -178,13 +178,12 @@ impl App {
                     return Task::none();
                 }
 
-                let import_xmp_tags = self.app_settings.import_xmp_tags;
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             let cat = conn.lock_unwrap();
                             if !upsert.is_empty() {
-                                if let Err(e) = cat.resync_files(&upsert, import_xmp_tags) {
+                                if let Err(e) = cat.resync_files(&upsert) {
                                     eprintln!("[db] resync_files failed: {e}");
                                 }
                             }
@@ -201,37 +200,9 @@ impl App {
                 )
             }
 
-            Msg::SyncXmpForSelection => {
-                let sidecar_paths: Vec<String> = self
-                    .grid_selected
-                    .iter()
-                    .filter_map(|id| self.files.iter().find(|f| &f.id == id))
-                    .filter_map(|f| {
-                        let p = std::path::Path::new(&f.path).with_extension("xmp");
-                        if p.exists() { Some(p.to_string_lossy().into_owned()) } else { None }
-                    })
-                    .collect();
-                if sidecar_paths.is_empty() {
-                    self.status = "No XMP sidecar found for selection".to_string();
-                    return Task::none();
-                }
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                self.context_menu = None;
-                // Explicit user gesture — always import XMP tags regardless of global setting
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let cat = conn.lock_unwrap();
-                            if let Err(e) = cat.resync_sidecar_files(&sidecar_paths, true) {
-                                eprintln!("[db] resync_sidecar_files failed: {e}");
-                            }
-                        })
-                        .await
-                        .ok();
-                    },
-                    |()| Msg::Reload,
-                )
-            }
+            Msg::SyncXmpForSelection => self.import_external_tags_for_selection(true, false),
+
+            Msg::SyncAppleTagsForSelection => self.import_external_tags_for_selection(false, true),
 
             _ => Task::none(),
         }
@@ -243,13 +214,14 @@ impl App {
         };
         let wtx = self.watcher_tx.clone();
         let import_xmp_tags = self.app_settings.import_xmp_tags;
+        let import_apple_tags = self.app_settings.import_apple_tags;
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
                     let cat = conn.lock_unwrap();
                     cat.sync_folder(&path, &|prog| {
                         let _ = wtx.try_send(FileEvent::SyncProgress(prog));
-                    }, import_xmp_tags)
+                    }, import_xmp_tags, import_apple_tags)
                     .map(|r| (r.total_count, r.new_file_ids))
                     .unwrap_or((0, Vec::new()))
                 })
@@ -257,6 +229,33 @@ impl App {
                 .unwrap_or((0, Vec::new()))
             },
             |(count, new_file_ids)| Msg::SyncComplete { count, new_file_ids },
+        )
+    }
+
+    fn import_external_tags_for_selection(&mut self, xmp: bool, apple: bool) -> Task<Msg> {
+        let paths: Vec<String> = self
+            .grid_selected
+            .iter()
+            .filter_map(|id| self.files.iter().find(|f| &f.id == id))
+            .map(|f| f.path.clone())
+            .collect();
+        if paths.is_empty() {
+            return Task::none();
+        }
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        self.context_menu = None;
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let cat = conn.lock_unwrap();
+                    if let Err(e) = cat.import_external_tags(&paths, xmp, apple) {
+                        eprintln!("[db] import_external_tags failed: {e}");
+                    }
+                })
+                .await
+                .ok();
+            },
+            |()| Msg::Reload,
         )
     }
 }

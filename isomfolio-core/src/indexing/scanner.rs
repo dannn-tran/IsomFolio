@@ -10,6 +10,7 @@ use crate::models::{AppError, AssetFile};
 use crate::path_utils::{normalize_path, CATALOG_EXT};
 use crate::storage::db;
 
+#[derive(Clone)]
 pub struct ScannedFile {
     pub asset: AssetFile,
     pub meta: metadata::EmbeddedMetadata,
@@ -54,12 +55,16 @@ fn discover_paths(root_path: &str) -> Vec<String> {
     results
 }
 
+/// Sync a folder. For NEW files only, XMP/Apple keywords are imported as tags
+/// (gated by `import_xmp_tags` / `import_apple_tags`). Existing files are not
+/// re-imported — that's an explicit user gesture via `import_external_tags`.
 pub fn sync_folder(
     conn: &Connection,
     root_path: &str,
     on_batch: &dyn Fn(&[ScannedFile]),
     on_progress: &dyn Fn(SyncProgress),
     import_xmp_tags: bool,
+    import_apple_tags: bool,
 ) -> Result<SyncResult, AppError> {
     let folder_name = Path::new(root_path)
         .file_name()
@@ -71,7 +76,29 @@ pub fn sync_folder(
 
     let mut total = 0usize;
     let mut new_file_ids: Vec<String> = Vec::new();
-    let mut batch: Vec<ScannedFile> = Vec::with_capacity(500);
+    let mut batch: Vec<(ScannedFile, bool)> = Vec::with_capacity(500);
+
+    let flush_batch = |conn: &Connection, batch: &[(ScannedFile, bool)]| -> Result<(), AppError> {
+        let assets: Vec<AssetFile> = batch.iter().map(|(s, _)| s.asset.clone()).collect();
+        db::upsert_files(conn, &assets)?;
+        for (sf, is_new) in batch {
+            db::upsert_metadata(conn, &sf.asset.id, &sf.meta)?;
+            if *is_new {
+                if import_xmp_tags {
+                    if let Some(ref xmp) = sf.meta.xmp {
+                        db::sync_xmp_tags(conn, &sf.asset.id, &xmp.dublin_core.subject)?;
+                    }
+                }
+                if import_apple_tags {
+                    if let Some(ref apple) = sf.meta.apple {
+                        let names: Vec<String> = apple.user_tags.iter().map(|t| t.text.clone()).collect();
+                        db::sync_apple_tags(conn, &sf.asset.id, &names)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    };
 
     for path in discover_paths(root_path) {
         let asset = match asset_file_from_path(&path) {
@@ -83,21 +110,13 @@ pub fn sync_folder(
         if is_new {
             new_file_ids.push(asset.id.clone());
         }
-        batch.push(ScannedFile { asset, meta });
+        batch.push((ScannedFile { asset, meta }, is_new));
 
         if batch.len() >= 500 {
-            let assets: Vec<AssetFile> = batch.iter().map(|s| s.asset.clone()).collect();
-            db::upsert_files(conn, &assets)?;
-            for sf in &batch {
-                db::upsert_metadata(conn, &sf.asset.id, &sf.meta)?;
-                if import_xmp_tags {
-                    if let Some(ref xmp) = sf.meta.xmp {
-                        db::sync_xmp_tags(conn, &sf.asset.id, &xmp.dublin_core.subject)?;
-                    }
-                }
-            }
+            flush_batch(conn, &batch)?;
             total += batch.len();
-            on_batch(&batch);
+            let scanned: Vec<ScannedFile> = batch.iter().map(|(s, _)| s.clone()).collect();
+            on_batch(&scanned);
             on_progress(SyncProgress {
                 total_found: total,
                 inserted: total,
@@ -108,18 +127,10 @@ pub fn sync_folder(
     }
 
     if !batch.is_empty() {
-        let assets: Vec<AssetFile> = batch.iter().map(|s| s.asset.clone()).collect();
-        db::upsert_files(conn, &assets)?;
-        for sf in &batch {
-            db::upsert_metadata(conn, &sf.asset.id, &sf.meta)?;
-            if import_xmp_tags {
-                if let Some(ref xmp) = sf.meta.xmp {
-                    db::sync_xmp_tags(conn, &sf.asset.id, &xmp.dublin_core.subject)?;
-                }
-            }
-        }
+        flush_batch(conn, &batch)?;
         total += batch.len();
-        on_batch(&batch);
+        let scanned: Vec<ScannedFile> = batch.iter().map(|(s, _)| s.clone()).collect();
+        on_batch(&scanned);
         on_progress(SyncProgress {
             total_found: total,
             inserted: total,
@@ -133,29 +144,38 @@ pub fn sync_folder(
     Ok(SyncResult { total_count: total, new_file_ids })
 }
 
-pub fn resync_files(conn: &Connection, paths: &[String], import_xmp_tags: bool) -> Result<(), AppError> {
+/// Re-read file metadata after a file modification. Never auto-imports tags —
+/// modifications shouldn't re-import (user may have curated their tags).
+pub fn resync_files(conn: &Connection, paths: &[String]) -> Result<(), AppError> {
     for path in paths {
         let Some(asset) = asset_file_from_path(path) else { continue };
         let meta = metadata::read_metadata(path);
         db::upsert_files(conn, &[asset.clone()])?;
         db::upsert_metadata(conn, &asset.id, &meta)?;
-        if import_xmp_tags {
-            if let Some(ref xmp) = meta.xmp {
-                db::sync_xmp_tags(conn, &asset.id, &xmp.dublin_core.subject)?;
-            }
-        }
     }
     Ok(())
 }
 
-pub fn resync_sidecar_files(conn: &Connection, paths: &[String], import_xmp_tags: bool) -> Result<(), AppError> {
+/// Explicit user-triggered import of XMP and/or Apple tags for the given files.
+/// Always imports regardless of global settings — invoked by right-click actions.
+pub fn import_external_tags(
+    conn: &Connection,
+    paths: &[String],
+    import_xmp: bool,
+    import_apple: bool,
+) -> Result<(), AppError> {
     for path in paths {
         let Some(asset) = asset_file_from_path(path) else { continue };
         let meta = metadata::read_metadata(path);
-        db::upsert_metadata(conn, &asset.id, &meta)?;
-        if import_xmp_tags {
+        if import_xmp {
             if let Some(ref xmp) = meta.xmp {
                 db::sync_xmp_tags(conn, &asset.id, &xmp.dublin_core.subject)?;
+            }
+        }
+        if import_apple {
+            if let Some(ref apple) = meta.apple {
+                let names: Vec<String> = apple.user_tags.iter().map(|t| t.text.clone()).collect();
+                db::sync_apple_tags(conn, &asset.id, &names)?;
             }
         }
     }

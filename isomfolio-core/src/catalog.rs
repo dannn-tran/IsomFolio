@@ -294,15 +294,21 @@ impl Catalog {
         root_path: &str,
         on_progress: &dyn Fn(SyncProgress),
         import_xmp_tags: bool,
+        import_apple_tags: bool,
     ) -> Result<SyncResult, AppError> {
-        scanner::sync_folder(&self.conn, root_path, &|_| {}, on_progress, import_xmp_tags)
+        scanner::sync_folder(&self.conn, root_path, &|_| {}, on_progress, import_xmp_tags, import_apple_tags)
     }
 
-    pub fn resync_files(&self, paths: &[String], import_xmp_tags: bool) -> Result<(), AppError> {
-        scanner::resync_files(&self.conn, paths, import_xmp_tags)
+    pub fn resync_files(&self, paths: &[String]) -> Result<(), AppError> {
+        scanner::resync_files(&self.conn, paths)
     }
 
-    pub fn resync_sidecar_files(&self, paths: &[String], import_xmp_tags: bool) -> Result<(), AppError> {
-        scanner::resync_sidecar_files(&self.conn, paths, import_xmp_tags)
+    pub fn import_external_tags(
+        &self,
+        paths: &[String],
+        import_xmp: bool,
+        import_apple: bool,
+    ) -> Result<(), AppError> {
+        scanner::import_external_tags(&self.conn, paths, import_xmp, import_apple)
     }
 }

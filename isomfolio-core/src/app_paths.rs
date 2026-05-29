@@ -65,9 +65,12 @@ pub struct AppSettings {
     /// Automatically run face clustering after a sync finds new files.
     #[serde(default = "default_true")]
     pub auto_face_cluster: bool,
-    /// Import `dc:subject` keywords from XMP sidecars as tags during sync.
+    /// Import `dc:subject` keywords from XMP sidecars as tags when first discovering a photo.
     #[serde(default)]
     pub import_xmp_tags: bool,
+    /// Import Apple Finder tags (`kMDItemUserTags`) as tags when first discovering a photo.
+    #[serde(default)]
+    pub import_apple_tags: bool,
 }
 
 impl Default for AppSettings {
@@ -76,6 +79,7 @@ impl Default for AppSettings {
             preferred_extension: std::collections::HashMap::new(),
             auto_face_cluster: true,
             import_xmp_tags: false,
+            import_apple_tags: false,
         }
     }
 }

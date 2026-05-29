@@ -204,6 +204,12 @@ impl App {
                 Task::none()
             }
 
+            Msg::ToggleImportAppleTags => {
+                self.app_settings.import_apple_tags = !self.app_settings.import_apple_tags;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                Task::none()
+            }
+
             _ => Task::none(),
         }
     }
