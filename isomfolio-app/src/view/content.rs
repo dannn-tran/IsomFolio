@@ -132,18 +132,18 @@ impl App {
             let top_space = first_row as f32 * step;
             let bottom_space = ((total_rows - last_row) as f32 * step).max(0.0);
 
-            let mut row_elements: Vec<Element<Msg>> = Vec::new();
-            for r in first_row..last_row {
-                let start = r * cols;
-                let end = (start + cols).min(total);
-                let tiles: Vec<Element<Msg>> = (start..end).map(|i| self.view_tile(i)).collect();
-                let padding = cols - tiles.len();
-                let mut all_tiles = tiles;
-                for _ in 0..padding {
-                    all_tiles.push(Space::new().width(tile_px).into());
-                }
-                row_elements.push(row(all_tiles).spacing(TILE_GAP).into());
-            }
+            let row_elements: Vec<Element<Msg>> = (first_row..last_row)
+                .map(|r| {
+                    let start = r * cols;
+                    let end = (start + cols).min(total);
+                    let tiles = (start..end).map(|i| self.view_tile(i));
+                    let padding = cols - (end - start);
+                    let pad_iter = std::iter::repeat_with(|| Space::new().width(tile_px).into())
+                        .take(padding);
+                    let all_tiles: Vec<Element<Msg>> = tiles.chain(pad_iter).collect();
+                    row(all_tiles).spacing(TILE_GAP).into()
+                })
+                .collect();
 
             let grid_content = column![
                 Space::new().height(top_space + GRID_PADDING),

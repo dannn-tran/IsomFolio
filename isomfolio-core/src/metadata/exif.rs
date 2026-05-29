@@ -124,14 +124,11 @@ fn exif_datetime_to_unix(s: &str) -> Option<i64> {
         return None;
     }
 
-    let mut days: i64 = 0;
-    for y in 1970..year {
-        days += if is_leap(y) { 366 } else { 365 };
-    }
-    for m in 1..month {
-        days += days_in_month(year, m) as i64;
-    }
-    days += (day - 1) as i64;
+    let leap_days: i64 = (1970..year)
+        .map(|y| if is_leap(y) { 366 } else { 365 })
+        .sum();
+    let month_days: i64 = (1..month).map(|m| days_in_month(year, m) as i64).sum();
+    let days = leap_days + month_days + (day - 1) as i64;
     Some(days * 86400 + hour as i64 * 3600 + min as i64 * 60 + sec as i64)
 }
 

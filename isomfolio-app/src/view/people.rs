@@ -83,23 +83,19 @@ impl App {
         clusters: &[&'a FaceClusterSummary],
         cols: usize,
     ) -> Element<'a, Msg> {
-        let mut section = column![
+        let section = column![
             text(section_label).size(TEXT_SM).color(FG_DIM),
         ]
         .spacing(SPACE_2);
 
-        let mut current_row: Vec<Element<Msg>> = Vec::new();
-        for cluster in clusters {
-            current_row.push(self.person_card(cluster));
-            if current_row.len() >= cols {
-                section = section.push(row(std::mem::take(&mut current_row)).spacing(TILE_GAP));
-            }
-        }
-        if !current_row.is_empty() {
-            section = section.push(row(current_row).spacing(TILE_GAP));
-        }
-
-        section.into()
+        clusters
+            .chunks(cols)
+            .fold(section, |acc, chunk| {
+                let cells: Vec<Element<Msg>> =
+                    chunk.iter().map(|c| self.person_card(c)).collect();
+                acc.push(row(cells).spacing(TILE_GAP))
+            })
+            .into()
     }
 
     fn person_card<'a>(&'a self, cluster: &'a FaceClusterSummary) -> Element<'a, Msg> {

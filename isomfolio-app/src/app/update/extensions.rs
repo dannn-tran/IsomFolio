@@ -488,29 +488,27 @@ fn generate_face_crops(
     let crop_dir = isomfolio_core::app_paths::face_crop_dir(catalog_dir);
     let _ = std::fs::create_dir_all(&crop_dir);
 
-    let mut results = Vec::new();
-    for (cluster_id, file_path, bx, by, bw, bh) in reps {
-        let out_path = face_crop_path(catalog_dir, cluster_id);
-        if std::path::Path::new(&out_path).exists() {
-            results.push((cluster_id.clone(), out_path));
-            continue;
-        }
-        let Ok(img) = image::open(file_path) else { continue };
-        let (iw, ih) = (img.width() as f64, img.height() as f64);
-        let x = (bx * iw).max(0.0) as u32;
-        let y = (by * ih).max(0.0) as u32;
-        let w = (bw * iw).min(iw - x as f64) as u32;
-        let h = (bh * ih).min(ih - y as f64) as u32;
-        if w == 0 || h == 0 {
-            continue;
-        }
-        let cropped = img.crop_imm(x, y, w, h);
-        let thumb = cropped.resize_exact(96, 96, image::imageops::FilterType::Triangle);
-        if thumb.save(&out_path).is_ok() {
-            results.push((cluster_id.clone(), out_path));
-        }
-    }
-    results
+    reps.iter()
+        .filter_map(|(cluster_id, file_path, bx, by, bw, bh)| {
+            let out_path = face_crop_path(catalog_dir, cluster_id);
+            if std::path::Path::new(&out_path).exists() {
+                return Some((cluster_id.clone(), out_path));
+            }
+            let img = image::open(file_path).ok()?;
+            let (iw, ih) = (img.width() as f64, img.height() as f64);
+            let x = (bx * iw).max(0.0) as u32;
+            let y = (by * ih).max(0.0) as u32;
+            let w = (bw * iw).min(iw - x as f64) as u32;
+            let h = (bh * ih).min(ih - y as f64) as u32;
+            if w == 0 || h == 0 {
+                return None;
+            }
+            let cropped = img.crop_imm(x, y, w, h);
+            let thumb = cropped.resize_exact(96, 96, image::imageops::FilterType::Triangle);
+            thumb.save(&out_path).ok()?;
+            Some((cluster_id.clone(), out_path))
+        })
+        .collect()
 }
 
 struct ClassifyState {

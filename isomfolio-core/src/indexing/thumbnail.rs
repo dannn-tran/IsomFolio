@@ -367,23 +367,19 @@ pub fn sweep_thumbnail_cache(
     }
     let all_ids = crate::storage::db::get_all_file_ids(conn)?;
     let known: HashSet<String> = all_ids.into_iter().collect();
-    let mut removed = 0;
-    let entries = fs::read_dir(&cache_dir)
-        .map_err(|e| AppError::Sync(e.to_string()))?;
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jpg") {
-            let file_id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            if !known.contains(&file_id) {
-                let _ = fs::remove_file(&path);
-                removed += 1;
-            }
-        }
-    }
+    let removed = fs::read_dir(&cache_dir)
+        .map_err(|e| AppError::Sync(e.to_string()))?
+        .filter_map(|e| e.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jpg"))
+        .filter(|path| {
+            let file_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            !known.contains(file_id)
+        })
+        .inspect(|path| {
+            let _ = fs::remove_file(path);
+        })
+        .count();
     Ok(removed)
 }
 
