@@ -284,24 +284,19 @@ pub fn create_worker_pool(
         };
 
         loop {
-            // Block when idle; drain non-blocking when busy.
-            let idle = {
-                let s = state.lock().unwrap_or_else(|e| e.into_inner());
-                s.active_count == 0 && s.queue.is_empty()
-            };
-
-            if idle {
-                match rx.recv() {
-                    Err(_) => return,
+            // Block until the next message — a new request when idle, or a worker
+            // completion when busy. Workers send ThumbnailMsg::Done on finish, so
+            // recv() naturally wakes the coordinator without polling or spin.
+            match rx.recv() {
+                Err(_) => return,
+                Ok(msg) => if !process_msg(msg) { return; }
+            }
+            // Drain any additional messages that arrived concurrently.
+            loop {
+                match rx.try_recv() {
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Ok(msg) => if !process_msg(msg) { return; }
-                }
-            } else {
-                loop {
-                    match rx.try_recv() {
-                        Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
-                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                        Ok(msg) => if !process_msg(msg) { return; }
-                    }
                 }
             }
 
