@@ -14,8 +14,9 @@ public class ModelFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         await new ModelDownloader(new MessageWriter(TextWriter.Null)).EnsureModelsDownloadedAsync(ModelsDir);
-        DetPath = Path.Combine(ModelsDir, "buffalo_l", "det_10g.onnx");
-        RecPath = Path.Combine(ModelsDir, "buffalo_l", "w600k_r50.onnx");
+        var variant = ModelVariant.Current();
+        DetPath = Path.Combine(ModelsDir, variant.Name, variant.DetectionFile);
+        RecPath = Path.Combine(ModelsDir, variant.Name, variant.RecognitionFile);
     }
 
     public ValueTask DisposeAsync()
