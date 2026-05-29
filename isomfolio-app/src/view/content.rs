@@ -530,21 +530,11 @@ impl App {
             );
 
             for tag in &self.detail.tags {
-                use isomfolio_core::storage::db::{TAG_SOURCE_AI, TAG_SOURCE_XMP, TAG_SOURCE_APPLE};
-                let sources = self.detail.tag_sources.get(tag).copied().unwrap_or(0);
                 let mut tag_row = row![render_tag_name(tag.as_str())].align_y(Alignment::Center);
-                if sources & TAG_SOURCE_AI != 0 {
-                    let conf_label = match self.detail.tag_confidence.get(tag) {
-                        Some(c) => format!(" AI {:.0}%", c * 100.0),
-                        None => " AI".to_string(),
-                    };
-                    tag_row = tag_row.push(text(conf_label).size(TEXT_XS).color(FG_MUTED));
-                }
-                if sources & TAG_SOURCE_XMP != 0 {
-                    tag_row = tag_row.push(text(" XMP").size(TEXT_XS).color(FG_MUTED));
-                }
-                if sources & TAG_SOURCE_APPLE != 0 {
-                    tag_row = tag_row.push(text(" Apple").size(TEXT_XS).color(FG_MUTED));
+                if let Some(c) = self.detail.tag_confidence.get(tag) {
+                    tag_row = tag_row.push(
+                        text(format!(" {:.0}%", c * 100.0)).size(TEXT_XS).color(FG_MUTED),
+                    );
                 }
                 tag_row = tag_row
                     .push(Space::new().width(Length::Fill))

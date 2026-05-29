@@ -86,8 +86,8 @@ impl Catalog {
         db::get_tags_for_file(&self.conn, file_id)
     }
 
-    pub fn get_tags_with_sources(&self, file_id: &str) -> Result<Vec<(String, i64, Option<f32>)>, AppError> {
-        db::get_tags_with_sources(&self.conn, file_id)
+    pub fn get_tags_with_confidence(&self, file_id: &str) -> Result<Vec<(String, Option<f32>)>, AppError> {
+        db::get_tags_with_confidence(&self.conn, file_id)
     }
 
     pub fn add_tags_merge_scored(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
@@ -293,15 +293,16 @@ impl Catalog {
         &self,
         root_path: &str,
         on_progress: &dyn Fn(SyncProgress),
+        import_xmp_tags: bool,
     ) -> Result<SyncResult, AppError> {
-        scanner::sync_folder(&self.conn, root_path, &|_| {}, on_progress)
+        scanner::sync_folder(&self.conn, root_path, &|_| {}, on_progress, import_xmp_tags)
     }
 
-    pub fn resync_files(&self, paths: &[String]) -> Result<(), AppError> {
-        scanner::resync_files(&self.conn, paths)
+    pub fn resync_files(&self, paths: &[String], import_xmp_tags: bool) -> Result<(), AppError> {
+        scanner::resync_files(&self.conn, paths, import_xmp_tags)
     }
 
-    pub fn resync_sidecar_files(&self, paths: &[String]) -> Result<(), AppError> {
-        scanner::resync_sidecar_files(&self.conn, paths)
+    pub fn resync_sidecar_files(&self, paths: &[String], import_xmp_tags: bool) -> Result<(), AppError> {
+        scanner::resync_sidecar_files(&self.conn, paths, import_xmp_tags)
     }
 }

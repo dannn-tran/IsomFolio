@@ -190,7 +190,8 @@ impl App {
             | Msg::ExtensionInstallFailed(_)
             | Msg::UninstallExtension(_)
             | Msg::SetPreferredExtension { .. }
-            | Msg::ToggleAutoFaceCluster => self.handle_settings(msg),
+            | Msg::ToggleAutoFaceCluster
+            | Msg::ToggleImportXmpTags => self.handle_settings(msg),
 
             // — tag browser —
             Msg::OpenTagBrowser

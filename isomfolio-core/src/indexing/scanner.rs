@@ -59,6 +59,7 @@ pub fn sync_folder(
     root_path: &str,
     on_batch: &dyn Fn(&[ScannedFile]),
     on_progress: &dyn Fn(SyncProgress),
+    import_xmp_tags: bool,
 ) -> Result<SyncResult, AppError> {
     let folder_name = Path::new(root_path)
         .file_name()
@@ -89,6 +90,11 @@ pub fn sync_folder(
             db::upsert_files(conn, &assets)?;
             for sf in &batch {
                 db::upsert_metadata(conn, &sf.asset.id, &sf.meta)?;
+                if import_xmp_tags {
+                    if let Some(ref xmp) = sf.meta.xmp {
+                        db::sync_xmp_tags(conn, &sf.asset.id, &xmp.dublin_core.subject)?;
+                    }
+                }
             }
             total += batch.len();
             on_batch(&batch);
@@ -106,6 +112,11 @@ pub fn sync_folder(
         db::upsert_files(conn, &assets)?;
         for sf in &batch {
             db::upsert_metadata(conn, &sf.asset.id, &sf.meta)?;
+            if import_xmp_tags {
+                if let Some(ref xmp) = sf.meta.xmp {
+                    db::sync_xmp_tags(conn, &sf.asset.id, &xmp.dublin_core.subject)?;
+                }
+            }
         }
         total += batch.len();
         on_batch(&batch);
@@ -122,31 +133,32 @@ pub fn sync_folder(
     Ok(SyncResult { total_count: total, new_file_ids })
 }
 
-pub fn resync_files(conn: &Connection, paths: &[String]) -> Result<(), AppError> {
+pub fn resync_files(conn: &Connection, paths: &[String], import_xmp_tags: bool) -> Result<(), AppError> {
     for path in paths {
         let Some(asset) = asset_file_from_path(path) else { continue };
         let meta = metadata::read_metadata(path);
         db::upsert_files(conn, &[asset.clone()])?;
         db::upsert_metadata(conn, &asset.id, &meta)?;
+        if import_xmp_tags {
+            if let Some(ref xmp) = meta.xmp {
+                db::sync_xmp_tags(conn, &asset.id, &xmp.dublin_core.subject)?;
+            }
+        }
     }
     Ok(())
 }
 
-pub fn resync_sidecar_files(conn: &Connection, paths: &[String]) -> Result<(), AppError> {
+pub fn resync_sidecar_files(conn: &Connection, paths: &[String], import_xmp_tags: bool) -> Result<(), AppError> {
     for path in paths {
         let Some(asset) = asset_file_from_path(path) else { continue };
         let meta = metadata::read_metadata(path);
         db::upsert_metadata(conn, &asset.id, &meta)?;
+        if import_xmp_tags {
+            if let Some(ref xmp) = meta.xmp {
+                db::sync_xmp_tags(conn, &asset.id, &xmp.dublin_core.subject)?;
+            }
+        }
     }
-    Ok(())
-}
-
-pub fn apply_reconcile(conn: &Connection, result: ReconcileResult) -> Result<(), AppError> {
-    for orphan_id in result.orphaned {
-        db::mark_orphaned(conn, &orphan_id)?;
-    }
-    resync_files(conn, &result.new_or_modified)?;
-    resync_sidecar_files(conn, &result.sidecar_changed)?;
     Ok(())
 }
 

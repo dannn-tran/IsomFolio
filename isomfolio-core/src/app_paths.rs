@@ -62,9 +62,12 @@ pub fn create_catalog(parent_dir: &str, name: &str) -> Result<String, std::io::E
 pub struct AppSettings {
     /// Maps capability name (e.g. "classify") to preferred extension name.
     pub preferred_extension: std::collections::HashMap<String, String>,
-    /// Automatically run face clustering after a scan finds new files.
+    /// Automatically run face clustering after a sync finds new files.
     #[serde(default = "default_true")]
     pub auto_face_cluster: bool,
+    /// Import `dc:subject` keywords from XMP sidecars as tags during sync.
+    #[serde(default)]
+    pub import_xmp_tags: bool,
 }
 
 impl Default for AppSettings {
@@ -72,6 +75,7 @@ impl Default for AppSettings {
         Self {
             preferred_extension: std::collections::HashMap::new(),
             auto_face_cluster: true,
+            import_xmp_tags: false,
         }
     }
 }

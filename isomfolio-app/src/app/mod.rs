@@ -662,10 +662,9 @@ impl App {
             return Task::perform(
                 async move {
                     let cat = catalog.lock_unwrap();
-                    let tags_with_origin = cat.get_tags_with_sources(&file_id).unwrap_or_default();
-                    let tags: Vec<String> = tags_with_origin.iter().map(|(t, _, _)| t.clone()).collect();
-                    let tag_sources: std::collections::HashMap<String, i64> = tags_with_origin.iter().map(|(t, s, _)| (t.clone(), *s)).collect();
-                    let tag_confidence: std::collections::HashMap<String, f32> = tags_with_origin.iter().filter_map(|(t, _, c)| Some((t.clone(), (*c)?))).collect();
+                    let tags_with_conf = cat.get_tags_with_confidence(&file_id).unwrap_or_default();
+                    let tags: Vec<String> = tags_with_conf.iter().map(|(t, _)| t.clone()).collect();
+                    let tag_confidence: std::collections::HashMap<String, f32> = tags_with_conf.iter().filter_map(|(t, c)| Some((t.clone(), (*c)?))).collect();
                     let pending_tags = cat.get_pending_tags(&file_id).unwrap_or_default();
                     let meta_opt = cat.get_metadata(&file_id).ok().flatten();
                     let (rating, label, title, exif_tech) = match meta_opt {
@@ -677,12 +676,11 @@ impl App {
                         ),
                         None => (None, None, None, None),
                     };
-                    (file_id, tags, tag_sources, tag_confidence, pending_tags, rating, label, title, exif_tech)
+                    (file_id, tags, tag_confidence, pending_tags, rating, label, title, exif_tech)
                 },
-                |(file_id, tags, tag_sources, tag_confidence, pending_tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
+                |(file_id, tags, tag_confidence, pending_tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
                     file_id,
                     tags,
-                    tag_sources,
                     tag_confidence,
                     pending_tags,
                     rating,

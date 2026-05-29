@@ -19,7 +19,6 @@ impl App {
             Msg::DetailLoaded {
                 file_id,
                 tags,
-                tag_sources,
                 tag_confidence,
                 pending_tags,
                 rating,
@@ -30,7 +29,6 @@ impl App {
                 self.detail.file_id = Some(file_id);
                 self.detail.batch_file_ids.clear();
                 self.detail.tags = tags;
-                self.detail.tag_sources = tag_sources;
                 self.detail.tag_confidence = tag_confidence;
                 self.detail.pending_tags = pending_tags;
                 self.detail.rating = rating;

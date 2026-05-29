@@ -178,12 +178,13 @@ impl App {
                     return Task::none();
                 }
 
+                let import_xmp_tags = self.app_settings.import_xmp_tags;
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             let cat = conn.lock_unwrap();
                             if !upsert.is_empty() {
-                                if let Err(e) = cat.resync_files(&upsert) {
+                                if let Err(e) = cat.resync_files(&upsert, import_xmp_tags) {
                                     eprintln!("[db] resync_files failed: {e}");
                                 }
                             }
@@ -216,11 +217,12 @@ impl App {
                 }
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 self.context_menu = None;
+                // Explicit user gesture — always import XMP tags regardless of global setting
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             let cat = conn.lock_unwrap();
-                            if let Err(e) = cat.resync_sidecar_files(&sidecar_paths) {
+                            if let Err(e) = cat.resync_sidecar_files(&sidecar_paths, true) {
                                 eprintln!("[db] resync_sidecar_files failed: {e}");
                             }
                         })
@@ -240,13 +242,14 @@ impl App {
             return Task::none();
         };
         let wtx = self.watcher_tx.clone();
+        let import_xmp_tags = self.app_settings.import_xmp_tags;
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
                     let cat = conn.lock_unwrap();
                     cat.sync_folder(&path, &|prog| {
                         let _ = wtx.try_send(FileEvent::SyncProgress(prog));
-                    })
+                    }, import_xmp_tags)
                     .map(|r| (r.total_count, r.new_file_ids))
                     .unwrap_or((0, Vec::new()))
                 })
