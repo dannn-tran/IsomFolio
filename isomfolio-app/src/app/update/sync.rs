@@ -200,9 +200,9 @@ impl App {
                 )
             }
 
-            Msg::SyncXmpForSelection => self.import_external_tags_for_selection(true, false),
+            Msg::SyncXmpForSelection => self.import_external_metadata_for_selection(true, false),
 
-            Msg::SyncAppleTagsForSelection => self.import_external_tags_for_selection(false, true),
+            Msg::SyncAppleTagsForSelection => self.import_external_metadata_for_selection(false, true),
 
             Msg::MetadataImportPromptToggleXmp => {
                 if let Some(p) = self.metadata_import_prompt.as_mut() {
@@ -297,7 +297,7 @@ impl App {
         )
     }
 
-    fn import_external_tags_for_selection(&mut self, xmp: bool, apple: bool) -> Task<Msg> {
+    fn import_external_metadata_for_selection(&mut self, xmp: bool, apple: bool) -> Task<Msg> {
         let paths: Vec<String> = self
             .grid_selected
             .iter()
@@ -313,8 +313,8 @@ impl App {
             async move {
                 tokio::task::spawn_blocking(move || {
                     let cat = conn.lock_unwrap();
-                    if let Err(e) = cat.import_external_tags(&paths, xmp, apple) {
-                        eprintln!("[db] import_external_tags failed: {e}");
+                    if let Err(e) = cat.import_external_metadata(&paths, xmp, apple) {
+                        eprintln!("[db] import_external_metadata failed: {e}");
                     }
                 })
                 .await

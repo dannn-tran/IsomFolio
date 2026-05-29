@@ -188,7 +188,7 @@ impl App {
                 }
 
                 items.push(None);
-                items.push(Some(("Import XMP keywords".into(), Msg::SyncXmpForSelection, false)));
+                items.push(Some(("Import XMP metadata".into(), Msg::SyncXmpForSelection, false)));
                 if cfg!(target_os = "macos") {
                     items.push(Some(("Import Apple Finder tags".into(), Msg::SyncAppleTagsForSelection, false)));
                 }

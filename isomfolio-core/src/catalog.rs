@@ -303,12 +303,12 @@ impl Catalog {
         scanner::resync_files(&self.conn, paths)
     }
 
-    pub fn import_external_tags(
+    pub fn import_external_metadata(
         &self,
         paths: &[String],
         import_xmp: bool,
         import_apple: bool,
     ) -> Result<(), AppError> {
-        scanner::import_external_tags(&self.conn, paths, import_xmp, import_apple)
+        scanner::import_external_metadata(&self.conn, paths, import_xmp, import_apple)
     }
 }

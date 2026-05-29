@@ -144,21 +144,24 @@ pub fn sync_folder(
     Ok(SyncResult { total_count: total, new_file_ids })
 }
 
-/// Re-read file metadata after a file modification. Never auto-imports tags —
-/// modifications shouldn't re-import (user may have curated their tags).
+/// Re-read file identity after a file modification. Only updates the `files` table
+/// (path, filename, folder, size, mtime, EXIF capture date). Never touches the
+/// `metadata` table or `tags` — those are catalog-owned once the file is indexed.
 pub fn resync_files(conn: &Connection, paths: &[String]) -> Result<(), AppError> {
     for path in paths {
         let Some(asset) = asset_file_from_path(path) else { continue };
-        let meta = metadata::read_metadata(path);
-        db::upsert_files(conn, &[asset.clone()])?;
-        db::upsert_metadata(conn, &asset.id, &meta)?;
+        db::upsert_files(conn, &[asset])?;
     }
     Ok(())
 }
 
-/// Explicit user-triggered import of XMP and/or Apple tags for the given files.
-/// Always imports regardless of global settings — invoked by right-click actions.
-pub fn import_external_tags(
+/// Explicit user-triggered re-read of external metadata for the given files.
+/// - `import_xmp`: overwrites XMP-derived metadata fields (rating, label, title,
+///   description, creator, subjects) AND adds `dc:subject` keywords as tags (additive).
+/// - `import_apple`: overwrites apple_tags JSON in metadata AND adds Apple Finder
+///   tags as tags (additive).
+/// Always runs regardless of global settings — invoked by right-click actions.
+pub fn import_external_metadata(
     conn: &Connection,
     paths: &[String],
     import_xmp: bool,
@@ -168,11 +171,13 @@ pub fn import_external_tags(
         let Some(asset) = asset_file_from_path(path) else { continue };
         let meta = metadata::read_metadata(path);
         if import_xmp {
+            db::update_xmp_metadata(conn, &asset.id, &meta)?;
             if let Some(ref xmp) = meta.xmp {
                 db::sync_xmp_tags(conn, &asset.id, &xmp.dublin_core.subject)?;
             }
         }
         if import_apple {
+            db::update_apple_metadata(conn, &asset.id, &meta)?;
             if let Some(ref apple) = meta.apple {
                 let names: Vec<String> = apple.user_tags.iter().map(|t| t.text.clone()).collect();
                 db::sync_apple_tags(conn, &asset.id, &names)?;

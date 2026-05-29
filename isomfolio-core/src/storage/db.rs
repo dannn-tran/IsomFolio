@@ -375,6 +375,63 @@ pub fn sync_apple_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Res
     sync_xmp_tags(conn, file_id, tags)
 }
 
+/// Update XMP-derived columns in the `metadata` table only. Used by the explicit
+/// "Import XMP metadata" right-click. Overwrites rating/label/title/description/creator/subjects.
+pub fn update_xmp_metadata(
+    conn: &Connection,
+    file_id: &str,
+    meta: &EmbeddedMetadata,
+) -> Result<(), AppError> {
+    let xmp_core = meta.xmp.as_ref().map(|x| &x.core);
+    let xmp_dc = meta.xmp.as_ref().map(|x| &x.dublin_core);
+
+    let rating: Option<i32> = xmp_core.and_then(|c| c.rating);
+    let label: Option<&str> = xmp_core.and_then(|c| c.label.as_deref());
+    let title: Option<&str> = xmp_dc.and_then(|d| d.title.as_deref());
+    let description: Option<&str> = xmp_dc.and_then(|d| d.description.as_deref());
+    let creator = xmp_dc.map(|d| d.creator.clone()).unwrap_or_default();
+    let subjects = xmp_dc.map(|d| d.subject.clone()).unwrap_or_default();
+    let creator_json = serde_json::to_string(&creator).unwrap_or_default();
+    let subjects_json = serde_json::to_string(&subjects).unwrap_or_default();
+
+    conn.execute(
+        "INSERT INTO metadata (file_id, rating, label, title, description, creator, subjects)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(file_id) DO UPDATE SET
+             rating = excluded.rating,
+             label = excluded.label,
+             title = excluded.title,
+             description = excluded.description,
+             creator = excluded.creator,
+             subjects = excluded.subjects",
+        params![file_id, rating, label, title, description, creator_json, subjects_json],
+    )?;
+    rebuild_fts_for_file(conn, file_id)?;
+    Ok(())
+}
+
+/// Update Apple-derived columns in the `metadata` table only.
+pub fn update_apple_metadata(
+    conn: &Connection,
+    file_id: &str,
+    meta: &EmbeddedMetadata,
+) -> Result<(), AppError> {
+    let apple_tags: Vec<String> = meta
+        .apple
+        .as_ref()
+        .map(|a| a.user_tags.iter().map(|t| t.text.clone()).collect())
+        .unwrap_or_default();
+    let apple_json = serde_json::to_string(&apple_tags).unwrap_or_default();
+
+    conn.execute(
+        "INSERT INTO metadata (file_id, apple_tags) VALUES (?1, ?2)
+         ON CONFLICT(file_id) DO UPDATE SET apple_tags = excluded.apple_tags",
+        params![file_id, apple_json],
+    )?;
+    rebuild_fts_for_file(conn, file_id)?;
+    Ok(())
+}
+
 pub fn insert_pending_tags(conn: &Connection, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
     for (tag, confidence) in tags {
@@ -1238,6 +1295,67 @@ mod tests {
         assert_eq!(count_album_files(&conn, "a1").unwrap(), 1);
         remove_file_from_album(&conn, "a1", "f1").unwrap();
         assert_eq!(count_album_files(&conn, "a1").unwrap(), 0);
+    }
+
+    mod metadata_partial_updates {
+        use super::*;
+        use crate::metadata::{AppleMetadata, AppleTag, EmbeddedMetadata, XmpCore, XmpMetadata, DublinCore};
+
+        fn setup(conn: &Connection) {
+            upsert_files(conn, &[make_file("f1", "/p/a.jpg")]).unwrap();
+        }
+
+        fn xmp_with(rating: Option<i32>, title: Option<&str>, subjects: Vec<&str>) -> EmbeddedMetadata {
+            EmbeddedMetadata {
+                xmp: Some(XmpMetadata {
+                    core: XmpCore { rating, ..Default::default() },
+                    dublin_core: DublinCore {
+                        title: title.map(String::from),
+                        subject: subjects.iter().map(|s| s.to_string()).collect(),
+                        ..Default::default()
+                    },
+                }),
+                apple: None,
+                exif_tech: None,
+            }
+        }
+
+        #[test]
+        fn update_xmp_metadata_overwrites_rating() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            // User sets rating to 5 in IsomFolio.
+            set_file_rating(&conn, "f1", Some(5)).unwrap();
+            // External XMP says rating is 3.
+            update_xmp_metadata(&conn, "f1", &xmp_with(Some(3), None, vec![])).unwrap();
+            // Explicit import overwrites — user asked for it.
+            let m = get_metadata(&conn, "f1").unwrap().unwrap();
+            assert_eq!(m.xmp.unwrap().core.rating, Some(3));
+        }
+
+        #[test]
+        fn update_apple_metadata_does_not_clobber_xmp_fields() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            update_xmp_metadata(
+                &conn,
+                "f1",
+                &xmp_with(Some(4), Some("Sunset"), vec!["paris"]),
+            ).unwrap();
+            let apple_meta = EmbeddedMetadata {
+                xmp: None,
+                apple: Some(AppleMetadata {
+                    user_tags: vec![AppleTag { text: "Important".into(), color_idx: 0 }],
+                }),
+                exif_tech: None,
+            };
+            update_apple_metadata(&conn, "f1", &apple_meta).unwrap();
+            // XMP rating + title preserved; Apple tags written.
+            let m = get_metadata(&conn, "f1").unwrap().unwrap();
+            assert_eq!(m.xmp.as_ref().unwrap().core.rating, Some(4));
+            assert_eq!(m.xmp.as_ref().unwrap().dublin_core.title.as_deref(), Some("Sunset"));
+            assert_eq!(m.apple.unwrap().user_tags[0].text, "Important");
+        }
     }
 
     mod tags {
