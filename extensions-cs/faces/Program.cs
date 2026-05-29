@@ -37,7 +37,11 @@ public static class Program
             }
             catch (Exception ex)
             {
-                await writer.SendFatalAsync(repairable: ex is FileNotFoundException, ex.Message);
+                var detail = ex.InnerException is null
+                    ? ex.Message
+                    : $"{ex.Message} — caused by: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}";
+                await writer.LogAsync(LogLevel.Error, $"startup trace: {ex}");
+                await writer.SendFatalAsync(repairable: ex is FileNotFoundException, detail);
                 return;
             }
 
