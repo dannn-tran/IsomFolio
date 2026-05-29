@@ -66,7 +66,8 @@ impl App {
             | Msg::FileWatcherEvent(_)
             | Msg::FlushFileEvents(_)
             | Msg::ApplyMetadataDrift
-            | Msg::DismissMetadataDrift => self.handle_scan_msg(msg),
+            | Msg::DismissMetadataDrift
+            | Msg::SyncXmpForSelection => self.handle_scan_msg(msg),
 
             // — detail panel, tags, ratings, flags, undo —
             Msg::ToggleDetail

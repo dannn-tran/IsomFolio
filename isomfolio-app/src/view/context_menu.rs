@@ -179,6 +179,9 @@ impl App {
                     }
                 }
 
+                items.push(None);
+                items.push(Some(("Sync XMP Metadata".into(), Msg::SyncXmpForSelection, false)));
+
                 if n == 1 {
                     let path = self
                         .grid_selected
@@ -187,7 +190,6 @@ impl App {
                         .and_then(|id| self.files.iter().find(|f| &f.id == id))
                         .map(|f| f.path.clone())
                         .unwrap_or_default();
-                    items.push(None);
                     items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(path), false)));
                 }
                 items

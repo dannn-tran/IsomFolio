@@ -301,6 +301,7 @@ pub enum Msg {
     FlushFileEvents(u64),
     ApplyMetadataDrift,
     DismissMetadataDrift,
+    SyncXmpForSelection,
 }
 
 use isomfolio_core::models::FlagFilter;

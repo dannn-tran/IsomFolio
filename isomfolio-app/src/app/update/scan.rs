@@ -233,6 +233,37 @@ impl App {
                 Task::none()
             }
 
+            Msg::SyncXmpForSelection => {
+                let sidecar_paths: Vec<String> = self
+                    .grid_selected
+                    .iter()
+                    .filter_map(|id| self.files.iter().find(|f| &f.id == id))
+                    .filter_map(|f| {
+                        let p = std::path::Path::new(&f.path).with_extension("xmp");
+                        if p.exists() { Some(p.to_string_lossy().into_owned()) } else { None }
+                    })
+                    .collect();
+                if sidecar_paths.is_empty() {
+                    self.status = "No XMP sidecar found for selection".to_string();
+                    return Task::none();
+                }
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.context_menu = None;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let cat = conn.lock_unwrap();
+                            if let Err(e) = cat.resync_sidecar_files(&sidecar_paths) {
+                                eprintln!("[db] resync_sidecar_files failed: {e}");
+                            }
+                        })
+                        .await
+                        .ok();
+                    },
+                    |()| Msg::Reload,
+                )
+            }
+
             _ => Task::none(),
         }
     }
