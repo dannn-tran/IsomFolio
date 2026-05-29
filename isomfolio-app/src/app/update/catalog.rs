@@ -41,18 +41,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                let orphan_task = if let Some(conn) = self.catalog.clone() {
-                    Task::perform(
-                        async move {
-                            let g = conn.lock_unwrap();
-                            g.purge_old_orphans(30).ok();
-                        },
-                        |()| Msg::NoOp,
-                    )
-                } else {
-                    Task::none()
-                };
-                Task::batch([sidebar_task, extension_task, face_task, orphan_task])
+                Task::batch([sidebar_task, extension_task, face_task])
             }
 
             Msg::OpenCatalog(path) => {

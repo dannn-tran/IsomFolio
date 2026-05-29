@@ -94,10 +94,6 @@ impl Catalog {
         db::add_tags_merge_scored(&self.conn, file_id, tags)
     }
 
-    pub fn purge_old_orphans(&self, older_than_days: u32) -> Result<usize, AppError> {
-        db::purge_old_orphans(&self.conn, older_than_days)
-    }
-
     pub fn purge_orphans_in_folder(&self, folder: &str) -> Result<usize, AppError> {
         db::purge_orphans_in_folder(&self.conn, folder)
     }

@@ -285,21 +285,6 @@ pub fn get_folder_counts(conn: &Connection) -> Result<Vec<(String, usize)>, AppE
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-pub fn count_orphans(conn: &Connection) -> Result<usize, AppError> {
-    let count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM files WHERE is_orphaned = 1", [], |r| r.get(0))?;
-    Ok(count as usize)
-}
-
-pub fn purge_old_orphans(conn: &Connection, older_than_days: u32) -> Result<usize, AppError> {
-    let cutoff = now_unix() - (older_than_days as i64 * 86400);
-    let n = conn.execute(
-        "DELETE FROM files WHERE is_orphaned = 1 AND orphaned_at IS NOT NULL AND orphaned_at < ?1",
-        [cutoff],
-    )?;
-    Ok(n)
-}
-
 pub fn get_all_file_ids(conn: &Connection) -> Result<Vec<String>, AppError> {
     let mut stmt = conn.prepare("SELECT id FROM files")?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
