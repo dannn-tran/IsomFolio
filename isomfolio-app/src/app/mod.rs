@@ -113,6 +113,8 @@ pub struct App {
     pub file_ratings: HashMap<String, i32>,
     pub pending_counts_by_id: HashMap<String, usize>,
     pub pending_tag_file_count: usize,
+    pub suggestion_view: SuggestionView,
+    pub pending_tag_groups: Vec<isomfolio_core::models::PendingTagGroup>,
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
@@ -318,6 +320,8 @@ impl App {
             file_ratings: HashMap::new(),
             pending_counts_by_id: HashMap::new(),
             pending_tag_file_count: 0,
+            suggestion_view: SuggestionView::Photo,
+            pending_tag_groups: Vec::new(),
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
@@ -559,6 +563,34 @@ impl App {
         }
     }
 
+    pub(crate) fn enqueue_thumbnails_for_ids(&mut self, ids_and_paths: &[(String, String)]) {
+        let Some(pool) = &self.thumb_ctx.pool else { return };
+        let catalog_dir = self.catalog_dir.clone();
+        let mut newly_enqueued = 0usize;
+        for (priority, (id, path)) in ids_and_paths.iter().enumerate() {
+            if !self.thumbnails.contains_key(id) {
+                self.thumbnails.insert(id.clone(), ThumbnailState::Pending);
+                let cache = thumbnail_cache_path(&catalog_dir, id);
+                if std::path::Path::new(&cache).exists() {
+                    self.thumbnails.insert(id.clone(), ThumbnailState::Ready(cache));
+                } else {
+                    pool.enqueue(id, path, priority as i32);
+                    newly_enqueued += 1;
+                }
+            }
+        }
+        if newly_enqueued > 0 {
+            self.thumb_ctx.done_gen += 1;
+            if self.thumb_ctx.pending == 0 {
+                self.thumb_ctx.total = newly_enqueued;
+                self.thumb_ctx.start_at = Some(Instant::now());
+            } else {
+                self.thumb_ctx.total += newly_enqueued;
+            }
+            self.thumb_ctx.pending += newly_enqueued;
+        }
+    }
+
     pub(crate) fn start_watchers_for_folders(&mut self) {
         let current: HashSet<String> = self.watchers.iter().map(|(p, _)| p.clone()).collect();
         let new_paths: Vec<String> = self
@@ -642,6 +674,17 @@ impl App {
                 cat.get_pending_tag_count().unwrap_or(0)
             },
             Msg::PendingTotalLoaded,
+        )
+    }
+
+    pub fn load_pending_tag_groups_task(&self) -> Task<Msg> {
+        let Some(catalog) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                let cat = catalog.lock_unwrap();
+                cat.get_pending_tags_grouped().unwrap_or_default()
+            },
+            Msg::PendingTagGroupsLoaded,
         )
     }
 

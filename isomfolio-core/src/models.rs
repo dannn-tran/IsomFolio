@@ -139,6 +139,15 @@ pub struct FaceClusterSummary {
     pub file_count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingTagGroup {
+    pub tag: String,
+    pub file_count: usize,
+    pub avg_confidence: Option<f32>,
+    /// Up to 4 (file_id, file_path) tuples (highest-confidence first) for preview thumbnails.
+    pub sample_files: Vec<(String, String)>,
+}
+
 #[derive(Debug, Clone)]
 pub struct FaceClusterMember {
     pub cluster_id: String,

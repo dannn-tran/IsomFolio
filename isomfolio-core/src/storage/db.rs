@@ -576,6 +576,119 @@ pub fn accept_all_pending_batch(
     Ok(total)
 }
 
+/// Group pending tags by tag name across the whole library.
+/// Returns one entry per unique pending tag, ordered by count (most photos first).
+/// Each entry includes up to 4 sample file ids (highest confidence first) for previews.
+pub fn get_pending_tags_grouped(
+    conn: &Connection,
+) -> Result<Vec<crate::models::PendingTagGroup>, AppError> {
+    use crate::models::PendingTagGroup;
+
+    // Single pass — pending_tags is small (typically thousands at most).
+    // JOIN to files to get path for sample thumbnails; skip orphaned files.
+    let mut stmt = conn.prepare(
+        "SELECT p.tag, p.file_id, p.confidence, f.path \
+         FROM pending_tags p \
+         JOIN files f ON p.file_id = f.id AND f.is_orphaned = 0 \
+         ORDER BY p.tag, p.confidence DESC NULLS LAST",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<f64>>(2)?,
+            r.get::<_, String>(3)?,
+        ))
+    })?;
+
+    let mut current_tag: Option<String> = None;
+    let mut current_count: usize = 0;
+    let mut current_conf_sum: f64 = 0.0;
+    let mut current_conf_n: usize = 0;
+    let mut current_samples: Vec<(String, String)> = Vec::with_capacity(4);
+    let mut groups: Vec<PendingTagGroup> = Vec::new();
+
+    for row in rows {
+        let (tag, file_id, conf, path) = row?;
+        if current_tag.as_deref() != Some(tag.as_str()) {
+            if let Some(t) = current_tag.take() {
+                groups.push(PendingTagGroup {
+                    tag: t,
+                    file_count: current_count,
+                    avg_confidence: if current_conf_n > 0 {
+                        Some((current_conf_sum / current_conf_n as f64) as f32)
+                    } else {
+                        None
+                    },
+                    sample_files: std::mem::take(&mut current_samples),
+                });
+            }
+            current_tag = Some(tag);
+            current_count = 0;
+            current_conf_sum = 0.0;
+            current_conf_n = 0;
+        }
+        current_count += 1;
+        if let Some(c) = conf {
+            current_conf_sum += c;
+            current_conf_n += 1;
+        }
+        if current_samples.len() < 4 {
+            current_samples.push((file_id, path));
+        }
+    }
+    if let Some(t) = current_tag.take() {
+        groups.push(PendingTagGroup {
+            tag: t,
+            file_count: current_count,
+            avg_confidence: if current_conf_n > 0 {
+                Some((current_conf_sum / current_conf_n as f64) as f32)
+            } else {
+                None
+            },
+            sample_files: current_samples,
+        });
+    }
+    groups.sort_by(|a, b| b.file_count.cmp(&a.file_count).then(a.tag.cmp(&b.tag)));
+    Ok(groups)
+}
+
+/// Accept the given pending tag across every file it's suggested on.
+/// Returns the number of files affected.
+pub fn accept_pending_tag_globally(conn: &Connection, tag: &str) -> Result<usize, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT file_id, confidence FROM pending_tags WHERE tag = ?1",
+    )?;
+    let rows: Vec<(String, Option<f64>)> = stmt
+        .query_map([tag], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let n = rows.len();
+    let tx = conn.unchecked_transaction()?;
+    for (fid, conf) in &rows {
+        conn.execute(
+            "INSERT INTO tags (file_id, tag, confidence) VALUES (?1, ?2, ?3)
+             ON CONFLICT(file_id, tag) DO UPDATE SET confidence = COALESCE(?3, confidence)",
+            params![fid, tag, conf],
+        )?;
+    }
+    conn.execute("DELETE FROM pending_tags WHERE tag = ?1", [tag])?;
+    tx.commit()?;
+    for (fid, _) in &rows {
+        rebuild_fts_for_file(conn, fid)?;
+    }
+    Ok(n)
+}
+
+/// Reject the given pending tag across every file. Returns files affected count.
+pub fn reject_pending_tag_globally(conn: &Connection, tag: &str) -> Result<usize, AppError> {
+    let n = conn.execute("DELETE FROM pending_tags WHERE tag = ?1", [tag])?;
+    Ok(n)
+}
+
 /// Reject all pending tags for each given file id in a single transaction.
 /// Returns the total number of pending tags rejected.
 pub fn reject_all_pending_batch(
@@ -1648,6 +1761,102 @@ mod tests {
             assert!(get_pending_tags(&conn, "f2").unwrap().is_empty());
             assert_eq!(get_tags_for_file(&conn, "f1").unwrap(), vec!["a".to_string()]);
             assert_eq!(get_tags_for_file(&conn, "f2").unwrap().len(), 2);
+        }
+
+        #[test]
+        fn tags_grouped_returns_counts_and_avg_confidence() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                make_file("f1", "/p/a.jpg"),
+                make_file("f2", "/p/b.jpg"),
+                make_file("f3", "/p/c.jpg"),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f1", &[("landscape".into(), Some(0.9))]).unwrap();
+            insert_pending_tags(&conn, "f2", &[
+                ("landscape".into(), Some(0.7)),
+                ("portrait".into(), Some(0.8)),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f3", &[("landscape".into(), Some(0.8))]).unwrap();
+            let groups = get_pending_tags_grouped(&conn).unwrap();
+            assert_eq!(groups.len(), 2);
+            assert_eq!(groups[0].tag, "landscape");
+            assert_eq!(groups[0].file_count, 3);
+            assert!((groups[0].avg_confidence.unwrap() - 0.8).abs() < 0.01);
+            assert_eq!(groups[1].tag, "portrait");
+            assert_eq!(groups[1].file_count, 1);
+        }
+
+        #[test]
+        fn tags_grouped_skips_orphans() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                make_file("f1", "/p/a.jpg"),
+                make_file("f2", "/p/b.jpg"),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f1", &[("x".into(), None)]).unwrap();
+            insert_pending_tags(&conn, "f2", &[("x".into(), None)]).unwrap();
+            mark_orphaned(&conn, "f2").unwrap();
+            let groups = get_pending_tags_grouped(&conn).unwrap();
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0].file_count, 1);
+        }
+
+        #[test]
+        fn tags_grouped_caps_samples_at_four() {
+            let (conn, _f) = open_temp();
+            let files: Vec<_> = (0..6).map(|i| make_file(
+                &format!("f{i}"), &format!("/p/{i}.jpg"))).collect();
+            upsert_files(&conn, &files).unwrap();
+            for i in 0..6 {
+                insert_pending_tags(
+                    &conn,
+                    &format!("f{i}"),
+                    &[("foo".into(), Some(0.5))],
+                ).unwrap();
+            }
+            let groups = get_pending_tags_grouped(&conn).unwrap();
+            assert_eq!(groups[0].file_count, 6);
+            assert_eq!(groups[0].sample_files.len(), 4);
+        }
+
+        #[test]
+        fn accept_globally_clears_across_files_and_adds_tags() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                make_file("f1", "/p/a.jpg"),
+                make_file("f2", "/p/b.jpg"),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f1", &[
+                ("landscape".into(), Some(0.9)),
+                ("portrait".into(), Some(0.5)),
+            ]).unwrap();
+            insert_pending_tags(&conn, "f2", &[("landscape".into(), Some(0.8))]).unwrap();
+            let n = accept_pending_tag_globally(&conn, "landscape").unwrap();
+            assert_eq!(n, 2);
+            // landscape gone from pending everywhere; portrait survives on f1
+            assert_eq!(get_pending_tags(&conn, "f1").unwrap().len(), 1);
+            assert!(get_pending_tags(&conn, "f2").unwrap().is_empty());
+            // landscape now in tags table on both files
+            assert!(get_tags_for_file(&conn, "f1").unwrap().contains(&"landscape".to_string()));
+            assert!(get_tags_for_file(&conn, "f2").unwrap().contains(&"landscape".to_string()));
+        }
+
+        #[test]
+        fn reject_globally_clears_pending_only() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                make_file("f1", "/p/a.jpg"),
+                make_file("f2", "/p/b.jpg"),
+            ]).unwrap();
+            upsert_tags(&conn, "f1", &["existing".into()]).unwrap();
+            insert_pending_tags(&conn, "f1", &[("x".into(), None)]).unwrap();
+            insert_pending_tags(&conn, "f2", &[("x".into(), None)]).unwrap();
+            let n = reject_pending_tag_globally(&conn, "x").unwrap();
+            assert_eq!(n, 2);
+            assert!(get_pending_tags(&conn, "f1").unwrap().is_empty());
+            assert!(get_pending_tags(&conn, "f2").unwrap().is_empty());
+            // existing tags untouched
+            assert_eq!(get_tags_for_file(&conn, "f1").unwrap(), vec!["existing".to_string()]);
         }
 
         #[test]

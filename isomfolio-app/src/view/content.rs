@@ -27,6 +27,8 @@ impl App {
         );
 
         let is_suggestions = matches!(self.selected_item, crate::app::SidebarItem::Suggestions);
+        let is_tag_view = is_suggestions
+            && matches!(self.suggestion_view, crate::app::SuggestionView::Tag);
 
         let mut toolbar_row = row![
             text_input("Search photos…", &self.search_text)
@@ -53,23 +55,53 @@ impl App {
         .spacing(SPACE_2)
         .align_y(Alignment::Center);
 
-        if is_suggestions && !self.files.is_empty() {
+        if is_suggestions {
+            // View toggle: By Photo / By Tag
+            let by_photo_active = matches!(self.suggestion_view, crate::app::SuggestionView::Photo);
             toolbar_row = toolbar_row
                 .push(
-                    button(text("Accept all in view").size(TEXT_MD))
-                        .on_press(Msg::AcceptAllInView)
-                        .style(active_chip_style),
+                    button(text("By Photo").size(TEXT_MD))
+                        .on_press(Msg::SetSuggestionView(crate::app::SuggestionView::Photo))
+                        .style(if by_photo_active { active_chip_style } else { ghost_btn_style }),
                 )
                 .push(
-                    button(text("Reject all in view").size(TEXT_MD).color(ERR))
-                        .on_press(Msg::RejectAllInView)
-                        .style(ghost_btn_style),
+                    button(text("By Tag").size(TEXT_MD))
+                        .on_press(Msg::SetSuggestionView(crate::app::SuggestionView::Tag))
+                        .style(if !by_photo_active { active_chip_style } else { ghost_btn_style }),
                 );
+            // Bulk actions only meaningful for the photo grid
+            if by_photo_active && !self.files.is_empty() {
+                toolbar_row = toolbar_row
+                    .push(
+                        button(text("Accept all in view").size(TEXT_MD))
+                            .on_press(Msg::AcceptAllInView)
+                            .style(active_chip_style),
+                    )
+                    .push(
+                        button(text("Reject all in view").size(TEXT_MD).color(ERR))
+                            .on_press(Msg::RejectAllInView)
+                            .style(ghost_btn_style),
+                    );
+            }
         }
 
         let filter_toolbar = container(toolbar_row)
             .padding([SPACE_1_5, SPACE_3])
             .width(Length::Fill);
+
+        if is_tag_view {
+            let body = self.view_suggestions_tag_list();
+            let mut grid_col = column![filter_toolbar];
+            grid_col = grid_col.push(body);
+            return container(grid_col)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(BG_GRID)),
+                    ..Default::default()
+                })
+                .into();
+        }
 
         let empty_msg = if is_suggestions {
             "No pending suggestions"
@@ -148,6 +180,113 @@ impl App {
                 background: Some(Background::Color(BG_GRID)),
                 ..Default::default()
             })
+            .into()
+    }
+
+    fn view_suggestions_tag_list(&self) -> Element<'_, Msg> {
+        if self.pending_tag_groups.is_empty() {
+            return container(text("No pending suggestions").size(TEXT_BASE).color(FG_DIM))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
+                .into();
+        }
+
+        const PREVIEW_PX: f32 = 56.0;
+        const ROW_PAD_Y: f32 = SPACE_2;
+        const ROW_PAD_X: f32 = SPACE_3;
+
+        let mut col = column![].spacing(0);
+        for group in &self.pending_tag_groups {
+            let tag_for_accept = group.tag.clone();
+            let tag_for_reject = group.tag.clone();
+            let count_label = if group.file_count == 1 {
+                "1 photo".to_string()
+            } else {
+                format!("{} photos", group.file_count)
+            };
+            let conf_label = match group.avg_confidence {
+                Some(c) => format!("{:.0}% avg", c * 100.0),
+                None => String::new(),
+            };
+
+            // Sample thumbnails (up to 4)
+            let mut samples = row![].spacing(SPACE_1);
+            for (fid, _path) in group.sample_files.iter().take(4) {
+                let thumb: Element<Msg> = if let Some(handle) = self.thumb_ctx.handles.get(fid).cloned() {
+                    image(handle)
+                        .width(PREVIEW_PX)
+                        .height(PREVIEW_PX)
+                        .content_fit(iced::ContentFit::Cover)
+                        .into()
+                } else {
+                    container(Space::new())
+                        .width(PREVIEW_PX)
+                        .height(PREVIEW_PX)
+                        .style(|_: &Theme| container::Style {
+                            background: Some(Background::Color(BG_TILE_LOADING)),
+                            border: Border { radius: TILE_CORNER.into(), ..Default::default() },
+                            ..Default::default()
+                        })
+                        .into()
+                };
+                samples = samples.push(thumb);
+            }
+
+            let row_inner = row![
+                samples,
+                column![
+                    text(group.tag.clone()).size(TEXT_BASE).color(FG),
+                    text(format!(
+                        "{count_label}{}",
+                        if conf_label.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" · {conf_label}")
+                        }
+                    ))
+                    .size(TEXT_SM)
+                    .color(FG_DIM),
+                ]
+                .spacing(SPACE_0_5)
+                .width(Length::Fill),
+                button(text("Accept all").size(TEXT_MD))
+                    .on_press(Msg::AcceptPendingTagGlobally(tag_for_accept))
+                    .style(active_chip_style),
+                button(text("Reject all").size(TEXT_MD).color(ERR))
+                    .on_press(Msg::RejectPendingTagGlobally(tag_for_reject))
+                    .style(ghost_btn_style),
+            ]
+            .spacing(SPACE_2)
+            .align_y(Alignment::Center);
+
+            col = col.push(
+                container(row_inner)
+                    .padding([ROW_PAD_Y, ROW_PAD_X])
+                    .width(Length::Fill)
+                    .style(|_: &Theme| container::Style {
+                        border: Border { color: BORDER, width: 0.0, radius: 0.0.into() },
+                        ..Default::default()
+                    }),
+            );
+            col = col.push(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(1.0)
+                    .style(|_: &Theme| container::Style {
+                        background: Some(Background::Color(Color { a: 0.08, ..BORDER })),
+                        ..Default::default()
+                    }),
+            );
+        }
+
+        scrollable(col)
+            .direction(Direction::Vertical(
+                scrollable::Scrollbar::new().width(6).scroller_width(6),
+            ))
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 

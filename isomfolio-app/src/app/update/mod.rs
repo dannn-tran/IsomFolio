@@ -100,6 +100,10 @@ impl App {
             | Msg::RejectAllInView
             | Msg::PendingCountsLoaded { .. }
             | Msg::PendingTotalLoaded(_)
+            | Msg::SetSuggestionView(_)
+            | Msg::PendingTagGroupsLoaded(_)
+            | Msg::AcceptPendingTagGlobally(_)
+            | Msg::RejectPendingTagGlobally(_)
             | Msg::SetDetailRating(_)
             | Msg::SetFlag(_)
             | Msg::FlagsApplied
@@ -255,6 +259,9 @@ impl App {
                 self.smart_album_dirty = false;
                 if going_to_suggestions {
                     self.detail.show = true;
+                    if matches!(self.suggestion_view, super::SuggestionView::Tag) {
+                        return self.load_pending_tag_groups_task();
+                    }
                 }
                 self.load_files_task()
             }

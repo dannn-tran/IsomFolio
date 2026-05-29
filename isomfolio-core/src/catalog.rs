@@ -149,6 +149,18 @@ impl Catalog {
         db::reject_all_pending_batch(&self.conn, file_ids)
     }
 
+    pub fn get_pending_tags_grouped(&self) -> Result<Vec<PendingTagGroup>, AppError> {
+        db::get_pending_tags_grouped(&self.conn)
+    }
+
+    pub fn accept_pending_tag_globally(&self, tag: &str) -> Result<usize, AppError> {
+        db::accept_pending_tag_globally(&self.conn, tag)
+    }
+
+    pub fn reject_pending_tag_globally(&self, tag: &str) -> Result<usize, AppError> {
+        db::reject_pending_tag_globally(&self.conn, tag)
+    }
+
     pub fn reject_all_pending(&self, file_id: &str) -> Result<usize, AppError> {
         db::reject_all_pending(&self.conn, file_id)
     }

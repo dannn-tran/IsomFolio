@@ -53,6 +53,12 @@ pub enum ViewMode {
     Compare,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SuggestionView {
+    Photo,
+    Tag,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SidebarItem {
     AllFiles,
@@ -194,6 +200,10 @@ pub enum Msg {
     RejectAllInView,
     PendingCountsLoaded { counts: HashMap<String, usize>, total: usize },
     PendingTotalLoaded(usize),
+    SetSuggestionView(SuggestionView),
+    PendingTagGroupsLoaded(Vec<isomfolio_core::models::PendingTagGroup>),
+    AcceptPendingTagGlobally(String),
+    RejectPendingTagGlobally(String),
 
     OpenTagBrowser,
     CloseTagBrowser,

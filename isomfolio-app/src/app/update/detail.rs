@@ -182,7 +182,15 @@ impl App {
 
             Msg::PendingTagsUpdated => {
                 self.detail.file_id = None;
-                Task::batch([self.maybe_load_detail(), self.refresh_pending_total_task()])
+                let mut tasks = vec![self.maybe_load_detail(), self.refresh_pending_total_task()];
+                if matches!(
+                    self.selected_item,
+                    super::super::SidebarItem::Suggestions,
+                ) && matches!(self.suggestion_view, super::super::SuggestionView::Tag)
+                {
+                    tasks.push(self.load_pending_tag_groups_task());
+                }
+                Task::batch(tasks)
             }
 
             Msg::AcceptAllInView => {
@@ -228,6 +236,60 @@ impl App {
             Msg::PendingTotalLoaded(total) => {
                 self.pending_tag_file_count = total;
                 Task::none()
+            }
+
+            Msg::SetSuggestionView(view) => {
+                self.suggestion_view = view;
+                // Loading the right data is handled by SidebarItemClicked when entering
+                // Suggestions. Switching mid-view loads here.
+                if matches!(self.selected_item, super::super::SidebarItem::Suggestions) {
+                    match view {
+                        super::super::SuggestionView::Tag => self.load_pending_tag_groups_task(),
+                        super::super::SuggestionView::Photo => self.load_files_task(),
+                    }
+                } else {
+                    Task::none()
+                }
+            }
+
+            Msg::PendingTagGroupsLoaded(groups) => {
+                self.pending_tag_groups = groups;
+                self.status = format!("{} pending tag(s)", self.pending_tag_groups.len());
+                let samples: Vec<(String, String)> = self
+                    .pending_tag_groups
+                    .iter()
+                    .flat_map(|g| g.sample_files.iter().take(4).cloned())
+                    .collect();
+                self.enqueue_thumbnails_for_ids(&samples);
+                Task::none()
+            }
+
+            Msg::AcceptPendingTagGlobally(tag) => {
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                let tag_clone = tag.clone();
+                Task::perform(
+                    async move {
+                        let g = conn.lock_unwrap();
+                        g.accept_pending_tag_globally(&tag_clone)
+                            .err()
+                            .map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
+                )
+            }
+
+            Msg::RejectPendingTagGlobally(tag) => {
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                let tag_clone = tag.clone();
+                Task::perform(
+                    async move {
+                        let g = conn.lock_unwrap();
+                        g.reject_pending_tag_globally(&tag_clone)
+                            .err()
+                            .map(|e| e.to_string())
+                    },
+                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
+                )
             }
 
             Msg::SetDetailRating(n) => {
