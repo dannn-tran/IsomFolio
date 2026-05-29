@@ -12,10 +12,11 @@ use super::process::BoundedLines;
 
 /// Install an `.isfx` zip package into `extensions_dir()`.
 ///
-/// Expected zip layout (flat, no subdirectory):
+/// Expected zip layout:
 /// ```text
 /// manifest.json
 /// <extension-name>          <- executable (same name as the "name" field in manifest)
+/// [other files/dirs]        <- native libs, models, config — directory structure preserved
 /// ```
 pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifest, String> {
     let file = fs::File::open(package_path).map_err(|e| format!("open package: {e}"))?;
@@ -35,24 +36,28 @@ pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifes
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
+        let raw_name = entry.name().to_string();
+        let rel_path = safe_relative_path(&raw_name)
+            .ok_or_else(|| format!("zip entry '{raw_name}' has unsafe or invalid path"))?;
+        let dest = extension_dir.join(&rel_path);
         if entry.is_dir() {
+            fs::create_dir_all(&dest).map_err(|e| format!("create dir {rel_path:?}: {e}"))?;
             continue;
         }
-        // Strip any path components from the entry name — prevents zip slip (path traversal).
-        let entry_name = Path::new(entry.name())
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| format!("zip entry '{}' has no valid filename", entry.name()))?
-            .to_string();
-        let dest = extension_dir.join(&entry_name);
-        let mut out = fs::File::create(&dest).map_err(|e| format!("create {entry_name}: {e}"))?;
-        io::copy(&mut entry, &mut out).map_err(|e| format!("extract {entry_name}: {e}"))?;
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("create parent of {rel_path:?}: {e}"))?;
+        }
+        let mut out = fs::File::create(&dest)
+            .map_err(|e| format!("create {rel_path:?}: {e}"))?;
+        io::copy(&mut entry, &mut out)
+            .map_err(|e| format!("extract {rel_path:?}: {e}"))?;
 
         #[cfg(unix)]
-        if entry_name == manifest.name {
+        if rel_path == Path::new(&manifest.name) {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&dest, fs::Permissions::from_mode(0o755))
-                .map_err(|e| format!("chmod {entry_name}: {e}"))?;
+                .map_err(|e| format!("chmod {rel_path:?}: {e}"))?;
         }
     }
 
@@ -72,6 +77,25 @@ pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifes
     }
 
     Ok(installed)
+}
+
+/// Resolve a zip entry's path to a safe relative path under the extension dir.
+/// Rejects absolute paths, `..` components, drive letters, and other escapes.
+fn safe_relative_path(raw: &str) -> Option<std::path::PathBuf> {
+    use std::path::{Component, PathBuf};
+    let p = Path::new(raw);
+    let mut out = PathBuf::new();
+    for comp in p.components() {
+        match comp {
+            Component::Normal(c) => out.push(c),
+            Component::CurDir => {}
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir => return None,
+        }
+    }
+    if out.as_os_str().is_empty() {
+        return None;
+    }
+    Some(out)
 }
 
 fn run_setup(manifest: &ExtensionManifest) -> Result<(), String> {
@@ -141,6 +165,46 @@ mod tests {
         let exe = write_script(tmp.path(), "test-extension", "exit 1");
         let err = run_setup(&make_manifest(exe)).unwrap_err();
         assert!(err.contains("setup exited with 1"), "unexpected: {err}");
+    }
+
+    mod safe_relative_path_tests {
+        use super::super::safe_relative_path;
+        use std::path::PathBuf;
+
+        #[test]
+        fn accepts_flat_filename() {
+            assert_eq!(safe_relative_path("faces"), Some(PathBuf::from("faces")));
+        }
+
+        #[test]
+        fn accepts_nested_path() {
+            assert_eq!(
+                safe_relative_path("runtimes/osx-arm64/native/libonnxruntime.dylib"),
+                Some(PathBuf::from("runtimes/osx-arm64/native/libonnxruntime.dylib"))
+            );
+        }
+
+        #[test]
+        fn rejects_parent_dir_escape() {
+            assert_eq!(safe_relative_path("../etc/passwd"), None);
+            assert_eq!(safe_relative_path("a/../../b"), None);
+        }
+
+        #[test]
+        fn rejects_absolute_paths() {
+            assert_eq!(safe_relative_path("/etc/passwd"), None);
+        }
+
+        #[test]
+        fn strips_curdir() {
+            assert_eq!(safe_relative_path("./faces"), Some(PathBuf::from("faces")));
+        }
+
+        #[test]
+        fn rejects_empty() {
+            assert_eq!(safe_relative_path(""), None);
+            assert_eq!(safe_relative_path("./"), None);
+        }
     }
 }
 
