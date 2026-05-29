@@ -1,16 +1,14 @@
 use std::fs;
 use std::io::{self, BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use zip::ZipArchive;
 
-use crate::app_paths::extensions_dir;
+use crate::manifest::{discover_extensions, ExtensionManifest};
+use crate::process::BoundedLines;
 
-use super::manifest::{ExtensionManifest, discover_extensions};
-use super::process::BoundedLines;
-
-/// Install an `.isfx` zip package into `extensions_dir()`.
+/// Install an `.isfx` zip package into `extensions_root`.
 ///
 /// Expected zip layout:
 /// ```text
@@ -18,7 +16,10 @@ use super::process::BoundedLines;
 /// <extension-name>          <- executable (same name as the "name" field in manifest)
 /// [other files/dirs]        <- native libs, models, config — directory structure preserved
 /// ```
-pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifest, String> {
+pub fn install_extension_package(
+    package_path: &Path,
+    extensions_root: &Path,
+) -> Result<ExtensionManifest, String> {
     let file = fs::File::open(package_path).map_err(|e| format!("open package: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
 
@@ -31,7 +32,7 @@ pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifes
         serde_json::from_str(&s).map_err(|e| format!("parse manifest: {e}"))?
     };
 
-    let extension_dir = extensions_dir().join(&manifest.name);
+    let extension_dir = extensions_root.join(&manifest.name);
     fs::create_dir_all(&extension_dir).map_err(|e| format!("create extension dir: {e}"))?;
 
     for i in 0..archive.len() {
@@ -61,8 +62,7 @@ pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifes
         }
     }
 
-    // Re-discover to get the executable path resolved properly
-    let installed = discover_extensions(&extensions_dir())
+    let installed = discover_extensions(extensions_root)
         .into_iter()
         .find(|m| m.name == manifest.name)
         .ok_or_else(|| {
@@ -81,8 +81,8 @@ pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifes
 
 /// Resolve a zip entry's path to a safe relative path under the extension dir.
 /// Rejects absolute paths, `..` components, drive letters, and other escapes.
-fn safe_relative_path(raw: &str) -> Option<std::path::PathBuf> {
-    use std::path::{Component, PathBuf};
+fn safe_relative_path(raw: &str) -> Option<PathBuf> {
+    use std::path::Component;
     let p = Path::new(raw);
     let mut out = PathBuf::new();
     for comp in p.components() {
@@ -119,6 +119,15 @@ fn run_setup(manifest: &ExtensionManifest) -> Result<(), String> {
             manifest.name,
             status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string())
         ));
+    }
+    Ok(())
+}
+
+/// Remove an installed extension by name from `extensions_root`, including its files.
+pub fn uninstall_extension(extensions_root: &Path, name: &str) -> Result<(), String> {
+    let extension_dir = extensions_root.join(name);
+    if extension_dir.exists() {
+        fs::remove_dir_all(&extension_dir).map_err(|e| format!("remove extension dir: {e}"))?;
     }
     Ok(())
 }
@@ -206,13 +215,4 @@ mod tests {
             assert_eq!(safe_relative_path("./"), None);
         }
     }
-}
-
-/// Remove an installed extension by name, including its downloaded model weights.
-pub fn uninstall_extension(name: &str) -> Result<(), String> {
-    let extension_dir = extensions_dir().join(name);
-    if extension_dir.exists() {
-        fs::remove_dir_all(&extension_dir).map_err(|e| format!("remove extension dir: {e}"))?;
-    }
-    Ok(())
 }

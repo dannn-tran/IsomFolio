@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
@@ -8,9 +9,9 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 const STDERR_RING_SIZE: usize = 100;
-pub(super) const MAX_LINE_BYTES: u64 = 1 << 20; // 1 MiB — guard against misbehaving extensions
+pub(crate) const MAX_LINE_BYTES: u64 = 1 << 20; // 1 MiB — guard against misbehaving extensions
 
-pub(super) struct BoundedLines<R: BufRead>(pub(super) R);
+pub(crate) struct BoundedLines<R: BufRead>(pub(crate) R);
 
 impl<R: BufRead> Iterator for BoundedLines<R> {
     type Item = std::io::Result<String>;
@@ -25,7 +26,6 @@ impl<R: BufRead> Iterator for BoundedLines<R> {
             }
         };
         if truncated {
-            // Line exceeded limit — drain the remainder without buffering it
             loop {
                 let available = match self.0.fill_buf() {
                     Ok(b) => b,
@@ -40,18 +40,16 @@ impl<R: BufRead> Iterator for BoundedLines<R> {
                 self.0.consume(len);
             }
         } else {
-            buf.pop(); // '\n'
+            buf.pop();
             if buf.ends_with('\r') { buf.pop(); }
         }
         Some(Ok(buf))
     }
 }
 
-use crate::app_paths::models_dir;
-use crate::models::AppError;
-
-use super::manifest::ExtensionManifest;
-use super::protocol::{ExtensionRequest, HandshakeResult, StdoutLine};
+use crate::error::Error;
+use crate::manifest::ExtensionManifest;
+use crate::protocol::{ExtensionRequest, HandshakeResult, StdoutLine};
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
@@ -75,20 +73,33 @@ pub struct ExtensionProcess {
 }
 
 impl ExtensionProcess {
-    pub fn launch(mut manifest: ExtensionManifest) -> Result<Self, AppError> {
-        let mut child = Command::new(&manifest.executable)
-            .stdin(Stdio::piped())
+    /// Launch the extension. `data_dir`, if provided, is passed to the child as `--data-dir <path>`.
+    /// Extensions that need a writable scratch / models location should use it.
+    pub fn launch(manifest: ExtensionManifest, data_dir: Option<PathBuf>) -> Result<Self, Error> {
+        let mut cmd = Command::new(&manifest.executable);
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .arg("--data-dir")
-            .arg(models_dir())
+            .stderr(Stdio::piped());
+        if let Some(d) = data_dir {
+            cmd.arg("--data-dir").arg(d);
+        }
+        let mut child = cmd
             .spawn()
-            .map_err(|e| AppError::Extension(format!("failed to spawn {}: {}", manifest.name, e)))?;
+            .map_err(|e| Error::Extension(format!("failed to spawn {}: {}", manifest.name, e)))?;
 
-        let mut stdin = child.stdin.take().expect("stdin piped on spawn");
-        let stdout = child.stdout.take().expect("stdout piped on spawn");
-        let stderr = child.stderr.take().expect("stderr piped on spawn");
+        Self::wire_child(manifest, child.stdin.take().expect("stdin piped"),
+            child.stdout.take().expect("stdout piped"),
+            child.stderr.take().expect("stderr piped"),
+            child)
+    }
 
+    fn wire_child(
+        mut manifest: ExtensionManifest,
+        mut stdin: ChildStdin,
+        stdout: std::process::ChildStdout,
+        stderr: std::process::ChildStderr,
+        child: Child,
+    ) -> Result<Self, Error> {
         let stderr_buf: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
         let stderr_buf_writer = Arc::clone(&stderr_buf);
         let extension_name_for_stderr = manifest.name.clone();
@@ -105,7 +116,6 @@ impl ExtensionProcess {
             }
         });
 
-        // Send handshake request before handing stdin off to the writer Arc
         let handshake_id = 1u64;
         let handshake_req = serde_json::to_string(&ExtensionRequest {
             id: handshake_id,
@@ -115,7 +125,7 @@ impl ExtensionProcess {
         .unwrap();
         writeln!(stdin, "{handshake_req}")
             .and_then(|_| stdin.flush())
-            .map_err(|e| AppError::Extension(format!("{}: failed to send handshake: {e}", manifest.name)))?;
+            .map_err(|e| Error::Extension(format!("{}: failed to send handshake: {e}", manifest.name)))?;
 
         let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
@@ -130,7 +140,6 @@ impl ExtensionProcess {
         let reader = std::thread::spawn(move || {
             let mut lines = BoundedLines(BufReader::new(stdout));
 
-            // Phase 1: wait for handshake Ok response
             let mut handshake_ok = false;
             for line in lines.by_ref() {
                 let Ok(line) = line else {
@@ -171,7 +180,6 @@ impl ExtensionProcess {
                 return;
             }
 
-            // Phase 2: wait for ready event
             for line in lines.by_ref() {
                 let Ok(line) = line else {
                     let _ = ready_tx.send(Err("extension exited before ready".to_string()));
@@ -199,11 +207,11 @@ impl ExtensionProcess {
 
         let handshake = handshake_rx
             .recv_timeout(HANDSHAKE_TIMEOUT)
-            .map_err(|_| AppError::Extension(format!("{}: handshake timed out", manifest.name)))?
-            .map_err(|e| AppError::Extension(format!("{}: handshake failed: {}", manifest.name, e)))?;
+            .map_err(|_| Error::Extension(format!("{}: handshake timed out", manifest.name)))?
+            .map_err(|e| Error::Extension(format!("{}: handshake failed: {}", manifest.name, e)))?;
 
         if handshake.protocol_version != SUPPORTED_PROTOCOL_VERSION {
-            return Err(AppError::Extension(format!(
+            return Err(Error::Extension(format!(
                 "{}: unsupported protocol version {} (expected {})",
                 manifest.name, handshake.protocol_version, SUPPORTED_PROTOCOL_VERSION
             )));
@@ -212,14 +220,14 @@ impl ExtensionProcess {
 
         ready_rx
             .recv_timeout(READY_TIMEOUT)
-            .map_err(|_| AppError::Extension(format!("{}: ready timed out (model loading took too long)", manifest.name)))?
-            .map_err(|e| AppError::Extension(format!("{}: startup failed: {}", manifest.name, e)))?;
+            .map_err(|_| Error::Extension(format!("{}: ready timed out (model loading took too long)", manifest.name)))?
+            .map_err(|e| Error::Extension(format!("{}: startup failed: {}", manifest.name, e)))?;
 
         Ok(ExtensionProcess {
             writer,
             pending,
             progress_sinks,
-            next_id: Arc::new(AtomicU64::new(2)), // 1 was used for handshake
+            next_id: Arc::new(AtomicU64::new(2)),
             stderr_buf,
             manifest,
             _child: child,
@@ -232,7 +240,7 @@ impl ExtensionProcess {
         &self,
         method: &str,
         params: serde_json::Value,
-    ) -> Result<serde_json::Value, AppError> {
+    ) -> Result<serde_json::Value, Error> {
         self.call_timeout(method, params, CALL_TIMEOUT)
     }
 
@@ -240,7 +248,7 @@ impl ExtensionProcess {
         &self,
         method: &str,
         params: serde_json::Value,
-    ) -> Result<serde_json::Value, AppError> {
+    ) -> Result<serde_json::Value, Error> {
         self.call_timeout(method, params, Duration::from_secs(600))
     }
 
@@ -248,7 +256,7 @@ impl ExtensionProcess {
         &self,
         method: &str,
         params: serde_json::Value,
-    ) -> Result<ExtensionCallHandle, AppError> {
+    ) -> Result<ExtensionCallHandle, Error> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (result_tx, result_rx) = sync_channel(1);
         let (progress_tx, progress_rx) = sync_channel(256);
@@ -263,7 +271,7 @@ impl ExtensionProcess {
     pub fn send_many(
         &self,
         requests: &[(&str, serde_json::Value)],
-    ) -> Result<BatchHandle, AppError> {
+    ) -> Result<BatchHandle, Error> {
         let total = requests.len();
         let (tx, rx) = sync_channel(total);
         for (method, params) in requests {
@@ -279,7 +287,7 @@ impl ExtensionProcess {
         method: &str,
         params: serde_json::Value,
         timeout: Duration,
-    ) -> Result<serde_json::Value, AppError> {
+    ) -> Result<serde_json::Value, Error> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = sync_channel(1);
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, tx);
@@ -287,15 +295,15 @@ impl ExtensionProcess {
         self.write_request(id, method, params)?;
 
         rx.recv_timeout(timeout)
-            .map_err(|_| AppError::Extension(format!("extension '{}' timed out", self.manifest.name)))?
-            .map_err(AppError::Extension)
+            .map_err(|_| Error::Extension(format!("extension '{}' timed out", self.manifest.name)))?
+            .map_err(Error::Extension)
     }
 
     pub fn last_stderr(&self) -> Vec<String> {
         self.stderr_buf.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect()
     }
 
-    fn write_request(&self, id: u64, method: &str, params: serde_json::Value) -> Result<(), AppError> {
+    fn write_request(&self, id: u64, method: &str, params: serde_json::Value) -> Result<(), Error> {
         let req = ExtensionRequest { id, method: method.to_string(), params };
         let mut line = serde_json::to_string(&req).unwrap();
         line.push('\n');
@@ -303,7 +311,7 @@ impl ExtensionProcess {
         let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = w.write_all(line.as_bytes()).and_then(|_| w.flush()) {
             self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
-            return Err(AppError::Extension(format!("write failed: {e}")));
+            return Err(Error::Extension(format!("write failed: {e}")));
         }
         Ok(())
     }
@@ -413,7 +421,6 @@ mod tests {
         }
     }
 
-    // Minimal extension script: responds to handshake, sends ready, echoes requests
     fn echo_script() -> &'static str {
         r#"IFS= read -r hs_line
 hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
@@ -430,7 +437,7 @@ done
     fn launch_and_call_echo_extension() {
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         let result = proc.call("echo", serde_json::json!({"msg": "hello"})).expect("call failed");
         assert_eq!(result["ok"], true);
     }
@@ -444,7 +451,7 @@ printf '{"type":"ok","id":%s,"result":{"protocol_version":99,"extension_version"
 printf '{"type":"ready"}\n'
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let err = ExtensionProcess::launch(make_manifest(exe)).unwrap_err();
+        let err = ExtensionProcess::launch(make_manifest(exe), None).unwrap_err();
         assert!(err.to_string().contains("unsupported protocol version"));
     }
 
@@ -452,7 +459,7 @@ printf '{"type":"ready"}\n'
     fn send_many_returns_all_responses() {
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         let requests: Vec<(&str, serde_json::Value)> = (0..5)
             .map(|i| ("echo", serde_json::json!({"n": i})))
             .collect();
@@ -485,7 +492,7 @@ while IFS= read -r line; do
 done
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         let requests: Vec<(&str, serde_json::Value)> = (0..5)
             .map(|i| ("echo", serde_json::json!({"n": i})))
             .collect();
@@ -519,15 +526,12 @@ while IFS= read -r line; do
 done
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         let handle = proc.send("echo", serde_json::json!({})).expect("send failed");
-        let mut progress_values = Vec::new();
-        loop {
-            match handle.progress_rx.recv_timeout(Duration::from_secs(5)) {
-                Ok(p) => progress_values.push(p),
-                Err(_) => break,
-            }
-        }
+        let progress_values: Vec<u8> = std::iter::from_fn(|| {
+            handle.progress_rx.recv_timeout(Duration::from_secs(5)).ok()
+        })
+        .collect();
         assert_eq!(progress_values, vec![50, 100]);
         let result = handle.result_rx.recv_timeout(Duration::from_secs(5)).expect("no result");
         assert!(result.is_ok());
@@ -550,7 +554,7 @@ while IFS= read -r line; do
 done
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         let _ = proc.call("test", serde_json::json!({}));
         std::thread::sleep(Duration::from_millis(100));
         let stderr = proc.last_stderr();
@@ -572,7 +576,7 @@ while IFS= read -r line; do
 done
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         let err = proc.call("echo", serde_json::json!({})).unwrap_err();
         assert!(err.to_string().contains("something went wrong"));
     }
@@ -581,7 +585,7 @@ done
     fn send_many_empty_batch() {
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         let handle = proc.send_many(&[]).expect("send_many failed");
         assert_eq!(handle.total, 0);
     }
@@ -590,7 +594,7 @@ done
     fn multiple_sequential_calls() {
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         for i in 0..10 {
             let result = proc.call("echo", serde_json::json!({"i": i})).expect("call failed");
             assert_eq!(result["ok"], true);
@@ -606,21 +610,20 @@ printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"extension_version":
 printf '{"type":"fatal","repairable":true,"message":"models missing"}\n'
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let err = ExtensionProcess::launch(make_manifest(exe)).unwrap_err();
+        let err = ExtensionProcess::launch(make_manifest(exe), None).unwrap_err();
         assert!(err.to_string().contains("models missing"), "unexpected error: {err}");
     }
 
     #[test]
     fn call_returns_error_on_extension_exit() {
         let tmp = TempDir::new().unwrap();
-        // Extension completes handshake+ready then exits immediately
         let script = r#"IFS= read -r hs_line
 hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
 printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"extension_version":"1.0.0","capabilities":[]}}\n' "$hs_id"
 printf '{"type":"ready"}\n'
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe)).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
         std::thread::sleep(Duration::from_millis(100));
         let err = proc.call("echo", serde_json::json!({})).unwrap_err();
         let msg = err.to_string();

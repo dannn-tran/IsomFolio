@@ -2320,6 +2320,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "isfx-host"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "zip",
+]
+
+[[package]]
 name = "isfx-sdk"
 version = "0.1.0"
 dependencies = [
@@ -2356,6 +2367,7 @@ dependencies = [
  "bytemuck",
  "directories",
  "image",
+ "isfx-host",
  "kamadak-exif",
  "notify",
  "plist",

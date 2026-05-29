@@ -1,7 +1,7 @@
 use std::sync::{mpsc, Arc};
 
 use iced::Task;
-use isomfolio_core::app_paths::{db_path, extensions_dir};
+use isomfolio_core::app_paths::db_path;
 use isomfolio_core::extension::{discover_extensions, ExtensionProcess};
 use isomfolio_core::path_utils::CATALOG_EXT;
 
@@ -16,8 +16,7 @@ impl App {
                 let sidebar_task = self.load_sidebar_task();
                 let extension_task = Task::perform(
                     async move {
-                        let dir = extensions_dir();
-                        let manifests = discover_extensions(&dir);
+                        let manifests = discover_extensions();
                         manifests
                             .into_iter()
                             .filter_map(|m| {

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "isfx-host",
     "isomfolio-core",
     "isomfolio-app",
     "extensions/isfx-sdk",
