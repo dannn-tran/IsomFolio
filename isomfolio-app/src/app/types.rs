@@ -188,6 +188,7 @@ pub enum Msg {
     RepeatLastTag,
     ToggleShortcutHelp,
     OpenMenuDropdown(String),
+    HoverMenuTab(String),
     CloseMenuDropdown,
     TogglePreview,
     AcceptPendingTag(String),

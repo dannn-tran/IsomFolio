@@ -437,6 +437,13 @@ impl App {
                 Task::none()
             }
 
+            Msg::HoverMenuTab(name) => {
+                if self.open_menu.is_some() && self.open_menu.as_deref() != Some(name.as_str()) {
+                    self.open_menu = Some(name);
+                }
+                Task::none()
+            }
+
             Msg::CloseMenuDropdown => {
                 self.open_menu = None;
                 Task::none()

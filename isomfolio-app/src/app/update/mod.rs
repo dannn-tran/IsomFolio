@@ -140,6 +140,7 @@ impl App {
             | Msg::HoverSidebarEntityEnd(_)
             | Msg::ToggleShortcutHelp
             | Msg::OpenMenuDropdown(_)
+            | Msg::HoverMenuTab(_)
             | Msg::CloseMenuDropdown
             | Msg::LoupeFullResLoaded { .. }
             | Msg::LoupePrefetchLoaded { .. }

@@ -13,36 +13,62 @@ const MENU_ITEM_HEIGHT: f32 = 30.0;
 const DROPDOWN_WIDTH: f32 = 220.0;
 pub(super) const MENU_BAR_HEIGHT: f32 = 26.0;
 
+struct MenuTab {
+    label: &'static str,
+    id: &'static str,
+    tab_width: f32,
+}
+
+const MENU_TABS: &[MenuTab] = &[
+    MenuTab { label: "Catalog", id: "catalog", tab_width: 72.0 },
+    MenuTab { label: "View",    id: "view",    tab_width: 56.0 },
+    MenuTab { label: "Help",    id: "help",    tab_width: 52.0 },
+];
+
+fn tab_left_edge(menu_id: &str) -> f32 {
+    let mut x = 0.0;
+    for tab in MENU_TABS {
+        if tab.id == menu_id {
+            return x;
+        }
+        x += tab.tab_width;
+    }
+    x
+}
+
 impl App {
     pub(super) fn view_menu_bar(&self) -> Element<'_, Msg> {
-        let menus = [
-            ("Catalog", "catalog"),
-            ("View", "view"),
-            ("Help", "help"),
-        ];
-
         let mut bar = row![].spacing(0).align_y(Alignment::Center);
 
-        for (label, id) in &menus {
-            let is_open = self.open_menu.as_deref() == Some(*id);
+        for tab in MENU_TABS {
+            let is_open = self.open_menu.as_deref() == Some(tab.id);
+            let id_owned = tab.id.to_string();
+            let tab_button = button(
+                text(tab.label)
+                    .size(TEXT_MD)
+                    .color(if is_open { FG } else { FG_DIM }),
+            )
+            .on_press(Msg::OpenMenuDropdown(id_owned.clone()))
+            .style(move |_: &Theme, status| {
+                let bg = match (is_open, status) {
+                    (true, _) => HINT_HOVER,
+                    (_, iced::widget::button::Status::Hovered) => HINT_SUBTLE,
+                    _ => Color::TRANSPARENT,
+                };
+                iced::widget::button::Style {
+                    background: Some(Background::Color(bg)),
+                    text_color: FG,
+                    border: Border::default(),
+                    shadow: iced::Shadow::default(),
+                    snap: false,
+                }
+            })
+            .padding([SPACE_1, SPACE_1_5])
+            .width(tab.tab_width)
+            .height(MENU_BAR_HEIGHT);
+
             bar = bar.push(
-                button(text(*label).size(TEXT_MD).color(if is_open { FG } else { FG_DIM }))
-                    .on_press(Msg::OpenMenuDropdown(id.to_string()))
-                    .style(move |_: &Theme, status| {
-                        let bg = match (is_open, status) {
-                            (true, _) => HINT_HOVER,
-                            (_, iced::widget::button::Status::Hovered) => HINT_SUBTLE,
-                            _ => Color::TRANSPARENT,
-                        };
-                        iced::widget::button::Style {
-                            background: Some(Background::Color(bg)),
-                            text_color: FG,
-                            border: Border::default(),
-                            shadow: iced::Shadow::default(),
-                            snap: false,
-                        }
-                    })
-                    .padding([SPACE_1, SPACE_1_5]),
+                mouse_area(tab_button).on_enter(Msg::HoverMenuTab(id_owned)),
             );
         }
 
@@ -73,12 +99,7 @@ impl App {
             _ => return None,
         };
 
-        let offset_x = match menu_id {
-            "catalog" => 0.0,
-            "view" => 70.0,
-            "help" => 70.0 + 52.0,
-            _ => 0.0,
-        };
+        let offset_x = tab_left_edge(menu_id);
 
         let mut col = column![].spacing(0).padding([SPACE_1, 0.0]);
         for item in items {
@@ -109,20 +130,25 @@ impl App {
                 ..Default::default()
             });
 
-        let overlay = mouse_area(
-            container(
-                container(dropdown).padding(iced::Padding {
-                    top: MENU_BAR_HEIGHT,
-                    right: 0.0,
-                    bottom: 0.0,
-                    left: offset_x,
-                }),
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(|_: &Theme| container::Style::default()),
+        let positioned_dropdown = container(dropdown).padding(iced::Padding {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: offset_x,
+        });
+
+        let below_bar = mouse_area(
+            container(positioned_dropdown)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_: &Theme| container::Style::default()),
         )
         .on_press(Msg::CloseMenuDropdown);
+
+        let overlay = column![
+            Space::new().height(MENU_BAR_HEIGHT),
+            below_bar,
+        ];
 
         Some(overlay.into())
     }
