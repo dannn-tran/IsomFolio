@@ -1,46 +1,39 @@
-//! Smoke test against any real `.isfx` packages found in the workspace.
+//! Smoke test against any real `.isfx` packages dropped into this crate's
+//! `tests/fixtures/` directory.
 //!
-//! Discovery: walks workspace-rooted candidate dirs (`dist/`, `extensions-cs/dist/`,
-//! plus workspace root one level deep) for `*.isfx` files. For each one found,
-//! installs it into a temp dir, launches the extension, asserts handshake +
-//! ping, then uninstalls.
+//! To test an extension end-to-end:
+//! ```text
+//! cp path/to/your-extension.isfx isfx-host/tests/fixtures/
+//! cargo test -p isfx-host
+//! ```
 //!
-//! If no packages are found, the test prints a notice and passes (CI-friendly
-//! when developers haven't built any packages). To force a failure when no
-//! packages are present, set `ISFX_REQUIRE_PACKAGE=1`.
+//! For each `.isfx` found, installs it into a temp dir, launches the extension,
+//! asserts handshake + ping, then uninstalls. If no packages are found, the
+//! test prints a notice and passes (so `cargo test` works on a fresh checkout).
+//! To force a failure when no packages are present, set `ISFX_REQUIRE_PACKAGE=1`.
 
 use std::path::{Path, PathBuf};
 
 use isfx_host::{install_extension_package, uninstall_extension, ExtensionProcess};
 use tempfile::TempDir;
 
-fn workspace_root() -> PathBuf {
+fn fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("crate dir has parent")
-        .to_path_buf()
+        .join("tests")
+        .join("fixtures")
 }
 
 fn find_isfx_packages() -> Vec<PathBuf> {
-    let root = workspace_root();
-    let candidate_dirs = [
-        root.join("dist"),
-        root.join("extensions-cs").join("dist"),
-        root.clone(),
-    ];
-
-    let mut found = Vec::new();
-    for dir in candidate_dirs {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("isfx") {
-                found.push(path);
-            }
-        }
-    }
+    let dir = fixtures_dir();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut found: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("isfx"))
+        .collect();
     found.sort();
-    found.dedup();
     found
 }
 

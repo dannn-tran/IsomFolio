@@ -5,19 +5,17 @@ namespace IsomFolio.Extensions.Faces;
 
 public class RequestHandlerFactory(IExtensionLogger logger, IMessageWriter writer)
 {
-    private const string DetFilename = "det_10g.onnx";
-    private const string RecFilename = "w600k_r50.onnx";
-
     public async Task<RequestHandler> CreateAsync(string extDir, CancellationToken ct = default)
     {
-        var modelDir = Path.Combine(extDir, "models", "buffalo_l");
-        var detPath = Path.Combine(modelDir, DetFilename);
-        var recPath = Path.Combine(modelDir, RecFilename);
+        var variant = ModelVariant.Current();
+        var modelDir = Path.Combine(extDir, "models", variant.Name);
+        var detPath = Path.Combine(modelDir, variant.DetectionFile);
+        var recPath = Path.Combine(modelDir, variant.RecognitionFile);
 
         if (!File.Exists(detPath))
-            throw new FileNotFoundException($"{DetFilename} not found — run setup to repair", detPath);
+            throw new FileNotFoundException($"{variant.DetectionFile} not found — run setup to repair", detPath);
         if (!File.Exists(recPath))
-            throw new FileNotFoundException($"{RecFilename} not found — run setup to repair", recPath);
+            throw new FileNotFoundException($"{variant.RecognitionFile} not found — run setup to repair", recPath);
 
         var (detector, recognizer) = await Task.Run(
             () => (new FaceDetector(detPath), new FaceRecognizer(recPath)), ct);

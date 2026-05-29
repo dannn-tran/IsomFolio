@@ -6,32 +6,31 @@ namespace IsomFolio.Extensions.Faces;
 public class ModelDownloader(IExtensionLogger logger)
 {
     private static readonly HttpClient Client = new();
-    private const string BuffaloZipUrl = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip";
-    private const string DetFilename = "det_10g.onnx";
-    private const string RecFilename = "w600k_r50.onnx";
 
     public async Task EnsureModelsDownloadedAsync(string dataDir, CancellationToken ct = default)
     {
-        var dir = Path.Combine(dataDir, "buffalo_l");
+        var variant = ModelVariant.Current();
+        var dir = Path.Combine(dataDir, variant.Name);
         Directory.CreateDirectory(dir);
 
-        if (!File.Exists(Path.Combine(dir, DetFilename)) || !File.Exists(Path.Combine(dir, RecFilename)))
-            await DownloadAndExtractAsync(dir, ct);
+        if (!File.Exists(Path.Combine(dir, variant.DetectionFile))
+            || !File.Exists(Path.Combine(dir, variant.RecognitionFile)))
+            await DownloadAndExtractAsync(variant, dir, ct);
 
-        if (!File.Exists(Path.Combine(dir, DetFilename)))
-            throw new FileNotFoundException($"{DetFilename} not found in {dir}");
-        if (!File.Exists(Path.Combine(dir, RecFilename)))
-            throw new FileNotFoundException($"{RecFilename} not found in {dir}");
+        if (!File.Exists(Path.Combine(dir, variant.DetectionFile)))
+            throw new FileNotFoundException($"{variant.DetectionFile} not found in {dir}");
+        if (!File.Exists(Path.Combine(dir, variant.RecognitionFile)))
+            throw new FileNotFoundException($"{variant.RecognitionFile} not found in {dir}");
     }
 
-    private async Task DownloadAndExtractAsync(string dir, CancellationToken ct)
+    private async Task DownloadAndExtractAsync(ModelVariant variant, string dir, CancellationToken ct)
     {
-        await logger.LogAsync(LogLevel.Info, "downloading face models from GitHub…");
+        await logger.LogAsync(LogLevel.Info, $"downloading {variant.Name} face models from GitHub…");
 
-        var tmpPath = Path.Combine(dir, "buffalo_l.zip.tmp");
+        var tmpPath = Path.Combine(dir, $"{variant.Name}.zip.tmp");
         try
         {
-            using var response = await Client.GetAsync(BuffaloZipUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var response = await Client.GetAsync(variant.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
             response.EnsureSuccessStatusCode();
 
             var total = response.Content.Headers.ContentLength ?? 0;
@@ -67,7 +66,7 @@ public class ModelDownloader(IExtensionLogger logger)
         await logger.LogAsync(LogLevel.Info, "extracting models…");
         await using (var archive = new ZipArchive(File.OpenRead(tmpPath), ZipArchiveMode.Read))
         {
-            foreach (var name in new[] { DetFilename, RecFilename })
+            foreach (var name in new[] { variant.DetectionFile, variant.RecognitionFile })
             {
                 var entry = archive.GetEntry(name)
                     ?? throw new InvalidOperationException($"{name} not found in archive");
