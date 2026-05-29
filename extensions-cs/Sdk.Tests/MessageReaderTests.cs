@@ -4,7 +4,7 @@ namespace IsomFolio.Extensions.Sdk.Tests;
 
 public class MessageReaderTests
 {
-    private static readonly IExtensionLogger NullLogger = new NullAddonLogger();
+    private static readonly IExtensionLogger NullLogger = new NullExtensionLogger();
 
     private static async Task<List<InboundMessage>> CollectAsync(string input, CancellationToken ct = default)
     {
@@ -139,7 +139,7 @@ file static class ChannelExtensions
     }
 }
 
-file sealed class NullAddonLogger : IExtensionLogger
+file sealed class NullExtensionLogger : IExtensionLogger
 {
     public ValueTask LogAsync(LogLevel level, string message) => ValueTask.CompletedTask;
 }

@@ -203,29 +203,33 @@ impl App {
         .padding(SPACE_6)
         .style(modal_style);
 
-        stack(vec![
-            base_layer,
-            container(
-                container(modal)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::Center),
-            )
+        let backdrop = mouse_area(
+            container(Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 0.55,
+                    })),
+                    ..Default::default()
+                }),
+        )
+        .on_press(Msg::NoOp)
+        .on_release(Msg::NoOp)
+        .on_right_press(Msg::NoOp)
+        .on_right_release(Msg::NoOp)
+        .on_double_click(Msg::NoOp);
+
+        let centered = container(modal)
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 0.55,
-                })),
-                ..Default::default()
-            })
-            .into(),
-        ])
-        .into()
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center);
+
+        stack(vec![base_layer, backdrop.into(), centered.into()]).into()
     }
 }
 

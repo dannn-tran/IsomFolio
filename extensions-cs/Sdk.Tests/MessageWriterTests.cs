@@ -16,7 +16,7 @@ public class MessageWriterTests
         Assert.Equal(1UL, root.GetProperty("id").GetUInt64());
         var result = root.GetProperty("result");
         Assert.Equal(1, result.GetProperty("protocol_version").GetInt32());
-        Assert.Equal("2.0.0", result.GetProperty("addon_version").GetString());
+        Assert.Equal("2.0.0", result.GetProperty("extension_version").GetString());
         var caps = result.GetProperty("capabilities").EnumerateArray().Select(e => e.GetString()).ToList();
         Assert.Contains("cluster_faces", caps);
         Assert.Contains("classify", caps);

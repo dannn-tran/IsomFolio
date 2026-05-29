@@ -53,19 +53,39 @@ pub fn discover_extensions(dir: &Path) -> Vec<ExtensionManifest> {
 }
 
 fn load_manifest_from_dir(dir: &Path) -> Option<ExtensionManifest> {
-    let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
-    let mut manifest: ExtensionManifest = serde_json::from_str(&text).ok()?;
+    let manifest_path = dir.join("manifest.json");
+    let text = match std::fs::read_to_string(&manifest_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("extension: skipping {} — cannot read manifest.json: {e}", dir.display());
+            return None;
+        }
+    };
+    let mut manifest: ExtensionManifest = match serde_json::from_str(&text) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "extension: skipping {} — manifest.json is invalid: {e}",
+                dir.display()
+            );
+            return None;
+        }
+    };
     let exe = if cfg!(windows) {
         dir.join(format!("{}.exe", manifest.name))
     } else {
         dir.join(&manifest.name)
     };
-    if is_executable(&exe) {
-        manifest.executable = exe;
-        Some(manifest)
-    } else {
-        None
+    if !is_executable(&exe) {
+        eprintln!(
+            "extension: skipping {} — executable {} not found or not runnable",
+            dir.display(),
+            exe.display()
+        );
+        return None;
     }
+    manifest.executable = exe;
+    Some(manifest)
 }
 
 fn is_executable(path: &Path) -> bool {

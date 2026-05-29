@@ -821,27 +821,7 @@ impl App {
                 ..Default::default()
             });
 
-        stack(vec![
-            container(Space::new())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(OVERLAY_MEDIUM)),
-                    ..Default::default()
-                })
-                .into(),
-            container(
-                container(modal)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::Center),
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into(),
-        ])
-        .into()
+        modal_with_backdrop(modal).into()
     }
 
     fn view_metadata_import_prompt(&self) -> Element<'_, Msg> {
@@ -931,27 +911,7 @@ impl App {
                 ..Default::default()
             });
 
-        stack(vec![
-            container(Space::new())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(OVERLAY_MEDIUM)),
-                    ..Default::default()
-                })
-                .into(),
-            container(
-                container(modal)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::Center),
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into(),
-        ])
-        .into()
+        modal_with_backdrop(modal).into()
     }
 
     fn view_shortcut_help(&self) -> Element<'_, Msg> {
@@ -1011,15 +971,37 @@ impl App {
                 ..Default::default()
             });
 
-        container(panel)
+        modal_with_backdrop(panel).into()
+    }
+}
+
+/// Wrap a modal panel with a backdrop that blocks all mouse events from reaching
+/// the layers below. The backdrop is darkened (OVERLAY_MEDIUM) and the modal is
+/// centered on top.
+fn modal_with_backdrop<'a, E>(modal: E) -> Element<'a, Msg>
+where
+    E: Into<Element<'a, Msg>>,
+{
+    let backdrop = mouse_area(
+        container(Space::new())
             .width(Length::Fill)
             .height(Length::Fill)
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(OVERLAY_MEDIUM)),
                 ..Default::default()
-            })
-            .into()
-    }
+            }),
+    )
+    .on_press(Msg::NoOp)
+    .on_release(Msg::NoOp)
+    .on_right_press(Msg::NoOp)
+    .on_right_release(Msg::NoOp)
+    .on_double_click(Msg::NoOp);
+
+    let centered = container(modal.into())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center);
+
+    iced::widget::stack(vec![backdrop.into(), centered.into()]).into()
 }
