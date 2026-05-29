@@ -27,7 +27,6 @@ impl App {
             | Msg::OpenCatalogPicked(_)
             | Msg::SelectRecentCatalog(_)
             | Msg::OpenSelectedRecentCatalog
-            | Msg::ReturnToWelcome
             | Msg::ShowNewCatalogModal
             | Msg::HideNewCatalogModal
             | Msg::PickNewCatalogDir

@@ -1,16 +1,17 @@
 use iced::{
-    widget::{button, column, container, row, text, Space},
+    widget::{button, column, container, mouse_area, row, text, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
 use super::styles::{
     BG_MODAL, BG_STATUSBAR, BORDER, FG, FG_DIM, FG_MUTED, HINT_HOVER, HINT_SUBTLE,
-    SPACE_1, SPACE_1_5, SPACE_2, SPACE_3, TEXT_MD, TEXT_SM,
+    SPACE_1, SPACE_1_5, SPACE_2, TEXT_MD, TEXT_SM,
 };
 use crate::app::{App, Msg};
 
 const MENU_ITEM_HEIGHT: f32 = 30.0;
 const DROPDOWN_WIDTH: f32 = 220.0;
+pub(super) const MENU_BAR_HEIGHT: f32 = 26.0;
 
 impl App {
     pub(super) fn view_menu_bar(&self) -> Element<'_, Msg> {
@@ -48,8 +49,9 @@ impl App {
         bar = bar.push(Space::new().width(Length::Fill));
 
         container(bar)
-            .padding([0.0, SPACE_3])
+            .padding(0.0)
             .width(Length::Fill)
+            .height(MENU_BAR_HEIGHT)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_STATUSBAR)),
                 border: Border {
@@ -72,10 +74,10 @@ impl App {
         };
 
         let offset_x = match menu_id {
-            "catalog" => SPACE_3,
-            "view" => SPACE_3 + 70.0,
-            "help" => SPACE_3 + 70.0 + 52.0,
-            _ => SPACE_3,
+            "catalog" => 0.0,
+            "view" => 70.0,
+            "help" => 70.0 + 52.0,
+            _ => 0.0,
         };
 
         let mut col = column![].spacing(0).padding([SPACE_1, 0.0]);
@@ -107,27 +109,29 @@ impl App {
                 ..Default::default()
             });
 
-        let overlay = container(
-            container(dropdown)
-                .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 0.0, left: offset_x }),
+        let overlay = mouse_area(
+            container(
+                container(dropdown).padding(iced::Padding {
+                    top: MENU_BAR_HEIGHT,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: offset_x,
+                }),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_: &Theme| container::Style::default()),
         )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(|_: &Theme| container::Style::default());
+        .on_press(Msg::CloseMenuDropdown);
 
         Some(overlay.into())
     }
 
     fn catalog_menu_items(&self) -> Vec<MenuItem> {
-        let mut items = vec![
+        vec![
             MenuItem::Action("New Catalog…", "", Msg::ShowNewCatalogModal),
             MenuItem::Action("Open Catalog…", "", Msg::PickOpenCatalog),
-        ];
-        if self.catalog.is_some() {
-            items.push(MenuItem::Separator);
-            items.push(MenuItem::Action("Return to Welcome", "", Msg::ReturnToWelcome));
-        }
-        items
+        ]
     }
 
     fn view_menu_items(&self) -> Vec<MenuItem> {

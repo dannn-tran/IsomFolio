@@ -189,7 +189,6 @@ pub enum Msg {
     ToggleShortcutHelp,
     OpenMenuDropdown(String),
     CloseMenuDropdown,
-    ReturnToWelcome,
     TogglePreview,
     AcceptPendingTag(String),
     RejectPendingTag(String),

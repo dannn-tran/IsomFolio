@@ -137,14 +137,6 @@ impl App {
                 Task::done(Msg::OpenCatalog(path))
             }
 
-            Msg::ReturnToWelcome => {
-                self.open_menu = None;
-                self.welcome.show = true;
-                self.welcome.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
-                self.welcome.selected_recent_catalog = None;
-                Task::none()
-            }
-
             Msg::ShowNewCatalogModal => {
                 self.open_menu = None;
                 if !self.welcome.show {
