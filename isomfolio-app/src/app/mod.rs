@@ -871,9 +871,15 @@ impl App {
             let ignored = status == iced::event::Status::Ignored;
             match event {
                 Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::MouseMoved(position)),
-                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => Some(Msg::MousePressed),
-                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Msg::MouseReleased),
-                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => Some(Msg::MouseRightClicked),
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if ignored => {
+                    Some(Msg::MousePressed)
+                }
+                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if ignored => {
+                    Some(Msg::MouseReleased)
+                }
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) if ignored => {
+                    Some(Msg::MouseRightClicked)
+                }
                 Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::ModifiersChanged(m)),
                 Event::Keyboard(keyboard::Event::KeyPressed { ref key, modifiers, .. }) => {
                     keybinds::match_event(keybinds::bindings(), key, modifiers, ignored)
