@@ -199,13 +199,15 @@ impl App {
             }
 
             Msg::ToggleImportXmpTags => {
-                self.app_settings.import_xmp_tags = !self.app_settings.import_xmp_tags;
+                let next = !self.app_settings.import_xmp_tags.unwrap_or(false);
+                self.app_settings.import_xmp_tags = Some(next);
                 isomfolio_core::app_paths::save_settings(&self.app_settings);
                 Task::none()
             }
 
             Msg::ToggleImportAppleTags => {
-                self.app_settings.import_apple_tags = !self.app_settings.import_apple_tags;
+                let next = !self.app_settings.import_apple_tags.unwrap_or(false);
+                self.app_settings.import_apple_tags = Some(next);
                 isomfolio_core::app_paths::save_settings(&self.app_settings);
                 Task::none()
             }

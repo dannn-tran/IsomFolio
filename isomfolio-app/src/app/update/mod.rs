@@ -66,7 +66,12 @@ impl App {
             | Msg::FileWatcherEvent(_)
             | Msg::FlushFileEvents(_)
             | Msg::SyncXmpForSelection
-            | Msg::SyncAppleTagsForSelection => self.handle_sync_msg(msg),
+            | Msg::SyncAppleTagsForSelection
+            | Msg::MetadataImportPromptToggleXmp
+            | Msg::MetadataImportPromptToggleApple
+            | Msg::MetadataImportPromptToggleAll
+            | Msg::MetadataImportPromptContinue
+            | Msg::MetadataImportPromptCancel => self.handle_sync_msg(msg),
 
             Msg::RequestRemoveMissing(_)
             | Msg::ConfirmRemoveMissing
