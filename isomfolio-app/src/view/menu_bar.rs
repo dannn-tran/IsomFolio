@@ -26,14 +26,11 @@ const MENU_TABS: &[MenuTab] = &[
 ];
 
 fn tab_left_edge(menu_id: &str) -> f32 {
-    let mut x = 0.0;
-    for tab in MENU_TABS {
-        if tab.id == menu_id {
-            return x;
-        }
-        x += tab.tab_width;
-    }
-    x
+    MENU_TABS
+        .iter()
+        .take_while(|tab| tab.id != menu_id)
+        .map(|tab| tab.tab_width)
+        .sum()
 }
 
 impl App {
@@ -46,7 +43,9 @@ impl App {
             let tab_button = button(
                 text(tab.label)
                     .size(TEXT_MD)
-                    .color(if is_open { FG } else { FG_DIM }),
+                    .color(if is_open { FG } else { FG_DIM })
+                    .width(Length::Fill)
+                    .align_x(Alignment::Center),
             )
             .on_press(Msg::OpenMenuDropdown(id_owned.clone()))
             .style(move |_: &Theme, status| {
