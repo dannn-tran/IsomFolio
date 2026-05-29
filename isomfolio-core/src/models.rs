@@ -91,6 +91,10 @@ pub struct SearchQuery {
     pub rating_min: Option<i32>,
     pub has_faces: Option<bool>,
     pub has_location: Option<bool>,
+    /// Include orphaned (missing) files in results. False by default so search/filter/albums
+    /// never surface missing files. Set to true only when browsing a folder with no active criteria.
+    #[serde(default)]
+    pub include_orphaned: bool,
 }
 
 impl Default for SearchQuery {
@@ -109,6 +113,7 @@ impl Default for SearchQuery {
             rating_min: None,
             has_faces: None,
             has_location: None,
+            include_orphaned: false,
         }
     }
 }

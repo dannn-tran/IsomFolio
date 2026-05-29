@@ -146,6 +146,7 @@ pub struct App {
     pub welcome: WelcomeState,
     pub album_pending_delete: Option<AlbumId>,
     pub folder_pending_remove: Option<String>,
+    pub remove_missing_folder: Option<String>,
     pub sidebar_scroll_y: f32,
 
     pub last_click_time: Option<Instant>,
@@ -355,6 +356,7 @@ impl App {
             },
             album_pending_delete: None,
             folder_pending_remove: None,
+            remove_missing_folder: None,
             sidebar_scroll_y: 0.0,
             last_click_time: None,
             pending_album_select: None,
@@ -483,8 +485,13 @@ impl App {
             flag_filter: effective_flag,
             rating_min: self.criteria.rating_min,
             has_location: self.criteria.has_location,
+            include_orphaned: self.search_text.is_empty() && !self.criteria_has_any(),
             ..Default::default()
         }
+    }
+
+    pub fn missing_count(&self) -> usize {
+        self.files.iter().filter(|f| f.is_orphaned).count()
     }
 
     pub(crate) fn start_thumbnail_pool(&mut self) {

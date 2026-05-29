@@ -82,6 +82,14 @@ impl App {
                     Msg::RemoveFolder(path.clone()),
                     Msg::CancelRemoveFolder,
                 ));
+            } else if self.remove_missing_folder.as_deref() == Some(path.as_str()) {
+                let n = self.files.iter().filter(|f| f.is_orphaned
+                    && (f.folder == *path || f.folder.starts_with(&format!("{path}/")))).count();
+                content = content.push(confirm_action_row(
+                    format!("Remove {n} missing from catalog?"),
+                    Msg::ConfirmRemoveMissing,
+                    Msg::CancelRemoveMissing,
+                ));
             } else {
                 content = content.push(folder_sidebar_row(
                     name,

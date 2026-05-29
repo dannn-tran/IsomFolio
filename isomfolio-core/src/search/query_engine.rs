@@ -88,11 +88,13 @@ fn execute_query_inner(
     }
 
     if let Some(aid) = album_id {
-        sql.push_str(&format!(" WHERE af.album_id = ?{param_idx}"));
+        sql.push_str(&format!(" WHERE af.album_id = ?{param_idx} AND f.is_orphaned = 0"));
         params.push(Box::new(aid.clone()));
         param_idx += 1;
-    } else {
+    } else if query.include_orphaned {
         sql.push_str(" WHERE 1=1");
+    } else {
+        sql.push_str(" WHERE f.is_orphaned = 0");
     }
 
     if let Some(ids) = &fts_ids {

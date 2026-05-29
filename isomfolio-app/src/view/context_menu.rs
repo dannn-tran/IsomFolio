@@ -108,11 +108,19 @@ impl App {
 
     fn context_menu_items(&self, target: &ContextMenuTarget) -> Vec<Option<(String, Msg, bool)>> {
         match target {
-            ContextMenuTarget::Folder(path) => vec![
-                Some(("Sync Folder".into(), Msg::SyncFolder(path.clone()), false)),
-                None,
-                Some(("Remove from Library…".into(), Msg::RequestRemoveFolder(path.clone()), true)),
-            ],
+            ContextMenuTarget::Folder(path) => {
+                let has_missing = self.files.iter().any(|f| f.is_orphaned
+                    && (f.folder == *path || f.folder.starts_with(&format!("{path}/"))));
+                let mut items = vec![
+                    Some(("Sync Folder".into(), Msg::SyncFolder(path.clone()), false)),
+                    None,
+                    Some(("Remove from Library…".into(), Msg::RequestRemoveFolder(path.clone()), true)),
+                ];
+                if has_missing {
+                    items.insert(1, Some(("Remove Missing Files…".into(), Msg::RequestRemoveMissing(path.clone()), true)));
+                }
+                items
+            }
             ContextMenuTarget::ManualAlbum(id) => vec![
                 Some(("Rename".into(), Msg::StartRenameAlbum(id.clone()), false)),
                 Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),
@@ -183,14 +191,18 @@ impl App {
                 items.push(Some(("Sync XMP Metadata".into(), Msg::SyncXmpForSelection, false)));
 
                 if n == 1 {
-                    let path = self
+                    let selected_file = self
                         .grid_selected
                         .iter()
                         .next()
-                        .and_then(|id| self.files.iter().find(|f| &f.id == id))
-                        .map(|f| f.path.clone())
-                        .unwrap_or_default();
-                    items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(path), false)));
+                        .and_then(|id| self.files.iter().find(|f| &f.id == id));
+                    if let Some(f) = selected_file {
+                        if f.is_orphaned {
+                            items.push(Some(("Locate…".into(), Msg::LocateFile(f.id.clone()), false)));
+                        } else {
+                            items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(f.path.clone()), false)));
+                        }
+                    }
                 }
                 items
             }

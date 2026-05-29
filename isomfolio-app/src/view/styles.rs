@@ -52,6 +52,12 @@ pub const ACCENT: Color = Color {
     b: 0.95,
     a: 1.0,
 };
+pub const WARN: Color = Color {
+    r: 0.90,
+    g: 0.55,
+    b: 0.15,
+    a: 1.0,
+};
 pub const ALBUM_HOVER: Color = Color {
     r: 0.10,
     g: 0.25,

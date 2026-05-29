@@ -9,7 +9,7 @@ use isomfolio_core::models::{Flag, FlagFilter, ThumbnailState};
 use super::styles::{
     active_chip_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID, BG_TILE_LOADING, BORDER,
     ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
-    STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
+    STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER, WARN,
 };
 use crate::app::{
     format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, Msg, BUFFER_ROWS,
@@ -253,6 +253,23 @@ impl App {
                 .align_x(Alignment::Start)
                 .into();
             layers.push(badge_layer);
+        }
+
+        if file.is_orphaned {
+            let scrim = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.65 };
+            let banner: Element<Msg> = container(
+                container(text("Missing").size(TEXT_XS).color(WARN))
+                    .padding([2.0, 6.0])
+                    .style(move |_: &Theme| container::Style {
+                        background: Some(Background::Color(scrim)),
+                        ..Default::default()
+                    }),
+            )
+            .width(tile_px)
+            .height(tile_px)
+            .align_y(Alignment::End)
+            .into();
+            layers.push(banner);
         }
 
         stack(layers).into()

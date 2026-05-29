@@ -258,6 +258,90 @@ impl App {
     }
 }
 
+impl App {
+    pub(super) fn handle_missing_msg(&mut self, msg: Msg) -> Task<Msg> {
+        match msg {
+            Msg::RequestRemoveMissing(folder) => {
+                self.remove_missing_folder = Some(folder);
+                self.context_menu = None;
+                Task::none()
+            }
+
+            Msg::CancelRemoveMissing => {
+                self.remove_missing_folder = None;
+                Task::none()
+            }
+
+            Msg::ConfirmRemoveMissing => {
+                let Some(folder) = self.remove_missing_folder.take() else {
+                    return Task::none();
+                };
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let cat = conn.lock_unwrap();
+                            cat.purge_orphans_in_folder(&folder).unwrap_or(0)
+                        })
+                        .await
+                        .unwrap_or(0)
+                    },
+                    |_| Msg::Reload,
+                )
+            }
+
+            Msg::LocateFile(file_id) => {
+                let original_path = self
+                    .files
+                    .iter()
+                    .find(|f| f.id == file_id)
+                    .map(|f| f.path.clone())
+                    .unwrap_or_default();
+                let start_dir = std::path::Path::new(&original_path)
+                    .parent()
+                    .map(|p| p.to_path_buf());
+                self.context_menu = None;
+                Task::perform(
+                    async move {
+                        let mut dialog = rfd::AsyncFileDialog::new()
+                            .add_filter("Image", &["jpg", "jpeg", "png", "webp", "gif"]);
+                        if let Some(dir) = start_dir {
+                            dialog = dialog.set_directory(dir);
+                        }
+                        dialog.pick_file().await.map(|h| h.path().to_path_buf())
+                    },
+                    move |opt| match opt {
+                        Some(path) => Msg::FileLocated { file_id: file_id.clone(), new_path: path },
+                        None => Msg::NoOp,
+                    },
+                )
+            }
+
+            Msg::FileLocated { file_id, new_path } => {
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                let path_str = new_path.to_string_lossy().into_owned();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            conn.lock_unwrap().relocate_file(&file_id, &path_str)
+                        })
+                        .await
+                        .ok()
+                        .and_then(|r| r.err())
+                        .map(|e| e.to_string())
+                    },
+                    |err| match err {
+                        Some(e) => Msg::DbError(e),
+                        None => Msg::Reload,
+                    },
+                )
+            }
+
+            _ => Task::none(),
+        }
+    }
+}
+
 fn is_under_catalog_dir(path: &str) -> bool {
     std::path::Path::new(path)
         .components()

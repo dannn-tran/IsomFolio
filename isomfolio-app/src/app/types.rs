@@ -300,6 +300,11 @@ pub enum Msg {
     FileWatcherEvent(isomfolio_core::indexing::types::FileEvent),
     FlushFileEvents(u64),
     SyncXmpForSelection,
+    RequestRemoveMissing(String),
+    ConfirmRemoveMissing,
+    CancelRemoveMissing,
+    LocateFile(String),
+    FileLocated { file_id: String, new_path: std::path::PathBuf },
 }
 
 use isomfolio_core::models::FlagFilter;

@@ -98,6 +98,18 @@ impl Catalog {
         db::purge_old_orphans(&self.conn, older_than_days)
     }
 
+    pub fn purge_orphans_in_folder(&self, folder: &str) -> Result<usize, AppError> {
+        db::purge_orphans_in_folder(&self.conn, folder)
+    }
+
+    pub fn relocate_file(&self, old_id: &str, new_path: &str) -> Result<(), AppError> {
+        db::relocate_file(&self.conn, old_id, new_path)
+    }
+
+    pub fn count_orphans_in_folder(&self, folder: &str) -> Result<usize, AppError> {
+        db::count_orphans_in_folder(&self.conn, folder)
+    }
+
     pub fn insert_pending_tags(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
         db::insert_pending_tags(&self.conn, file_id, tags)
     }

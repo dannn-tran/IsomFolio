@@ -53,13 +53,24 @@ impl App {
                 None => format!("Dragging {count} photo(s)…"),
             }
         } else if !self.status.is_empty() {
-            self.status.clone()
+            let missing = self.missing_count();
+            if missing > 0 {
+                format!("{} · {} missing", self.status, missing)
+            } else {
+                self.status.clone()
+            }
         } else {
-            match self.grid_selected.len() {
+            let base = match self.grid_selected.len() {
                 0 => "Click to select".to_string(),
                 1 => "Space for loupe · I for info · ? for shortcuts".to_string(),
                 2 => "2 photos selected · c to compare · drag to album".to_string(),
                 n => format!("{n} photos selected · drag to album"),
+            };
+            let missing = self.missing_count();
+            if missing > 0 {
+                format!("{base} · {} missing", missing)
+            } else {
+                base
             }
         };
 

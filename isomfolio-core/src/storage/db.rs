@@ -200,6 +200,59 @@ pub fn unmark_orphaned(conn: &Connection, file_id: &str) -> Result<(), AppError>
     Ok(())
 }
 
+pub fn count_orphans_in_folder(conn: &Connection, folder: &str) -> Result<usize, AppError> {
+    let prefix = crate::path_utils::descendant_like_prefix(folder);
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM files WHERE is_orphaned = 1 AND (folder = ?1 OR folder LIKE ?2)",
+        params![folder, prefix],
+        |r| r.get(0),
+    )?;
+    Ok(n as usize)
+}
+
+/// Delete all orphaned catalog records in a folder. Does not touch files on disk.
+pub fn purge_orphans_in_folder(conn: &Connection, folder: &str) -> Result<usize, AppError> {
+    let prefix = crate::path_utils::descendant_like_prefix(folder);
+    let n = conn.execute(
+        "DELETE FROM files WHERE is_orphaned = 1 AND (folder = ?1 OR folder LIKE ?2)",
+        params![folder, prefix],
+    )?;
+    Ok(n)
+}
+
+/// Relocate a file to a new path, transferring all metadata (tags, rating, flag, album
+/// membership, face clusters) from the old path to the new one.
+pub fn relocate_file(conn: &Connection, old_id: &str, new_path: &str) -> Result<(), AppError> {
+    use std::path::Path;
+    let norm = crate::path_utils::normalize_path(new_path);
+    let new_id = crate::file_index::compute_file_id(&norm);
+    let new_name = Path::new(&norm)
+        .file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    let new_folder = Path::new(&norm)
+        .parent().and_then(|p| p.to_str()).unwrap_or("").to_string();
+    let new_ext = Path::new(&norm)
+        .extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+
+    let tx = conn.unchecked_transaction()?;
+    // Disable FK checks temporarily to allow PK change across tables
+    conn.execute_batch("PRAGMA defer_foreign_keys = ON")?;
+
+    // Update child tables before changing the PK
+    for table in &["tags", "metadata", "face_clusters", "album_files", "pending_tags"] {
+        conn.execute(
+            &format!("UPDATE {table} SET file_id = ?1 WHERE file_id = ?2"),
+            params![new_id, old_id],
+        )?;
+    }
+    conn.execute(
+        "UPDATE files SET id = ?1, path = ?2, filename = ?3, folder = ?4, extension = ?5,
+         is_orphaned = 0, orphaned_at = NULL WHERE id = ?6",
+        params![new_id, norm, new_name, new_folder, new_ext, old_id],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn update_file_path(
     conn: &Connection,
     old_path: &str,

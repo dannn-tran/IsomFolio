@@ -67,6 +67,12 @@ impl App {
             | Msg::FlushFileEvents(_)
             | Msg::SyncXmpForSelection => self.handle_sync_msg(msg),
 
+            Msg::RequestRemoveMissing(_)
+            | Msg::ConfirmRemoveMissing
+            | Msg::CancelRemoveMissing
+            | Msg::LocateFile(_)
+            | Msg::FileLocated { .. } => self.handle_missing_msg(msg),
+
             // — detail panel, tags, ratings, flags, undo —
             Msg::ToggleDetail
             | Msg::DetailLoaded { .. }
