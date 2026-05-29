@@ -54,7 +54,7 @@ pub const CREATE_TAGS: &str = "
 CREATE TABLE IF NOT EXISTS tags (
     file_id     TEXT NOT NULL,
     tag         TEXT NOT NULL COLLATE NOCASE,
-    origin      TEXT NOT NULL DEFAULT 'manual',
+    sources     INTEGER NOT NULL DEFAULT 0,
     confidence  REAL,
     PRIMARY KEY (file_id, tag),
     FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
@@ -158,6 +158,10 @@ pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE metadata ADD COLUMN shutter_speed TEXT",
     "ALTER TABLE metadata ADD COLUMN iso INTEGER",
     "ALTER TABLE metadata ADD COLUMN flash INTEGER",
+    // Migrate tags.origin (TEXT) → tags.sources (INTEGER bitmask: ai=1, xmp=2, apple=4)
+    "ALTER TABLE tags ADD COLUMN sources INTEGER NOT NULL DEFAULT 0",
+    "UPDATE tags SET sources = CASE origin WHEN 'ai' THEN 1 WHEN 'xmp' THEN 2 WHEN 'apple' THEN 4 ELSE 0 END",
+    "ALTER TABLE tags DROP COLUMN origin",
 ];
 
 pub const CREATE_PENDING_TAGS: &str = "

@@ -271,12 +271,30 @@ pub fn get_indexed_paths_in_folder(
 // Tags
 // ---------------------------------------------------------------------------
 
+/// Source bitmask constants for the `tags.sources` column.
+/// `0` (no bits set) = added manually by the user.
+pub const TAG_SOURCE_AI: i64 = 1;
+pub const TAG_SOURCE_XMP: i64 = 2;
+pub const TAG_SOURCE_APPLE: i64 = 4;
+
+/// Replace the user-owned tag list for a file. Tags not in `tags` are hard-deleted;
+/// new tags are inserted with sources=0. Existing rows keep their current sources.
 pub fn upsert_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
-    conn.execute("DELETE FROM tags WHERE file_id = ?1 AND origin = 'manual'", [file_id])?;
+    if tags.is_empty() {
+        conn.execute("DELETE FROM tags WHERE file_id = ?1", [file_id])?;
+    } else {
+        // Build NOT IN clause
+        let placeholders: String = (1..=tags.len()).map(|i| format!("?{}", i + 1)).collect::<Vec<_>>().join(",");
+        let sql = format!("DELETE FROM tags WHERE file_id = ?1 AND tag NOT IN ({placeholders})");
+        let mut stmt = conn.prepare(&sql)?;
+        let mut p: Vec<&dyn rusqlite::ToSql> = vec![&file_id];
+        for t in tags { p.push(t); }
+        stmt.execute(p.as_slice())?;
+    }
     for tag in tags {
         conn.execute(
-            "INSERT OR REPLACE INTO tags (file_id, tag, origin) VALUES (?1, ?2, 'manual')",
+            "INSERT OR IGNORE INTO tags (file_id, tag, sources) VALUES (?1, ?2, 0)",
             params![file_id, tag],
         )?;
     }
@@ -285,7 +303,7 @@ pub fn upsert_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Result<
     Ok(())
 }
 
-/// Add tags without deleting existing ones — used for AI-generated tags to preserve manual tags.
+/// OR the AI source bit into existing tags, or insert new ones. Never removes rows.
 pub fn add_tags_merge(conn: &Connection, file_id: &str, tags: &[String]) -> Result<(), AppError> {
     add_tags_merge_scored(conn, file_id, &tags.iter().map(|t| (t.clone(), None)).collect::<Vec<_>>())
 }
@@ -294,8 +312,9 @@ pub fn add_tags_merge_scored(conn: &Connection, file_id: &str, tags: &[(String, 
     let tx = conn.unchecked_transaction()?;
     for (tag, confidence) in tags {
         conn.execute(
-            "INSERT OR IGNORE INTO tags (file_id, tag, origin, confidence) VALUES (?1, ?2, 'ai', ?3)",
-            params![file_id, tag, confidence],
+            "INSERT INTO tags (file_id, tag, sources, confidence) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(file_id, tag) DO UPDATE SET sources = sources | ?3, confidence = COALESCE(?4, confidence)",
+            params![file_id, tag, TAG_SOURCE_AI, confidence],
         )?;
     }
     tx.commit()?;
@@ -303,21 +322,9 @@ pub fn add_tags_merge_scored(conn: &Connection, file_id: &str, tags: &[(String, 
     Ok(())
 }
 
-pub fn delete_ai_tags(conn: &Connection, file_id: &str) -> Result<usize, AppError> {
-    let n = conn.execute("DELETE FROM tags WHERE file_id = ?1 AND origin = 'ai'", [file_id])?;
-    rebuild_fts_for_file(conn, file_id)?;
-    Ok(n)
-}
-
-pub fn delete_all_ai_tags(conn: &Connection) -> Result<usize, AppError> {
-    let n = conn.execute("DELETE FROM tags WHERE origin = 'ai'", [])?;
-    Ok(n)
-}
-
-pub fn get_tag_origin(conn: &Connection, file_id: &str, tag: &str) -> Result<Option<String>, AppError> {
-    let mut stmt = conn.prepare("SELECT origin FROM tags WHERE file_id = ?1 AND tag = ?2")?;
-    let origin = stmt.query_row(params![file_id, tag], |r| r.get::<_, String>(0)).ok();
-    Ok(origin)
+pub fn get_tag_sources(conn: &Connection, file_id: &str, tag: &str) -> Result<Option<i64>, AppError> {
+    let mut stmt = conn.prepare("SELECT sources FROM tags WHERE file_id = ?1 AND tag = ?2")?;
+    Ok(stmt.query_row(params![file_id, tag], |r| r.get::<_, i64>(0)).ok())
 }
 
 pub fn insert_pending_tags(conn: &Connection, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
@@ -356,8 +363,9 @@ pub fn accept_pending_tag(conn: &Connection, file_id: &str, tag: &str) -> Result
         .ok()
         .flatten();
     conn.execute(
-        "INSERT OR IGNORE INTO tags (file_id, tag, origin, confidence) VALUES (?1, ?2, 'ai', ?3)",
-        params![file_id, tag, conf],
+        "INSERT INTO tags (file_id, tag, sources, confidence) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(file_id, tag) DO UPDATE SET sources = sources | ?3, confidence = COALESCE(?4, confidence)",
+        params![file_id, tag, TAG_SOURCE_AI, conf],
     )?;
     conn.execute(
         "DELETE FROM pending_tags WHERE file_id = ?1 AND tag = ?2",
@@ -381,8 +389,9 @@ pub fn accept_all_pending(conn: &Connection, file_id: &str) -> Result<usize, App
     let tx = conn.unchecked_transaction()?;
     for (tag, conf) in &pending {
         conn.execute(
-            "INSERT OR IGNORE INTO tags (file_id, tag, origin, confidence) VALUES (?1, ?2, 'ai', ?3)",
-            params![file_id, tag, conf],
+            "INSERT INTO tags (file_id, tag, sources, confidence) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(file_id, tag) DO UPDATE SET sources = sources | ?3, confidence = COALESCE(?4, confidence)",
+            params![file_id, tag, TAG_SOURCE_AI, conf],
         )?;
     }
     conn.execute("DELETE FROM pending_tags WHERE file_id = ?1", [file_id])?;
@@ -432,11 +441,12 @@ pub fn get_tags_for_file(conn: &Connection, file_id: &str) -> Result<Vec<String>
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-pub fn get_tags_with_origin(conn: &Connection, file_id: &str) -> Result<Vec<(String, String, Option<f32>)>, AppError> {
-    let mut stmt = conn.prepare("SELECT tag, origin, confidence FROM tags WHERE file_id = ?1 ORDER BY tag")?;
+/// Returns `(tag, sources_bitmask, confidence)`. Use `TAG_SOURCE_*` constants to test bits.
+pub fn get_tags_with_sources(conn: &Connection, file_id: &str) -> Result<Vec<(String, i64, Option<f32>)>, AppError> {
+    let mut stmt = conn.prepare("SELECT tag, sources, confidence FROM tags WHERE file_id = ?1 ORDER BY tag")?;
     let rows = stmt.query_map([file_id], |r| Ok((
         r.get::<_, String>(0)?,
-        r.get::<_, String>(1)?,
+        r.get::<_, i64>(1)?,
         r.get::<_, Option<f64>>(2)?.map(|v| v as f32),
     )))?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -552,12 +562,28 @@ pub fn upsert_metadata(
 }
 
 fn sync_xmp_tags(conn: &Connection, file_id: &str, subjects: &[String]) -> Result<(), AppError> {
+    sync_source_tags(conn, file_id, subjects, TAG_SOURCE_XMP)
+}
+
+pub fn sync_apple_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Result<(), AppError> {
+    sync_source_tags(conn, file_id, tags, TAG_SOURCE_APPLE)
+}
+
+/// Update source-bit tags for a given source: clear the bit from tags no longer in the list,
+/// set the bit on tags in the list. Tags are never deleted — only their source bits change.
+fn sync_source_tags(conn: &Connection, file_id: &str, tags: &[String], source_bit: i64) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
-    conn.execute("DELETE FROM tags WHERE file_id = ?1 AND origin = 'xmp'", [file_id])?;
-    for tag in subjects {
+    // Clear this source's bit from all existing tags for this file
+    conn.execute(
+        "UPDATE tags SET sources = sources & ~?1 WHERE file_id = ?2",
+        params![source_bit, file_id],
+    )?;
+    // Set the bit on each current tag (insert if new, OR bit in if existing)
+    for tag in tags {
         conn.execute(
-            "INSERT OR IGNORE INTO tags (file_id, tag, origin) VALUES (?1, ?2, 'xmp')",
-            params![file_id, tag],
+            "INSERT INTO tags (file_id, tag, sources) VALUES (?1, ?2, ?3)
+             ON CONFLICT(file_id, tag) DO UPDATE SET sources = sources | ?3",
+            params![file_id, tag, source_bit],
         )?;
     }
     tx.commit()?;
@@ -1199,7 +1225,7 @@ mod tests {
         assert_eq!(count_album_files(&conn, "a1").unwrap(), 0);
     }
 
-    mod tag_origin {
+    mod tag_sources {
         use super::*;
 
         fn setup(conn: &Connection) {
@@ -1207,98 +1233,113 @@ mod tests {
         }
 
         #[test]
-        fn manual_tags_have_manual_origin() {
+        fn manual_tags_have_zero_sources() {
             let (conn, _f) = open_temp();
             setup(&conn);
             upsert_tags(&conn, "f1", &["landscape".into()]).unwrap();
-            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
             assert_eq!(tags.len(), 1);
             assert_eq!(tags[0].0, "landscape");
-            assert_eq!(tags[0].1, "manual");
+            assert_eq!(tags[0].1, 0);
             assert_eq!(tags[0].2, None);
         }
 
         #[test]
-        fn ai_tags_have_ai_origin() {
+        fn ai_tags_have_ai_bit() {
             let (conn, _f) = open_temp();
             setup(&conn);
             add_tags_merge_scored(&conn, "f1", &[("portrait".into(), Some(0.85))]).unwrap();
-            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
             assert_eq!(tags.len(), 1);
-            assert_eq!(tags[0].0, "portrait");
-            assert_eq!(tags[0].1, "ai");
+            assert_eq!(tags[0].1 & TAG_SOURCE_AI, TAG_SOURCE_AI);
             assert!((tags[0].2.unwrap() - 0.85).abs() < 0.01);
         }
 
         #[test]
-        fn manual_upsert_preserves_ai_tags() {
+        fn manual_upsert_hard_deletes_unlisted_tags() {
             let (conn, _f) = open_temp();
             setup(&conn);
-            add_tags_merge(&conn, "f1", &["ai-tag".into()]).unwrap();
-            upsert_tags(&conn, "f1", &["manual-tag".into()]).unwrap();
-            let tags = get_tags_with_origin(&conn, "f1").unwrap();
-            assert_eq!(tags.len(), 2);
-            assert!(tags.iter().any(|(t, o, _)| t == "ai-tag" && o == "ai"));
-            assert!(tags.iter().any(|(t, o, _)| t == "manual-tag" && o == "manual"));
-        }
-
-        #[test]
-        fn delete_ai_tags_keeps_manual() {
-            let (conn, _f) = open_temp();
-            setup(&conn);
-            upsert_tags(&conn, "f1", &["keep".into()]).unwrap();
-            add_tags_merge(&conn, "f1", &["remove".into()]).unwrap();
-            let n = delete_ai_tags(&conn, "f1").unwrap();
-            assert_eq!(n, 1);
+            upsert_tags(&conn, "f1", &["a".into(), "b".into()]).unwrap();
+            // Remove "a", keep "b"
+            upsert_tags(&conn, "f1", &["b".into()]).unwrap();
             let tags = get_tags_for_file(&conn, "f1").unwrap();
-            assert_eq!(tags, vec!["keep".to_string()]);
+            assert_eq!(tags, vec!["b".to_string()]);
         }
 
         #[test]
-        fn xmp_tags_have_xmp_origin() {
+        fn manual_upsert_does_not_affect_ai_bit_on_shared_tag() {
             let (conn, _f) = open_temp();
             setup(&conn);
-            sync_xmp_tags(&conn, "f1", &["paris".into(), "travel".into()]).unwrap();
-            let tags = get_tags_with_origin(&conn, "f1").unwrap();
-            assert_eq!(tags.len(), 2);
-            assert!(tags.iter().all(|(_, o, _)| o == "xmp"));
-        }
-
-        #[test]
-        fn xmp_sync_does_not_duplicate_manual_tag() {
-            let (conn, _f) = open_temp();
-            setup(&conn);
-            upsert_tags(&conn, "f1", &["paris".into()]).unwrap();
-            sync_xmp_tags(&conn, "f1", &["paris".into()]).unwrap();
-            let tags = get_tags_with_origin(&conn, "f1").unwrap();
-            // INSERT OR IGNORE: manual row kept, no xmp duplicate
+            add_tags_merge(&conn, "f1", &["shared".into()]).unwrap();
+            // User now also lists "shared" — should OR in nothing new, ai bit preserved
+            upsert_tags(&conn, "f1", &["shared".into()]).unwrap();
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
             assert_eq!(tags.len(), 1);
-            assert_eq!(tags[0].1, "manual");
+            assert_eq!(tags[0].1 & TAG_SOURCE_AI, TAG_SOURCE_AI);
         }
 
         #[test]
-        fn xmp_sync_removes_stale_xmp_tags() {
+        fn ai_rerun_ors_bit_not_duplicate() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            add_tags_merge_scored(&conn, "f1", &[("portrait".into(), Some(0.7))]).unwrap();
+            // Re-run with higher confidence
+            add_tags_merge_scored(&conn, "f1", &[("portrait".into(), Some(0.9))]).unwrap();
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
+            assert_eq!(tags.len(), 1);
+            assert!((tags[0].2.unwrap() - 0.9).abs() < 0.01);
+        }
+
+        #[test]
+        fn xmp_sync_sets_xmp_bit() {
             let (conn, _f) = open_temp();
             setup(&conn);
             sync_xmp_tags(&conn, "f1", &["paris".into(), "travel".into()]).unwrap();
-            // Simulate XMP sidecar updated: "travel" removed
-            sync_xmp_tags(&conn, "f1", &["paris".into()]).unwrap();
-            let tags = get_tags_for_file(&conn, "f1").unwrap();
-            assert_eq!(tags, vec!["paris".to_string()]);
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
+            assert_eq!(tags.len(), 2);
+            assert!(tags.iter().all(|(_, s, _)| s & TAG_SOURCE_XMP != 0));
         }
 
         #[test]
-        fn xmp_sync_preserves_manual_and_ai_tags() {
+        fn xmp_sync_ors_bit_on_existing_tag() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            // Tag added manually first
+            upsert_tags(&conn, "f1", &["paris".into()]).unwrap();
+            // XMP also has "paris" — should OR xmp bit in, one row
+            sync_xmp_tags(&conn, "f1", &["paris".into()]).unwrap();
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
+            assert_eq!(tags.len(), 1);
+            assert_eq!(tags[0].1 & TAG_SOURCE_XMP, TAG_SOURCE_XMP); // xmp bit set
+            assert_eq!(tags[0].1 & !TAG_SOURCE_XMP, 0);              // only xmp (was manual=0, now manual=0|xmp=2)
+        }
+
+        #[test]
+        fn xmp_sync_clears_bit_on_removed_keyword_but_keeps_row() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            sync_xmp_tags(&conn, "f1", &["paris".into(), "travel".into()]).unwrap();
+            // XMP sidecar updated: "travel" removed
+            sync_xmp_tags(&conn, "f1", &["paris".into()]).unwrap();
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
+            // "travel" row stays (sources cleared to 0), "paris" keeps xmp bit
+            assert_eq!(tags.len(), 2);
+            let travel = tags.iter().find(|(t, _, _)| t == "travel").unwrap();
+            assert_eq!(travel.1, 0); // xmp bit cleared, row kept
+        }
+
+        #[test]
+        fn xmp_sync_does_not_delete_manual_or_ai_tags() {
             let (conn, _f) = open_temp();
             setup(&conn);
             upsert_tags(&conn, "f1", &["street".into()]).unwrap();
             add_tags_merge(&conn, "f1", &["architecture".into()]).unwrap();
             sync_xmp_tags(&conn, "f1", &["paris".into()]).unwrap();
-            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
             assert_eq!(tags.len(), 3);
-            assert!(tags.iter().any(|(t, o, _)| t == "street" && o == "manual"));
-            assert!(tags.iter().any(|(t, o, _)| t == "architecture" && o == "ai"));
-            assert!(tags.iter().any(|(t, o, _)| t == "paris" && o == "xmp"));
+            assert!(tags.iter().any(|(t, s, _)| t == "street" && s & TAG_SOURCE_AI == 0 && s & TAG_SOURCE_XMP == 0));
+            assert!(tags.iter().any(|(t, s, _)| t == "architecture" && s & TAG_SOURCE_AI != 0));
+            assert!(tags.iter().any(|(t, s, _)| t == "paris" && s & TAG_SOURCE_XMP != 0));
         }
     }
 
@@ -1329,10 +1370,10 @@ mod tests {
             insert_pending_tags(&conn, "f1", &[("portrait".into(), Some(0.9))]).unwrap();
             accept_pending_tag(&conn, "f1", "portrait").unwrap();
             assert!(get_pending_tags(&conn, "f1").unwrap().is_empty());
-            let tags = get_tags_with_origin(&conn, "f1").unwrap();
+            let tags = get_tags_with_sources(&conn, "f1").unwrap();
             assert_eq!(tags.len(), 1);
             assert_eq!(tags[0].0, "portrait");
-            assert_eq!(tags[0].1, "ai");
+            assert_eq!(tags[0].1 & TAG_SOURCE_AI, TAG_SOURCE_AI);
         }
 
         #[test]

@@ -86,20 +86,12 @@ impl Catalog {
         db::get_tags_for_file(&self.conn, file_id)
     }
 
-    pub fn get_tags_with_origin(&self, file_id: &str) -> Result<Vec<(String, String, Option<f32>)>, AppError> {
-        db::get_tags_with_origin(&self.conn, file_id)
+    pub fn get_tags_with_sources(&self, file_id: &str) -> Result<Vec<(String, i64, Option<f32>)>, AppError> {
+        db::get_tags_with_sources(&self.conn, file_id)
     }
 
     pub fn add_tags_merge_scored(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
         db::add_tags_merge_scored(&self.conn, file_id, tags)
-    }
-
-    pub fn delete_ai_tags(&self, file_id: &str) -> Result<usize, AppError> {
-        db::delete_ai_tags(&self.conn, file_id)
-    }
-
-    pub fn delete_all_ai_tags(&self) -> Result<usize, AppError> {
-        db::delete_all_ai_tags(&self.conn)
     }
 
     pub fn purge_old_orphans(&self, older_than_days: u32) -> Result<usize, AppError> {
