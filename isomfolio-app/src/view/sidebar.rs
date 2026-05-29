@@ -66,52 +66,12 @@ impl App {
         let available_px = self.sidebar_width - (SPACE_3 + SPACE_1) * 2.0 - 28.0;
         let max_chars = ((available_px / 8.5).floor() as usize).max(4);
 
-        let pending_xmp = self.pending_xmp_paths.len();
-        let xmp_badge: Option<Element<Msg>> = if pending_xmp > 0 {
-            let label = if pending_xmp == 1 {
-                "XMP updated — 1 file".to_string()
-            } else {
-                format!("XMP updated — {pending_xmp} files")
-            };
-            Some(
-                container(
-                    row![
-                        text(label).size(TEXT_SM).color(FG),
-                        Space::new().width(Length::Fill),
-                        button(text("Apply").size(TEXT_SM))
-                            .on_press(Msg::ApplyMetadataDrift)
-                            .style(ghost_btn_style),
-                        button(text("✕").size(TEXT_SM).color(FG_DIM))
-                            .on_press(Msg::DismissMetadataDrift)
-                            .style(ghost_btn_style),
-                    ]
-                    .spacing(SPACE_1)
-                    .align_y(Alignment::Center),
-                )
-                .padding([SPACE_0_5, SPACE_1_5])
-                .width(Length::Fill)
-                .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(Color { a: 0.08, ..ACCENT })),
-                    border: Border { radius: 4.0.into(), ..Default::default() },
-                    ..Default::default()
-                })
-                .into(),
-            )
-        } else {
-            None
-        };
-
         let mut content = column![
             catalog_header,
             Space::new().height(SPACE_1_5),
+            folders_header,
         ]
         .spacing(SPACE_0_5);
-
-        if let Some(badge) = xmp_badge {
-            content = content.push(badge).push(Space::new().height(SPACE_1));
-        }
-
-        content = content.push(folders_header);
 
         for (path, display_name, count) in &self.folders {
             let name = display_name.clone();

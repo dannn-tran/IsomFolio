@@ -159,7 +159,6 @@ impl App {
 
                 let mut upsert: Vec<String> = Vec::new();
                 let mut orphan_ids: Vec<String> = Vec::new();
-                let mut sidecar: Vec<String> = Vec::new();
 
                 for event in events {
                     match event {
@@ -171,14 +170,12 @@ impl App {
                             orphan_ids.push(compute_file_id(&normalize_path(&old_path)));
                             upsert.push(new_path);
                         }
-                        FileEvent::SidecarChanged(p) => sidecar.push(p),
-                        FileEvent::ScanProgress(_) | FileEvent::SidecarRemoved(_) => {}
+                        // XMP sidecar changes are not auto-applied; use Sync Folder or
+                        // right-click → Sync XMP Metadata for manual control.
+                        FileEvent::SidecarChanged(_)
+                        | FileEvent::SidecarRemoved(_)
+                        | FileEvent::ScanProgress(_) => {}
                     }
-                }
-
-                // Queue XMP sidecar changes for user-triggered apply rather than auto-syncing
-                if !sidecar.is_empty() {
-                    self.pending_xmp_paths.extend(sidecar);
                 }
 
                 if upsert.is_empty() && orphan_ids.is_empty() {
@@ -205,32 +202,6 @@ impl App {
                     },
                     |()| Msg::Reload,
                 )
-            }
-
-            Msg::ApplyMetadataDrift => {
-                let paths = std::mem::take(&mut self.pending_xmp_paths);
-                if paths.is_empty() {
-                    return Task::none();
-                }
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let cat = conn.lock_unwrap();
-                            if let Err(e) = cat.resync_sidecar_files(&paths) {
-                                eprintln!("[db] resync_sidecar_files failed: {e}");
-                            }
-                        })
-                        .await
-                        .ok();
-                    },
-                    |()| Msg::Reload,
-                )
-            }
-
-            Msg::DismissMetadataDrift => {
-                self.pending_xmp_paths.clear();
-                Task::none()
             }
 
             Msg::SyncXmpForSelection => {

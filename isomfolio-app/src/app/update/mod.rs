@@ -65,8 +65,6 @@ impl App {
             | Msg::RescanFolder(_)
             | Msg::FileWatcherEvent(_)
             | Msg::FlushFileEvents(_)
-            | Msg::ApplyMetadataDrift
-            | Msg::DismissMetadataDrift
             | Msg::SyncXmpForSelection => self.handle_scan_msg(msg),
 
             // — detail panel, tags, ratings, flags, undo —

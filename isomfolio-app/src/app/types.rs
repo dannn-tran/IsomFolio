@@ -299,8 +299,6 @@ pub enum Msg {
     ThumbnailFailed { file_id: String },
     FileWatcherEvent(isomfolio_core::indexing::types::FileEvent),
     FlushFileEvents(u64),
-    ApplyMetadataDrift,
-    DismissMetadataDrift,
     SyncXmpForSelection,
 }
 

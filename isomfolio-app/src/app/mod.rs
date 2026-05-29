@@ -124,7 +124,6 @@ pub struct App {
     pub watchers: Vec<(String, FileWatcher)>,
     pub pending_file_events: Vec<FileEvent>,
     pub watcher_debounce_id: u64,
-    pub pending_xmp_paths: Vec<String>,
 
     pub search_text: String,
     pub search_debounce_id: u64,
@@ -332,7 +331,6 @@ impl App {
             watchers: Vec::new(),
             pending_file_events: Vec::new(),
             watcher_debounce_id: 0,
-            pending_xmp_paths: Vec::new(),
             search_text: String::new(),
             search_debounce_id: 0,
             create_album_input: None,
