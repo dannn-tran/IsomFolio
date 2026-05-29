@@ -31,8 +31,18 @@ impl App {
                     }
                     extension_configs.insert(ext.manifest.name.clone(), fields);
                 }
-                self.settings =
-                    SettingsState { show: true, extension_configs, install_error: None, status: None };
+                self.settings = SettingsState {
+                    show: true,
+                    tab: self.settings.tab,
+                    extension_configs,
+                    install_error: None,
+                    status: None,
+                };
+                Task::none()
+            }
+
+            Msg::SwitchSettingsTab(tab) => {
+                self.settings.tab = tab;
                 Task::none()
             }
 

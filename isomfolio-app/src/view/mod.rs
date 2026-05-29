@@ -9,11 +9,11 @@ mod tag_browser;
 mod welcome;
 
 use iced::{
-    widget::{button, column, container, image, mouse_area, row, stack, text, text_input, Space},
+    widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, text_input, Space},
     Alignment, Background, Border, Color, Element, Length, Shadow, Theme, Vector,
 };
 
-use crate::app::{App, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
+use crate::app::{App, Msg, SettingsTab, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
 use styles::{
     active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_MODAL,
     BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
@@ -551,20 +551,200 @@ impl App {
     }
 
     fn view_settings_modal(&self) -> Element<'_, Msg> {
-        use isomfolio_core::extension::ConfigFieldKind;
-
-        let mut body = column![
+        let header = row![
             text("Settings").size(TEXT_TITLE).color(FG),
-            Space::new().height(SPACE_4),
-            text("Extensions").size(TEXT_SM).color(FG_DIM),
+            Space::new().width(Length::Fill),
+            self.settings_tab_chip("General", SettingsTab::General),
+            self.settings_tab_chip("Extensions", SettingsTab::Extensions),
+        ]
+        .align_y(Alignment::Center)
+        .spacing(SPACE_1_5)
+        .width(Length::Fill);
+
+        let content: Element<'_, Msg> = match self.settings.tab {
+            SettingsTab::General => self.settings_general_pane(),
+            SettingsTab::Extensions => self.settings_extensions_pane(),
+        };
+
+        let scroll_area = scrollable(
+            container(content)
+                .padding([SPACE_1, SPACE_1])
+                .width(Length::Fill),
+        )
+        .height(Length::Fixed(480.0))
+        .direction(scrollable::Direction::Vertical(
+            scrollable::Scrollbar::new().width(6).scroller_width(6),
+        ));
+
+        let footer_status = match (
+            self.settings.install_error.as_deref(),
+            self.settings.status.as_deref(),
+        ) {
+            (Some(err), _) => Some((err.to_string(), ERR)),
+            (_, Some(s)) => Some((s.to_string(), FG_DIM)),
+            _ => None,
+        };
+
+        let footer = row![
+            {
+                if let Some((msg, color)) = footer_status {
+                    text(msg).size(TEXT_SM).color(color)
+                } else {
+                    text("").size(TEXT_SM)
+                }
+            },
+            Space::new().width(Length::Fill),
+            button(text("Cancel").size(TEXT_BASE))
+                .on_press(Msg::CloseSettings)
+                .style(ghost_btn_style),
+            button(text("Save").size(TEXT_BASE))
+                .on_press(Msg::SaveSettings)
+                .style(active_chip_style),
+        ]
+        .spacing(SPACE_2)
+        .align_y(Alignment::Center);
+
+        let body = column![
+            header,
+            Space::new().height(SPACE_3),
+            container(Space::new())
+                .width(Length::Fill)
+                .height(1.0)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(BORDER)),
+                    ..Default::default()
+                }),
             Space::new().height(SPACE_2),
+            scroll_area,
+            Space::new().height(SPACE_3),
+            container(Space::new())
+                .width(Length::Fill)
+                .height(1.0)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(BORDER)),
+                    ..Default::default()
+                }),
+            Space::new().height(SPACE_2_5),
+            footer,
         ]
         .spacing(0)
-        .width(440);
+        .width(560);
+
+        let modal = container(body)
+            .padding(SPACE_6)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_MODAL)),
+                border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
+                shadow: Shadow {
+                    color: OVERLAY_LIGHT,
+                    offset: Vector::new(0.0, 4.0),
+                    blur_radius: 20.0,
+                },
+                ..Default::default()
+            });
+
+        modal_with_backdrop(modal).into()
+    }
+
+    fn settings_tab_chip(&self, label: &str, tab: SettingsTab) -> Element<'_, Msg> {
+        let selected = self.settings.tab == tab;
+        button(text(label.to_string()).size(TEXT_MD))
+            .on_press(Msg::SwitchSettingsTab(tab))
+            .style(move |t: &Theme, s| {
+                if selected { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+            })
+            .into()
+    }
+
+    fn settings_general_pane(&self) -> Element<'_, Msg> {
+        let mut col = column![].spacing(SPACE_3).width(Length::Fill);
+
+        col = col.push(self.toggle_row(
+            "Auto face clustering",
+            "Run after each sync that finds new photos.",
+            self.app_settings.auto_face_cluster,
+            Msg::ToggleAutoFaceCluster,
+        ));
+        col = col.push(self.toggle_row(
+            "Import XMP keywords",
+            "Add dc:subject keywords as tags on first sync of a new photo.",
+            self.app_settings.import_xmp_tags.unwrap_or(false),
+            Msg::ToggleImportXmpTags,
+        ));
+        if cfg!(target_os = "macos") {
+            col = col.push(self.toggle_row(
+                "Import Apple Finder tags",
+                "Add macOS Finder tags (kMDItemUserTags) as tags on first sync of a new photo.",
+                self.app_settings.import_apple_tags.unwrap_or(false),
+                Msg::ToggleImportAppleTags,
+            ));
+        }
+
+        col.into()
+    }
+
+    fn toggle_row<'a>(
+        &self,
+        label: &str,
+        help: &str,
+        on: bool,
+        msg: Msg,
+    ) -> Element<'a, Msg> {
+        let glyph = if on { "●" } else { "○" };
+        let tint = if on { ACCENT } else { FG_DIM };
+        row![
+            mouse_area(
+                row![
+                    text(glyph.to_string()).size(TEXT_LG).color(tint),
+                    column![
+                        text(label.to_string()).size(TEXT_BASE).color(FG),
+                        text(help.to_string()).size(TEXT_SM).color(FG_DIM),
+                    ]
+                    .spacing(SPACE_0_5),
+                ]
+                .spacing(SPACE_2)
+                .align_y(Alignment::Center),
+            )
+            .on_press(msg)
+            .interaction(iced::mouse::Interaction::Pointer),
+        ]
+        .into()
+    }
+
+    fn settings_extensions_pane(&self) -> Element<'_, Msg> {
+        use isomfolio_core::extension::ConfigFieldKind;
+
+        let install_btn = row![
+            button(text("Install from file…").size(TEXT_BASE))
+                .on_press(Msg::InstallExtensionPickFile)
+                .style(ghost_btn_style),
+            Space::new().width(Length::Fill),
+            text(format!(
+                "{} installed",
+                self.extensions.len()
+            ))
+            .size(TEXT_SM)
+            .color(FG_DIM),
+        ]
+        .align_y(Alignment::Center)
+        .spacing(SPACE_2);
+
+        let mut body = column![
+            install_btn,
+            Space::new().height(SPACE_3),
+        ]
+        .spacing(0)
+        .width(Length::Fill);
 
         if self.extensions.is_empty() {
-            body = body.push(text("No extensions installed.").size(TEXT_MD).color(FG_MUTED));
-            body = body.push(Space::new().height(SPACE_2));
+            body = body.push(
+                container(
+                    text("No extensions installed. Click \"Install from file…\" above to add one.")
+                        .size(TEXT_MD)
+                        .color(FG_MUTED),
+                )
+                .padding(SPACE_3),
+            );
         }
 
         for ext in &self.extensions {
@@ -726,102 +906,7 @@ impl App {
             }
         }
 
-        body = body.push(Space::new().height(SPACE_4));
-        body = body.push(text("Behaviour").size(TEXT_SM).color(FG_DIM));
-        body = body.push(Space::new().height(SPACE_2));
-        let auto_face = self.app_settings.auto_face_cluster;
-        body = body.push(
-            row![
-                button(
-                    text(if auto_face { "Auto face clustering  ●" } else { "Auto face clustering" })
-                        .size(TEXT_MD)
-                )
-                .on_press(Msg::ToggleAutoFaceCluster)
-                .style(if auto_face { active_chip_style } else { ghost_btn_style }),
-                text("Run after each sync that finds new photos").size(TEXT_SM).color(FG_DIM),
-            ]
-            .spacing(SPACE_2)
-            .align_y(Alignment::Center),
-        );
-
-        body = body.push(Space::new().height(SPACE_2));
-        let import_xmp = self.app_settings.import_xmp_tags.unwrap_or(false);
-        body = body.push(
-            row![
-                button(
-                    text(if import_xmp { "Import XMP keywords  ●" } else { "Import XMP keywords" })
-                        .size(TEXT_MD)
-                )
-                .on_press(Msg::ToggleImportXmpTags)
-                .style(if import_xmp { active_chip_style } else { ghost_btn_style }),
-                text("Add dc:subject keywords as tags on first sync of a new photo").size(TEXT_SM).color(FG_DIM),
-            ]
-            .spacing(SPACE_2)
-            .align_y(Alignment::Center),
-        );
-
-        if cfg!(target_os = "macos") {
-            body = body.push(Space::new().height(SPACE_2));
-            let import_apple = self.app_settings.import_apple_tags.unwrap_or(false);
-            body = body.push(
-                row![
-                    button(
-                        text(if import_apple { "Import Apple Finder tags  ●" } else { "Import Apple Finder tags" })
-                            .size(TEXT_MD)
-                    )
-                    .on_press(Msg::ToggleImportAppleTags)
-                    .style(if import_apple { active_chip_style } else { ghost_btn_style }),
-                    text("Add macOS Finder tags (kMDItemUserTags) as tags on first sync of a new photo").size(TEXT_SM).color(FG_DIM),
-                ]
-                .spacing(SPACE_2)
-                .align_y(Alignment::Center),
-            );
-        }
-
-        body = body.push(Space::new().height(SPACE_4));
-        body = body.push(
-            button(text("Install from file…").size(TEXT_BASE))
-                .on_press(Msg::InstallExtensionPickFile)
-                .style(ghost_btn_style),
-        );
-
-        if let Some(ref err) = self.settings.install_error {
-            body = body.push(Space::new().height(SPACE_2));
-            body = body.push(text(err.as_str()).size(TEXT_SM).color(ERR));
-        }
-
-        if let Some(ref status) = self.settings.status {
-            body = body.push(Space::new().height(SPACE_2));
-            body = body.push(text(status.as_str()).size(TEXT_SM).color(FG_DIM));
-        }
-
-        body = body.push(Space::new().height(SPACE_6)).push(
-            row![
-                button(text("Cancel").size(TEXT_BASE))
-                    .on_press(Msg::CloseSettings)
-                    .style(ghost_btn_style),
-                button(text("Save").size(TEXT_BASE))
-                    .on_press(Msg::SaveSettings)
-                    .style(active_chip_style),
-            ]
-            .spacing(SPACE_2_5)
-            .align_y(Alignment::Center),
-        );
-
-        let modal = container(body)
-            .padding(SPACE_6)
-            .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(BG_MODAL)),
-                border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
-                shadow: Shadow {
-                    color: OVERLAY_LIGHT,
-                    offset: Vector::new(0.0, 4.0),
-                    blur_radius: 20.0,
-                },
-                ..Default::default()
-            });
-
-        modal_with_backdrop(modal).into()
+        body.into()
     }
 
     fn view_metadata_import_prompt(&self) -> Element<'_, Msg> {

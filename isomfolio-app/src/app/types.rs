@@ -263,6 +263,7 @@ pub enum Msg {
     ExtensionRestarted { idx: usize, process: Option<Arc<ExtensionProcess>> },
 
     OpenSettings,
+    SwitchSettingsTab(SettingsTab),
     CloseSettings,
     ToggleAutoFaceCluster,
     ToggleImportXmpTags,
@@ -416,8 +417,15 @@ impl Default for DetailState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsTab {
+    General,
+    Extensions,
+}
+
 pub struct SettingsState {
     pub show: bool,
+    pub tab: SettingsTab,
     /// extension_name -> key -> current edited value
     pub extension_configs: HashMap<String, HashMap<String, String>>,
     pub install_error: Option<String>,
@@ -428,6 +436,7 @@ impl Default for SettingsState {
     fn default() -> Self {
         Self {
             show: false,
+            tab: SettingsTab::General,
             extension_configs: HashMap::new(),
             install_error: None,
             status: None,

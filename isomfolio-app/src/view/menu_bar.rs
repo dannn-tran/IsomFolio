@@ -21,6 +21,7 @@ struct MenuTab {
 
 const MENU_TABS: &[MenuTab] = &[
     MenuTab { label: "Catalog", id: "catalog", tab_width: 72.0 },
+    MenuTab { label: "Edit",    id: "edit",    tab_width: 52.0 },
     MenuTab { label: "View",    id: "view",    tab_width: 56.0 },
     MenuTab { label: "Help",    id: "help",    tab_width: 52.0 },
 ];
@@ -93,6 +94,7 @@ impl App {
         let menu_id = self.open_menu.as_deref()?;
         let items = match menu_id {
             "catalog" => self.catalog_menu_items(),
+            "edit" => self.edit_menu_items(),
             "view" => self.view_menu_items(),
             "help" => self.help_menu_items(),
             _ => return None,
@@ -173,11 +175,18 @@ impl App {
         ]
     }
 
+    fn edit_menu_items(&self) -> Vec<MenuItem> {
+        vec![
+            MenuItem::Action("Undo", "Cmd+Z", Msg::Undo),
+            MenuItem::Action("Redo", "Cmd+Shift+Z", Msg::Redo),
+            MenuItem::Separator,
+            MenuItem::Action("Settings…", "Cmd+,", Msg::OpenSettings),
+        ]
+    }
+
     fn help_menu_items(&self) -> Vec<MenuItem> {
         vec![
             MenuItem::Action("Keyboard Shortcuts", "?", Msg::ToggleShortcutHelp),
-            MenuItem::Separator,
-            MenuItem::Action("Extensions…", "", Msg::OpenSettings),
         ]
     }
 }

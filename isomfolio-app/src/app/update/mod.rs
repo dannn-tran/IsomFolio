@@ -195,6 +195,7 @@ impl App {
 
             // — settings panel —
             Msg::OpenSettings
+            | Msg::SwitchSettingsTab(_)
             | Msg::CloseSettings
             | Msg::SettingsConfigChanged { .. }
             | Msg::SaveSettings
