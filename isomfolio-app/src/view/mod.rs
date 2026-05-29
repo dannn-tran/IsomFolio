@@ -724,7 +724,7 @@ impl App {
                 )
                 .on_press(Msg::ToggleAutoFaceCluster)
                 .style(if auto_face { active_chip_style } else { ghost_btn_style }),
-                text("Run after each scan that finds new photos").size(TEXT_SM).color(FG_DIM),
+                text("Run after each sync that finds new photos").size(TEXT_SM).color(FG_DIM),
             ]
             .spacing(SPACE_2)
             .align_y(Alignment::Center),

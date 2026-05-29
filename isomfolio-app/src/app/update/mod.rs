@@ -64,7 +64,9 @@ impl App {
             | Msg::FolderRemoved
             | Msg::RescanFolder(_)
             | Msg::FileWatcherEvent(_)
-            | Msg::FlushFileEvents(_) => self.handle_scan_msg(msg),
+            | Msg::FlushFileEvents(_)
+            | Msg::ApplyMetadataDrift
+            | Msg::DismissMetadataDrift => self.handle_scan_msg(msg),
 
             // — detail panel, tags, ratings, flags, undo —
             Msg::ToggleDetail

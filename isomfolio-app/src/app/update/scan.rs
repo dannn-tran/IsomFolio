@@ -19,7 +19,7 @@ impl App {
                 Task::perform(
                     async {
                         rfd::AsyncFileDialog::new()
-                            .set_title("Choose folder to scan")
+                            .set_title("Choose a folder to sync")
                             .pick_folder()
                             .await
                             .map(|h| h.path().to_string_lossy().to_string())
@@ -51,13 +51,13 @@ impl App {
             Msg::ScanStart(path) => {
                 self.last_scanned_path = Some(path.clone());
                 self.is_scanning = true;
-                self.status = "Scanning…".to_string();
+                self.status = "Syncing…".to_string();
                 self.scan_folder_task(path)
             }
 
             Msg::ScanComplete { count, new_file_ids } => {
                 self.is_scanning = false;
-                self.status = format!("Scanned {count} photo(s)");
+                self.status = format!("Synced {count} photo(s)");
                 let path = self.last_scanned_path.take();
                 let t1 = self.load_sidebar_task();
                 let t_nav = if let Some(p) = path {
@@ -120,14 +120,14 @@ impl App {
             Msg::RescanFolder(path) => {
                 self.context_menu = None;
                 self.is_scanning = true;
-                self.status = "Scanning…".to_string();
+                self.status = "Syncing…".to_string();
                 self.scan_folder_task(path)
             }
 
             Msg::FileWatcherEvent(event) => {
                 if let FileEvent::ScanProgress(prog) = event {
                     self.status = format!(
-                        "Scanning {}… {} found",
+                        "Syncing {}… {} found",
                         prog.folder_name, prog.total_found
                     );
                     return Task::none();
@@ -176,7 +176,12 @@ impl App {
                     }
                 }
 
-                if upsert.is_empty() && orphan_ids.is_empty() && sidecar.is_empty() {
+                // Queue XMP sidecar changes for user-triggered apply rather than auto-syncing
+                if !sidecar.is_empty() {
+                    self.pending_xmp_paths.extend(sidecar);
+                }
+
+                if upsert.is_empty() && orphan_ids.is_empty() {
                     return Task::none();
                 }
 
@@ -194,10 +199,26 @@ impl App {
                                     eprintln!("[db] mark_orphaned_batch failed: {e}");
                                 }
                             }
-                            if !sidecar.is_empty() {
-                                if let Err(e) = cat.resync_sidecar_files(&sidecar) {
-                                    eprintln!("[db] resync_sidecar_files failed: {e}");
-                                }
+                        })
+                        .await
+                        .ok();
+                    },
+                    |()| Msg::Reload,
+                )
+            }
+
+            Msg::ApplyMetadataDrift => {
+                let paths = std::mem::take(&mut self.pending_xmp_paths);
+                if paths.is_empty() {
+                    return Task::none();
+                }
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let cat = conn.lock_unwrap();
+                            if let Err(e) = cat.resync_sidecar_files(&paths) {
+                                eprintln!("[db] resync_sidecar_files failed: {e}");
                             }
                         })
                         .await
@@ -205,6 +226,11 @@ impl App {
                     },
                     |()| Msg::Reload,
                 )
+            }
+
+            Msg::DismissMetadataDrift => {
+                self.pending_xmp_paths.clear();
+                Task::none()
             }
 
             _ => Task::none(),
