@@ -174,8 +174,8 @@ impl App {
                 }
 
                 let stream = futures::stream::unfold(
-                    (handle, conn, false),
-                    |(handle, conn, done)| async move {
+                    (handle, conn, ext, false),
+                    |(handle, conn, ext, done)| async move {
                         if done {
                             return None;
                         }
@@ -225,16 +225,25 @@ impl App {
                                     done: percent as usize,
                                     total: 100,
                                 },
-                                (handle, conn, false),
+                                (handle, conn, ext, false),
                             )),
                             ClusterPoll::Done(summaries) => {
-                                Some((Msg::FaceClusteringDone(summaries), (handle, conn, true)))
+                                Some((Msg::FaceClusteringDone(summaries), (handle, conn, ext, true)))
                             }
                             ClusterPoll::Failed(e) => {
                                 eprintln!("[faces] cluster_faces error: {e}");
-                                Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, true)))
+                                let tail = ext.last_stderr();
+                                if tail.is_empty() {
+                                    eprintln!("[faces] (no stderr captured before exit)");
+                                } else {
+                                    eprintln!("[faces] last stderr lines:");
+                                    for line in tail {
+                                        eprintln!("[faces:stderr] {line}");
+                                    }
+                                }
+                                Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, ext, true)))
                             }
-                            ClusterPoll::Pending => Some((Msg::NoOp, (handle, conn, false))),
+                            ClusterPoll::Pending => Some((Msg::NoOp, (handle, conn, ext, false))),
                         }
                     },
                 );

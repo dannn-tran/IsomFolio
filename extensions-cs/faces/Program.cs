@@ -6,6 +6,18 @@ public static class Program
 {
     public static async Task Main(string[] args)
     {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            Console.Error.WriteLine($"UNHANDLED EXCEPTION: {e.ExceptionObject}");
+            Console.Error.Flush();
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Console.Error.WriteLine($"UNOBSERVED TASK EXCEPTION: {e.Exception}");
+            Console.Error.Flush();
+            e.SetObserved();
+        };
+
         if (SdkArgs.IsSetupMode(args))
             await RunSetupAsync();
         else
@@ -74,6 +86,13 @@ public static class Program
             }
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"FATAL in RunAsync: {ex}");
+            Console.Error.Flush();
+            await writer.SendFatalAsync(repairable: false, $"unhandled: {ex.GetType().Name}: {ex.Message}");
+            Environment.Exit(1);
+        }
     }
 
     private static async Task RunSetupAsync()
