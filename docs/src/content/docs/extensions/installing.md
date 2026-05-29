@@ -32,7 +32,7 @@ Once installed, the extension appears in the Extensions list with:
 - The capabilities it provides
 - Any configuration fields
 
-Extensions that provide the `classify` capability automatically become available in the **Extensions menu** for manual runs and in the **auto-tag on scan** workflow.
+Extensions that provide the `classify` capability automatically become available in the **Extensions menu** for manual runs and in the **auto-tag on sync** workflow.
 
 ## Configuring an extension
 
@@ -44,7 +44,7 @@ Configuration is stored per-machine in `~/Library/Application Support/IsomFolio/
 
 ## Preferred extension
 
-If you have multiple extensions that provide the same capability (e.g. two auto-tagging extensions), you can designate one as **preferred** via the dropdown in the Extensions settings panel. The preferred extension is used for auto-tag on scan. Manual runs still let you choose any installed extension.
+If you have multiple extensions that provide the same capability (e.g. two auto-tagging extensions), you can designate one as **preferred** via the dropdown in the Extensions settings panel. The preferred extension is used for auto-tag on sync. Manual runs still let you choose any installed extension.
 
 ## Uninstalling an extension
 

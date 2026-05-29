@@ -29,7 +29,11 @@ The **faces extension** detects faces in your photos and groups them into cluste
 
 </Steps>
 
-## Running face clustering
+## Automatic clustering on sync
+
+By default, face clustering runs automatically after each sync that finds new photos — no manual trigger needed. You can turn this off in **Settings → Behaviour → Auto face clustering**.
+
+When disabled, trigger clustering manually:
 
 <Steps>
 
@@ -68,5 +72,4 @@ See [People (Face Recognition)](/guide/people/) for the full UI workflow — nam
 The face clustering extension is functional. The following limitations are known:
 
 - **No GPU acceleration** — clustering on large libraries (10,000+ photos) can take 10–30 minutes on CPU
-- **No automatic re-cluster on new imports** — you must manually trigger a clustering run after adding new photos; it does not run automatically on scan the way auto-tagging does
 </Aside>

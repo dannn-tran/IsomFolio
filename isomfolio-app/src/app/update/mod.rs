@@ -4,7 +4,7 @@ mod criteria;
 mod detail;
 mod extensions;
 mod navigation;
-mod scan;
+mod sync;
 mod settings;
 mod tag_browser;
 
@@ -54,18 +54,18 @@ impl App {
             | Msg::RemoveFileFromFaceCluster(_, _) => self.handle_extension_msg(msg),
 
             // — scanning & file watching —
-            Msg::ScanPickFolder
-            | Msg::ScanDialogDone(_)
-            | Msg::ScanStart(_)
-            | Msg::ScanComplete { .. }
+            Msg::SyncPickFolder
+            | Msg::SyncDialogDone(_)
+            | Msg::SyncStart(_)
+            | Msg::SyncComplete { .. }
             | Msg::RequestRemoveFolder(_)
             | Msg::CancelRemoveFolder
             | Msg::RemoveFolder(_)
             | Msg::FolderRemoved
-            | Msg::RescanFolder(_)
+            | Msg::SyncFolder(_)
             | Msg::FileWatcherEvent(_)
             | Msg::FlushFileEvents(_)
-            | Msg::SyncXmpForSelection => self.handle_scan_msg(msg),
+            | Msg::SyncXmpForSelection => self.handle_sync_msg(msg),
 
             // — detail panel, tags, ratings, flags, undo —
             Msg::ToggleDetail

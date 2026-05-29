@@ -38,12 +38,12 @@ The result is a set of **pending tags** on each photo. You review them and accep
 3. Progress appears in the status bar: `autotag-clip… (12/47)`.
 4. When complete, pending tags appear in the Info panel for each tagged photo.
 
-### Automatically on scan
+### Automatically on sync
 
 If autotag-clip is your **preferred classify extension** (set in Settings), it runs automatically whenever new photos are added to a watched folder. New photos get tagged without any manual action.
 
 <Aside type="tip">
-Auto-tag on scan is best suited for large imports where you want a first pass of tags before you start reviewing. You can always review and reject AI suggestions later.
+Auto-tag on sync is best suited for large imports where you want a first pass of tags before you start reviewing. You can always review and reject AI suggestions later.
 </Aside>
 
 ## Reviewing suggested tags

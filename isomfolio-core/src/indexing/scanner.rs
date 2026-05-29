@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::file_index::{asset_file_from_path, is_supported_extension};
-use crate::indexing::types::{ReconcileResult, ScanProgress, ScanResult};
+use crate::indexing::types::{ReconcileResult, SyncProgress, SyncResult};
 use crate::metadata;
 use crate::models::{AppError, AssetFile};
 use crate::path_utils::{normalize_path, CATALOG_EXT};
@@ -54,12 +54,12 @@ fn discover_paths(root_path: &str) -> Vec<String> {
     results
 }
 
-pub fn scan_folder(
+pub fn sync_folder(
     conn: &Connection,
     root_path: &str,
     on_batch: &dyn Fn(&[ScannedFile]),
-    on_progress: &dyn Fn(ScanProgress),
-) -> Result<ScanResult, AppError> {
+    on_progress: &dyn Fn(SyncProgress),
+) -> Result<SyncResult, AppError> {
     let folder_name = Path::new(root_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -92,7 +92,7 @@ pub fn scan_folder(
             }
             total += batch.len();
             on_batch(&batch);
-            on_progress(ScanProgress {
+            on_progress(SyncProgress {
                 total_found: total,
                 inserted: total,
                 folder_name: folder_name.clone(),
@@ -109,7 +109,7 @@ pub fn scan_folder(
         }
         total += batch.len();
         on_batch(&batch);
-        on_progress(ScanProgress {
+        on_progress(SyncProgress {
             total_found: total,
             inserted: total,
             folder_name: folder_name.clone(),
@@ -119,7 +119,7 @@ pub fn scan_folder(
     if let Err(e) = db::detect_and_store_bursts(conn, root_path) {
         eprintln!("[db] detect_and_store_bursts failed: {e}");
     }
-    Ok(ScanResult { total_count: total, new_file_ids })
+    Ok(SyncResult { total_count: total, new_file_ids })
 }
 
 pub fn resync_files(conn: &Connection, paths: &[String]) -> Result<(), AppError> {

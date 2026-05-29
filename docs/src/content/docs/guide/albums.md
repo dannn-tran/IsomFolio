@@ -70,6 +70,6 @@ When you modify criteria while viewing a smart album without saving, a dot indic
 3. Drag the album contents to a new manual album for the final delivery set.
 
 **Rapid event tagging**
-1. Scan a folder from an event.
+1. Sync a folder from an event.
 2. Select all, add a tag `event/wedding-2024-06` in the Info panel.
 3. A smart album on that tag captures everything from the event.

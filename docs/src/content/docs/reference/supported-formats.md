@@ -16,9 +16,15 @@ description: Image formats and sidecar files that IsomFolio can index and displa
 
 | Format | Extension | Notes |
 |---|---|---|
-| XMP | `.xmp` | Tracked alongside paired images; content is not parsed by IsomFolio |
+| XMP | `.xmp` | Sidecar read on sync — keywords, rating, and label imported |
 
-XMP sidecar files are tracked in the database alongside their paired image. Changes to a `.xmp` file trigger a rescan of the associated image's metadata. IsomFolio does not currently read or write XMP metadata — it tracks sidecar presence for future use.
+When a `.xmp` sidecar is present, IsomFolio reads it on every sync:
+
+- **`dc:subject` keywords** are imported as tags (shown with an "XMP" label in the Info panel)
+- **`xmp:Rating`** seeds the photo's star rating
+- **`xmp:Label`** and Dublin Core title/description are shown read-only in the Info panel
+
+When the file watcher detects that a `.xmp` sidecar has changed, a notification appears in the sidebar — **"XMP updated — N files"** — with Apply and Dismiss buttons. Clicking Apply imports the new metadata; Dismiss ignores the change until the next manual sync. XMP writing is not supported — IsomFolio does not modify your sidecar files.
 
 ## Formats not supported
 

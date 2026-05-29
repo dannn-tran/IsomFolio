@@ -113,9 +113,9 @@ pub enum Msg {
     DroppedToAlbum(AlbumId, Vec<String>),
     DropCompleted,
 
-    ScanPickFolder,
-    ScanStart(String),
-    ScanComplete { count: usize, new_file_ids: Vec<String> },
+    SyncPickFolder,
+    SyncStart(String),
+    SyncComplete { count: usize, new_file_ids: Vec<String> },
 
     StartCreateAlbum,
     CreateAlbumInputChanged(String),
@@ -230,7 +230,7 @@ pub enum Msg {
     RequestRemoveFolder(String),
     CancelRemoveFolder,
 
-    ScanDialogDone(Option<String>),
+    SyncDialogDone(Option<String>),
     SetFlag(Flag),
     SetRating(Option<i32>),
     FlagsApplied,
@@ -285,7 +285,7 @@ pub enum Msg {
     SidebarResizeStart,
     OpenContextMenu(Point, ContextMenuTarget),
     CloseContextMenu,
-    RescanFolder(String),
+    SyncFolder(String),
     DuplicateAlbum(AlbumId),
     ShowInFinder(String),
     AddSelectionToAlbum(AlbumId),

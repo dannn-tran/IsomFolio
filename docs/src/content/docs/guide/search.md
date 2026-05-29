@@ -24,10 +24,11 @@ Click the filter icon in the toolbar to open the criteria panel. It supports:
 | Criterion | Options |
 |---|---|
 | **Tags** | Include photos tagged with all specified tags |
-| **Date from / to** | Filter by file date within a range |
+| **Date from / to** | Filter by capture date (EXIF) or file date within a range |
 | **File types** | Toggle individual extensions (JPEG, PNG, WebP, GIF) |
 | **Rating** | Minimum star rating (≥ 1 through ≥ 5) |
 | **Flag** | All / Picks only / Rejects only / Unflagged only |
+| **Location** | Any / With GPS / Without GPS |
 
 All criteria combine with AND logic — a photo must match every active criterion to appear.
 

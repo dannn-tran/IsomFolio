@@ -121,7 +121,7 @@ where
                         p.clone()
                     }
                     FileEvent::Renamed { new_path, .. } => new_path.clone(),
-                    FileEvent::ScanProgress(_) => continue,
+                    FileEvent::SyncProgress(_) => continue,
                 };
                 {
                     let mut map = pending.lock().unwrap_or_else(|e| e.into_inner());

@@ -40,11 +40,11 @@ impl App {
         .align_y(Alignment::Center)
         .into();
 
-        let is_scan_active = self.is_scanning || self.scan_pending;
+        let is_sync_active = self.is_syncing || self.sync_pending;
         let mut folders_header_row = row![
             text("Folders").size(TEXT_SM).color(FG_DIM),
         ];
-        if is_scan_active {
+        if is_sync_active {
             folders_header_row = folders_header_row
                 .push(Space::new().width(SPACE_1))
                 .push(text("Syncing…").size(TEXT_SM).color(FG_DIM));
@@ -53,7 +53,7 @@ impl App {
             .push(Space::new().width(Length::Fill))
             .push(
                 button(text("+").size(TEXT_BASE))
-                    .on_press(if is_scan_active { Msg::NoOp } else { Msg::ScanPickFolder })
+                    .on_press(if is_sync_active { Msg::NoOp } else { Msg::SyncPickFolder })
                     .style(icon_btn_style),
             )
             .align_y(Alignment::Center)

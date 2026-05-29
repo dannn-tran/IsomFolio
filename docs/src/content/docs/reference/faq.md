@@ -43,7 +43,7 @@ Yes. Delete `MyPhotos.isfcatalog/thumbnails/` and IsomFolio will regenerate thum
 
 ### What happens if I move my photos?
 
-If photos move to a new path, IsomFolio marks them as orphaned. Use **File → Rescan** on the affected folder to update paths. IsomFolio does not automatically track file moves — a file moved is treated as a deletion at the old path and a new file at the new path.
+If photos move to a new path, IsomFolio marks them as orphaned. Use **File → Sync Folder** on the affected folder to update paths. IsomFolio does not automatically track file moves — a file moved is treated as a deletion at the old path and a new file at the new path.
 
 ---
 
@@ -55,7 +55,7 @@ No. All core features — browsing, culling, tagging, albums, search — work wi
 
 ### Is GPU required for AI features?
 
-No. Both autotag-clip and the face-clustering extension run on CPU. GPU acceleration is not currently implemented. CPU-based CLIP tagging is reasonably fast; face clustering on very large libraries can be slow.
+No. Both autotag-clip and the face-clustering extension run entirely on CPU. GPU inference is not currently supported. CPU-based CLIP tagging is reasonably fast (a few seconds per batch); face clustering on very large libraries can take longer.
 
 ### How accurate is the AI tagging?
 
@@ -91,7 +91,7 @@ A pending tag is an AI suggestion that hasn't been confirmed yet. It appears sep
 
 ### How fast is thumbnail generation?
 
-IsomFolio generates thumbnails in parallel using a pool of background threads. On a modern Mac with an M-series chip, a 1,000-photo import typically completes in under a minute. The first scan is the slowest — subsequent launches load from cache and are instant.
+IsomFolio generates thumbnails in parallel using a pool of background threads. On a modern Mac with an M-series chip, a 1,000-photo import typically completes in under a minute. The first sync is the slowest — subsequent launches load from cache and are instant.
 
 ### My library has 50,000+ photos. Will it be slow?
 

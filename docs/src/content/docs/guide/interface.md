@@ -36,7 +36,8 @@ The main content area shows photos as thumbnails. Key interactions:
 Press `I` to toggle the Info panel on the right side. It shows:
 
 - File name, path, dimensions, file size
-- EXIF metadata (where available)
+- Camera metadata: make/model, lens, focal length, aperture, shutter speed, ISO, flash (when EXIF is present)
+- GPS location coordinates (when embedded in the photo)
 - Tags (add/remove manually or accept/reject AI suggestions)
 - Rating (1–5 stars)
 - Flag status (unflagged, pick, reject)

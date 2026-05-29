@@ -109,7 +109,7 @@ impl App {
     fn context_menu_items(&self, target: &ContextMenuTarget) -> Vec<Option<(String, Msg, bool)>> {
         match target {
             ContextMenuTarget::Folder(path) => vec![
-                Some(("Sync Folder".into(), Msg::RescanFolder(path.clone()), false)),
+                Some(("Sync Folder".into(), Msg::SyncFolder(path.clone()), false)),
                 None,
                 Some(("Remove from Library…".into(), Msg::RequestRemoveFolder(path.clone()), true)),
             ],

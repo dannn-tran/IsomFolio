@@ -11,7 +11,7 @@ Use the **sidebar** to switch between All Files, a specific folder, an album, or
 
 Sort options (accessible from the toolbar or sort button):
 - **Name** — alphabetical by filename
-- **Date** — file modification date (capture date from EXIF is planned)
+- **Date** — EXIF capture date (`DateTimeOriginal`) when available; falls back to file modification date
 - **Rating** — highest first
 - Toggle ascending / descending with the sort direction button
 

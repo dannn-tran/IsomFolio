@@ -6,7 +6,7 @@ pub enum FileEvent {
     Deleted(String),
     Renamed { old_path: String, new_path: String },
     Modified(String),
-    ScanProgress(ScanProgress),
+    SyncProgress(SyncProgress),
 }
 
 #[derive(Debug, Clone)]
@@ -24,14 +24,14 @@ pub struct ThumbnailRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct ScanProgress {
+pub struct SyncProgress {
     pub total_found: usize,
     pub inserted: usize,
     pub folder_name: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct ScanResult {
+pub struct SyncResult {
     pub total_count: usize,
     pub new_file_ids: Vec<String>,
 }

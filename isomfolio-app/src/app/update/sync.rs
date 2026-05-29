@@ -9,13 +9,13 @@ use super::LockUnwrap;
 use super::super::{App, Msg};
 
 impl App {
-    pub(super) fn handle_scan_msg(&mut self, msg: Msg) -> Task<Msg> {
+    pub(super) fn handle_sync_msg(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
-            Msg::ScanPickFolder => {
-                if self.is_scanning || self.scan_pending {
+            Msg::SyncPickFolder => {
+                if self.is_syncing || self.sync_pending {
                     return Task::none();
                 }
-                self.scan_pending = true;
+                self.sync_pending = true;
                 Task::perform(
                     async {
                         rfd::AsyncFileDialog::new()
@@ -24,12 +24,12 @@ impl App {
                             .await
                             .map(|h| h.path().to_string_lossy().to_string())
                     },
-                    Msg::ScanDialogDone,
+                    Msg::SyncDialogDone,
                 )
             }
 
-            Msg::ScanDialogDone(opt) => {
-                self.scan_pending = false;
+            Msg::SyncDialogDone(opt) => {
+                self.sync_pending = false;
                 match opt {
                     None => Task::none(),
                     Some(path) => {
@@ -43,22 +43,22 @@ impl App {
                                 format!("\"{}\" is inside a catalog — choose a regular folder", name);
                             return Task::none();
                         }
-                        Task::done(Msg::ScanStart(path))
+                        Task::done(Msg::SyncStart(path))
                     }
                 }
             }
 
-            Msg::ScanStart(path) => {
-                self.last_scanned_path = Some(path.clone());
-                self.is_scanning = true;
+            Msg::SyncStart(path) => {
+                self.last_synced_path = Some(path.clone());
+                self.is_syncing = true;
                 self.status = "Syncing…".to_string();
-                self.scan_folder_task(path)
+                self.sync_folder_task(path)
             }
 
-            Msg::ScanComplete { count, new_file_ids } => {
-                self.is_scanning = false;
+            Msg::SyncComplete { count, new_file_ids } => {
+                self.is_syncing = false;
                 self.status = format!("Synced {count} photo(s)");
-                let path = self.last_scanned_path.take();
+                let path = self.last_synced_path.take();
                 let t1 = self.load_sidebar_task();
                 let t_nav = if let Some(p) = path {
                     Task::done(Msg::SidebarItemClicked(super::super::SidebarItem::Folder(p)))
@@ -117,15 +117,15 @@ impl App {
                 Task::batch([t1, t2])
             }
 
-            Msg::RescanFolder(path) => {
+            Msg::SyncFolder(path) => {
                 self.context_menu = None;
-                self.is_scanning = true;
+                self.is_syncing = true;
                 self.status = "Syncing…".to_string();
-                self.scan_folder_task(path)
+                self.sync_folder_task(path)
             }
 
             Msg::FileWatcherEvent(event) => {
-                if let FileEvent::ScanProgress(prog) = event {
+                if let FileEvent::SyncProgress(prog) = event {
                     self.status = format!(
                         "Syncing {}… {} found",
                         prog.folder_name, prog.total_found
@@ -170,7 +170,7 @@ impl App {
                             orphan_ids.push(compute_file_id(&normalize_path(&old_path)));
                             upsert.push(new_path);
                         }
-                        FileEvent::ScanProgress(_) => {}
+                        FileEvent::SyncProgress(_) => {}
                     }
                 }
 
@@ -235,7 +235,7 @@ impl App {
         }
     }
 
-    pub(super) fn scan_folder_task(&self, path: String) -> Task<Msg> {
+    pub(super) fn sync_folder_task(&self, path: String) -> Task<Msg> {
         let Some(conn) = self.catalog.clone() else {
             return Task::none();
         };
@@ -244,8 +244,8 @@ impl App {
             async move {
                 tokio::task::spawn_blocking(move || {
                     let cat = conn.lock_unwrap();
-                    cat.scan_folder(&path, &|prog| {
-                        let _ = wtx.try_send(FileEvent::ScanProgress(prog));
+                    cat.sync_folder(&path, &|prog| {
+                        let _ = wtx.try_send(FileEvent::SyncProgress(prog));
                     })
                     .map(|r| (r.total_count, r.new_file_ids))
                     .unwrap_or((0, Vec::new()))
@@ -253,7 +253,7 @@ impl App {
                 .await
                 .unwrap_or((0, Vec::new()))
             },
-            |(count, new_file_ids)| Msg::ScanComplete { count, new_file_ids },
+            |(count, new_file_ids)| Msg::SyncComplete { count, new_file_ids },
         )
     }
 }

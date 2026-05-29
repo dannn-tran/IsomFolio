@@ -374,7 +374,7 @@ pub fn sweep_thumbnail_cache(
     let known: HashSet<String> = all_ids.into_iter().collect();
     let mut removed = 0;
     let entries = fs::read_dir(&cache_dir)
-        .map_err(|e| AppError::Scan(e.to_string()))?;
+        .map_err(|e| AppError::Sync(e.to_string()))?;
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("jpg") {

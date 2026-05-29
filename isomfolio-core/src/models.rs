@@ -148,8 +148,8 @@ pub struct FaceClusterMember {
 pub enum AppError {
     #[error("database error: {0}")]
     Db(String),
-    #[error("scan error: {0}")]
-    Scan(String),
+    #[error("sync error: {0}")]
+    Sync(String),
     #[error("thumbnail error for {0}: {1}")]
     Thumbnail(String, String),
     #[error("watcher error: {0}")]
@@ -168,6 +168,6 @@ impl From<rusqlite::Error> for AppError {
 
 impl From<std::io::Error> for AppError {
     fn from(e: std::io::Error) -> Self {
-        AppError::Scan(e.to_string())
+        AppError::Sync(e.to_string())
     }
 }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use crate::indexing::scanner;
-use crate::indexing::types::{ScanProgress, ScanResult};
+use crate::indexing::types::{SyncProgress, SyncResult};
 use crate::metadata::EmbeddedMetadata;
 use crate::models::*;
 use crate::search::query_engine::{execute_manual_album_search, execute_search};
@@ -281,12 +281,12 @@ impl Catalog {
 
     // Scanner
 
-    pub fn scan_folder(
+    pub fn sync_folder(
         &self,
         root_path: &str,
-        on_progress: &dyn Fn(ScanProgress),
-    ) -> Result<ScanResult, AppError> {
-        scanner::scan_folder(&self.conn, root_path, &|_| {}, on_progress)
+        on_progress: &dyn Fn(SyncProgress),
+    ) -> Result<SyncResult, AppError> {
+        scanner::sync_folder(&self.conn, root_path, &|_| {}, on_progress)
     }
 
     pub fn resync_files(&self, paths: &[String]) -> Result<(), AppError> {
