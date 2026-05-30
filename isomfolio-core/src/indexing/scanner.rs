@@ -229,7 +229,7 @@ pub fn reconcile_folder(
 
             if ext == "xmp" {
                 let base = Path::new(&path).with_extension("");
-                let resolved = ["jpg", "jpeg", "png", "webp", "gif"].iter().find_map(|e| {
+                let resolved = crate::file_index::SUPPORTED_EXTENSIONS.iter().filter(|e| **e != "xmp").find_map(|e| {
                     let candidate = normalize_path(&format!("{}.{}", base.display(), e));
                     if indexed.contains_key(&candidate) {
                         Some(candidate)

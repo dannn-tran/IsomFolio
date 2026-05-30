@@ -123,6 +123,28 @@ fn extract_tiff_jpeg_thumbnail(tiff: &[u8]) -> Option<Vec<u8>> {
     Some(thumb.to_vec())
 }
 
+pub fn is_raw_extension(ext: &str) -> bool {
+    matches!(
+        ext.to_lowercase().as_str(),
+        "cr2" | "cr3" | "crw" | "nef" | "nrw" | "arw" | "raf" | "orf"
+            | "rw2" | "pef" | "dng" | "srw" | "erf" | "mrw"
+    )
+}
+
+fn decode_raw_preview(file_path: &str) -> Option<image::DynamicImage> {
+    use rawler::decoders::RawDecodeParams;
+    use rawler::rawsource::RawSource;
+    let path = Path::new(file_path);
+    let source = RawSource::new(path).ok()?;
+    let decoder = rawler::get_decoder(&source).ok()?;
+    let params = RawDecodeParams::default();
+    // preview_image is the camera-embedded large JPEG — fastest and sufficient for culling.
+    // Fall back through smaller thumbnail then full demosaic.
+    decoder.preview_image(&source, &params).ok().flatten()
+        .or_else(|| decoder.thumbnail_image(&source, &params).ok().flatten())
+        .or_else(|| decoder.full_image(&source, &params).ok().flatten())
+}
+
 pub fn generate_thumbnail(
     catalog_dir: &str,
     file_id: &str,
@@ -134,15 +156,23 @@ pub fn generate_thumbnail(
     }
     ensure_directories(catalog_dir);
 
-    // Fast path for JPEG: try the embedded EXIF thumbnail first.
-    // Only use it when large enough to avoid upscaling artefacts.
-    let is_jpeg = Path::new(file_path)
+    let ext = Path::new(file_path)
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| matches!(e.to_lowercase().as_str(), "jpg" | "jpeg"))
-        .unwrap_or(false);
+        .unwrap_or("")
+        .to_lowercase();
 
-    if is_jpeg {
+    // RAW files: extract embedded preview (camera-rendered JPEG, no demosaicing needed).
+    if is_raw_extension(&ext) {
+        let img = decode_raw_preview(file_path)
+            .ok_or_else(|| AppError::Thumbnail(file_id.to_string(), "no decodable preview in RAW file".into()))?;
+        resize_and_save(img, &dest, file_id)?;
+        return Ok(dest);
+    }
+
+    // Fast path for JPEG: try the embedded EXIF thumbnail first.
+    // Only use it when large enough to avoid upscaling artefacts.
+    if matches!(ext.as_str(), "jpg" | "jpeg") {
         if let Some(thumb_bytes) = read_exif_jpeg_thumbnail(file_path) {
             if let Ok(img) = image::load_from_memory(&thumb_bytes) {
                 if img.width().max(img.height()) >= TARGET_SIZE {

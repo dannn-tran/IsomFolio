@@ -523,16 +523,10 @@ impl App {
         let path = file.path.clone();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || {
-                    image::open(&path).ok().map(|img| {
-                        let rgba = img.into_rgba8();
-                        let (w, h) = (rgba.width(), rgba.height());
-                        iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw())
-                    })
-                })
-                .await
-                .ok()
-                .flatten()
+                tokio::task::spawn_blocking(move || decode_image_for_display(&path))
+                    .await
+                    .ok()
+                    .flatten()
             },
             move |handle_opt| match handle_opt {
                 Some(handle) => Msg::LoupeFullResLoaded { idx, handle },
@@ -546,16 +540,10 @@ impl App {
         let path = file.path.clone();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || {
-                    image::open(&path).ok().map(|img| {
-                        let rgba = img.into_rgba8();
-                        let (w, h) = (rgba.width(), rgba.height());
-                        iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw())
-                    })
-                })
-                .await
-                .ok()
-                .flatten()
+                tokio::task::spawn_blocking(move || decode_image_for_display(&path))
+                    .await
+                    .ok()
+                    .flatten()
             },
             move |handle_opt| match handle_opt {
                 Some(handle) => Msg::CompareFullResLoaded { slot, handle },
@@ -583,16 +571,10 @@ impl App {
                 let path = file.path.clone();
                 tasks.push(Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || {
-                            image::open(&path).ok().map(|img| {
-                                let rgba = img.into_rgba8();
-                                let (w, h) = (rgba.width(), rgba.height());
-                                iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw())
-                            })
-                        })
-                        .await
-                        .ok()
-                        .flatten()
+                        tokio::task::spawn_blocking(move || decode_image_for_display(&path))
+                            .await
+                            .ok()
+                            .flatten()
                     },
                     move |handle_opt| match handle_opt {
                         Some(handle) => Msg::LoupePrefetchLoaded { idx, handle },
@@ -603,6 +585,35 @@ impl App {
         }
         Task::batch(tasks)
     }
+}
+
+fn decode_image_for_display(path: &str) -> Option<iced::widget::image::Handle> {
+    let img = open_image(path)?;
+    let rgba = img.into_rgba8();
+    let (w, h) = (rgba.width(), rgba.height());
+    Some(iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
+}
+
+fn open_image(path: &str) -> Option<image::DynamicImage> {
+    use isomfolio_core::indexing::thumbnail::is_raw_extension;
+    use rawler::decoders::RawDecodeParams;
+    use rawler::rawsource::RawSource;
+    use std::path::Path;
+
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    if is_raw_extension(ext) {
+        let source = RawSource::new(Path::new(path)).ok()?;
+        let decoder = rawler::get_decoder(&source).ok()?;
+        let params = RawDecodeParams::default();
+        return decoder.full_image(&source, &params).ok().flatten()
+            .or_else(|| decoder.preview_image(&source, &params).ok().flatten());
+    }
+
+    image::open(path).ok()
 }
 
 #[cfg(target_os = "macos")]

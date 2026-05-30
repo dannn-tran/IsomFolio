@@ -3,7 +3,22 @@ use std::fs;
 use crate::models::{AssetFile, FileId};
 use crate::path_utils::normalize_path;
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
+pub const SUPPORTED_EXTENSIONS: &[&str] = &[
+    // Standard formats
+    "jpg", "jpeg", "png", "webp", "gif",
+    // RAW formats
+    "cr2", "cr3", "crw",        // Canon
+    "nef", "nrw",               // Nikon
+    "arw",                       // Sony
+    "raf",                       // Fujifilm
+    "orf",                       // Olympus / OM System
+    "rw2",                       // Panasonic
+    "pef",                       // Pentax / Ricoh
+    "dng",                       // Adobe DNG (universal)
+    "srw",                       // Samsung
+    "erf",                       // Epson
+    "mrw",                       // Minolta / Konica Minolta
+];
 
 pub fn is_supported_extension(ext: &str) -> bool {
     let lower = ext.trim_start_matches('.').to_lowercase();
