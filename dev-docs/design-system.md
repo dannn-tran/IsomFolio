@@ -49,8 +49,8 @@ No decorative fonts. All text uses the default iced system font. Font size const
 | `TEXT_TITLE` | 20 | Modal / section titles | `FG` |
 | `TEXT_LG` | 14 | Primary labels, action buttons | `FG` |
 | `TEXT_BASE` | 13 | Body text, file names | `FG` |
-| `TEXT_MD` | 12 | Compact body, button labels | `FG` |
-| `TEXT_SM` | 11 | Metadata, section headers, chips | `FG_DIM` |
+| `TEXT_MD` | 12 | Compact body, button labels, sidebar section headers | `FG` / `FG_DIM` |
+| `TEXT_SM` | 11 | Metadata, chips, menu item shortcuts | `FG_DIM` |
 | `TEXT_XS` | 10 | Error copy, micro labels | `ERR` / `FG_DIM` |
 | `TEXT_STAR` | 18 | Star rating icons only | `STAR_GOLD` / `FG_DIM` |
 
@@ -116,7 +116,7 @@ Two row height constants exist to express the hierarchy between containers and i
 
 | Constant | px | Used for |
 |---|---|---|
-| `ALBUM_ITEM_HEIGHT` | 44 | Albums (manually curated — "precious") |
+| `ALBUM_ITEM_HEIGHT` | 32 | Albums (manually curated — slightly taller than folders) |
 | `FOLDER_ITEM_HEIGHT` | 28 | Folders (file system entries — compact, utilitarian) |
 
 Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM_HEIGHT`.
@@ -211,15 +211,28 @@ Use `stack` overlay: base layer + semi-opaque scrim (`Color { r:0, g:0, b:0, a:0
 
 ## Layout Patterns
 
+### Menu bar
+
+Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: content-operation menus (`Catalog`, `Edit`, `View`). Right side: persistent icon-only buttons (`?` → shortcut help, `⚙` → Settings).
+
+**Rule:** Menu tabs are for catalog/content operations. App-level config (Settings) lives on the gear icon button, not in a menu tab. There is no Help tab — keyboard shortcuts are accessed via `?` icon or the `?` key.
+
+| Tab | Contents |
+|---|---|
+| Catalog | New Catalog… · Open Catalog… |
+| Edit | Undo · Redo |
+| View | Toggle Info Panel · Preview · Loupe · People · — · Zoom In · Zoom Out · — · Hide Rejects |
+
 ### Main browse layout
 
 ```
+menu bar (fill width, MENU_BAR_HEIGHT = 26 px)
 row
   sidebar (user-resizable, default SIDEBAR_WIDTH = 220 px, range 140–400 px)
   resize handle (SIDEBAR_HANDLE_WIDTH = 5 px, drag to adjust sidebar width)
   grid (fill)
   [detail panel] (SIDEBAR_WIDTH, optional)
-status bar (fill width, fixed height)
+status bar (fill width, fixed height — status text only, no action buttons)
 ```
 
 Sidebar width is stored in `App::sidebar_width` (runtime state). The `SIDEBAR_WIDTH` constant is the default and is also used for the detail panel width (which is not resizable).
