@@ -605,57 +605,54 @@ impl App {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn reveal_in_file_manager(paths: &[String]) {
     if paths.is_empty() {
         return;
     }
+    if paths.len() == 1 {
+        let _ = std::process::Command::new("open").arg("-R").arg(&paths[0]).spawn();
+    } else {
+        let file_list = paths
+            .iter()
+            .map(|p| format!("POSIX file \"{}\"", p.replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let script = format!(
+            "tell application \"Finder\"\nreveal {{{file_list}}}\nactivate\nend tell"
+        );
+        let _ = std::process::Command::new("osascript").arg("-e").arg(&script).spawn();
+    }
+}
 
-    #[cfg(target_os = "macos")]
-    {
-        if paths.len() == 1 {
-            let _ = std::process::Command::new("open").arg("-R").arg(&paths[0]).spawn();
-        } else {
-            let file_list = paths
-                .iter()
-                .map(|p| format!("POSIX file \"{}\"", p.replace('"', "\\\"")))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let script = format!(
-                "tell application \"Finder\"\nreveal {{{file_list}}}\nactivate\nend tell"
-            );
-            let _ = std::process::Command::new("osascript").arg("-e").arg(&script).spawn();
+#[cfg(target_os = "windows")]
+fn reveal_in_file_manager(paths: &[String]) {
+    // explorer /select only accepts one path; open one window per unique parent folder
+    let mut seen = std::collections::HashSet::new();
+    for path in paths {
+        let folder = std::path::Path::new(path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if seen.insert(folder) {
+            let _ = std::process::Command::new("explorer")
+                .arg(format!("/select,{path}"))
+                .spawn();
         }
     }
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        // explorer /select only accepts one path; open one window per unique parent folder
-        let mut seen = std::collections::HashSet::new();
-        for path in paths {
-            let folder = std::path::Path::new(path)
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if seen.insert(folder) {
-                let _ = std::process::Command::new("explorer")
-                    .arg(format!("/select,{path}"))
-                    .spawn();
-            }
-        }
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        // Open each unique parent folder via xdg-open
-        let mut seen = std::collections::HashSet::new();
-        for path in paths {
-            let folder = std::path::Path::new(path)
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if seen.insert(folder.clone()) {
-                let _ = std::process::Command::new("xdg-open").arg(&folder).spawn();
-            }
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn reveal_in_file_manager(paths: &[String]) {
+    // Open each unique parent folder via xdg-open
+    let mut seen = std::collections::HashSet::new();
+    for path in paths {
+        let folder = std::path::Path::new(path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if seen.insert(folder.clone()) {
+            let _ = std::process::Command::new("xdg-open").arg(&folder).spawn();
         }
     }
 }

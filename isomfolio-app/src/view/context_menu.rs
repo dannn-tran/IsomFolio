@@ -13,6 +13,13 @@ const SUBMENU_WIDTH: f32 = 160.0;
 const ITEM_HEIGHT: f32 = 32.0;
 const SEPARATOR_HEIGHT: f32 = 9.0;
 
+#[cfg(target_os = "macos")]
+const REVEAL_LABEL: &str = "Show in Finder";
+#[cfg(target_os = "windows")]
+const REVEAL_LABEL: &str = "Show in Explorer";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const REVEAL_LABEL: &str = "Open Containing Folder";
+
 impl App {
     pub(super) fn view_context_menu(&self) -> Option<Element<'_, Msg>> {
         let cm = self.context_menu.as_ref()?;
@@ -199,14 +206,6 @@ impl App {
                     .filter_map(|id| self.files.iter().find(|f| &f.id == id))
                     .any(|f| !f.is_orphaned);
 
-                let reveal_label = if cfg!(target_os = "macos") {
-                    "Show in Finder"
-                } else if cfg!(target_os = "windows") {
-                    "Show in Explorer"
-                } else {
-                    "Open Containing Folder"
-                };
-
                 if n == 1 {
                     let selected_file = self
                         .grid_selected
@@ -217,7 +216,7 @@ impl App {
                         if f.is_orphaned {
                             items.push(Some(("Locate…".into(), Msg::LocateFile(f.id.clone()), false)));
                         } else {
-                            items.push(Some((reveal_label.into(), Msg::ShowInFinder(vec![f.path.clone()]), false)));
+                            items.push(Some((REVEAL_LABEL.into(), Msg::ShowInFinder(vec![f.path.clone()]), false)));
                         }
                     }
                 } else if has_non_orphaned {
@@ -228,7 +227,7 @@ impl App {
                         .filter(|f| !f.is_orphaned)
                         .map(|f| f.path.clone())
                         .collect();
-                    items.push(Some((reveal_label.into(), Msg::ShowInFinder(paths), false)));
+                    items.push(Some((REVEAL_LABEL.into(), Msg::ShowInFinder(paths), false)));
                 }
 
                 if has_non_orphaned {
