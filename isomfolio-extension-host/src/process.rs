@@ -403,7 +403,12 @@ mod tests {
     use super::*;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::{LazyLock, Mutex};
     use tempfile::TempDir;
+
+    // Serialise all process-spawning tests — running many shell child processes in
+    // parallel causes timing races under macOS resource limits.
+    static PROC_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn write_test_extension(dir: &std::path::Path, script: &str) -> std::path::PathBuf {
         let exe = dir.join("isomfolio-test");
@@ -440,6 +445,7 @@ done
 
     #[test]
     fn launch_and_call_echo_extension() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
         let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
@@ -449,6 +455,7 @@ done
 
     #[test]
     fn launch_fails_on_wrong_protocol_version() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let script = r#"IFS= read -r hs_line
 hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
@@ -462,6 +469,7 @@ printf '{"type":"ready"}\n'
 
     #[test]
     fn send_many_returns_all_responses() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
         let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
@@ -481,6 +489,7 @@ printf '{"type":"ready"}\n'
 
     #[test]
     fn send_many_crash_mid_batch() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let script = r#"IFS= read -r hs_line
 hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
@@ -518,6 +527,7 @@ done
 
     #[test]
     fn send_with_progress_events() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let script = r#"IFS= read -r hs_line
 hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
@@ -545,6 +555,7 @@ done
 
     #[test]
     fn stderr_captured_in_ring_buffer() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let script = r#"echo "startup error log" >&2
 echo "warning line" >&2
@@ -570,6 +581,7 @@ done
 
     #[test]
     fn extension_error_response_propagated() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let script = r#"IFS= read -r hs_line
 hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
@@ -588,6 +600,7 @@ done
 
     #[test]
     fn send_many_empty_batch() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
         let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
@@ -597,6 +610,7 @@ done
 
     #[test]
     fn multiple_sequential_calls() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
         let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
@@ -608,6 +622,7 @@ done
 
     #[test]
     fn fatal_during_ready_phase_fails_launch() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let script = r#"IFS= read -r hs_line
 hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
@@ -621,6 +636,7 @@ printf '{"type":"fatal","repairable":true,"message":"models missing"}\n'
 
     #[test]
     fn call_returns_error_on_extension_exit() {
+        let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let script = r#"IFS= read -r hs_line
 hs_id=$(printf '%s' "$hs_line" | sed 's/.*"id":\([0-9]*\).*/\1/')
