@@ -41,6 +41,7 @@ impl App {
                     extension_configs,
                     install_error: None,
                     status: None,
+                    install_task_id: None,
                 };
                 self.view_mode = ViewMode::Settings;
                 Task::none()
@@ -159,7 +160,9 @@ impl App {
 
             Msg::ExtensionPackagePicked(Some(path)) => {
                 self.settings.install_error = None;
-                self.settings.status = Some("Installing extension…".to_string());
+                self.settings.status = None;
+                let task_id = self.bg_push("Installing extension…");
+                self.settings.install_task_id = Some(task_id);
                 Task::perform(
                     async move {
                         let path = std::path::PathBuf::from(path);
@@ -175,13 +178,19 @@ impl App {
             }
 
             Msg::ExtensionInstalled(process) => {
-                self.settings.status = Some(format!("'{}' installed", process.manifest.name));
-                self.settings.install_error = None;
+                let name = process.manifest.name.clone();
                 self.extensions.push(process);
+                if let Some(id) = self.settings.install_task_id.take() {
+                    self.bg_complete(id);
+                }
+                self.status = format!("'{name}' installed");
                 Task::none()
             }
 
             Msg::ExtensionInstallFailed(e) => {
+                if let Some(id) = self.settings.install_task_id.take() {
+                    self.bg_fail(id, e.clone());
+                }
                 self.settings.install_error = Some(e);
                 Task::none()
             }

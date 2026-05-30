@@ -51,6 +51,7 @@ impl App {
             Msg::SyncStart(path) => {
                 self.last_synced_path = Some(path.clone());
                 self.is_syncing = true;
+                self.task_panel_open = true;
                 self.status = "Syncing…".to_string();
                 self.sync_folder_task(path)
             }
@@ -120,6 +121,7 @@ impl App {
             Msg::SyncFolder(path) => {
                 self.context_menu = None;
                 self.is_syncing = true;
+                self.task_panel_open = true;
                 self.status = "Syncing…".to_string();
                 self.sync_folder_task(path)
             }

@@ -82,11 +82,12 @@ pub struct FaceState {
     pub rename_cluster_id: Option<String>,
     pub rename_input: String,
     pub status: Option<String>,
+    pub is_clustering: bool,
 }
 
 impl Default for FaceState {
     fn default() -> Self {
-        Self { clusters: Vec::new(), crop_handles: HashMap::new(), rename_cluster_id: None, rename_input: String::new(), status: None }
+        Self { clusters: Vec::new(), crop_handles: HashMap::new(), rename_cluster_id: None, rename_input: String::new(), status: None, is_clustering: false }
     }
 }
 
@@ -183,6 +184,10 @@ pub struct App {
     pub redo_stack: Vec<UndoOp>,
 
     pub compare: CompareState,
+
+    pub bg_tasks: Vec<crate::app::types::BgTask>,
+    pub next_bg_task_id: crate::app::types::BgTaskId,
+    pub task_panel_open: bool,
 }
 
 pub struct CompareState {
@@ -392,6 +397,9 @@ impl App {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             compare: CompareState::default(),
+            bg_tasks: Vec::new(),
+            next_bg_task_id: 0,
+            task_panel_open: true,
         };
 
         (app, task)
@@ -457,6 +465,43 @@ impl App {
             || self.filters.rating_min.is_some()
             || self.filters.hide_rejects
             || self.filters.has_location.is_some()
+    }
+
+    pub fn bg_push(&mut self, label: impl Into<String>) -> crate::app::types::BgTaskId {
+        let id = self.next_bg_task_id;
+        self.next_bg_task_id += 1;
+        self.bg_tasks.push(crate::app::types::BgTask {
+            id,
+            label: label.into(),
+            progress: None,
+            failed: None,
+        });
+        self.task_panel_open = true;
+        id
+    }
+
+    pub fn bg_update(&mut self, id: crate::app::types::BgTaskId, progress: Option<f32>, label: Option<String>) {
+        if let Some(t) = self.bg_tasks.iter_mut().find(|t| t.id == id) {
+            t.progress = progress;
+            if let Some(l) = label { t.label = l; }
+        }
+    }
+
+    pub fn bg_complete(&mut self, id: crate::app::types::BgTaskId) {
+        self.bg_tasks.retain(|t| t.id != id);
+    }
+
+    pub fn bg_fail(&mut self, id: crate::app::types::BgTaskId, msg: String) {
+        if let Some(t) = self.bg_tasks.iter_mut().find(|t| t.id == id) {
+            t.failed = Some(msg);
+        }
+    }
+
+    pub fn has_any_bg_activity(&self) -> bool {
+        !self.bg_tasks.is_empty()
+            || self.thumb_ctx.total > 0
+            || self.is_syncing
+            || self.faces.is_clustering
     }
 
     pub fn current_album_is_smart(&self) -> bool {
@@ -560,6 +605,7 @@ impl App {
                 self.thumb_ctx.total += newly_enqueued;
             }
             self.thumb_ctx.pending += newly_enqueued;
+            self.task_panel_open = true;
         }
     }
 
@@ -588,6 +634,7 @@ impl App {
                 self.thumb_ctx.total += newly_enqueued;
             }
             self.thumb_ctx.pending += newly_enqueued;
+            self.task_panel_open = true;
         }
     }
 

@@ -263,6 +263,9 @@ pub enum Msg {
     ExtensionBatchDone { addon_idx: usize, method: String, applied: usize, failed: usize },
     ExtensionRestarted { idx: usize, process: Option<Arc<ExtensionProcess>> },
 
+    BgTaskDismissed(BgTaskId),
+    ToggleTaskPanel,
+
     OpenSettings,
     SwitchSettingsTab(SettingsTab),
     CloseSettings,
@@ -431,6 +434,7 @@ pub struct SettingsState {
     pub extension_configs: HashMap<String, HashMap<String, String>>,
     pub install_error: Option<String>,
     pub status: Option<String>,
+    pub install_task_id: Option<BgTaskId>,
 }
 
 impl Default for SettingsState {
@@ -440,8 +444,19 @@ impl Default for SettingsState {
             extension_configs: HashMap::new(),
             install_error: None,
             status: None,
+            install_task_id: None,
         }
     }
+}
+
+pub type BgTaskId = u32;
+
+#[derive(Debug, Clone)]
+pub struct BgTask {
+    pub id: BgTaskId,
+    pub label: String,
+    pub progress: Option<f32>,
+    pub failed: Option<String>,
 }
 
 pub struct TagBrowserState {

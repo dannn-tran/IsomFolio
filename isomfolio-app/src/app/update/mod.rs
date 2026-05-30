@@ -151,6 +151,16 @@ impl App {
             | Msg::ShowInFinder(_)
             | Msg::SidebarScrolled(_) => self.handle_navigation_msg(msg),
 
+            Msg::BgTaskDismissed(id) => {
+                self.bg_tasks.retain(|t| t.id != id);
+                Task::none()
+            }
+
+            Msg::ToggleTaskPanel => {
+                self.task_panel_open = !self.task_panel_open;
+                Task::none()
+            }
+
             // — albums —
             Msg::DroppedToAlbum(_, _)
             | Msg::DropCompleted

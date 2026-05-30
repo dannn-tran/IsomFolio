@@ -145,12 +145,15 @@ impl App {
                     .find(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
                     .cloned()
                 else {
+                    self.faces.is_clustering = false;
                     self.faces.status =
                         Some("No face clustering extension installed".to_string());
                     return Task::none();
                 };
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.faces.is_clustering = true;
                 self.faces.status = Some("Clustering faces… (0%)".to_string());
+                self.task_panel_open = true;
 
                 let files = {
                     let g = conn.lock_unwrap();
@@ -253,6 +256,7 @@ impl App {
             Msg::FaceClusteringDone(summaries) => {
                 let count = summaries.len();
                 self.faces.clusters = summaries;
+                self.faces.is_clustering = false;
                 self.faces.status = Some(format!("{count} people found"));
                 self.load_face_crops_task()
             }

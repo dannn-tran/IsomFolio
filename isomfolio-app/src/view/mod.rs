@@ -15,8 +15,8 @@ use iced::{
 
 use crate::app::{App, Msg, SettingsTab, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
 use styles::{
-    active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_MODAL,
-    BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
+    active_chip_style, danger_btn_style, ghost_btn_style, icon_btn_style, ACCENT, BG_GRID,
+    BG_MODAL, BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
     OVERLAY_HEAVY, OVERLAY_LIGHT, OVERLAY_MEDIUM, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
     SPACE_2_5, SPACE_3, SPACE_4, SPACE_6, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
     TEXT_STAR, TEXT_TITLE,
@@ -170,8 +170,8 @@ impl App {
         if let Some(tb) = self.view_tag_browser() {
             layers.push(tb);
         }
-        if self.thumb_ctx.total > 0 {
-            layers.push(self.view_thumbnail_progress_panel());
+        if self.has_any_bg_activity() || !self.bg_tasks.is_empty() {
+            layers.push(self.view_task_panel());
         }
         if self.show_shortcut_help {
             layers.push(self.view_shortcut_help());
@@ -194,87 +194,127 @@ impl App {
         }
     }
 
-    fn view_thumbnail_progress_panel(&self) -> Element<'_, Msg> {
-        let total = self.thumb_ctx.total;
-        let done = total.saturating_sub(self.thumb_ctx.pending);
-        let ratio = done as f32 / total.max(1) as f32;
+    fn view_task_panel(&self) -> Element<'_, Msg> {
+        let open = self.task_panel_open;
 
-        let eta_str = if done >= 3 {
-            if let Some(start) = self.thumb_ctx.start_at {
-                let elapsed = start.elapsed().as_secs_f64();
-                let rate = done as f64 / elapsed;
-                let secs_left = (self.thumb_ctx.pending as f64 / rate).ceil() as u64;
-                if secs_left < 60 {
-                    format!("~{secs_left}s")
-                } else {
-                    format!("~{}m{}s", secs_left / 60, secs_left % 60)
-                }
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        let filled = ((ratio * 1000.0) as u16).max(1);
-        let empty = (1000u16).saturating_sub(filled).max(1);
-        let progress_track = row![
-            container(Space::new())
-                .width(Length::FillPortion(filled))
-                .height(3)
-                .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(ACCENT)),
-                    border: Border { radius: 1.5.into(), ..Default::default() },
-                    ..Default::default()
-                }),
-            container(Space::new())
-                .width(Length::FillPortion(empty))
-                .height(3)
-                .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(BG_PROGRESS_TRACK)),
-                    border: Border { radius: 1.5.into(), ..Default::default() },
-                    ..Default::default()
-                }),
-        ]
-        .width(Length::Fill);
-
-        let count_row = row![
-            text("Thumbnails").size(TEXT_SM).color(FG_DIM),
-            Space::new().width(Length::Fill),
-            text(format!("{done}/{total}")).size(TEXT_SM).color(FG_DIM),
-        ]
-        .align_y(Alignment::Center);
-
-        let mut col = column![count_row, Space::new().height(SPACE_0_5), progress_track]
-            .spacing(0);
-
-        if !eta_str.is_empty() {
-            col = col.push(
-                container(text(eta_str).size(TEXT_SM).color(FG_DIM))
-                    .align_x(Alignment::End)
-                    .width(Length::Fill),
-            );
-        }
-
-        let panel = container(col.spacing(SPACE_0_5))
-            .width(220)
-            .padding([SPACE_1_5, SPACE_2])
+        // Collapsed pill — shows when panel is minimised.
+        if !open {
+            let n = self.bg_tasks.len()
+                + usize::from(self.thumb_ctx.total > 0)
+                + usize::from(self.is_syncing)
+                + usize::from(self.faces.is_clustering);
+            let label = if n == 1 { "1 task".to_string() } else { format!("{n} tasks") };
+            let pill = container(
+                button(
+                    row![
+                        text("◌").size(TEXT_SM).color(FG_DIM),
+                        text(label).size(TEXT_SM).color(FG_DIM),
+                        Space::new().width(Length::Fill),
+                        text("∨").size(TEXT_SM).color(FG_DIM),
+                    ]
+                    .spacing(SPACE_1)
+                    .align_y(Alignment::Center),
+                )
+                .on_press(Msg::ToggleTaskPanel)
+                .style(|_: &Theme, _| button::Style {
+                    background: None,
+                    text_color: FG_DIM,
+                    border: Border::default(),
+                    shadow: iced::Shadow::default(),
+                    snap: false,
+                })
+                .width(Length::Fill),
+            )
+            .width(200)
+            .padding([SPACE_1, SPACE_2])
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_PANEL)),
                 border: Border { color: BORDER, width: 1.0, radius: 6.0.into() },
-                shadow: Shadow {
-                    color: OVERLAY_LIGHT,
-                    offset: Vector::new(0.0, 3.0),
-                    blur_radius: 10.0,
-                },
+                shadow: Shadow { color: OVERLAY_LIGHT, offset: Vector::new(0.0, 2.0), blur_radius: 8.0 },
+                ..Default::default()
+            });
+
+            return container(pill)
+                .width(Length::Fill).height(Length::Fill)
+                .align_x(Alignment::End).align_y(Alignment::End)
+                .padding(iced::Padding { top: 0.0, right: SPACE_3, bottom: 38.0, left: 0.0 })
+                .into();
+        }
+
+        // Expanded panel — build rows for each active task.
+        let mut col = column![].spacing(0);
+
+        // Header
+        col = col.push(
+            row![
+                text("Tasks").size(TEXT_SM).color(FG_DIM),
+                Space::new().width(Length::Fill),
+                button(text("∧").size(TEXT_SM).color(FG_DIM))
+                    .on_press(Msg::ToggleTaskPanel)
+                    .style(styles::icon_btn_style),
+            ]
+            .align_y(Alignment::Center)
+            .spacing(SPACE_1),
+        );
+
+        // Thumbnails (synthetic)
+        if self.thumb_ctx.total > 0 {
+            let total = self.thumb_ctx.total;
+            let done = total.saturating_sub(self.thumb_ctx.pending);
+            let ratio = done as f32 / total.max(1) as f32;
+            let eta = if done >= 3 {
+                self.thumb_ctx.start_at.map(|s| {
+                    let elapsed = s.elapsed().as_secs_f64();
+                    let secs = (self.thumb_ctx.pending as f64 / (done as f64 / elapsed)).ceil() as u64;
+                    if secs < 60 { format!(" ~{secs}s") } else { format!(" ~{}m{}s", secs / 60, secs % 60) }
+                }).unwrap_or_default()
+            } else { String::new() };
+            col = col.push(Space::new().height(SPACE_2));
+            col = col.push(task_row(
+                format!("Thumbnails{eta}"),
+                format!("{done}/{total}"),
+                Some(ratio),
+                None,
+            ));
+        }
+
+        // Sync (synthetic)
+        if self.is_syncing {
+            let detail = if self.status.starts_with("Syncing") { &self.status } else { "" };
+            col = col.push(Space::new().height(SPACE_2));
+            col = col.push(task_row("Sync".into(), detail.to_string(), None, None));
+        }
+
+        // Face clustering (synthetic)
+        if self.faces.is_clustering {
+            let detail = self.faces.status.as_deref().unwrap_or("");
+            col = col.push(Space::new().height(SPACE_2));
+            col = col.push(task_row("Face clustering".into(), detail.to_string(), None, None));
+        }
+
+        // Explicit bg_tasks
+        for task in &self.bg_tasks {
+            col = col.push(Space::new().height(SPACE_2));
+            col = col.push(task_row(
+                task.label.clone(),
+                task.failed.clone().unwrap_or_default(),
+                task.progress,
+                task.failed.as_ref().map(|_| task.id),
+            ));
+        }
+
+        let panel = container(col.padding([SPACE_1_5, SPACE_2]))
+            .width(260)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_PANEL)),
+                border: Border { color: BORDER, width: 1.0, radius: 6.0.into() },
+                shadow: Shadow { color: OVERLAY_LIGHT, offset: Vector::new(0.0, 3.0), blur_radius: 10.0 },
                 ..Default::default()
             });
 
         container(panel)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Alignment::End)
-            .align_y(Alignment::End)
+            .width(Length::Fill).height(Length::Fill)
+            .align_x(Alignment::End).align_y(Alignment::End)
             .padding(iced::Padding { top: 0.0, right: SPACE_3, bottom: 38.0, left: 0.0 })
             .into()
     }
@@ -1070,4 +1110,70 @@ where
         .align_y(Alignment::Center);
 
     iced::widget::stack(vec![backdrop.into(), centered.into()]).into()
+}
+
+fn task_row(
+    label: String,
+    detail: String,
+    progress: Option<f32>,
+    dismiss_id: Option<crate::app::BgTaskId>,
+) -> Element<'static, Msg> {
+    let failed = dismiss_id.is_some();
+    let label_color = if failed { ERR } else { FG };
+
+    let mut header = row![
+        text(label).size(TEXT_SM).color(label_color),
+        Space::new().width(Length::Fill),
+    ]
+    .align_y(Alignment::Center)
+    .spacing(SPACE_1);
+
+    if let Some(id) = dismiss_id {
+        header = header.push(
+            button(text("✕").size(TEXT_SM).color(FG_MUTED))
+                .on_press(Msg::BgTaskDismissed(id))
+                .style(icon_btn_style),
+        );
+    }
+
+    let mut col = column![header].spacing(SPACE_0_5);
+
+    if failed {
+        if !detail.is_empty() {
+            col = col.push(text(detail).size(TEXT_SM).color(ERR));
+        }
+    } else if let Some(ratio) = progress {
+        let filled = ((ratio * 1000.0) as u16).max(1);
+        let empty = (1000u16).saturating_sub(filled).max(1);
+        let bar = row![
+            container(Space::new())
+                .width(Length::FillPortion(filled))
+                .height(2)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(ACCENT)),
+                    border: Border { radius: 1.0.into(), ..Default::default() },
+                    ..Default::default()
+                }),
+            container(Space::new())
+                .width(Length::FillPortion(empty))
+                .height(2)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(BG_PROGRESS_TRACK)),
+                    border: Border { radius: 1.0.into(), ..Default::default() },
+                    ..Default::default()
+                }),
+        ]
+        .width(Length::Fill);
+        let mut bar_row = row![bar].align_y(Alignment::Center).spacing(SPACE_1);
+        if !detail.is_empty() {
+            bar_row = bar_row.push(text(detail).size(TEXT_SM).color(FG_MUTED));
+        }
+        col = col.push(bar_row);
+    } else if !detail.is_empty() {
+        col = col.push(text(detail).size(TEXT_SM).color(FG_MUTED));
+    } else {
+        col = col.push(text("···").size(TEXT_SM).color(FG_MUTED));
+    }
+
+    col.into()
 }

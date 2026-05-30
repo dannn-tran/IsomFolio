@@ -107,7 +107,7 @@ impl App {
                             ]);
                         }
                     }
-                    ViewMode::People | ViewMode::Compare => {}
+                    ViewMode::People | ViewMode::Compare | ViewMode::Settings => {}
                 }
                 Task::none()
             }
