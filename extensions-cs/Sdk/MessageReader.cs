@@ -7,7 +7,6 @@ public static class MessageReader
 {
     public static async IAsyncEnumerable<InboundMessage> ReadAllAsync(
         TextReader input,
-        IExtensionLogger logger,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         while (true)
@@ -33,7 +32,8 @@ public static class MessageReader
             }
             catch
             {
-                await logger.LogAsync(LogLevel.Warning, $"parse error: {line}");
+                Console.Error.WriteLine($"[warning] protocol: parse error: {line}");
+                Console.Error.Flush();
             }
 
             if (msg != null) yield return msg;

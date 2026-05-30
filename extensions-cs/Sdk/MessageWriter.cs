@@ -2,11 +2,6 @@ using System.Text.Json;
 
 namespace IsomFolio.Extensions.Sdk;
 
-public interface IExtensionLogger
-{
-    ValueTask LogAsync(LogLevel level, string message);
-}
-
 public interface IMessageWriter
 {
     ValueTask SendHandshakeResponseAsync(ulong id, string extensionVersion, ExtensionCapability[] capabilities);
@@ -19,11 +14,10 @@ public interface IMessageWriter
     ValueTask SendErrorResponseAsync(ulong id, string error);
 }
 
-public class MessageWriter(TextWriter output) : IExtensionLogger, IMessageWriter, IDisposable
+public class MessageWriter(TextWriter output) : IMessageWriter, IDisposable
 {
     private readonly SemaphoreSlim _writeLock = new(1, 1);
 
-    public ValueTask LogAsync(LogLevel level, string message) => SendAsync(new LogMessage(level, message));
     public ValueTask SendHandshakeResponseAsync(ulong id, string extensionVersion, ExtensionCapability[] capabilities) => SendAsync(new OkResponse<HandshakeResult>(id, new HandshakeResult(1, extensionVersion, capabilities)));
     public ValueTask SendPingResponseAsync(ulong id) => SendAsync(new OkResponse<PingResult>(id, new PingResult()));
     public ValueTask SendReadyAsync() => SendAsync(new ReadyMessage());
