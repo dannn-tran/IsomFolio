@@ -71,9 +71,9 @@ To support both, build twice and ship two `.isfx` files.
 
 ## AOT publish
 
-Faces sets `<PublishAot>true</PublishAot>` for fast startup. AOT bundles the native runtime libs into a single binary directory, but the .NET trim analyzer can't always trace what the ONNX wrapper P/Invokes — startup may fail on some configurations.
+Faces sets `<PublishAot>true</PublishAot>` (with `<IsAotCompatible>true</IsAotCompatible>` to enable the trim analyzer). The `Microsoft.ML.OnnxRuntime` managed library is a thin P/Invoke wrapper over the native runtime and is AOT-safe; `AsEnumerable<T>()` and `DenseTensor<T>` indexing both work under AOT.
 
-If AOT misbehaves, set `<PublishAot>false</PublishAot>` in `Faces.csproj` and publish again. Slower startup, but the standard runtime layout under `runtimes/` is preserved and more reliable.
+If a managed exception in the request handler exits the process silently with AOT, check `Program.cs`'s `AppDomain.UnhandledException` / `TaskScheduler.UnobservedTaskException` hooks — they write the full stack to stderr before the process dies. The host (`isfx-host`) captures stderr into a ring buffer and surfaces the last lines in error messages.
 
 ## Running tests
 
@@ -83,8 +83,20 @@ dotnet test Sdk.Tests/Sdk.Tests.csproj         # SDK only
 dotnet test Faces.Tests/Faces.Tests.csproj     # Faces (downloads ONNX models on first run, slow)
 ```
 
+The Rust side runs an end-to-end smoke test against any `.isfx` you build:
+
+```bash
+# After publishing + zipping Faces (see "Building and packaging an extension" above),
+# drop the .isfx into the fixtures dir and run the host's integration test.
+cp dist/faces.isfx ../isfx-host/tests/fixtures/
+cd ..
+cargo test -p isfx-host --test isfx_package_smoke
+```
+
+This exercises install → setup → handshake → real `cluster_faces` inference → uninstall. See `isfx-host/tests/fixtures/README.md` for variant toggles (`ISFX_FACES_VARIANT=buffalo_s`) and per-capability assertions.
+
 ## Protocol
 
-Extensions communicate with the host over newline-delimited JSON on stdin/stdout. See `Sdk/InboundMessage.cs`, `Sdk/ResponseTypes.cs`, and the Rust side at `isomfolio-core/src/extension/protocol.rs` for the wire format.
+Extensions communicate with the host over newline-delimited JSON on stdin/stdout. See `Sdk/InboundMessage.cs`, `Sdk/ResponseTypes.cs`, and the Rust side at `isfx-host/src/protocol.rs` for the wire format.
 
 The handshake response **must** include `extension_version` (snake_case). The `Sdk.HandshakeResult` record is named `ExtensionVersion` — the snake_case JSON naming policy on `SdkJsonContext` produces the correct field name.
