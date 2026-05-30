@@ -232,13 +232,13 @@ impl App {
                             }
                             ClusterPoll::Failed(e) => {
                                 eprintln!("[faces] cluster_faces error: {e}");
-                                let tail = ext.last_stderr();
+                                let tail = ext.formatted_last_stderr();
                                 if tail.is_empty() {
-                                    eprintln!("[faces] (no stderr captured before exit)");
+                                    eprintln!("[{}] (no stderr captured before exit)", ext.manifest.name);
                                 } else {
-                                    eprintln!("[faces] last stderr lines:");
+                                    eprintln!("[{}] last stderr:", ext.manifest.name);
                                     for line in tail {
-                                        eprintln!("[faces:stderr] {line}");
+                                        eprintln!("[{}] {line}", ext.manifest.name);
                                     }
                                 }
                                 Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, ext, true)))

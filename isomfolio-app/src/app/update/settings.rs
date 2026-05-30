@@ -12,6 +12,7 @@ impl App {
     pub(super) fn handle_settings(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::OpenSettings => {
+                self.open_menu = None;
                 let mut extension_configs = std::collections::HashMap::new();
                 for ext in &self.extensions {
                     if ext.manifest.config_schema.is_empty() {
