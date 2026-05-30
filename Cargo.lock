@@ -335,6 +335,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "autotag-clip"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "isomfolio-extension-sdk",
+ "serde",
+ "serde_json",
+ "tokenizers",
+ "tract-onnx",
+ "ureq",
+]
+
+[[package]]
+name = "autotag-openai"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "isomfolio-extension-sdk",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "av-scenechange"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2296,57 +2320,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "isfx-autotag-clip"
-version = "0.1.0"
-dependencies = [
- "image",
- "isfx-sdk",
- "serde",
- "serde_json",
- "tokenizers",
- "tract-onnx",
- "ureq",
-]
-
-[[package]]
-name = "isfx-autotag-openai"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "isfx-sdk",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "isfx-host"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "zip",
-]
-
-[[package]]
-name = "isfx-sdk"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "isfx-test-addon"
-version = "0.1.0"
-dependencies = [
- "isfx-sdk",
- "serde_json",
-]
-
-[[package]]
 name = "isomfolio-app"
 version = "0.1.0"
 dependencies = [
@@ -2367,7 +2340,7 @@ dependencies = [
  "bytemuck",
  "directories",
  "image",
- "isfx-host",
+ "isomfolio-extension-host",
  "kamadak-exif",
  "notify",
  "plist",
@@ -2380,6 +2353,25 @@ dependencies = [
  "thiserror 2.0.18",
  "xattr",
  "zip",
+]
+
+[[package]]
+name = "isomfolio-extension-host"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "zip",
+]
+
+[[package]]
+name = "isomfolio-extension-sdk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4962,6 +4954,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "test-addon"
+version = "0.1.0"
+dependencies = [
+ "isomfolio-extension-sdk",
+ "serde_json",
 ]
 
 [[package]]

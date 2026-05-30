@@ -1,12 +1,8 @@
 [package]
-name = "isfx-test-addon"
+name = "test-addon"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "test-addon"
-path = "src/main.rs"
-
 [dependencies]
-isfx-sdk = { path = "../isfx-sdk" }
+isomfolio-extension-sdk = { path = "../isomfolio-extension-sdk" }
 serde_json = "1"

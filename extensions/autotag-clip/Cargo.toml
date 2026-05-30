@@ -1,14 +1,10 @@
 [package]
-name = "isfx-autotag-clip"
+name = "autotag-clip"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "autotag-clip"
-path = "src/main.rs"
-
 [dependencies]
-isfx-sdk = { path = "../isfx-sdk" }
+isomfolio-extension-sdk = { path = "../isomfolio-extension-sdk" }
 tract-onnx = "0.22.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }

@@ -2,7 +2,7 @@ use std::io::{self, BufRead};
 use std::path::Path;
 
 use base64::Engine;
-use isfx_sdk as sdk;
+use isomfolio_extension_sdk as sdk;
 use serde::Deserialize;
 use serde_json::Value;
 

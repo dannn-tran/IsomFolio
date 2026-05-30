@@ -1,6 +1,6 @@
 use std::io::{self, BufRead};
 
-use isfx_sdk as sdk;
+use isomfolio_extension_sdk as sdk;
 
 const VERSION: &str = "1.0.0";
 

@@ -3,8 +3,8 @@
 //!
 //! To test an extension end-to-end:
 //! ```text
-//! cp path/to/your-extension.isfx isfx-host/tests/fixtures/
-//! cargo test -p isfx-host
+//! cp path/to/your-extension.isfx isomfolio-extension-host/tests/fixtures/
+//! cargo test -p isomfolio-extension-host
 //! ```
 //!
 //! For each `.isfx` found, installs it into a temp dir, launches the extension,
@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use isfx_host::{install_extension_package, uninstall_extension, ExtensionProcess};
+use isomfolio_extension_host::{install_extension_package, uninstall_extension, ExtensionProcess};
 use tempfile::TempDir;
 
 fn fixtures_dir() -> PathBuf {

@@ -161,7 +161,7 @@ Place this file alongside the addon binary:
 The host writes user-edited config values to `config.json` in the **same directory as the addon binary**. Read it on startup:
 
 ```rust
-// Rust — use the isfx-sdk helper:
+// Rust — use the isomfolio-extension-sdk helper:
 let config: MyConfig = sdk::load_config(&mut out);
 ```
 
@@ -289,7 +289,7 @@ Addons do not need to handle requests before `ready` — the host guarantees it 
 
 ### Rust SDK helpers
 
-`isfx-sdk` provides helpers so addons do not hand-parse arguments:
+`isomfolio-extension-sdk` provides helpers so addons do not hand-parse arguments:
 
 ```rust
 let models_dir = sdk::models_dir(&mut out); // parses --data-dir; exits with fatal log if absent

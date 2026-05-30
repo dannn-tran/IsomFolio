@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "isfx-host",
+    "isomfolio-extension-host",
     "isomfolio-core",
     "isomfolio-app",
-    "extensions/isfx-sdk",
+    "extensions/isomfolio-extension-sdk",
     "extensions/test-addon",
     "extensions/autotag-clip",
     "extensions/autotag-openai",

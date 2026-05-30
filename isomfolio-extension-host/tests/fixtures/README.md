@@ -1,4 +1,4 @@
-# `isfx-host` integration test fixtures
+# `isomfolio-extension-host` integration test fixtures
 
 This crate's smoke test (`tests/isfx_package_smoke.rs`) discovers any `.isfx`
 files dropped into this directory and runs each one through a real end-to-end
@@ -16,12 +16,12 @@ dotnet publish -c Release -r osx-x64 --self-contained --nologo
 
 # 2. Zip the publish output's contents and drop it into the fixtures dir
 cd bin/Release/net10.0/osx-x64/publish
-zip -rq "$OLDPWD/../../../../../../isfx-host/tests/fixtures/faces.isfx" . \
+zip -rq "$OLDPWD/../../../../../../isomfolio-extension-host/tests/fixtures/faces.isfx" . \
     -x "*.pdb" "*.dSYM/*"
 
 # 3. Run the integration test (from the repo root)
 cd <repo-root>
-cargo test -p isfx-host --test isfx_package_smoke
+cargo test -p isomfolio-extension-host --test isfx_package_smoke
 ```
 
 For full publish/zip details — runtime identifiers, AOT trade-offs, layout — see
@@ -40,7 +40,7 @@ download) and runtime (which model files to load):
 For tight test loops:
 
 ```bash
-ISFX_FACES_VARIANT=buffalo_s cargo test -p isfx-host --test isfx_package_smoke
+ISFX_FACES_VARIANT=buffalo_s cargo test -p isomfolio-extension-host --test isfx_package_smoke
 ```
 
 Set the env var both when running the test (the setup subprocess inherits it)
@@ -66,7 +66,7 @@ If no `.isfx` is present, the test passes with a notice. Set
 package is expected:
 
 ```bash
-ISFX_REQUIRE_PACKAGE=1 cargo test -p isfx-host --test isfx_package_smoke
+ISFX_REQUIRE_PACKAGE=1 cargo test -p isomfolio-extension-host --test isfx_package_smoke
 ```
 
 ## When it fails
