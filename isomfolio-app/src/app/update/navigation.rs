@@ -502,9 +502,22 @@ impl App {
                 Task::none()
             }
 
-            Msg::ShowInFinder(path) => {
+            Msg::ShowInFinder(paths) => {
                 self.context_menu = None;
-                let _ = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+                if paths.len() == 1 {
+                    let _ = std::process::Command::new("open").arg("-R").arg(&paths[0]).spawn();
+                } else if !paths.is_empty() {
+                    let file_list = paths
+                        .iter()
+                        .map(|p| format!("POSIX file \"{}\"", p.replace('"', "\\\"")))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let script = format!(
+                        "tell application \"Finder\"\nreveal {{{}}}\nactivate\nend tell",
+                        file_list
+                    );
+                    let _ = std::process::Command::new("osascript").arg("-e").arg(&script).spawn();
+                }
                 Task::none()
             }
 

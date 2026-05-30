@@ -309,7 +309,7 @@ pub enum Msg {
     CloseContextMenu,
     SyncFolder(String),
     DuplicateAlbum(AlbumId),
-    ShowInFinder(String),
+    ShowInFinder(Vec<String>),
     AddSelectionToAlbum(AlbumId),
     HoverSidebarEntityStart(SidebarItem),
     HoverSidebarEntityEnd(SidebarItem),

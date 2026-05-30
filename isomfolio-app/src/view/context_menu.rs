@@ -203,8 +203,19 @@ impl App {
                         if f.is_orphaned {
                             items.push(Some(("Locate…".into(), Msg::LocateFile(f.id.clone()), false)));
                         } else {
-                            items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(f.path.clone()), false)));
+                            items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(vec![f.path.clone()]), false)));
                         }
+                    }
+                } else {
+                    let paths: Vec<String> = self
+                        .grid_selected
+                        .iter()
+                        .filter_map(|id| self.files.iter().find(|f| &f.id == id))
+                        .filter(|f| !f.is_orphaned)
+                        .map(|f| f.path.clone())
+                        .collect();
+                    if !paths.is_empty() {
+                        items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(paths), false)));
                     }
                 }
                 items
