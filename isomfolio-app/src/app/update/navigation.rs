@@ -361,7 +361,7 @@ impl App {
                     self.context_menu = None;
                     return Task::none();
                 }
-                if matches!(self.view_mode, ViewMode::Compare | ViewMode::Loupe) {
+                if matches!(self.view_mode, ViewMode::Compare | ViewMode::Loupe | ViewMode::Settings) {
                     self.view_mode = ViewMode::Browse;
                     return Task::none();
                 }

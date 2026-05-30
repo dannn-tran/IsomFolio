@@ -362,7 +362,7 @@ impl App {
                 } else {
                     "Extension restart failed — check logs".to_string()
                 };
-                if self.settings.show {
+                if matches!(self.view_mode, super::super::ViewMode::Settings) {
                     self.settings.status = Some(msg);
                 } else {
                     self.status = msg;

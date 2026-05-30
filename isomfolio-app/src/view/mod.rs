@@ -149,6 +149,7 @@ impl App {
             ViewMode::People => self.view_people_grid(),
             ViewMode::Preview => self.view_preview(),
             ViewMode::Compare => self.view_compare(),
+            ViewMode::Settings => self.view_settings_pane(),
             _ => self.view_grid(),
         };
         let mut main_row = row![self.view_sidebar(), resize_handle, content_area]
@@ -171,9 +172,6 @@ impl App {
         }
         if self.thumb_ctx.total > 0 {
             layers.push(self.view_thumbnail_progress_panel());
-        }
-        if self.settings.show {
-            layers.push(self.view_settings_modal());
         }
         if self.show_shortcut_help {
             layers.push(self.view_shortcut_help());
@@ -535,7 +533,7 @@ impl App {
             .into()
     }
 
-    fn view_settings_modal(&self) -> Element<'_, Msg> {
+    fn view_settings_pane(&self) -> Element<'_, Msg> {
         let header = row![
             text("Settings").size(TEXT_TITLE).color(FG),
             Space::new().width(Length::Fill),
@@ -556,7 +554,7 @@ impl App {
                 .padding([SPACE_1, SPACE_1])
                 .width(Length::Fill),
         )
-        .height(Length::Fixed(480.0))
+        .height(Length::Fill)
         .direction(scrollable::Direction::Vertical(
             scrollable::Scrollbar::new().width(6).scroller_width(6),
         ));
@@ -579,9 +577,6 @@ impl App {
                 }
             },
             Space::new().width(Length::Fill),
-            button(text("Cancel").size(TEXT_BASE))
-                .on_press(Msg::CloseSettings)
-                .style(ghost_btn_style),
             button(text("Save").size(TEXT_BASE))
                 .on_press(Msg::SaveSettings)
                 .style(active_chip_style),
@@ -613,22 +608,17 @@ impl App {
             footer,
         ]
         .spacing(0)
-        .width(560);
+        .width(Length::Fill);
 
-        let modal = container(body)
+        container(body)
             .padding(SPACE_6)
+            .width(Length::Fill)
+            .height(Length::Fill)
             .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(BG_MODAL)),
-                border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
-                shadow: Shadow {
-                    color: OVERLAY_LIGHT,
-                    offset: Vector::new(0.0, 4.0),
-                    blur_radius: 20.0,
-                },
+                background: Some(Background::Color(BG_GRID)),
                 ..Default::default()
-            });
-
-        modal_with_backdrop(modal).into()
+            })
+            .into()
     }
 
     fn settings_tab_chip(&self, label: &str, tab: SettingsTab) -> Element<'_, Msg> {

@@ -51,6 +51,7 @@ pub enum ViewMode {
     Loupe,
     People,
     Compare,
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -425,7 +426,6 @@ pub enum SettingsTab {
 }
 
 pub struct SettingsState {
-    pub show: bool,
     pub tab: SettingsTab,
     /// extension_name -> key -> current edited value
     pub extension_configs: HashMap<String, HashMap<String, String>>,
@@ -436,7 +436,6 @@ pub struct SettingsState {
 impl Default for SettingsState {
     fn default() -> Self {
         Self {
-            show: false,
             tab: SettingsTab::General,
             extension_configs: HashMap::new(),
             install_error: None,

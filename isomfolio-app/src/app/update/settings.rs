@@ -6,13 +6,17 @@ use isomfolio_core::extension::{
     ConfigFieldKind, ExtensionProcess,
 };
 
-use super::super::{App, Msg, SettingsState};
+use super::super::{App, Msg, SettingsState, ViewMode};
 
 impl App {
     pub(super) fn handle_settings(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::OpenSettings => {
                 self.open_menu = None;
+                if matches!(self.view_mode, ViewMode::Settings) {
+                    self.view_mode = ViewMode::Browse;
+                    return Task::none();
+                }
                 let mut extension_configs = std::collections::HashMap::new();
                 for ext in &self.extensions {
                     if ext.manifest.config_schema.is_empty() {
@@ -33,12 +37,12 @@ impl App {
                     extension_configs.insert(ext.manifest.name.clone(), fields);
                 }
                 self.settings = SettingsState {
-                    show: true,
                     tab: self.settings.tab,
                     extension_configs,
                     install_error: None,
                     status: None,
                 };
+                self.view_mode = ViewMode::Settings;
                 Task::none()
             }
 
@@ -48,7 +52,7 @@ impl App {
             }
 
             Msg::CloseSettings => {
-                self.settings.show = false;
+                self.view_mode = ViewMode::Browse;
                 Task::none()
             }
 
@@ -82,7 +86,6 @@ impl App {
             }
 
             Msg::SaveSettings => {
-                self.settings.show = false;
                 let mut restart_tasks = Vec::new();
                 for (extension_name, fields) in &self.settings.extension_configs {
                     let schema = self
