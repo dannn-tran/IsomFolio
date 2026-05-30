@@ -74,8 +74,6 @@ impl App {
             }
         };
 
-        let show_detail = self.detail.show;
-
         let remove_btn: Option<Element<Msg>> = if matches!(
             self.selected_item,
             SidebarItem::Album(_)
@@ -121,19 +119,6 @@ impl App {
         if let Some(btn) = remove_btn {
             status_row = status_row.push(btn);
         }
-
-        status_row = status_row
-            .push(
-                button(text("Info").size(TEXT_MD))
-                    .on_press(Msg::ToggleDetail)
-                    .style(move |t: &Theme, s| {
-                        if show_detail {
-                            active_chip_style(t, s)
-                        } else {
-                            ghost_btn_style(t, s)
-                        }
-                    }),
-            );
 
         let status_bar = container(status_row)
             .padding([SPACE_1, SPACE_3])

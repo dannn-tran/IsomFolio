@@ -4,7 +4,7 @@ use iced::{
 };
 
 use super::styles::{
-    BG_MODAL, BG_STATUSBAR, BORDER, FG, FG_DIM, FG_MUTED, HINT_HOVER, HINT_SUBTLE,
+    icon_btn_style, BG_MODAL, BG_STATUSBAR, BORDER, FG, FG_DIM, FG_MUTED, HINT_HOVER, HINT_SUBTLE,
     SPACE_1, SPACE_1_5, SPACE_2, TEXT_MD, TEXT_SM,
 };
 use crate::app::{App, Msg};
@@ -23,7 +23,6 @@ const MENU_TABS: &[MenuTab] = &[
     MenuTab { label: "Catalog", id: "catalog", tab_width: 72.0 },
     MenuTab { label: "Edit",    id: "edit",    tab_width: 52.0 },
     MenuTab { label: "View",    id: "view",    tab_width: 56.0 },
-    MenuTab { label: "Help",    id: "help",    tab_width: 52.0 },
 ];
 
 fn tab_left_edge(menu_id: &str) -> f32 {
@@ -73,6 +72,21 @@ impl App {
         }
 
         bar = bar.push(Space::new().width(Length::Fill));
+        bar = bar.push(
+            button(text("?").size(TEXT_MD).color(FG_DIM))
+                .on_press(Msg::ToggleShortcutHelp)
+                .style(icon_btn_style)
+                .padding([SPACE_1, SPACE_1_5])
+                .height(MENU_BAR_HEIGHT),
+        );
+        bar = bar.push(
+            button(text("⚙").size(TEXT_MD).color(FG_DIM))
+                .on_press(Msg::OpenSettings)
+                .style(icon_btn_style)
+                .padding([SPACE_1, SPACE_1_5])
+                .height(MENU_BAR_HEIGHT),
+        );
+        bar = bar.push(Space::new().width(SPACE_1));
 
         container(bar)
             .padding(0.0)
@@ -96,7 +110,6 @@ impl App {
             "catalog" => self.catalog_menu_items(),
             "edit" => self.edit_menu_items(),
             "view" => self.view_menu_items(),
-            "help" => self.help_menu_items(),
             _ => return None,
         };
 
@@ -109,16 +122,18 @@ impl App {
                     col = col.push(menu_action_row(label, shortcut, msg));
                 }
                 MenuItem::Separator => {
+                    col = col.push(Space::new().height(SPACE_1));
                     col = col.push(
                         container(Space::new())
                             .width(Length::Fill)
                             .height(1.0)
-                            .padding([SPACE_1, SPACE_1_5])
+                            .padding([0.0, SPACE_1_5])
                             .style(|_: &Theme| container::Style {
                                 background: Some(Background::Color(BORDER)),
                                 ..Default::default()
                             }),
                     );
+                    col = col.push(Space::new().height(SPACE_1));
                 }
             }
         }
@@ -179,14 +194,6 @@ impl App {
         vec![
             MenuItem::Action("Undo", "Cmd+Z", Msg::Undo),
             MenuItem::Action("Redo", "Cmd+Shift+Z", Msg::Redo),
-            MenuItem::Separator,
-            MenuItem::Action("Settings…", "Cmd+,", Msg::OpenSettings),
-        ]
-    }
-
-    fn help_menu_items(&self) -> Vec<MenuItem> {
-        vec![
-            MenuItem::Action("Keyboard Shortcuts", "?", Msg::ToggleShortcutHelp),
         ]
     }
 }

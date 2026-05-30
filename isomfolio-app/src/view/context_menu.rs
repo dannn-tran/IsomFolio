@@ -217,11 +217,12 @@ impl App {
         for item in items {
             match item {
                 None => {
+                    col = col.push(Space::new().height(SPACE_1));
                     col = col.push(
                         container(Space::new())
                             .width(Length::Fill)
                             .height(1.0)
-                            .padding([SPACE_1, SPACE_1_5])
+                            .padding([0.0, SPACE_1_5])
                             .style(|_: &Theme| container::Style {
                                 background: Some(Background::Color(BORDER)),
                                 ..Default::default()

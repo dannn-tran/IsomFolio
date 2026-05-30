@@ -22,12 +22,12 @@ impl App {
             .and_then(|n| n.to_str())
             .unwrap_or("Catalog");
 
-        let catalog_header: Element<Msg> = row![text(catalog_name).size(TEXT_SM).color(FG_DIM),]
+        let catalog_header: Element<Msg> = row![text(catalog_name).size(TEXT_MD).color(FG_DIM),]
             .align_y(Alignment::Center)
             .into();
 
         let albums_header: Element<Msg> = row![
-            text("Albums").size(TEXT_SM).color(FG_DIM),
+            text("Albums").size(TEXT_MD).color(FG_DIM),
             Space::new().width(Length::Fill),
             button(text("⚡").size(TEXT_MD))
                 .on_press(Msg::ToggleCriteria)
@@ -42,12 +42,12 @@ impl App {
 
         let is_sync_active = self.is_syncing || self.sync_pending;
         let mut folders_header_row = row![
-            text("Folders").size(TEXT_SM).color(FG_DIM),
+            text("Folders").size(TEXT_MD).color(FG_DIM),
         ];
         if is_sync_active {
             folders_header_row = folders_header_row
                 .push(Space::new().width(SPACE_1))
-                .push(text("Syncing…").size(TEXT_SM).color(FG_DIM));
+                .push(text("Syncing…").size(TEXT_MD).color(FG_DIM));
         }
         let folders_header: Element<Msg> = folders_header_row
             .push(Space::new().width(Length::Fill))
@@ -240,7 +240,7 @@ impl App {
             let is_active = matches!(self.view_mode, ViewMode::People);
             let people_header: Element<Msg> = row![
                 button(
-                    text(format!("People{count_label}")).size(TEXT_SM).color(if is_active { FG } else { FG_DIM })
+                    text(format!("People{count_label}")).size(TEXT_MD).color(if is_active { FG } else { FG_DIM })
                 )
                     .on_press(Msg::OpenPeopleView)
                     .style(ghost_btn_style),
