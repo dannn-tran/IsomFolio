@@ -13,9 +13,10 @@ public record ModelVariant(string Name, string DetectionFile, string Recognition
     public string DownloadUrl =>
         $"https://github.com/deepinsight/insightface/releases/download/v0.7/{Name}.zip";
 
-    public static ModelVariant Current()
+    /// Config value takes precedence; env var is a fallback for tests and CLI overrides.
+    public static ModelVariant Current(string? configuredName = null)
     {
-        var name = Environment.GetEnvironmentVariable("ISFX_FACES_VARIANT");
+        var name = configuredName ?? Environment.GetEnvironmentVariable("ISFX_FACES_VARIANT");
         return name switch
         {
             "buffalo_s" => BuffaloS,

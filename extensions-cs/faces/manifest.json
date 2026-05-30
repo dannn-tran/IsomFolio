@@ -6,6 +6,14 @@
   "description": "Local face detection and clustering using InsightFace ONNX models",
   "config_schema": [
     {
+      "key": "model_variant",
+      "label": "Model size",
+      "kind": "select",
+      "options": ["buffalo_l", "buffalo_s"],
+      "default": "buffalo_l",
+      "description": "buffalo_l: high accuracy, ~280 MB download. buffalo_s: smaller and faster, ~25 MB."
+    },
+    {
       "key": "eps",
       "label": "Cluster sensitivity",
       "kind": "number",

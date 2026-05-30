@@ -22,6 +22,8 @@ public class FaceDetector : IDisposable
     {
         var opts = new SessionOptions { InterOpNumThreads = 1, IntraOpNumThreads = 4 };
         opts.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+        opts.EnableCpuMemArena = false;
+        opts.EnableMemoryPattern = false;
         _session = new InferenceSession(modelPath, opts);
     }
 
