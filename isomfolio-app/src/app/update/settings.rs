@@ -223,6 +223,12 @@ impl App {
                 Task::none()
             }
 
+            Msg::ToggleAutoAdvanceOnFlag => {
+                self.app_settings.auto_advance_on_flag = !self.app_settings.auto_advance_on_flag;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                Task::none()
+            }
+
             _ => Task::none(),
         }
     }

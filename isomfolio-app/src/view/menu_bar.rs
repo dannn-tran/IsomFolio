@@ -179,6 +179,7 @@ impl App {
     fn view_menu_items(&self) -> Vec<MenuItem> {
         vec![
             MenuItem::Action("Toggle Info Panel", "I", Msg::ToggleDetail),
+            MenuItem::Action("Toggle Filters", "F", Msg::ToggleFilterPanel),
             MenuItem::Action("Preview", "E", Msg::TogglePreview),
             MenuItem::Action("Loupe", "Space", Msg::OpenLoupe),
             MenuItem::Action("People", "", Msg::OpenPeopleView),

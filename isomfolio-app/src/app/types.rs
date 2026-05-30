@@ -268,6 +268,7 @@ pub enum Msg {
     ToggleAutoFaceCluster,
     ToggleImportXmpTags,
     ToggleImportAppleTags,
+    ToggleAutoAdvanceOnFlag,
     SettingsConfigChanged { extension_name: String, key: String, value: String },
     SaveSettings,
     InstallExtensionPickFile,

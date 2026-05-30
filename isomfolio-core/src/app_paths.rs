@@ -72,6 +72,9 @@ pub struct AppSettings {
     /// Import Apple Finder tags (`kMDItemUserTags`) as tags when first discovering a photo.
     #[serde(default)]
     pub import_apple_tags: Option<bool>,
+    /// Auto-advance to the next photo after flagging (Pick/Reject/Unflagged) in loupe mode.
+    #[serde(default = "default_true")]
+    pub auto_advance_on_flag: bool,
 }
 
 impl Default for AppSettings {
@@ -81,6 +84,7 @@ impl Default for AppSettings {
             auto_face_cluster: true,
             import_xmp_tags: None,
             import_apple_tags: None,
+            auto_advance_on_flag: true,
         }
     }
 }

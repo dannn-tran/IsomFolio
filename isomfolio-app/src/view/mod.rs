@@ -645,6 +645,12 @@ impl App {
         let mut col = column![].spacing(SPACE_3).width(Length::Fill);
 
         col = col.push(self.toggle_row(
+            "Auto-advance after flagging",
+            "Move to the next photo automatically after pressing P, X, or U in loupe.",
+            self.app_settings.auto_advance_on_flag,
+            Msg::ToggleAutoAdvanceOnFlag,
+        ));
+        col = col.push(self.toggle_row(
             "Auto face clustering",
             "Run after each sync that finds new photos.",
             self.app_settings.auto_face_cluster,

@@ -334,13 +334,20 @@ impl App {
                 self.undo_stack.push(UndoOp::SetFlags { before });
                 self.redo_stack.clear();
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
-                Task::perform(
+                let db_task = Task::perform(
                     async move {
                         let g = conn.lock_unwrap();
                         g.set_files_flag(&ids, flag).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::FlagsApplied, Msg::DbError),
-                )
+                );
+                if matches!(self.view_mode, super::super::ViewMode::Loupe)
+                    && self.app_settings.auto_advance_on_flag
+                {
+                    Task::batch([db_task, Task::done(Msg::Navigate { dx: 1, dy: 0 })])
+                } else {
+                    db_task
+                }
             }
 
             Msg::FlagsApplied => {

@@ -207,7 +207,8 @@ impl App {
             | Msg::SetPreferredExtension { .. }
             | Msg::ToggleAutoFaceCluster
             | Msg::ToggleImportXmpTags
-            | Msg::ToggleImportAppleTags => self.handle_settings(msg),
+            | Msg::ToggleImportAppleTags
+            | Msg::ToggleAutoAdvanceOnFlag => self.handle_settings(msg),
 
             // — tag browser —
             Msg::OpenTagBrowser
