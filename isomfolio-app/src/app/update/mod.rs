@@ -184,14 +184,14 @@ impl App {
             | Msg::SortDirToggle
             | Msg::SortCycleAll
             | Msg::SearchChanged(_)
-            | Msg::ToggleCriteria
-            | Msg::CriteriaTagInputChanged(_)
-            | Msg::AddCriteriaTag
-            | Msg::RemoveCriteriaTag(_)
-            | Msg::CriteriaDateFromChanged(_)
-            | Msg::CriteriaDateToChanged(_)
-            | Msg::ToggleCriteriaExt(_)
-            | Msg::ClearCriteria => self.handle_criteria(msg),
+            | Msg::ToggleFilterPanel
+            | Msg::FilterTagInputChanged(_)
+            | Msg::AddFilterTag
+            | Msg::RemoveFilterTag(_)
+            | Msg::FilterDateFromChanged(_)
+            | Msg::FilterDateToChanged(_)
+            | Msg::ToggleFilterFileType(_)
+            | Msg::ClearFilters => self.handle_filters(msg),
 
             // — settings panel —
             Msg::OpenSettings
@@ -229,15 +229,15 @@ impl App {
                 if let SidebarItem::Album(ref id) = item {
                     if let Some(album) = self.albums.iter().find(|a| &a.id == id) {
                         if let AlbumKind::Smart(ref q) = album.kind {
-                            self.criteria.tags = q.tags.clone();
-                            self.criteria.date_from =
+                            self.filters.tags = q.tags.clone();
+                            self.filters.date_from =
                                 q.date_from.map(unix_to_date_str).unwrap_or_default();
-                            self.criteria.date_to =
+                            self.filters.date_to =
                                 q.date_to.map(unix_to_date_str).unwrap_or_default();
-                            self.criteria.exts = q.extensions.iter().cloned().collect();
+                            self.filters.exts = q.extensions.iter().cloned().collect();
                             self.search_text = q.text.clone().unwrap_or_default();
-                            self.criteria.has_location = q.has_location;
-                            self.criteria.show = true;
+                            self.filters.has_location = q.has_location;
+                            self.filters.show = true;
                         }
                     }
                 }
@@ -254,7 +254,7 @@ impl App {
                 self.grid_selected.clear();
                 self.drag.state = None;
                 self.drag.ids.clear();
-                self.criteria.save_smart_input = None;
+                self.filters.save_smart_input = None;
                 self.detail.file_id = None;
                 self.remove_from_album_pending = false;
                 self.smart_album_dirty = false;

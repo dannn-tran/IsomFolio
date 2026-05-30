@@ -4,7 +4,7 @@ use isomfolio_core::models::SortField;
 use super::super::{App, Msg};
 
 impl App {
-    pub(super) fn handle_criteria(&mut self, msg: Msg) -> Task<Msg> {
+    pub(super) fn handle_filters(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::SortFieldCycle => {
                 self.sort_by = next_sort_field(self.sort_by);
@@ -43,62 +43,62 @@ impl App {
                 )
             }
 
-            Msg::ToggleCriteria => {
-                self.criteria.show = !self.criteria.show;
+            Msg::ToggleFilterPanel => {
+                self.filters.show = !self.filters.show;
                 Task::none()
             }
 
-            Msg::CriteriaTagInputChanged(s) => {
-                self.criteria.tag_input = s;
+            Msg::FilterTagInputChanged(s) => {
+                self.filters.tag_input = s;
                 Task::none()
             }
 
-            Msg::AddCriteriaTag => {
-                let tag = self.criteria.tag_input.trim().to_string();
-                self.criteria.tag_input.clear();
-                if !tag.is_empty() && !self.criteria.tags.contains(&tag) {
-                    self.criteria.tags.push(tag);
+            Msg::AddFilterTag => {
+                let tag = self.filters.tag_input.trim().to_string();
+                self.filters.tag_input.clear();
+                if !tag.is_empty() && !self.filters.tags.contains(&tag) {
+                    self.filters.tags.push(tag);
                 }
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
 
-            Msg::RemoveCriteriaTag(tag) => {
-                self.criteria.tags.retain(|t| t != &tag);
+            Msg::RemoveFilterTag(tag) => {
+                self.filters.tags.retain(|t| t != &tag);
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
 
-            Msg::CriteriaDateFromChanged(s) => {
-                self.criteria.date_from = s;
+            Msg::FilterDateFromChanged(s) => {
+                self.filters.date_from = s;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
 
-            Msg::CriteriaDateToChanged(s) => {
-                self.criteria.date_to = s;
+            Msg::FilterDateToChanged(s) => {
+                self.filters.date_to = s;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
 
-            Msg::ToggleCriteriaExt(ext) => {
-                if self.criteria.exts.contains(&ext) {
-                    self.criteria.exts.remove(&ext);
+            Msg::ToggleFilterFileType(ext) => {
+                if self.filters.exts.contains(&ext) {
+                    self.filters.exts.remove(&ext);
                 } else {
-                    self.criteria.exts.insert(ext);
+                    self.filters.exts.insert(ext);
                 }
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
 
-            Msg::ClearCriteria => {
-                self.criteria.tags.clear();
-                self.criteria.date_from.clear();
-                self.criteria.date_to.clear();
-                self.criteria.exts.clear();
-                self.criteria.flag_filter = isomfolio_core::models::FlagFilter::All;
-                self.criteria.rating_min = None;
-                self.criteria.has_location = None;
+            Msg::ClearFilters => {
+                self.filters.tags.clear();
+                self.filters.date_from.clear();
+                self.filters.date_to.clear();
+                self.filters.exts.clear();
+                self.filters.flag_filter = isomfolio_core::models::FlagFilter::All;
+                self.filters.rating_min = None;
+                self.filters.has_location = None;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }

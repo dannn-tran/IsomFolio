@@ -368,7 +368,7 @@ impl App {
                 self.create_album_input = None;
                 self.rename_album_id = None;
                 self.faces.rename_cluster_id = None;
-                self.criteria.save_smart_input = None;
+                self.filters.save_smart_input = None;
                 self.remove_from_album_pending = false;
                 Task::none()
             }

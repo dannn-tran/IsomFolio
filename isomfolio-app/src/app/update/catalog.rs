@@ -6,7 +6,7 @@ use isomfolio_core::extension::{discover_extensions, ExtensionProcess};
 use isomfolio_core::path_utils::CATALOG_EXT;
 
 use super::LockUnwrap;
-use super::super::{App, CriteriaState, DetailState, Msg, SidebarItem, ViewMode};
+use super::super::{App, FilterState, DetailState, Msg, SidebarItem, ViewMode};
 
 impl App {
     pub(super) fn handle_catalog_msg(&mut self, msg: Msg) -> Task<Msg> {
@@ -67,7 +67,7 @@ impl App {
                 self.drag.ids.clear();
                 self.search_debounce_id += 1;
                 self.search_text.clear();
-                self.criteria = CriteriaState::default();
+                self.filters = FilterState::default();
                 self.detail = DetailState::default();
                 self.selected_item = SidebarItem::AllFiles;
                 self.scroll_y = 0.0;

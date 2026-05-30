@@ -152,14 +152,14 @@ pub enum Msg {
 
     SearchChanged(String),
 
-    ToggleCriteria,
-    CriteriaTagInputChanged(String),
-    AddCriteriaTag,
-    RemoveCriteriaTag(String),
-    CriteriaDateFromChanged(String),
-    CriteriaDateToChanged(String),
-    ToggleCriteriaExt(String),
-    ClearCriteria,
+    ToggleFilterPanel,
+    FilterTagInputChanged(String),
+    AddFilterTag,
+    RemoveFilterTag(String),
+    FilterDateFromChanged(String),
+    FilterDateToChanged(String),
+    ToggleFilterFileType(String),
+    ClearFilters,
 
     SaveAsSmartAlbum,
     SmartAlbumNameChanged(String),
@@ -339,7 +339,7 @@ pub enum UndoOp {
     SetFlags { before: Vec<(String, Flag)> },
 }
 
-pub struct CriteriaState {
+pub struct FilterState {
     pub show: bool,
     pub tags: Vec<String>,
     pub tag_input: String,
@@ -353,7 +353,7 @@ pub struct CriteriaState {
     pub has_location: Option<bool>,
 }
 
-impl Default for CriteriaState {
+impl Default for FilterState {
     fn default() -> Self {
         Self {
             show: false,

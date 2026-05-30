@@ -18,8 +18,8 @@ use crate::app::{
 
 impl App {
     pub(super) fn view_grid(&self) -> Element<'_, Msg> {
-        let show_criteria = self.criteria.show;
-        let criteria_active = self.criteria_has_any();
+        let filter_panel_open = self.filters.show;
+        let filters_active = self.has_active_filters();
         let sort_label = format!(
             "{} {}",
             sort_field_label(self.sort_by),
@@ -37,12 +37,12 @@ impl App {
                 .size(TEXT_BASE)
                 .width(Length::Fill),
             button(
-                text(if criteria_active { "Filters ●" } else { "Filters" })
+                text(if filters_active { "Filters ●" } else { "Filters" })
                     .size(TEXT_MD)
             )
-            .on_press(Msg::ToggleCriteria)
+            .on_press(Msg::ToggleFilterPanel)
             .style(move |t: &Theme, s| {
-                if show_criteria {
+                if filter_panel_open {
                     active_chip_style(t, s)
                 } else {
                     ghost_btn_style(t, s)
@@ -168,8 +168,8 @@ impl App {
         };
 
         let mut grid_col = column![filter_toolbar];
-        if self.criteria.show {
-            grid_col = grid_col.push(self.view_criteria_panel());
+        if filter_panel_open {
+            grid_col = grid_col.push(self.view_filter_panel());
         }
         grid_col = grid_col.push(empty_or_grid);
 
@@ -457,36 +457,36 @@ impl App {
         stack(layers).into()
     }
 
-    pub(super) fn view_criteria_panel(&self) -> Element<'_, Msg> {
+    pub(super) fn view_filter_panel(&self) -> Element<'_, Msg> {
         let mut col = column![].spacing(SPACE_1_5).padding([SPACE_1_5, SPACE_3]);
 
         let mut tags_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
-        for tag in &self.criteria.tags {
+        for tag in &self.filters.tags {
             tags_row = tags_row.push(
                 button(text(format!("{tag} ×")).size(TEXT_SM))
-                    .on_press(Msg::RemoveCriteriaTag(tag.clone()))
+                    .on_press(Msg::RemoveFilterTag(tag.clone()))
                     .style(active_chip_style),
             );
         }
         tags_row = tags_row.push(
-            text_input("+ tag", &self.criteria.tag_input)
-                .on_input(Msg::CriteriaTagInputChanged)
-                .on_submit(Msg::AddCriteriaTag)
+            text_input("+ tag", &self.filters.tag_input)
+                .on_input(Msg::FilterTagInputChanged)
+                .on_submit(Msg::AddFilterTag)
                 .padding([SPACE_1, SPACE_1_5])
                 .size(TEXT_SM)
                 .width(120),
         );
         col = col.push(tags_row);
 
-        let from_err = !self.criteria.date_from.is_empty()
-            && parse_date_str(&self.criteria.date_from).is_none();
+        let from_err = !self.filters.date_from.is_empty()
+            && parse_date_str(&self.filters.date_from).is_none();
         let to_err =
-            !self.criteria.date_to.is_empty() && parse_date_str(&self.criteria.date_to).is_none();
+            !self.filters.date_to.is_empty() && parse_date_str(&self.filters.date_to).is_none();
         let mut date_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
         date_row = date_row.push(text("From").size(TEXT_SM).color(FG_DIM));
         date_row = date_row.push(
-            text_input("YYYY-MM-DD", &self.criteria.date_from)
-                .on_input(Msg::CriteriaDateFromChanged)
+            text_input("YYYY-MM-DD", &self.filters.date_from)
+                .on_input(Msg::FilterDateFromChanged)
                 .padding([SPACE_1, SPACE_1_5])
                 .size(TEXT_SM)
                 .width(100),
@@ -496,8 +496,8 @@ impl App {
         }
         date_row = date_row.push(text("To").size(TEXT_SM).color(FG_DIM));
         date_row = date_row.push(
-            text_input("YYYY-MM-DD", &self.criteria.date_to)
-                .on_input(Msg::CriteriaDateToChanged)
+            text_input("YYYY-MM-DD", &self.filters.date_to)
+                .on_input(Msg::FilterDateToChanged)
                 .padding([SPACE_1, SPACE_1_5])
                 .size(TEXT_SM)
                 .width(100),
@@ -518,10 +518,10 @@ impl App {
             .spacing(SPACE_1)
             .align_y(Alignment::Center);
         for ext in ["jpg", "png", "webp", "gif"] {
-            let active = self.criteria.exts.contains(ext);
+            let active = self.filters.exts.contains(ext);
             ext_row = ext_row.push(
                 button(text(format!(".{}", ext.to_uppercase())).size(TEXT_SM))
-                    .on_press(Msg::ToggleCriteriaExt(ext.to_string()))
+                    .on_press(Msg::ToggleFilterFileType(ext.to_string()))
                     .style(if active { active_chip_style } else { ghost_btn_style }),
             );
         }
@@ -536,14 +536,14 @@ impl App {
             ("Rejects", FlagFilter::Rejects),
             ("Unflagged", FlagFilter::Unflagged),
         ] {
-            let active = self.criteria.flag_filter == filter;
+            let active = self.filters.flag_filter == filter;
             flag_row = flag_row.push(
                 button(text(label).size(TEXT_SM))
                     .on_press(Msg::SetFlagFilter(filter))
                     .style(if active { active_chip_style } else { ghost_btn_style }),
             );
         }
-        let hide_rejects_active = self.criteria.hide_rejects;
+        let hide_rejects_active = self.filters.hide_rejects;
         flag_row = flag_row
             .push(Space::new().width(SPACE_2))
             .push(
@@ -557,7 +557,7 @@ impl App {
             .spacing(SPACE_1)
             .align_y(Alignment::Center);
         for (label, min) in [("Any", None), ("1+", Some(1)), ("2+", Some(2)), ("3+", Some(3)), ("4+", Some(4)), ("5", Some(5))] {
-            let active = self.criteria.rating_min == min;
+            let active = self.filters.rating_min == min;
             rating_row = rating_row.push(
                 button(text(label).size(TEXT_SM))
                     .on_press(Msg::SetRatingFilter(min))
@@ -570,7 +570,7 @@ impl App {
             .spacing(SPACE_1)
             .align_y(Alignment::Center);
         for (label, val) in [("Any", None), ("With GPS", Some(true)), ("Without GPS", Some(false))] {
-            let active = self.criteria.has_location == val;
+            let active = self.filters.has_location == val;
             loc_row = loc_row.push(
                 button(text(label).size(TEXT_SM))
                     .on_press(Msg::SetLocationFilter(val))
@@ -579,11 +579,11 @@ impl App {
         }
         col = col.push(loc_row);
 
-        if self.criteria_has_any() {
+        if self.has_active_filters() {
             let is_smart = self.current_album_is_smart();
             let mut action_row = row![
                 button(text("Clear").size(TEXT_SM))
-                    .on_press(Msg::ClearCriteria)
+                    .on_press(Msg::ClearFilters)
                     .style(ghost_btn_style),
                 Space::new().width(Length::Fill),
             ]
@@ -601,7 +601,7 @@ impl App {
                         .on_press(Msg::UpdateSmartAlbum)
                         .style(ghost_btn_style),
                 );
-            } else if let Some(ref name_input) = self.criteria.save_smart_input {
+            } else if let Some(ref name_input) = self.filters.save_smart_input {
                 action_row = action_row
                     .push(
                         text_input("Album name…", name_input)

@@ -145,7 +145,7 @@ pub struct App {
     pub sort_by: SortField,
     pub sort_asc: bool,
 
-    pub criteria: CriteriaState,
+    pub filters: FilterState,
     pub detail: DetailState,
 
     pub show_shortcut_help: bool,
@@ -355,7 +355,7 @@ impl App {
             rename_album_input: String::new(),
             sort_by: SortField::Name,
             sort_asc: true,
-            criteria: CriteriaState::default(),
+            filters: FilterState::default(),
             detail: DetailState::default(),
             show_shortcut_help: false,
             open_menu: None,
@@ -433,13 +433,13 @@ impl App {
         ((avail + TILE_GAP) / (self.tile_px + TILE_GAP)) as usize
     }
 
-    pub fn criteria_panel_height(&self) -> f32 {
-        if !self.criteria.show {
+    pub fn filter_panel_height(&self) -> f32 {
+        if !self.filters.show {
             return 0.0;
         }
         let rows = CRITERIA_ROW_COUNT as f32;
         let spacing = (CRITERIA_ROW_COUNT - 1) as f32 * 6.0;
-        let action_row = if self.criteria_has_any() {
+        let action_row = if self.has_active_filters() {
             CRITERIA_ROW_HEIGHT + 6.0
         } else {
             0.0
@@ -447,16 +447,16 @@ impl App {
         rows * CRITERIA_ROW_HEIGHT + spacing + CRITERIA_PADDING + action_row
     }
 
-    pub fn criteria_has_any(&self) -> bool {
+    pub fn has_active_filters(&self) -> bool {
         use isomfolio_core::models::FlagFilter;
-        !self.criteria.tags.is_empty()
-            || !self.criteria.exts.is_empty()
-            || !self.criteria.date_from.is_empty()
-            || !self.criteria.date_to.is_empty()
-            || self.criteria.flag_filter != FlagFilter::All
-            || self.criteria.rating_min.is_some()
-            || self.criteria.hide_rejects
-            || self.criteria.has_location.is_some()
+        !self.filters.tags.is_empty()
+            || !self.filters.exts.is_empty()
+            || !self.filters.date_from.is_empty()
+            || !self.filters.date_to.is_empty()
+            || self.filters.flag_filter != FlagFilter::All
+            || self.filters.rating_min.is_some()
+            || self.filters.hide_rejects
+            || self.filters.has_location.is_some()
     }
 
     pub fn current_album_is_smart(&self) -> bool {
@@ -486,23 +486,23 @@ impl App {
             }
         };
         use isomfolio_core::models::FlagFilter;
-        let effective_flag = if self.criteria.hide_rejects && self.criteria.flag_filter == FlagFilter::All {
+        let effective_flag = if self.filters.hide_rejects && self.filters.flag_filter == FlagFilter::All {
             FlagFilter::NotReject
         } else {
-            self.criteria.flag_filter
+            self.filters.flag_filter
         };
         SearchQuery {
             text: text_opt,
-            tags: self.criteria.tags.clone(),
-            extensions: self.criteria.exts.iter().cloned().collect(),
-            date_from: parse_date_str(&self.criteria.date_from),
-            date_to: parse_date_str(&self.criteria.date_to),
+            tags: self.filters.tags.clone(),
+            extensions: self.filters.exts.iter().cloned().collect(),
+            date_from: parse_date_str(&self.filters.date_from),
+            date_to: parse_date_str(&self.filters.date_to),
             sort_by: self.sort_by,
             sort_asc: self.sort_asc,
             flag_filter: effective_flag,
-            rating_min: self.criteria.rating_min,
-            has_location: self.criteria.has_location,
-            include_orphaned: self.search_text.is_empty() && !self.criteria_has_any(),
+            rating_min: self.filters.rating_min,
+            has_location: self.filters.has_location,
+            include_orphaned: self.search_text.is_empty() && !self.has_active_filters(),
             ..Default::default()
         }
     }
@@ -841,7 +841,7 @@ impl App {
 
     pub fn tile_index_at(&self, pos: Point) -> Option<usize> {
         let rel_x = pos.x - self.sidebar_width - SIDEBAR_HANDLE_WIDTH - GRID_PADDING;
-        let criteria_h = self.criteria_panel_height();
+        let criteria_h = self.filter_panel_height();
         let rel_y = pos.y + self.scroll_y - SEARCH_BAR_HEIGHT - criteria_h - GRID_PADDING;
         if rel_x < 0.0 || rel_y < 0.0 {
             return None;

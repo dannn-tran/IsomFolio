@@ -268,17 +268,17 @@ impl App {
             }
 
             Msg::SaveAsSmartAlbum => {
-                self.criteria.save_smart_input = Some(String::new());
+                self.filters.save_smart_input = Some(String::new());
                 Task::none()
             }
 
             Msg::SmartAlbumNameChanged(s) => {
-                self.criteria.save_smart_input = Some(s);
+                self.filters.save_smart_input = Some(s);
                 Task::none()
             }
 
             Msg::ConfirmSmartAlbum => {
-                let name = self.criteria.save_smart_input.take().unwrap_or_default();
+                let name = self.filters.save_smart_input.take().unwrap_or_default();
                 let name = name.trim().to_string();
                 if name.is_empty() {
                     return Task::none();

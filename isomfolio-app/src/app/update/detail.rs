@@ -344,8 +344,8 @@ impl App {
             }
 
             Msg::FlagsApplied => {
-                if self.criteria.hide_rejects
-                    || self.criteria.flag_filter != isomfolio_core::models::FlagFilter::All
+                if self.filters.hide_rejects
+                    || self.filters.flag_filter != isomfolio_core::models::FlagFilter::All
                 {
                     self.load_files_task()
                 } else {
@@ -396,7 +396,7 @@ impl App {
             }
 
             Msg::RatingsApplied => {
-                if self.criteria.rating_min.is_some() { self.load_files_task() } else { Task::none() }
+                if self.filters.rating_min.is_some() { self.load_files_task() } else { Task::none() }
             }
 
             Msg::RatingsLoaded(map) => {
@@ -405,24 +405,24 @@ impl App {
             }
 
             Msg::ToggleHideRejects => {
-                self.criteria.hide_rejects = !self.criteria.hide_rejects;
+                self.filters.hide_rejects = !self.filters.hide_rejects;
                 self.load_files_task()
             }
 
             Msg::SetFlagFilter(filter) => {
-                self.criteria.flag_filter = filter;
+                self.filters.flag_filter = filter;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
 
             Msg::SetRatingFilter(min) => {
-                self.criteria.rating_min = min;
+                self.filters.rating_min = min;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
 
             Msg::SetLocationFilter(val) => {
-                self.criteria.has_location = val;
+                self.filters.has_location = val;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }

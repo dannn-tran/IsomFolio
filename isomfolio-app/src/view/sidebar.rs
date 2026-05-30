@@ -30,7 +30,7 @@ impl App {
             text("Albums").size(TEXT_MD).color(FG_DIM),
             Space::new().width(Length::Fill),
             button(text("⚡").size(TEXT_MD))
-                .on_press(Msg::ToggleCriteria)
+                .on_press(Msg::ToggleFilterPanel)
                 .style(icon_btn_style),
             button(text("+").size(TEXT_BASE))
                 .on_press(Msg::StartCreateAlbum)
