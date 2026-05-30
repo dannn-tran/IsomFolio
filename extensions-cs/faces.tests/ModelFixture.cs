@@ -1,5 +1,3 @@
-using IsomFolio.Extensions.Sdk;
-
 namespace IsomFolio.Extensions.Faces.Tests;
 
 public class ModelFixture : IAsyncLifetime
@@ -13,7 +11,7 @@ public class ModelFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        await new ModelDownloader(new MessageWriter(TextWriter.Null)).EnsureModelsDownloadedAsync(ModelsDir);
+        await new ModelDownloader().EnsureModelsDownloadedAsync(ModelsDir);
         var variant = ModelVariant.Current();
         DetPath = Path.Combine(ModelsDir, variant.Name, variant.DetectionFile);
         RecPath = Path.Combine(ModelsDir, variant.Name, variant.RecognitionFile);

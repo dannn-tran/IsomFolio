@@ -61,19 +61,6 @@ public class MessageWriterTests
     }
 
     [Fact]
-    public async Task Log_UsesSnakeCaseKeys()
-    {
-        var sw = new StringWriter();
-        var writer = new MessageWriter(sw);
-        await writer.LogAsync(LogLevel.Info, "test message");
-        var raw = sw.ToString().Trim();
-
-        Assert.Contains("\"type\":\"log\"", raw);
-        Assert.Contains("\"level\":\"info\"", raw);
-        Assert.Contains("\"message\":\"test message\"", raw);
-    }
-
-    [Fact]
     public async Task SendProgress_EmitsTypeAndIdAndPercent()
     {
         var sw = new StringWriter();

@@ -17,13 +17,13 @@ public class RequestHandlerTests(ModelFixture models) : IClassFixture<ModelFixtu
     [Fact]
     public async Task Handle_EmptyFiles_ReturnsEmpty()
     {
-        var logger = new MessageWriter(TextWriter.Null);
+        using var nullWriter = new MessageWriter(TextWriter.Null);
         using var detector = new FaceDetector(models.DetPath);
         using var recognizer = new FaceRecognizer(models.RecPath);
         var (cache, dbPath) = TempCache();
         try
         {
-            using var handler = new RequestHandler(new DbscanConfig(), logger, logger, cache, detector, recognizer);
+            using var handler = new RequestHandler(new DbscanConfig(), nullWriter, cache, detector, recognizer);
             var req = new ClusterFacesRequest(1, new ClusterFacesRequestParams([], ForceFull: false));
             var result = await handler.HandleAsync(req, TestContext.Current.CancellationToken);
 
@@ -40,13 +40,13 @@ public class RequestHandlerTests(ModelFixture models) : IClassFixture<ModelFixtu
     [Fact]
     public async Task Handle_WithFaceImage_FindsFaces()
     {
-        var logger = new MessageWriter(TextWriter.Null);
+        using var nullWriter = new MessageWriter(TextWriter.Null);
         using var detector = new FaceDetector(models.DetPath);
         using var recognizer = new FaceRecognizer(models.RecPath);
         var (cache, dbPath) = TempCache();
         try
         {
-            using var handler = new RequestHandler(new DbscanConfig(), logger, logger, cache, detector, recognizer);
+            using var handler = new RequestHandler(new DbscanConfig(), nullWriter, cache, detector, recognizer);
             var req = new ClusterFacesRequest(1, new ClusterFacesRequestParams(
                 [new ImageInfo("file1", TestFaceImage, 0)], ForceFull: true));
             var result = await handler.HandleAsync(req, TestContext.Current.CancellationToken);

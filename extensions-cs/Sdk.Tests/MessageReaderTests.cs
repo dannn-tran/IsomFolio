@@ -4,12 +4,10 @@ namespace IsomFolio.Extensions.Sdk.Tests;
 
 public class MessageReaderTests
 {
-    private static readonly IExtensionLogger NullLogger = new NullExtensionLogger();
-
     private static async Task<List<InboundMessage>> CollectAsync(string input, CancellationToken ct = default)
     {
         var msgs = new List<InboundMessage>();
-        await foreach (var msg in MessageReader.ReadAllAsync(new StringReader(input), NullLogger, ct))
+        await foreach (var msg in MessageReader.ReadAllAsync(new StringReader(input), ct))
             msgs.Add(msg);
         return msgs;
     }
@@ -95,7 +93,7 @@ public class MessageReaderTests
         var msgs = new List<InboundMessage>();
         var readTask = Task.Run(async () =>
         {
-            await foreach (var msg in MessageReader.ReadAllAsync(reader, NullLogger, cts.Token))
+            await foreach (var msg in MessageReader.ReadAllAsync(reader, cts.Token))
                 msgs.Add(msg);
         }, ct);
 
@@ -139,7 +137,3 @@ file static class ChannelExtensions
     }
 }
 
-file sealed class NullExtensionLogger : IExtensionLogger
-{
-    public ValueTask LogAsync(LogLevel level, string message) => ValueTask.CompletedTask;
-}
