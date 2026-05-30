@@ -135,11 +135,18 @@ fn exercise_capability(proc: &ExtensionProcess, capability: &str) {
             let handle = proc.send("cluster_faces", params).expect("send cluster_faces");
             let result_opt = handle.result_rx.recv_timeout(Duration::from_secs(600));
             let result = match result_opt {
-                Ok(r) => r.expect("cluster_faces returned an error"),
+                Ok(Ok(r)) => r,
+                Ok(Err(e)) => {
+                    let stderr = proc.last_stderr();
+                    panic!(
+                        "cluster_faces returned error: {e}. Last stderr:\n{}",
+                        stderr.join("\n")
+                    );
+                }
                 Err(_) => {
                     let stderr = proc.last_stderr();
                     panic!(
-                        "cluster_faces produced no result within 10 minutes. Last stderr from extension:\n{}",
+                        "cluster_faces produced no result within 10 minutes. Last stderr:\n{}",
                         stderr.join("\n")
                     );
                 }

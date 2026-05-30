@@ -89,7 +89,7 @@ public class FaceDetector : IDisposable
 
             for (var i = 0; i < n; i++)
             {
-                var score = Sigmoid(scores[i]);
+                var score = scores[i];
                 if (score < ScoreThresh) continue;
 
                 var cx = anchors[i].x;
@@ -165,8 +165,6 @@ public class FaceDetector : IDisposable
         var areaB = (b[2] - b[0]) * (b[3] - b[1]);
         return inter / (areaA + areaB - inter + 1e-6f);
     }
-
-    private static float Sigmoid(float x) => 1f / (1f + MathF.Exp(-x));
 
     public void Dispose()
     {
