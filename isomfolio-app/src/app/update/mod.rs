@@ -12,7 +12,7 @@ use iced::Task;
 use isomfolio_core::models::ThumbnailState;
 
 use super::{
-    unix_to_date_str, AlbumKind, App, Msg, SidebarItem,
+    unix_to_date_str, AlbumKind, App, ExportMode, Msg, SidebarItem,
 };
 
 pub(super) use super::LockUnwrap;
@@ -158,6 +158,93 @@ impl App {
 
             Msg::ToggleTaskPanel => {
                 self.task_panel_open = !self.task_panel_open;
+                Task::none()
+            }
+
+            Msg::ExportSelectionToDialog(mode) => {
+                let paths: Vec<String> = self
+                    .grid_selected
+                    .iter()
+                    .filter_map(|id| self.files.iter().find(|f| &f.id == id))
+                    .filter(|f| !f.is_orphaned)
+                    .map(|f| f.path.clone())
+                    .collect();
+                if paths.is_empty() {
+                    return Task::none();
+                }
+                self.context_menu = None;
+                let title = match mode {
+                    ExportMode::Copy => "Copy files to…",
+                    ExportMode::Move => "Move files to…",
+                };
+                Task::perform(
+                    async move {
+                        let dest = rfd::AsyncFileDialog::new()
+                            .set_title(title)
+                            .pick_folder()
+                            .await
+                            .map(|h| h.path().to_string_lossy().to_string());
+                        (paths, dest, mode)
+                    },
+                    |(paths, dest, mode)| Msg::ExportDestPicked { paths, dest, mode },
+                )
+            }
+
+            Msg::ExportDestPicked { paths, dest: None, .. } => {
+                let _ = paths;
+                Task::none()
+            }
+
+            Msg::ExportDestPicked { paths, dest: Some(dest), mode } => {
+                let n = paths.len();
+                let dest_name = std::path::Path::new(&dest)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&dest)
+                    .to_string();
+                let verb = match mode {
+                    ExportMode::Copy => "Copying",
+                    ExportMode::Move => "Moving",
+                };
+                let plural = if n == 1 { "" } else { "s" };
+                let task_id = self.bg_push(format!("{verb} {n} file{plural} to \u{201c}{dest_name}\u{201d}\u{2026}"));
+                self.task_panel_open = true;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            for src in &paths {
+                                let filename = std::path::Path::new(src)
+                                    .file_name()
+                                    .ok_or_else(|| format!("invalid path: {src}"))?;
+                                let dst = std::path::Path::new(&dest).join(filename);
+                                match mode {
+                                    ExportMode::Copy => {
+                                        std::fs::copy(src, &dst)
+                                            .map_err(|e| format!("copy {src}: {e}"))?;
+                                    }
+                                    ExportMode::Move => {
+                                        std::fs::rename(src, &dst).or_else(|_| {
+                                            std::fs::copy(src, &dst)
+                                                .and_then(|_| std::fs::remove_file(src))
+                                                .map_err(|e| std::io::Error::other(e.to_string()))
+                                        }).map_err(|e| format!("move {src}: {e}"))?;
+                                    }
+                                }
+                            }
+                            Ok(())
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    move |result| Msg::ExportDone { task_id, result },
+                )
+            }
+
+            Msg::ExportDone { task_id, result } => {
+                match result {
+                    Ok(()) => self.bg_complete(task_id),
+                    Err(e) => self.bg_fail(task_id, e),
+                }
                 Task::none()
             }
 

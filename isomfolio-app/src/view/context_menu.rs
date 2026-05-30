@@ -6,7 +6,7 @@ use iced::{
 use isomfolio_core::models::AlbumKind;
 
 use super::styles::{BG_MODAL, BORDER, ERR, FG, FG_DIM, HINT_HOVER, SPACE_1, SPACE_1_5, SPACE_2, TEXT_MD};
-use crate::app::{App, ContextMenuTarget, Msg};
+use crate::app::{App, ContextMenuTarget, ExportMode, Msg};
 
 const MENU_WIDTH: f32 = 180.0;
 const SUBMENU_WIDTH: f32 = 160.0;
@@ -193,6 +193,12 @@ impl App {
                     items.push(Some(("Import Apple Finder tags".into(), Msg::SyncAppleTagsForSelection, false)));
                 }
 
+                let has_non_orphaned = self
+                    .grid_selected
+                    .iter()
+                    .filter_map(|id| self.files.iter().find(|f| &f.id == id))
+                    .any(|f| !f.is_orphaned);
+
                 if n == 1 {
                     let selected_file = self
                         .grid_selected
@@ -206,7 +212,7 @@ impl App {
                             items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(vec![f.path.clone()]), false)));
                         }
                     }
-                } else {
+                } else if has_non_orphaned {
                     let paths: Vec<String> = self
                         .grid_selected
                         .iter()
@@ -214,9 +220,12 @@ impl App {
                         .filter(|f| !f.is_orphaned)
                         .map(|f| f.path.clone())
                         .collect();
-                    if !paths.is_empty() {
-                        items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(paths), false)));
-                    }
+                    items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(paths), false)));
+                }
+
+                if has_non_orphaned {
+                    items.push(Some(("Copy to Folder…".into(), Msg::ExportSelectionToDialog(ExportMode::Copy), false)));
+                    items.push(Some(("Move to Folder…".into(), Msg::ExportSelectionToDialog(ExportMode::Move), false)));
                 }
                 items
             }

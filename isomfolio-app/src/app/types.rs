@@ -333,6 +333,16 @@ pub enum Msg {
     CancelRemoveMissing,
     LocateFile(String),
     FileLocated { file_id: String, new_path: std::path::PathBuf },
+
+    ExportSelectionToDialog(ExportMode),
+    ExportDestPicked { paths: Vec<String>, dest: Option<String>, mode: ExportMode },
+    ExportDone { task_id: BgTaskId, result: Result<(), String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportMode {
+    Copy,
+    Move,
 }
 
 use isomfolio_core::models::FlagFilter;
