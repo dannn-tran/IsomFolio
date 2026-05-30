@@ -199,6 +199,14 @@ impl App {
                     .filter_map(|id| self.files.iter().find(|f| &f.id == id))
                     .any(|f| !f.is_orphaned);
 
+                let reveal_label = if cfg!(target_os = "macos") {
+                    "Show in Finder"
+                } else if cfg!(target_os = "windows") {
+                    "Show in Explorer"
+                } else {
+                    "Open Containing Folder"
+                };
+
                 if n == 1 {
                     let selected_file = self
                         .grid_selected
@@ -209,7 +217,7 @@ impl App {
                         if f.is_orphaned {
                             items.push(Some(("Locate…".into(), Msg::LocateFile(f.id.clone()), false)));
                         } else {
-                            items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(vec![f.path.clone()]), false)));
+                            items.push(Some((reveal_label.into(), Msg::ShowInFinder(vec![f.path.clone()]), false)));
                         }
                     }
                 } else if has_non_orphaned {
@@ -220,7 +228,7 @@ impl App {
                         .filter(|f| !f.is_orphaned)
                         .map(|f| f.path.clone())
                         .collect();
-                    items.push(Some(("Show in Finder".into(), Msg::ShowInFinder(paths), false)));
+                    items.push(Some((reveal_label.into(), Msg::ShowInFinder(paths), false)));
                 }
 
                 if has_non_orphaned {
