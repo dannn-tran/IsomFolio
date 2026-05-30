@@ -9,25 +9,23 @@ extension package they want to validate.
 
 ## Quick start — testing the bundled Faces extension
 
+Two scripts in `scripts/` handle the workflow:
+
 ```bash
-# 1. Publish + package Faces as .isfx (osx-x64 shown; pick the RID for your host)
-cd extensions-cs/Faces
-dotnet publish -c Release -r osx-x64 --self-contained --nologo
-
-# 2. Zip the publish output's contents and drop it into the fixtures dir
-cd bin/Release/net10.0/osx-x64/publish
-zip -rq "$OLDPWD/../../../../../../isomfolio-extension-host/tests/fixtures/faces.isfx" . \
-    -x "*.pdb" "*.dSYM/*"
-
-# 3. Run the integration test (from the repo root)
-cd <repo-root>
+./scripts/build-faces.sh                        # publishes to extensions-cs/dist/
+./scripts/sync-test-fixtures.sh                 # copies dist/*.isfx → fixtures/
 cargo test -p isomfolio-extension-host --test isfx_package_smoke
 ```
 
-For full publish/zip details — runtime identifiers, AOT trade-offs, layout — see
-`extensions-cs/README.md`. **Architecture must match**: `osx-arm64` for Apple
-Silicon, `osx-x64` for Intel Macs, otherwise launch fails with a cryptic
-"type initializer threw an exception".
+`build-faces.sh` autodetects the host architecture (`osx-arm64` for Apple
+Silicon, `osx-x64` for Intel). Pass an explicit RID to override, or `--all`
+to build both Mac variants. The output is named `faces-<rid>.isfx`, and a
+copy with the generic name `faces.isfx` points at the host-arch build so
+that's the file to install via the IsomFolio UI.
+
+For manual control — explicit publish + zip, or building for a foreign arch —
+see `extensions-cs/README.md`. **Architecture must match**, otherwise launch
+fails with a cryptic "type initializer threw an exception".
 
 ## Faster iteration with `buffalo_s`
 

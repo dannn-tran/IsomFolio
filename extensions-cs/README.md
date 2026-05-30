@@ -19,9 +19,23 @@ C#/.NET implementations of IsomFolio extensions.
 
 Extensions are distributed as `.isfx` files — zip archives containing the extension's published binary, manifest, native libs, and any auxiliary data.
 
+### Scripted (recommended)
+
+For Faces specifically, use the build script — it autodetects your host architecture and produces `extensions-cs/dist/faces.isfx`:
+
+```bash
+./scripts/build-faces.sh              # host arch only
+./scripts/build-faces.sh --all        # osx-x64 AND osx-arm64
+./scripts/build-faces.sh osx-arm64    # explicit RID
+```
+
+The output is a generic `faces.isfx` (host-arch alias) plus an arch-tagged `faces-<rid>.isfx`. Install the generic one via the IsomFolio UI.
+
+### Manual
+
 The example below packages **Faces** for Apple Silicon. Adjust the runtime ID (`-r`) for your target: `osx-arm64`, `osx-x64`, `linux-x64`, `linux-arm64`, `win-x64`.
 
-### 1. Publish
+#### 1. Publish
 
 ```bash
 cd extensions-cs/Faces
@@ -35,7 +49,7 @@ Output lands in `bin/Release/net10.0/osx-arm64/publish/`. This includes:
 - `libonnxruntime.dylib` and other native libs
 - `runtimes/` subdir (when not AOT)
 
-### 2. Package
+#### 2. Package
 
 The installer expects the archive's **root** to contain `manifest.json` plus the executable named after the manifest's `name` field. Zip the publish dir's contents — not the dir itself.
 
@@ -49,7 +63,7 @@ zip -r ../../../../../../dist/faces.isfx . -x "*.pdb"
 
 The installer preserves directory structure, so nested layouts (e.g. `runtimes/osx-arm64/native/…`) are extracted intact.
 
-### 3. Install
+#### 3. Install
 
 In IsomFolio: **Settings → Extensions → Install Extension…** and pick the `.isfx` file.
 
@@ -86,10 +100,8 @@ dotnet test Faces.Tests/Faces.Tests.csproj     # Faces (downloads ONNX models on
 The Rust side runs an end-to-end smoke test against any `.isfx` you build:
 
 ```bash
-# After publishing + zipping Faces (see "Building and packaging an extension" above),
-# drop the .isfx into the fixtures dir and run the host's integration test.
-cp dist/faces.isfx ../isomfolio-extension-host/tests/fixtures/
-cd ..
+./scripts/build-faces.sh                  # produces extensions-cs/dist/faces.isfx
+./scripts/sync-test-fixtures.sh           # copies dist/*.isfx → fixtures/
 cargo test -p isomfolio-extension-host --test isfx_package_smoke
 ```
 
