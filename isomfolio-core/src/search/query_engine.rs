@@ -6,7 +6,7 @@ use crate::storage::db::{read_asset_file, FILE_COLS_PREFIXED as FILE_COLS};
 fn sort_column(f: SortField) -> &'static str {
     match f {
         SortField::Name => "f.filename",
-        SortField::Date => "COALESCE(f.exif_date_unix, f.modified_time)",
+        SortField::Date => "f.exif_date_unix",
         SortField::Size => "f.size",
         SortField::Ext => "f.extension",
     }
@@ -178,7 +178,8 @@ fn execute_query_inner(
     }
 
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
-    sql.push_str(&format!(" ORDER BY {} {}", sort_column(query.sort_by), dir));
+    let nulls_clause = if matches!(query.sort_by, SortField::Date) { " NULLS LAST" } else { "" };
+    sql.push_str(&format!(" ORDER BY {} {}{}", sort_column(query.sort_by), dir, nulls_clause));
 
     let _ = param_idx;
 
