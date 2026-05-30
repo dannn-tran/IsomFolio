@@ -18,4 +18,4 @@ pub use config::{load_extension_config, save_extension_config};
 pub use error::Error;
 pub use install::{install_extension_package, uninstall_extension};
 pub use manifest::{discover_extensions, ConfigField, ConfigFieldKind, ExtensionManifest};
-pub use process::{BatchHandle, ExtensionCallHandle, ExtensionProcess};
+pub use process::{format_log_line, BatchHandle, ExtensionCallHandle, ExtensionProcess};

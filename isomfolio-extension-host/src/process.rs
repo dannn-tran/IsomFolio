@@ -107,7 +107,7 @@ impl ExtensionProcess {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 let Ok(line) = line else { break };
-                eprintln!("[{extension_name_for_stderr}] {line}");
+                eprintln!("[{extension_name_for_stderr}] {}", format_log_line(&line));
                 let mut buf = stderr_buf_writer.lock().unwrap_or_else(|e| e.into_inner());
                 buf.push_back(line);
                 if buf.len() > STDERR_RING_SIZE {
@@ -168,9 +168,6 @@ impl ExtensionProcess {
                         let _ = handshake_tx.send(Err(format!("fatal: {message}")));
                         return;
                     }
-                    Ok(StdoutLine::Log { level, message }) => {
-                        eprintln!("[{extension_name_for_reader}] [{level}] {message}");
-                    }
                     Ok(_) => {}
                     Err(e) => eprintln!("[{extension_name_for_reader}] parse error during handshake: {e}"),
                 }
@@ -193,9 +190,6 @@ impl ExtensionProcess {
                     Ok(StdoutLine::Fatal { message, .. }) => {
                         let _ = ready_tx.send(Err(format!("fatal: {message}")));
                         return;
-                    }
-                    Ok(StdoutLine::Log { level, message }) => {
-                        eprintln!("[{extension_name_for_reader}] [{level}] {message}");
                     }
                     Ok(_) => {}
                     Err(e) => eprintln!("[{extension_name_for_reader}] parse error during startup: {e}"),
@@ -348,6 +342,20 @@ impl Drop for ExtensionProcess {
     }
 }
 
+/// Parse a JSON log entry from extension stderr and format it for display.
+/// Falls back to the raw line if parsing fails (e.g. native crash output).
+pub fn format_log_line(line: &str) -> String {
+    #[derive(serde::Deserialize)]
+    struct LogEntry {
+        level: String,
+        component: String,
+        message: String,
+    }
+    serde_json::from_str::<LogEntry>(line)
+        .map(|e| format!("[{}] {}: {}", e.level, e.component, e.message))
+        .unwrap_or_else(|_| line.to_owned())
+}
+
 fn reader_loop(
     lines: impl Iterator<Item = std::io::Result<String>>,
     pending: PendingMap,
@@ -368,9 +376,6 @@ fn reader_loop(
                 if let Some(tx) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
                     let _ = tx.send(Err(error));
                 }
-            }
-            Ok(StdoutLine::Log { level, message }) => {
-                eprintln!("[{extension_name}] [{level}] {message}");
             }
             Ok(StdoutLine::Progress { id, percent }) => {
                 if let Some(tx) = progress_sinks.lock().unwrap_or_else(|e| e.into_inner()).get(&id) {

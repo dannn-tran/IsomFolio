@@ -24,5 +24,4 @@ pub enum StdoutLine {
     Ready,
     Fatal { repairable: bool, message: String },
     Progress { id: u64, percent: u8 },
-    Log { level: String, message: String },
 }

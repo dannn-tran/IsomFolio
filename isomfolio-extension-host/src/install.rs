@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use zip::ZipArchive;
 
 use crate::manifest::{discover_extensions, ExtensionManifest};
-use crate::process::BoundedLines;
+use crate::process::{format_log_line, BoundedLines};
 
 /// Install an `.isfx` zip package into `extensions_root`.
 ///
@@ -19,6 +19,7 @@ use crate::process::BoundedLines;
 pub fn install_extension_package(
     package_path: &Path,
     extensions_root: &Path,
+    data_dir: &Path,
 ) -> Result<ExtensionManifest, String> {
     let file = fs::File::open(package_path).map_err(|e| format!("open package: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
@@ -73,7 +74,7 @@ pub fn install_extension_package(
         })?;
 
     if installed.needs_setup {
-        run_setup(&installed)?;
+        run_setup(&installed, data_dir)?;
     }
 
     Ok(installed)
@@ -98,18 +99,20 @@ fn safe_relative_path(raw: &str) -> Option<PathBuf> {
     Some(out)
 }
 
-fn run_setup(manifest: &ExtensionManifest) -> Result<(), String> {
+fn run_setup(manifest: &ExtensionManifest, data_dir: &Path) -> Result<(), String> {
     let mut child = Command::new(&manifest.executable)
         .arg("setup")
-        .stdout(Stdio::piped())
+        .arg("--data-dir")
+        .arg(data_dir)
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("spawn setup for '{}': {e}", manifest.name))?;
 
-    let stdout = child.stdout.take().expect("stdout piped on spawn");
-    for line in BoundedLines(BufReader::new(stdout)) {
+    let stderr = child.stderr.take().expect("stderr piped on spawn");
+    for line in BoundedLines(BufReader::new(stderr)) {
         let Ok(line) = line else { break };
-        eprintln!("[{} setup] {line}", manifest.name);
+        eprintln!("[{}] {}", manifest.name, format_log_line(&line));
     }
 
     let status = child.wait().map_err(|e| format!("wait for setup: {e}"))?;

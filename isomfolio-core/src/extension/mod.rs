@@ -19,7 +19,7 @@ pub fn discover_extensions() -> Vec<ExtensionManifest> {
 
 /// Install an `.isfx` package into the app's extensions root.
 pub fn install_extension_package(package_path: &Path) -> Result<ExtensionManifest, String> {
-    isomfolio_extension_host::install_extension_package(package_path, &extensions_dir())
+    isomfolio_extension_host::install_extension_package(package_path, &extensions_dir(), &models_dir())
 }
 
 /// Uninstall an extension by name from the app's extensions root.
@@ -76,6 +76,13 @@ impl ExtensionProcess {
 
     pub fn last_stderr(&self) -> Vec<String> {
         self.0.last_stderr()
+    }
+
+    pub fn formatted_last_stderr(&self) -> Vec<String> {
+        self.0.last_stderr()
+            .into_iter()
+            .map(|line| isomfolio_extension_host::format_log_line(&line))
+            .collect()
     }
 }
 
