@@ -488,27 +488,38 @@ impl App {
                 self.files.get(idx).map(|f| f.id.as_str()).unwrap_or("")
             ).copied().unwrap_or(0);
 
-            let flag_btn = |label: &'static str, f: F, active_color: Color, is_current: bool| -> Element<Msg> {
-                button(text(label).size(TEXT_MD))
-                    .on_press(Msg::SetFlag(f))
-                    .style(move |_: &Theme, _| button::Style {
-                        background: Some(Background::Color(if is_current {
-                            Color { r: active_color.r, g: active_color.g, b: active_color.b, a: 0.35 }
+            let flag_btn = |glyph: &'static str, key: &'static str, f: F, active_color: Color, is_current: bool| -> Element<Msg> {
+                button(
+                    column![
+                        text(glyph).size(TEXT_MD),
+                        text(key).size(TEXT_SM).color(if is_current {
+                            Color { a: 0.7, ..Color::WHITE }
                         } else {
-                            Color { r: 1.0, g: 1.0, b: 1.0, a: 0.08 }
-                        })),
-                        text_color: if is_current { Color::WHITE } else { FG_DIM },
-                        border: Border { radius: 4.0.into(), ..Default::default() },
-                        shadow: iced::Shadow::default(),
-                        snap: false,
-                    })
-                    .into()
+                            Color { a: 0.35, ..Color::WHITE }
+                        }),
+                    ]
+                    .align_x(Alignment::Center)
+                    .spacing(1.0),
+                )
+                .on_press(Msg::SetFlag(f))
+                .style(move |_: &Theme, _| button::Style {
+                    background: Some(Background::Color(if is_current {
+                        Color { r: active_color.r, g: active_color.g, b: active_color.b, a: 0.55 }
+                    } else {
+                        Color { r: 1.0, g: 1.0, b: 1.0, a: 0.08 }
+                    })),
+                    text_color: if is_current { Color::WHITE } else { FG_DIM },
+                    border: Border { radius: 4.0.into(), ..Default::default() },
+                    shadow: iced::Shadow::default(),
+                    snap: false,
+                })
+                .into()
             };
 
             let flag_row = row![
-                flag_btn("✓", F::Pick,      ACCENT, flag == F::Pick),
-                flag_btn("○", F::Unflagged, FG_DIM, flag == F::Unflagged),
-                flag_btn("✕", F::Reject,    ERR,    flag == F::Reject),
+                flag_btn("✓", "P", F::Pick,      ACCENT, flag == F::Pick),
+                flag_btn("○", "U", F::Unflagged, FG_DIM, flag == F::Unflagged),
+                flag_btn("✕", "X", F::Reject,    ERR,    flag == F::Reject),
             ]
             .spacing(SPACE_1_5)
             .align_y(Alignment::Center);
