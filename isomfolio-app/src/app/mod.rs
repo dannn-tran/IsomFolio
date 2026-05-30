@@ -904,7 +904,7 @@ impl App {
 pub fn sort_field_label(f: SortField) -> &'static str {
     match f {
         SortField::Name => "Name",
-        SortField::Date => "Date",
+        SortField::Date => "Date Shot",
         SortField::Size => "Size",
         SortField::Ext => "Type",
     }
