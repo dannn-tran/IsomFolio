@@ -229,7 +229,7 @@ mod tests {
                 is_orphaned: false,
                 orphaned_at: None,
                 flag: Flag::Unflagged,
-                exif_date_unix: None,
+                exif_date_unix: Some(mtime),
                 gps_lat: None,
                 gps_lon: None,
             }],

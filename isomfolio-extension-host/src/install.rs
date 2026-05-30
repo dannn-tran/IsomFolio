@@ -167,7 +167,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let sentinel = tmp.path().join("setup_ran");
         let exe = write_script(tmp.path(), "test-extension", &format!("touch {}", sentinel.display()));
-        run_setup(&make_manifest(exe)).expect("setup failed");
+        let data = TempDir::new().unwrap();
+        run_setup(&make_manifest(exe), data.path()).expect("setup failed");
         assert!(sentinel.exists(), "setup was not run");
     }
 
@@ -175,7 +176,8 @@ mod tests {
     fn setup_failure_returns_error() {
         let tmp = TempDir::new().unwrap();
         let exe = write_script(tmp.path(), "test-extension", "exit 1");
-        let err = run_setup(&make_manifest(exe)).unwrap_err();
+        let data = TempDir::new().unwrap();
+        let err = run_setup(&make_manifest(exe), data.path()).unwrap_err();
         assert!(err.contains("setup exited with 1"), "unexpected: {err}");
     }
 

@@ -9,7 +9,7 @@
     <NoWarn>NU1902</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="xunit.v3" Version="1.*" />
+    <PackageReference Include="xunit.v3" Version="3.*" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sdk/Sdk.csproj" />

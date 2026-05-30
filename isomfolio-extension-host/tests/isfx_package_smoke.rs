@@ -72,7 +72,7 @@ fn each_discovered_isfx_passes_smoke_test() {
         let install_root = TempDir::new().expect("tempdir");
         let data_dir = TempDir::new().expect("tempdir");
 
-        let manifest = install_extension_package(&pkg, install_root.path())
+        let manifest = install_extension_package(&pkg, install_root.path(), data_dir.path())
             .unwrap_or_else(|e| panic!("install {} failed: {e}", pkg.display()));
 
         let extension_name = manifest.name.clone();
