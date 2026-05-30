@@ -3,29 +3,30 @@ using IsomFolio.Extensions.Sdk;
 
 namespace IsomFolio.Extensions.Faces;
 
-public class ModelDownloader(IExtensionLogger logger)
+public class ModelDownloader
 {
     private static readonly HttpClient Client = new();
+    private readonly FacesLogger _log = new("models");
 
-    public async Task EnsureModelsDownloadedAsync(string dataDir, CancellationToken ct = default)
+    public async Task EnsureModelsDownloadedAsync(string dataDir, ModelVariant? variant = null, CancellationToken ct = default)
     {
-        var variant = ModelVariant.Current();
-        var dir = Path.Combine(dataDir, variant.Name);
+        var v = variant ?? ModelVariant.Current();
+        var dir = Path.Combine(dataDir, v.Name);
         Directory.CreateDirectory(dir);
 
-        if (!File.Exists(Path.Combine(dir, variant.DetectionFile))
-            || !File.Exists(Path.Combine(dir, variant.RecognitionFile)))
-            await DownloadAndExtractAsync(variant, dir, ct);
+        if (!File.Exists(Path.Combine(dir, v.DetectionFile))
+            || !File.Exists(Path.Combine(dir, v.RecognitionFile)))
+            await DownloadAndExtractAsync(v, dir, ct);
 
-        if (!File.Exists(Path.Combine(dir, variant.DetectionFile)))
-            throw new FileNotFoundException($"{variant.DetectionFile} not found in {dir}");
-        if (!File.Exists(Path.Combine(dir, variant.RecognitionFile)))
-            throw new FileNotFoundException($"{variant.RecognitionFile} not found in {dir}");
+        if (!File.Exists(Path.Combine(dir, v.DetectionFile)))
+            throw new FileNotFoundException($"{v.DetectionFile} not found in {dir}");
+        if (!File.Exists(Path.Combine(dir, v.RecognitionFile)))
+            throw new FileNotFoundException($"{v.RecognitionFile} not found in {dir}");
     }
 
     private async Task DownloadAndExtractAsync(ModelVariant variant, string dir, CancellationToken ct)
     {
-        await logger.LogAsync(LogLevel.Info, $"downloading {variant.Name} face models from GitHub…");
+        await _log.LogAsync(LogLevel.Info, $"downloading {variant.Name} face models from GitHub…");
 
         var tmpPath = Path.Combine(dir, $"{variant.Name}.zip.tmp");
         try
@@ -51,7 +52,7 @@ public class ModelDownloader(IExtensionLogger logger)
                     if (percent / 10 != lastReported / 10 && percent % 10 == 0)
                     {
                         lastReported = percent;
-                        await logger.LogAsync(LogLevel.Info, $"downloading… {percent}%");
+                        await _log.LogAsync(LogLevel.Info, $"downloading… {percent}%");
                     }
                 }
             }
@@ -63,7 +64,7 @@ public class ModelDownloader(IExtensionLogger logger)
             throw;
         }
 
-        await logger.LogAsync(LogLevel.Info, "extracting models…");
+        await _log.LogAsync(LogLevel.Info, "extracting models…");
         await using (var archive = new ZipArchive(File.OpenRead(tmpPath), ZipArchiveMode.Read))
         {
             foreach (var name in new[] { variant.DetectionFile, variant.RecognitionFile })
@@ -73,7 +74,7 @@ public class ModelDownloader(IExtensionLogger logger)
                 await using var entryStream = await entry.OpenAsync(ct);
                 await using var outFile = File.Create(Path.Combine(dir, name));
                 await entryStream.CopyToAsync(outFile, ct);
-                await logger.LogAsync(LogLevel.Info, $"{name} ready");
+                await _log.LogAsync(LogLevel.Info, $"{name} ready");
             }
         }
         File.Delete(tmpPath);

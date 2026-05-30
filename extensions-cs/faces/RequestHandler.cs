@@ -6,9 +6,11 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace IsomFolio.Extensions.Faces;
 
-public class RequestHandler(DbscanConfig dbscanConfig, IExtensionLogger logger, IMessageWriter writer,
+public class RequestHandler(DbscanConfig dbscanConfig, IMessageWriter writer,
     EmbeddingCache cache, FaceDetector detector, FaceRecognizer recognizer) : IRequestHandler
 {
+    private readonly FacesLogger _log = new("inference");
+
     public async Task<ClusterResult> HandleAsync(ClusterFacesRequest request, CancellationToken ct = default)
     {
         var files = request.Params.Files;
@@ -17,7 +19,7 @@ public class RequestHandler(DbscanConfig dbscanConfig, IExtensionLogger logger, 
         if (total == 0)
             return new ClusterResult([], []);
 
-        await logger.LogAsync(LogLevel.Info, $"processing {total} files…");
+        await _log.LogAsync(LogLevel.Info, $"processing {total} files…");
 
         var logEvery = Math.Max(1, total / 20);
         var lastPercent = -1;
@@ -33,12 +35,14 @@ public class RequestHandler(DbscanConfig dbscanConfig, IExtensionLogger logger, 
                 lastPercent = percent;
             }
             if ((i + 1) % logEvery == 0 || i + 1 == total)
-            {
-                await logger.LogAsync(LogLevel.Info, $"processed {i + 1}/{total}");
-            }
+                await _log.LogAsync(LogLevel.Info, $"processed {i + 1}/{total}");
 
             if (cache.IsCached(file.FileId, file.FileMtime)) continue;
             if (string.IsNullOrEmpty(file.ImagePath) || !File.Exists(file.ImagePath)) continue;
+
+            // Written before native inference so that on a native ORT crash (SIGSEGV bypasses
+            // AppDomain.UnhandledException) the last flushed line identifies the failing file.
+            _log.Log(LogLevel.Info, $"{i}/{total} {file.ImagePath}");
 
             try
             {
@@ -53,14 +57,24 @@ public class RequestHandler(DbscanConfig dbscanConfig, IExtensionLogger logger, 
                 }
             }
             catch (OperationCanceledException) { throw; }
+            catch (UnauthorizedAccessException)
+            {
+                await _log.LogAsync(LogLevel.Warning,
+                    $"skipped {file.ImagePath}: permission denied (iCloud placeholder or app lacks TCC access?)");
+            }
             catch (Exception ex)
             {
-                await logger.LogAsync(LogLevel.Warning, $"failed for {file.FileId}: {ex.Message}");
+                await _log.LogAsync(LogLevel.Warning, $"failed for {file.FileId}: {ex.Message}");
             }
+
+            // Photos can be 60–100 MB as Rgb24; they land on the LOH and won't be collected
+            // without an explicit gen-2 sweep. Optimized mode can skip the sweep if it deems
+            // it not cost-effective; Forced ensures the LOH is always reclaimed after each image.
+            GC.Collect(2, GCCollectionMode.Forced);
         }
 
         await writer.SendProgressAsync(request.Id, 82);
-        await logger.LogAsync(LogLevel.Info, "clustering…");
+        await _log.LogAsync(LogLevel.Info, "clustering…");
 
         var rows = cache.LoadAll();
         if (rows.Count == 0)
@@ -75,12 +89,12 @@ public class RequestHandler(DbscanConfig dbscanConfig, IExtensionLogger logger, 
         int[] labels;
         if (!request.Params.ForceFull && centroids.Count > 0)
         {
-            await logger.LogAsync(LogLevel.Info, $"incremental assignment against {centroids.Count} centroids…");
+            await _log.LogAsync(LogLevel.Info, $"incremental assignment against {centroids.Count} centroids…");
             labels = Clustering.AssignToCentroids(embeddings, centroids.Values.ToArray(), dbscanConfig.Eps);
         }
         else
         {
-            await logger.LogAsync(LogLevel.Info, "full DBSCAN clustering…");
+            await _log.LogAsync(LogLevel.Info, "full DBSCAN clustering…");
             labels = Clustering.Dbscan(embeddings, dbscanConfig.Eps, dbscanConfig.MinPts);
         }
 
@@ -127,7 +141,7 @@ public class RequestHandler(DbscanConfig dbscanConfig, IExtensionLogger logger, 
         }).ToList();
 
         await writer.SendProgressAsync(request.Id, 100);
-        await logger.LogAsync(LogLevel.Info, $"found {resultClusters.Count} people, {noiseMembers.Count} unclustered faces");
+        await _log.LogAsync(LogLevel.Info, $"found {resultClusters.Count} people, {noiseMembers.Count} unclustered faces");
 
         return new ClusterResult(resultClusters, noiseMembers);
     }
