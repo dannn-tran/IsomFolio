@@ -1,3 +1,4 @@
+using System.Text.Json;
 using IsomFolio.Extensions.Faces;
 using IsomFolio.Extensions.Sdk;
 
@@ -7,7 +8,8 @@ using IsomFolio.Extensions.Sdk;
 
 var dataDir = SdkArgs.DataDir(args);
 var port = ParsePort(args);
-var variant = ModelVariant.Current(ParseVariant(args));
+// Precedence: --variant arg > config.json (host config UI) > env > default.
+var variant = ModelVariant.Current(ParseVariant(args) ?? ReadConfiguredVariant());
 
 var crashLog = new FacesLogger("fatal");
 AppDomain.CurrentDomain.UnhandledException += (_, e) =>
@@ -54,4 +56,16 @@ static string? ParseVariant(string[] args)
         if (args[i] == "--variant")
             return args[i + 1];
     return null;
+}
+
+static string? ReadConfiguredVariant()
+{
+    var path = Path.Combine(AppContext.BaseDirectory, "config.json");
+    if (!File.Exists(path)) return null;
+    try
+    {
+        var cfg = JsonSerializer.Deserialize(File.ReadAllText(path), EngineJsonContext.Default.EngineConfig);
+        return cfg?.ModelVariant;
+    }
+    catch { return null; }
 }

@@ -1,9 +1,9 @@
 {
   "name": "faces",
   "version": "1.0.0",
-  "capabilities": ["cluster_faces"],
-  "needs_setup": true,
-  "description": "Local face detection and clustering using InsightFace ONNX models",
+  "capabilities": ["inference_engine"],
+  "needs_setup": false,
+  "description": "Local face detection and recognition (InsightFace ONNX). Runs as an HTTP inference engine; the host clusters faces into people.",
   "config_schema": [
     {
       "key": "model_variant",
@@ -12,23 +12,6 @@
       "options": ["buffalo_l", "buffalo_s"],
       "default": "buffalo_l",
       "description": "buffalo_l: high accuracy, ~280 MB download. buffalo_s: smaller and faster, ~25 MB."
-    },
-    {
-      "key": "eps",
-      "label": "Cluster sensitivity",
-      "kind": "number",
-      "default": "0.4",
-      "min": 0.1,
-      "max": 2.0,
-      "description": "How similar faces must be to group together. Lower = stricter matching."
-    },
-    {
-      "key": "min_pts",
-      "label": "Min faces per cluster",
-      "kind": "integer",
-      "default": "2",
-      "min": 1.0,
-      "description": "Minimum number of faces required to form a cluster."
     }
   ]
 }
