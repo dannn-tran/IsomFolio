@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use iced::{keyboard, widget, Point};
 
 pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
-use isomfolio_core::extension::ExtensionProcess;
+use isomfolio_core::extension::{ExtensionManifest, ExtensionProcess};
 use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag};
 
 #[derive(Debug, Clone)]
@@ -256,7 +256,7 @@ pub enum Msg {
     SetRatingFilter(Option<i32>),
     SetLocationFilter(Option<bool>),
 
-    ExtensionsDiscovered(Vec<Arc<ExtensionProcess>>),
+    ExtensionsDiscovered(Vec<Arc<ExtensionProcess>>, Option<ExtensionManifest>),
     RunExtension { addon_idx: usize, method: String, file_ids: Vec<String> },
     ExtensionProgress { addon_idx: usize, file_id: String, percent: u8 },
     ExtensionBatchProgress { name: String, done: usize, total: usize },
@@ -278,11 +278,16 @@ pub enum Msg {
     InstallExtensionPickFile,
     ExtensionPackagePicked(Option<String>),
     ExtensionInstalled(Arc<ExtensionProcess>),
+    EngineInstalled(ExtensionManifest),
     ExtensionInstallFailed(String),
     UninstallExtension(String),
     SetPreferredExtension { capability: String, extension_name: String },
 
     RunFaceClustering { force_full: bool },
+    InferenceEngineReady {
+        client: Result<Arc<crate::inference::InferenceClient>, String>,
+        force_full: bool,
+    },
     FaceClusteringDone(Vec<isomfolio_core::models::FaceClusterSummary>),
     FaceClustersBatchDone(Vec<isomfolio_core::models::FaceClusterSummary>),
     FaceClustersLoaded(Vec<isomfolio_core::models::FaceClusterSummary>),

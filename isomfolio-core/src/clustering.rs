@@ -3,16 +3,15 @@
 
 use sha2::{Digest, Sha256};
 
-use crate::models::FaceEmbeddingRow;
+use crate::models::{FaceClusterMember, FaceEmbeddingRow};
 
 /// Cluster id for faces that DBSCAN (or centroid assignment) leaves unclustered.
 pub const NOISE_CLUSTER_ID: &str = "face-unknown";
 
 /// Result of turning per-face labels into persistable clusters.
 pub struct ClusterAssembly {
-    /// (cluster_id, file_id, bbox_x, bbox_y, bbox_w, bbox_h) — clustered faces
-    /// plus noise under [`NOISE_CLUSTER_ID`].
-    pub members: Vec<(String, String, f64, f64, f64, f64)>,
+    /// Clustered faces plus noise (under [`NOISE_CLUSTER_ID`]).
+    pub members: Vec<FaceClusterMember>,
     /// (cluster_id, centroid) for real clusters only — noise has no centroid.
     pub centroids: Vec<(String, Vec<f32>)>,
 }
@@ -48,20 +47,27 @@ pub fn assemble_clusters(rows: &[FaceEmbeddingRow], labels: &[i32]) -> ClusterAs
         centroids.push((id.clone(), compute_centroid(&vecs)));
         for &i in &group {
             let r = &rows[i];
-            members.push((id.clone(), r.file_id.clone(), r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h));
+            members.push(FaceClusterMember {
+                cluster_id: id.clone(),
+                file_id: r.file_id.clone(),
+                bbox_x: r.bbox_x,
+                bbox_y: r.bbox_y,
+                bbox_w: r.bbox_w,
+                bbox_h: r.bbox_h,
+            });
         }
     }
 
     for &i in &noise {
         let r = &rows[i];
-        members.push((
-            NOISE_CLUSTER_ID.to_string(),
-            r.file_id.clone(),
-            r.bbox_x,
-            r.bbox_y,
-            r.bbox_w,
-            r.bbox_h,
-        ));
+        members.push(FaceClusterMember {
+            cluster_id: NOISE_CLUSTER_ID.to_string(),
+            file_id: r.file_id.clone(),
+            bbox_x: r.bbox_x,
+            bbox_y: r.bbox_y,
+            bbox_w: r.bbox_w,
+            bbox_h: r.bbox_h,
+        });
     }
 
     ClusterAssembly { members, centroids }
@@ -336,10 +342,10 @@ mod tests {
             let noise: Vec<_> = out
                 .members
                 .iter()
-                .filter(|(cid, ..)| cid == super::super::NOISE_CLUSTER_ID)
+                .filter(|m| m.cluster_id == super::super::NOISE_CLUSTER_ID)
                 .collect();
             assert_eq!(noise.len(), 1);
-            assert_eq!(noise[0].1, "d");
+            assert_eq!(noise[0].file_id, "d");
         }
 
         #[test]
@@ -347,8 +353,8 @@ mod tests {
             let rows_ab = vec![row("a", 0.1, 0.1, vec![1.0]), row("b", 0.2, 0.2, vec![1.0])];
             let rows_ba = vec![row("b", 0.2, 0.2, vec![1.0]), row("a", 0.1, 0.1, vec![1.0])];
 
-            let id1 = super::super::assemble_clusters(&rows_ab, &[0, 0]).members[0].0.clone();
-            let id2 = super::super::assemble_clusters(&rows_ba, &[0, 0]).members[0].0.clone();
+            let id1 = super::super::assemble_clusters(&rows_ab, &[0, 0]).members[0].cluster_id.clone();
+            let id2 = super::super::assemble_clusters(&rows_ba, &[0, 0]).members[0].cluster_id.clone();
 
             assert_eq!(id1, id2);
             assert!(id1.starts_with("face-"));

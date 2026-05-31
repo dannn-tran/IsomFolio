@@ -14,26 +14,28 @@ impl App {
             Msg::CatalogReady => {
                 self.start_thumbnail_pool();
                 let sidebar_task = self.load_sidebar_task();
-                let catalog_db = std::path::PathBuf::from(db_path(&self.catalog_dir));
                 let extension_task = Task::perform(
                     async move {
+                        // The inference engine is an HTTP server, not an IEP extension —
+                        // capture its manifest but launch it on demand, not here.
                         let manifests = discover_extensions();
-                        manifests
+                        let engine = manifests
+                            .iter()
+                            .find(|m| m.capabilities.iter().any(|c| c == "inference_engine"))
+                            .cloned();
+                        let procs = manifests
                             .into_iter()
+                            .filter(|m| !m.capabilities.iter().any(|c| c == "inference_engine"))
                             .filter_map(|m| {
-                                let db = if m.capabilities.contains(&"cluster_faces".to_string()) {
-                                    Some(catalog_db.as_path())
-                                } else {
-                                    None
-                                };
-                                ExtensionProcess::launch(m, db)
+                                ExtensionProcess::launch(m, None)
                                     .map(Arc::new)
                                     .map_err(|e| eprintln!("[extension] launch failed: {e}"))
                                     .ok()
                             })
-                            .collect::<Vec<_>>()
+                            .collect::<Vec<_>>();
+                        (procs, engine)
                     },
-                    Msg::ExtensionsDiscovered,
+                    |(procs, engine)| Msg::ExtensionsDiscovered(procs, engine),
                 );
                 let face_task = if let Some(conn) = self.catalog.clone() {
                     Task::perform(

@@ -6,6 +6,7 @@ use super::{EmbedFile, EmbedRequest, EmbedResponse, InferenceError, ManagedInfer
 
 /// HTTP client for the face inference engine. Wraps an optional managed child
 /// process — when present, the process is killed when the client is dropped.
+#[derive(Debug)]
 pub struct InferenceClient {
     http: reqwest::Client,
     base_url: Url,
@@ -15,6 +16,8 @@ pub struct InferenceClient {
 impl InferenceClient {
     /// Connect to a remote engine at a user-supplied base URL (e.g. a
     /// self-hosted InsightFace container). No process is managed.
+    // Wired up by the Custom-URL Settings option (step 7).
+    #[allow(dead_code)]
     pub fn remote(base_url: &str) -> Result<Self, InferenceError> {
         let base_url = Url::parse(base_url).map_err(|e| InferenceError::Http(e.to_string()))?;
         Ok(Self { http: build_http()?, base_url, _process: None })

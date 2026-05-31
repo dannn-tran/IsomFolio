@@ -5,6 +5,7 @@ use super::InferenceError;
 
 /// A locally-spawned inference engine child process. Killed on drop so the
 /// engine lives exactly as long as the app session.
+#[derive(Debug)]
 pub struct ManagedInferenceProcess {
     child: Child,
     port: u16,

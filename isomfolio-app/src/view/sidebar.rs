@@ -230,11 +230,7 @@ impl App {
         }
 
         // People section
-        if !self.faces.clusters.is_empty() || self
-            .extensions
-            .iter()
-            .any(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
-        {
+        if !self.faces.clusters.is_empty() || self.inference_manifest.is_some() {
             let count = self.faces.clusters.len();
             let count_label = if count > 0 { format!(" ({count})") } else { String::new() };
             let is_active = matches!(self.view_mode, ViewMode::People);

@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use iced::Task;
-use isomfolio_core::app_paths::db_path;
 use isomfolio_core::extension::{
-    install_extension_package, load_extension_config, save_extension_config, uninstall_extension,
-    ConfigFieldKind, ExtensionProcess,
+    discover_extensions, install_extension_package, load_extension_config, save_extension_config,
+    uninstall_extension, ConfigFieldKind, ExtensionProcess,
 };
 
 use super::super::{App, Msg, SettingsState, ViewMode};
@@ -132,13 +131,8 @@ impl App {
                         .position(|a| &a.manifest.name == extension_name);
                     if let Some(idx) = idx {
                         let manifest = self.extensions[idx].manifest.clone();
-                        let catalog_db = if manifest.capabilities.contains(&"cluster_faces".to_string()) {
-                            Some(std::path::PathBuf::from(db_path(&self.catalog_dir)))
-                        } else {
-                            None
-                        };
                         restart_tasks.push(Task::perform(
-                            async move { ExtensionProcess::launch(manifest, catalog_db.as_deref()).map(Arc::new).ok() },
+                            async move { ExtensionProcess::launch(manifest, None).map(Arc::new).ok() },
                             move |p| Msg::ExtensionRestarted { idx, process: p },
                         ));
                     }
@@ -169,22 +163,34 @@ impl App {
                 self.settings.status = None;
                 let task_id = self.bg_push("Installing extension…");
                 self.settings.install_task_id = Some(task_id);
-                let catalog_db = std::path::PathBuf::from(db_path(&self.catalog_dir));
                 Task::perform(
                     async move {
                         let path = std::path::PathBuf::from(path);
-                        install_extension_package(&path).and_then(|m| {
-                            let db = if m.capabilities.contains(&"cluster_faces".to_string()) {
-                                Some(catalog_db.as_path())
-                            } else {
-                                None
-                            };
-                            ExtensionProcess::launch(m, db).map(Arc::new).map_err(|e| e.to_string())
-                        })
+                        match install_extension_package(&path) {
+                            Err(e) => InstallOutcome::Failed(e),
+                            // The engine is launched on demand, not as an IEP process.
+                            // Re-discover to get the executable-populated manifest.
+                            Ok(m) if m.capabilities.iter().any(|c| c == "inference_engine") => {
+                                match discover_extensions()
+                                    .into_iter()
+                                    .find(|d| d.capabilities.iter().any(|c| c == "inference_engine"))
+                                {
+                                    Some(engine) => InstallOutcome::Engine(engine),
+                                    None => InstallOutcome::Failed(
+                                        "engine installed but manifest not found".to_string(),
+                                    ),
+                                }
+                            }
+                            Ok(m) => match ExtensionProcess::launch(m, None).map(Arc::new) {
+                                Ok(p) => InstallOutcome::Process(p),
+                                Err(e) => InstallOutcome::Failed(e.to_string()),
+                            },
+                        }
                     },
-                    |result| match result {
-                        Ok(p) => Msg::ExtensionInstalled(p),
-                        Err(e) => Msg::ExtensionInstallFailed(e),
+                    |outcome| match outcome {
+                        InstallOutcome::Process(p) => Msg::ExtensionInstalled(p),
+                        InstallOutcome::Engine(m) => Msg::EngineInstalled(m),
+                        InstallOutcome::Failed(e) => Msg::ExtensionInstallFailed(e),
                     },
                 )
             }
@@ -192,6 +198,19 @@ impl App {
             Msg::ExtensionInstalled(process) => {
                 let name = process.manifest.name.clone();
                 self.extensions.push(process);
+                if let Some(id) = self.settings.install_task_id.take() {
+                    self.bg_complete(id);
+                }
+                self.status = format!("'{name}' installed");
+                Task::none()
+            }
+
+            Msg::EngineInstalled(manifest) => {
+                let name = manifest.name.clone();
+                self.inference_manifest = Some(manifest);
+                // A fresh engine binary may differ from a running one; drop any
+                // managed client so the next run spawns the new version.
+                self.inference = None;
                 if let Some(id) = self.settings.install_task_id.take() {
                     self.bg_complete(id);
                 }
@@ -256,4 +275,12 @@ impl App {
             _ => Task::none(),
         }
     }
+}
+
+/// Outcome of installing an `.isfx` package: a launched IEP process, the
+/// inference engine (launched on demand), or a failure.
+enum InstallOutcome {
+    Process(Arc<ExtensionProcess>),
+    Engine(isomfolio_core::extension::ExtensionManifest),
+    Failed(String),
 }

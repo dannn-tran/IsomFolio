@@ -179,6 +179,13 @@ pub struct App {
     pub app_settings: isomfolio_core::app_paths::AppSettings,
 
     pub faces: FaceState,
+    /// Lazily-spawned local inference engine (or remote client). Held for the
+    /// session and dropped — killing any managed child — when the app quits.
+    pub inference: Option<Arc<crate::inference::InferenceClient>>,
+    /// Manifest of the installed inference-engine extension, if any. Discovered
+    /// but never IEP-launched; provides the binary path for managed launch and
+    /// gates the "Find people" UI.
+    pub inference_manifest: Option<isomfolio_core::extension::ExtensionManifest>,
 
     pub undo_stack: Vec<UndoOp>,
     pub redo_stack: Vec<UndoOp>,
@@ -394,6 +401,8 @@ impl App {
             settings: SettingsState::default(),
             app_settings: isomfolio_core::app_paths::read_settings(),
             faces: FaceState::default(),
+            inference: None,
+            inference_manifest: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             compare: CompareState::default(),

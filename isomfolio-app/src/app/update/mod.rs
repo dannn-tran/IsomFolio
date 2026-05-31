@@ -35,13 +35,14 @@ impl App {
             | Msg::ConfirmNewCatalog => self.handle_catalog_msg(msg),
 
             // — extensions & face clustering —
-            Msg::ExtensionsDiscovered(_)
+            Msg::ExtensionsDiscovered(..)
             | Msg::RunExtension { .. }
             | Msg::ExtensionProgress { .. }
             | Msg::ExtensionBatchProgress { .. }
             | Msg::ExtensionBatchDone { .. }
             | Msg::ExtensionRestarted { .. }
             | Msg::RunFaceClustering { .. }
+            | Msg::InferenceEngineReady { .. }
             | Msg::FaceClusteringDone(_)
             | Msg::FaceClustersBatchDone(_)
             | Msg::FaceClustersLoaded(_)
@@ -300,6 +301,7 @@ impl App {
             | Msg::InstallExtensionPickFile
             | Msg::ExtensionPackagePicked(_)
             | Msg::ExtensionInstalled(_)
+            | Msg::EngineInstalled(_)
             | Msg::ExtensionInstallFailed(_)
             | Msg::UninstallExtension(_)
             | Msg::SetPreferredExtension { .. }

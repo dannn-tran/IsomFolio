@@ -1,21 +1,25 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use iced::futures;
 use iced::Task;
+use isomfolio_core::clustering;
 use isomfolio_core::extension::ExtensionProcess;
 use isomfolio_core::indexing::thumbnail::thumbnail_cache_path;
-use isomfolio_core::models::{FaceClusterMember, ThumbnailState};
+use isomfolio_core::models::ThumbnailState;
 
+use crate::inference::{EmbedFile, InferenceClient, ManagedInferenceProcess, DEFAULT_PORT};
 use super::LockUnwrap;
 use super::super::{App, Msg, ViewMode};
 
 impl App {
     pub(super) fn handle_extension_msg(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
-            Msg::ExtensionsDiscovered(extensions) => {
+            Msg::ExtensionsDiscovered(extensions, engine) => {
                 let count = extensions.len();
                 self.extensions = extensions;
+                self.inference_manifest = engine;
                 if count > 0 {
                     self.status = format!(
                         "{count} extension{} loaded",
@@ -99,7 +103,7 @@ impl App {
                 } else {
                     format!("{name}… ({done}/{total})")
                 };
-                if name.contains("faces") || name.contains("Clustering") {
+                if name.contains("faces") || name.contains("Clustering") || name.contains("people") {
                     self.faces.status = Some(msg);
                 } else {
                     self.status = msg;
@@ -129,13 +133,8 @@ impl App {
                 };
                 let manifest = self.extensions.get(addon_idx).map(|a| a.manifest.clone());
                 if let Some(manifest) = manifest {
-                    let catalog_db = if manifest.capabilities.contains(&"cluster_faces".to_string()) {
-                        Some(std::path::PathBuf::from(isomfolio_core::app_paths::db_path(&self.catalog_dir)))
-                    } else {
-                        None
-                    };
                     Task::perform(
-                        async move { ExtensionProcess::launch(manifest, catalog_db.as_deref()).map(Arc::new).ok() },
+                        async move { ExtensionProcess::launch(manifest, None).map(Arc::new).ok() },
                         move |p| Msg::ExtensionRestarted { idx: addon_idx, process: p },
                     )
                 } else {
@@ -144,23 +143,33 @@ impl App {
             }
 
             Msg::RunFaceClustering { force_full } => {
-                let Some(ext) = self
-                    .extensions
-                    .iter()
-                    .find(|a| a.manifest.capabilities.contains(&"cluster_faces".to_string()))
-                    .cloned()
-                else {
-                    self.faces.is_clustering = false;
-                    self.faces.status =
-                        Some("No face clustering extension installed".to_string());
-                    return Task::none();
-                };
+                // Ensure a running engine first. If none yet, spawn the managed
+                // local engine and come back via InferenceEngineReady.
+                if self.inference.is_none() {
+                    let Some(manifest) = self.inference_manifest.clone() else {
+                        self.faces.is_clustering = false;
+                        self.faces.status =
+                            Some("No inference engine installed".to_string());
+                        return Task::none();
+                    };
+                    self.faces.is_clustering = true;
+                    self.faces.status = Some("Starting inference engine…".to_string());
+                    self.task_panel_open = true;
+                    let binary = manifest.executable.clone();
+                    let data_dir = isomfolio_core::app_paths::models_dir();
+                    return Task::perform(
+                        spawn_inference_engine(binary, data_dir),
+                        move |client| Msg::InferenceEngineReady { client, force_full },
+                    );
+                }
+
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
+                let client = self.inference.clone().unwrap();
                 self.faces.is_clustering = true;
-                self.faces.status = Some("Clustering faces…".to_string());
+                self.faces.status = Some("Finding people…".to_string());
                 self.task_panel_open = true;
 
-                // Sweep stale embeddings then fetch only cache-miss files.
+                // Sweep stale embeddings, then embed only cache-miss files.
                 let (uncached, total_indexed) = {
                     let g = conn.lock_unwrap();
                     if let Err(e) = g.sweep_face_embeddings() {
@@ -179,19 +188,26 @@ impl App {
                     return Task::none();
                 }
 
-                // Split uncached files into 50-file batches. If all files are already cached,
-                // send one batch with all files so the extension still runs clustering on the cache.
+                // Embed uncached files in 50-file batches; clustering then runs
+                // over all cached embeddings. Empty chunks → recluster only.
                 const BATCH_SIZE: usize = 50;
-                let chunks: Vec<Vec<(String, String, i64)>> = if uncached.is_empty() {
-                    let g = conn.lock_unwrap();
-                    let all = g.get_all_file_paths_with_mtimes().unwrap_or_default();
-                    vec![all]
-                } else {
-                    uncached.chunks(BATCH_SIZE).map(<[_]>::to_vec).collect()
-                };
+                let chunks: Vec<Vec<(String, String, i64)>> =
+                    uncached.chunks(BATCH_SIZE).map(<[_]>::to_vec).collect();
 
-                Task::stream(face_cluster_stream(ext, conn, chunks, total_indexed, force_full))
+                Task::stream(face_cluster_stream(client, conn, chunks, total_indexed, force_full))
             }
+
+            Msg::InferenceEngineReady { client, force_full } => match client {
+                Ok(c) => {
+                    self.inference = Some(c);
+                    Task::done(Msg::RunFaceClustering { force_full })
+                }
+                Err(e) => {
+                    self.faces.is_clustering = false;
+                    self.faces.status = Some(format!("Inference engine failed: {e}"));
+                    Task::none()
+                }
+            },
 
             Msg::FaceClustersBatchDone(summaries) => {
                 let count = summaries.len();
@@ -530,53 +546,6 @@ struct ClassifyTag {
     confidence: Option<f32>,
 }
 
-#[derive(serde::Serialize)]
-struct ClusterFacesRequest {
-    files: Vec<ClusterFaceFile>,
-    force_full: bool,
-}
-
-#[derive(serde::Serialize)]
-struct ClusterFaceFile {
-    file_id: String,
-    image_path: String,
-    file_mtime: i64,
-}
-
-#[derive(serde::Deserialize, Default)]
-struct ClusterFacesResponse {
-    #[serde(default)]
-    clusters: Vec<ClusterGroup>,
-    #[serde(default)]
-    noise: Vec<ClusterMemberDto>,
-}
-
-#[derive(serde::Deserialize)]
-struct ClusterGroup {
-    id: String,
-    #[serde(default)]
-    members: Vec<ClusterMemberDto>,
-}
-
-#[derive(serde::Deserialize)]
-struct ClusterMemberDto {
-    file_id: String,
-    #[serde(default)]
-    bbox: BboxDto,
-}
-
-#[derive(serde::Deserialize, Default)]
-struct BboxDto {
-    #[serde(default)]
-    x: f64,
-    #[serde(default)]
-    y: f64,
-    #[serde(default)]
-    w: f64,
-    #[serde(default)]
-    h: f64,
-}
-
 fn extract_scored_tags(result: serde_json::Value) -> Option<(String, Vec<(String, Option<f32>)>)> {
     let resp = serde_json::from_value::<ClassifyResponse>(result).ok()?;
     Some((resp.file_id, resp.tags.into_iter().map(|t| (t.tag, t.confidence)).collect()))
@@ -586,188 +555,147 @@ fn classify_request_params(file_id: &str, thumbnail_path: String) -> serde_json:
     serde_json::to_value(ClassifyRequest { file_id, thumbnail_path }).unwrap_or_default()
 }
 
-fn cluster_faces_request_params(
-    files: &[(String, String, i64)],
-    force_full: bool,
-) -> serde_json::Value {
-    let files = files
-        .iter()
-        .map(|(id, path, mtime)| ClusterFaceFile {
-            file_id: id.clone(),
-            image_path: path.clone(),
-            file_mtime: *mtime,
-        })
-        .collect();
-    serde_json::to_value(ClusterFacesRequest { files, force_full }).unwrap_or_default()
+/// Spawn the managed local engine, wait for it to become healthy (generous —
+/// the first run downloads models), and wrap it in a client.
+async fn spawn_inference_engine(
+    binary: PathBuf,
+    data_dir: PathBuf,
+) -> Result<Arc<InferenceClient>, String> {
+    let proc = ManagedInferenceProcess::spawn(&binary, DEFAULT_PORT, &data_dir)
+        .map_err(|e| e.to_string())?;
+    let client = InferenceClient::managed(proc).map_err(|e| e.to_string())?;
+    client
+        .wait_healthy(Duration::from_secs(600))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(Arc::new(client))
 }
 
-const UNKNOWN_FACES_CLUSTER: &str = "face-unknown";
+// Default DBSCAN parameters until exposed in Settings (step 7).
+const FACE_EPS: f32 = 0.4;
+const FACE_MIN_PTS: usize = 2;
 
-fn parse_cluster_response(v: serde_json::Value) -> Vec<FaceClusterMember> {
-    let resp: ClusterFacesResponse = serde_json::from_value(v).unwrap_or_default();
-    let mut rows: Vec<FaceClusterMember> = resp
-        .clusters
-        .into_iter()
-        .filter(|c| !c.id.is_empty())
-        .flat_map(|c| {
-            let cluster_id = c.id;
-            c.members.into_iter().map(move |m| FaceClusterMember {
-                cluster_id: cluster_id.clone(),
-                file_id: m.file_id,
-                bbox_x: m.bbox.x,
-                bbox_y: m.bbox.y,
-                bbox_w: m.bbox.w,
-                bbox_h: m.bbox.h,
-            })
-        })
-        .collect();
-    for m in resp.noise {
-        rows.push(FaceClusterMember {
-            cluster_id: UNKNOWN_FACES_CLUSTER.to_string(),
-            file_id: m.file_id,
-            bbox_x: m.bbox.x,
-            bbox_y: m.bbox.y,
-            bbox_w: m.bbox.w,
-            bbox_h: m.bbox.h,
-        });
-    }
-    rows
-}
-
+/// Drive the engine: embed each batch of uncached files, persist embeddings,
+/// then cluster all cached embeddings once at the end.
 fn face_cluster_stream(
-    ext: Arc<ExtensionProcess>,
+    client: Arc<InferenceClient>,
     conn: Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
     chunks: Vec<Vec<(String, String, i64)>>,
     total_indexed: usize,
     force_full: bool,
 ) -> impl futures::Stream<Item = Msg> {
-    enum ClusterPoll {
-        Progress(u8),
-        Done(Vec<isomfolio_core::models::FaceClusterSummary>),
-        Failed(String),
-        Pending,
+    enum Stage {
+        Embed(usize),
+        Cluster,
+        Done,
     }
 
-    struct BatchState {
-        chunks: Vec<Vec<(String, String, i64)>>,
-        batch_idx: usize,
-        files_sent: usize,
-        total_indexed: usize,
-        handle: Option<isomfolio_core::extension::ExtensionCallHandle>,
+    struct St {
+        client: Arc<InferenceClient>,
         conn: Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
-        ext: Arc<ExtensionProcess>,
+        chunks: Vec<Vec<(String, String, i64)>>,
+        total_indexed: usize,
         force_full: bool,
-        done: bool,
+        files_sent: usize,
+        stage: Stage,
     }
 
     let total_batches = chunks.len();
-    let state = BatchState {
-        chunks,
-        batch_idx: 0,
-        files_sent: 0,
-        total_indexed,
-        handle: None,
-        ext,
-        conn,
-        force_full,
-        done: false,
-    };
+    let stage = if chunks.is_empty() { Stage::Cluster } else { Stage::Embed(0) };
+    let state = St { client, conn, chunks, total_indexed, force_full, files_sent: 0, stage };
 
     futures::stream::unfold(state, move |mut s| async move {
-        if s.done {
-            return None;
-        }
+        match s.stage {
+            Stage::Embed(i) => {
+                let chunk = s.chunks[i].clone();
+                let files: Vec<EmbedFile> = chunk
+                    .iter()
+                    .map(|(id, path, mtime)| EmbedFile {
+                        file_id: id.clone(),
+                        path: path.clone(),
+                        mtime: *mtime,
+                    })
+                    .collect();
+                let batch_len = files.len();
 
-        if s.handle.is_none() {
-            let chunk = &s.chunks[s.batch_idx];
-            let params = cluster_faces_request_params(chunk, s.force_full);
-            match s.ext.send("cluster_faces", params) {
-                Ok(h) => s.handle = Some(h),
-                Err(e) => {
-                    eprintln!("[faces] batch {} send error: {e}", s.batch_idx + 1);
-                    s.done = true;
-                    let summaries = s.conn.lock_unwrap()
-                        .get_face_cluster_summaries().unwrap_or_default();
-                    return Some((Msg::FaceClusteringDone(summaries), s));
+                match s.client.embed(files).await {
+                    Ok(resp) => {
+                        let mtimes: std::collections::HashMap<String, i64> =
+                            chunk.iter().map(|(id, _, m)| (id.clone(), *m)).collect();
+                        let conn = s.conn.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            let g = conn.lock_unwrap();
+                            for r in resp.results {
+                                let mtime = mtimes.get(&r.file_id).copied().unwrap_or(0);
+                                let faces: Vec<(f64, f64, f64, f64, Vec<f32>)> = r
+                                    .faces
+                                    .into_iter()
+                                    .map(|f| (f.bbox.x, f.bbox.y, f.bbox.w, f.bbox.h, f.vec))
+                                    .collect();
+                                if let Err(e) = g.insert_face_embeddings(&r.file_id, mtime, &faces) {
+                                    eprintln!("[faces] insert_face_embeddings failed: {e}");
+                                }
+                            }
+                        })
+                        .await;
+
+                        s.files_sent += batch_len;
+                        let next = i + 1;
+                        s.stage = if next < s.chunks.len() { Stage::Embed(next) } else { Stage::Cluster };
+                        // Embedding occupies the 0–80% band; clustering is the tail.
+                        let done = next * 80 / total_batches;
+                        let label =
+                            format!("Finding people ({} / {})", s.files_sent, s.total_indexed);
+                        Some((Msg::ExtensionBatchProgress { name: label, done, total: 100 }, s))
+                    }
+                    Err(e) => {
+                        eprintln!("[faces] embed batch {} failed: {e}", i + 1);
+                        // Cluster whatever embeddings we already have.
+                        s.stage = Stage::Cluster;
+                        Some((Msg::NoOp, s))
+                    }
                 }
             }
-        }
+            Stage::Cluster => {
+                let conn = s.conn.clone();
+                let force_full = s.force_full;
+                let summaries = tokio::task::spawn_blocking(move || {
+                    let g = conn.lock_unwrap();
+                    let rows = g.load_all_face_embeddings().unwrap_or_default();
+                    if rows.is_empty() {
+                        return g.get_face_cluster_summaries().unwrap_or_default();
+                    }
+                    let embeddings: Vec<Vec<f32>> = rows.iter().map(|r| r.vec.clone()).collect();
+                    let centroids = g.load_face_centroids().unwrap_or_default();
 
-        let handle = s.handle.take().unwrap();
-        let conn2 = s.conn.clone();
-        let batch_idx = s.batch_idx;
-        let is_last = batch_idx + 1 >= total_batches;
-        let files_sent = s.files_sent + s.chunks[batch_idx].len();
-        let total_indexed = s.total_indexed;
+                    // Incremental: assign to known people. Full: rediscover via DBSCAN.
+                    let labels = if !force_full && !centroids.is_empty() {
+                        let cvecs: Vec<Vec<f32>> =
+                            centroids.iter().map(|(_, v)| v.clone()).collect();
+                        clustering::assign_to_centroids(&embeddings, &cvecs, FACE_EPS)
+                    } else {
+                        clustering::dbscan(&embeddings, FACE_EPS, FACE_MIN_PTS)
+                    };
 
-        let poll_result = tokio::task::spawn_blocking(
-            move || -> Option<(ClusterPoll, isomfolio_core::extension::ExtensionCallHandle)> {
-                let result = match handle.progress_rx.recv_timeout(Duration::from_millis(200)) {
-                    Ok(percent) => return Some((ClusterPoll::Progress(percent), handle)),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        match handle.result_rx.try_recv() {
-                            Ok(r) => r,
-                            Err(_) => return Some((ClusterPoll::Pending, handle)),
+                    let assembly = clustering::assemble_clusters(&rows, &labels);
+                    if let Err(e) = g.save_face_clusters(&assembly.members) {
+                        eprintln!("[db] save_face_clusters failed: {e}");
+                    }
+                    // Keep existing centroids on an incremental run.
+                    if force_full || centroids.is_empty() {
+                        if let Err(e) = g.save_face_centroids(&assembly.centroids) {
+                            eprintln!("[db] save_face_centroids failed: {e}");
                         }
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                        handle.result_rx.recv().ok()?
-                    }
-                };
-                match result {
-                    Ok(value) => {
-                        let clusters = parse_cluster_response(value);
-                        let g = conn2.lock_unwrap();
-                        if let Err(e) = g.save_face_clusters(&clusters) {
-                            eprintln!("[db] save_face_clusters failed: {e}");
-                        }
-                        let summaries = g.get_face_cluster_summaries().unwrap_or_default();
-                        Some((ClusterPoll::Done(summaries), handle))
-                    }
-                    Err(e) => Some((ClusterPoll::Failed(e), handle)),
-                }
-            },
-        )
-        .await
-        .ok()
-        .flatten()?;
+                    g.get_face_cluster_summaries().unwrap_or_default()
+                })
+                .await
+                .unwrap_or_default();
 
-        let (poll, handle) = poll_result;
-        let batch_share = 100 / total_batches;
-
-        match poll {
-            ClusterPoll::Progress(percent) => {
-                let overall = batch_idx * batch_share + percent as usize * batch_share / 100;
-                let label = format!("Clustering faces ({files_sent} / {total_indexed})");
-                s.handle = Some(handle);
-                Some((Msg::ExtensionBatchProgress { name: label, done: overall, total: 100 }, s))
-            }
-            ClusterPoll::Done(summaries) => {
-                s.files_sent = files_sent;
-                if is_last {
-                    s.done = true;
-                    Some((Msg::FaceClusteringDone(summaries), s))
-                } else {
-                    s.batch_idx += 1;
-                    Some((Msg::FaceClustersBatchDone(summaries), s))
-                }
-            }
-            ClusterPoll::Failed(e) => {
-                eprintln!("[faces] cluster_faces error (batch {}): {e}", batch_idx + 1);
-                let tail = s.ext.formatted_last_stderr();
-                if !tail.is_empty() {
-                    eprintln!("[{}] last stderr:", s.ext.manifest.name);
-                    for line in &tail { eprintln!("[{}] {line}", s.ext.manifest.name); }
-                }
-                s.done = true;
-                let summaries = s.conn.lock_unwrap()
-                    .get_face_cluster_summaries().unwrap_or_default();
+                s.stage = Stage::Done;
                 Some((Msg::FaceClusteringDone(summaries), s))
             }
-            ClusterPoll::Pending => {
-                s.handle = Some(handle);
-                Some((Msg::NoOp, s))
-            }
+            Stage::Done => None,
         }
     })
 }
