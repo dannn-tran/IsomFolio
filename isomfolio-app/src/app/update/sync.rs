@@ -242,56 +242,6 @@ impl App {
 
             Msg::SyncAppleTagsForSelection => self.import_external_metadata_for_selection(false, true),
 
-            Msg::MetadataImportPromptToggleXmp => {
-                if let Some(p) = self.metadata_import_prompt.as_mut() {
-                    p.import_xmp = !p.import_xmp;
-                }
-                Task::none()
-            }
-
-            Msg::MetadataImportPromptToggleApple => {
-                if let Some(p) = self.metadata_import_prompt.as_mut() {
-                    p.import_apple = !p.import_apple;
-                }
-                Task::none()
-            }
-
-            Msg::MetadataImportPromptToggleAll => {
-                if let Some(p) = self.metadata_import_prompt.as_mut() {
-                    let apple_available = cfg!(target_os = "macos");
-                    let all_on = p.import_xmp && (!apple_available || p.import_apple);
-                    let next = !all_on;
-                    p.import_xmp = next;
-                    if apple_available {
-                        p.import_apple = next;
-                    }
-                }
-                Task::none()
-            }
-
-            Msg::MetadataImportPromptContinue => {
-                let Some(prompt) = self.metadata_import_prompt.take() else {
-                    return Task::none();
-                };
-                self.app_settings.import_xmp_tags = Some(prompt.import_xmp);
-                if cfg!(target_os = "macos") {
-                    self.app_settings.import_apple_tags = Some(prompt.import_apple);
-                } else {
-                    // Decision is irrelevant on non-macOS — record false to avoid re-prompting.
-                    self.app_settings.import_apple_tags = Some(false);
-                }
-                isomfolio_core::app_paths::save_settings(&self.app_settings);
-                // Re-enter sync now that the settings have a definite value.
-                self.is_syncing = true;
-                self.status = "Syncing…".to_string();
-                self.sync_folder_task(prompt.pending_path, prompt.recursive)
-            }
-
-            Msg::MetadataImportPromptCancel => {
-                self.metadata_import_prompt = None;
-                Task::none()
-            }
-
             _ => Task::none(),
         }
     }
@@ -308,28 +258,17 @@ impl App {
     }
 
     pub(super) fn sync_folder_task(&mut self, path: String, recursive: bool) -> Task<Msg> {
-        // First sync ever / first sync after a fresh settings.json — prompt
-        // before doing anything. The user's answer saves to settings and
-        // re-enters this function via SyncStart.
-        if self.app_settings.import_xmp_tags.is_none()
-            || self.app_settings.import_apple_tags.is_none()
-        {
-            self.metadata_import_prompt = Some(super::super::MetadataImportPrompt {
-                pending_path: path,
-                import_xmp: true,
-                import_apple: cfg!(target_os = "macos"),
-                recursive,
-            });
-            self.is_syncing = false;
-            self.status = String::new();
-            return Task::none();
-        }
         let Some(conn) = self.catalog.clone() else {
             return Task::none();
         };
         let wtx = self.watcher_tx.clone();
-        let import_xmp = self.app_settings.import_xmp_tags.unwrap_or(false);
-        let import_apple = self.app_settings.import_apple_tags.unwrap_or(false);
+        // Keyword import defaults on (forward-only — never purges existing tags);
+        // toggle it in Settings → General. Apple Finder tags only exist on macOS.
+        let import_xmp = self.app_settings.import_xmp_tags.unwrap_or(true);
+        let import_apple = self
+            .app_settings
+            .import_apple_tags
+            .unwrap_or(cfg!(target_os = "macos"));
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {

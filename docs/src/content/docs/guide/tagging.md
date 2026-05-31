@@ -45,7 +45,7 @@ Renaming a tag in the Tag Browser updates every photo that has that tag — it's
 
 ## Where tags come from
 
-Tags are added by you in the Info panel, or imported from existing photo metadata on first sync — XMP keywords (`dc:subject`) and, on macOS, Apple Finder tags. Imported tags are merged in additively and never removed on re-sync.
+Tags are added by you in the Info panel, or imported from existing photo metadata the first time a photo is indexed — XMP keywords (`dc:subject`) and, on macOS, Apple Finder tags. Keyword import is on by default; toggle it under **Settings → General** ("Import XMP keywords" / "Import Apple Finder tags"). The toggle is **forward-only** — turning it off stops importing keywords for newly-indexed photos but never removes tags already imported. Imported tags are merged in additively and are never removed on re-sync.
 
 ## Tag browser
 

@@ -64,10 +64,13 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub auto_face_cluster: bool,
     /// Import `dc:subject` keywords from XMP sidecars as tags when first discovering a photo.
-    /// `None` = user has not yet made a decision; sync will prompt before proceeding.
+    /// `None` = unset, treated as enabled (the default). Forward-only: disabling never
+    /// purges tags already imported.
     #[serde(default)]
     pub import_xmp_tags: Option<bool>,
     /// Import Apple Finder tags (`kMDItemUserTags`) as tags when first discovering a photo.
+    /// `None` = unset, treated as enabled on macOS. Forward-only: disabling never purges
+    /// tags already imported.
     #[serde(default)]
     pub import_apple_tags: Option<bool>,
     /// Auto-advance to the next photo after flagging (Pick/Reject/Unflagged) in loupe mode.

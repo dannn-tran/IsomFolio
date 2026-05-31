@@ -190,9 +190,6 @@ impl App {
         if self.show_shortcut_help {
             layers.push(self.view_shortcut_help());
         }
-        if self.metadata_import_prompt.is_some() {
-            layers.push(self.view_metadata_import_prompt());
-        }
         if self.add_folder_prompt.is_some() {
             layers.push(self.view_add_folder_prompt());
         }
@@ -753,15 +750,15 @@ impl App {
         ));
         col = col.push(self.toggle_row(
             "Import XMP keywords",
-            "Add dc:subject keywords as tags on first sync of a new photo.",
-            self.app_settings.import_xmp_tags.unwrap_or(false),
+            "Copy dc:subject keywords into new photos as tags. Applies going forward — turning this off never removes tags already imported.",
+            self.app_settings.import_xmp_tags.unwrap_or(true),
             Msg::ToggleImportXmpTags,
         ));
         if cfg!(target_os = "macos") {
             col = col.push(self.toggle_row(
                 "Import Apple Finder tags",
-                "Add macOS Finder tags (kMDItemUserTags) as tags on first sync of a new photo.",
-                self.app_settings.import_apple_tags.unwrap_or(false),
+                "Copy macOS Finder tags (kMDItemUserTags) into new photos as tags. Applies going forward — turning this off never removes tags already imported.",
+                self.app_settings.import_apple_tags.unwrap_or(true),
                 Msg::ToggleImportAppleTags,
             ));
         }
@@ -1028,96 +1025,6 @@ impl App {
                 border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
                 ..Default::default()
             });
-        modal_with_backdrop(modal).into()
-    }
-
-    fn view_metadata_import_prompt(&self) -> Element<'_, Msg> {
-        let prompt = match &self.metadata_import_prompt {
-            Some(p) => p,
-            None => return Space::new().into(),
-        };
-        let apple_available = cfg!(target_os = "macos");
-        let all_on = prompt.import_xmp && (!apple_available || prompt.import_apple);
-
-        let checkbox = |checked: bool, label: &str, msg: Msg| -> Element<'_, Msg> {
-            let glyph = if checked { "☑" } else { "☐" };
-            button(
-                row![
-                    text(glyph).size(TEXT_BASE).color(FG),
-                    text(label.to_string()).size(TEXT_MD).color(FG),
-                ]
-                .spacing(SPACE_1_5)
-                .align_y(Alignment::Center),
-            )
-            .on_press(msg)
-            .style(ghost_btn_style)
-            .into()
-        };
-
-        let mut body = column![
-            text("Import keywords from photo metadata?")
-                .size(TEXT_TITLE).color(FG),
-            Space::new().height(SPACE_2),
-            text("When IsomFolio first discovers a photo, it can copy keywords from external metadata into the catalog as searchable tags.")
-                .size(TEXT_SM).color(FG_DIM),
-            Space::new().height(SPACE_4),
-            checkbox(all_on, "Import all metadata", Msg::MetadataImportPromptToggleAll),
-            Space::new().height(SPACE_1),
-        ]
-        .spacing(0)
-        .width(440);
-
-        body = body.push(
-            row![
-                Space::new().width(SPACE_3),
-                checkbox(prompt.import_xmp, "XMP keywords (dc:subject)", Msg::MetadataImportPromptToggleXmp),
-            ]
-            .align_y(Alignment::Center),
-        );
-
-        if apple_available {
-            body = body.push(
-                row![
-                    Space::new().width(SPACE_3),
-                    checkbox(prompt.import_apple, "Apple Finder tags", Msg::MetadataImportPromptToggleApple),
-                ]
-                .align_y(Alignment::Center),
-            );
-        }
-
-        body = body
-            .push(Space::new().height(SPACE_4))
-            .push(
-                text("You can change this later in Settings → Behaviour.")
-                    .size(TEXT_SM).color(FG_MUTED),
-            )
-            .push(Space::new().height(SPACE_4))
-            .push(
-                row![
-                    button(text("Cancel").size(TEXT_BASE))
-                        .on_press(Msg::MetadataImportPromptCancel)
-                        .style(ghost_btn_style),
-                    Space::new().width(Length::Fill),
-                    button(text("Continue").size(TEXT_BASE))
-                        .on_press(Msg::MetadataImportPromptContinue)
-                        .style(active_chip_style),
-                ]
-                .align_y(Alignment::Center),
-            );
-
-        let modal = container(body)
-            .padding(SPACE_6)
-            .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(BG_MODAL)),
-                border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
-                shadow: Shadow {
-                    color: OVERLAY_LIGHT,
-                    offset: Vector::new(0.0, 4.0),
-                    blur_radius: 20.0,
-                },
-                ..Default::default()
-            });
-
         modal_with_backdrop(modal).into()
     }
 

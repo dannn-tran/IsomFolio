@@ -94,14 +94,6 @@ impl Default for FaceState {
 }
 
 #[derive(Debug, Clone)]
-pub struct MetadataImportPrompt {
-    pub pending_path: String,
-    pub import_xmp: bool,
-    pub import_apple: bool,
-    pub recursive: bool,
-}
-
-#[derive(Debug, Clone)]
 pub struct AddFolderPrompt {
     pub path: String,
     pub recursive: bool,
@@ -169,7 +161,6 @@ pub struct App {
     pub album_pending_delete: Option<AlbumId>,
     pub folder_pending_remove: Option<String>,
     pub remove_missing_folder: Option<String>,
-    pub metadata_import_prompt: Option<MetadataImportPrompt>,
     pub sidebar_scroll_y: f32,
 
     pub last_click_time: Option<Instant>,
@@ -394,7 +385,6 @@ impl App {
             album_pending_delete: None,
             folder_pending_remove: None,
             remove_missing_folder: None,
-            metadata_import_prompt: None,
             sidebar_scroll_y: 0.0,
             last_click_time: None,
             pending_album_select: None,
