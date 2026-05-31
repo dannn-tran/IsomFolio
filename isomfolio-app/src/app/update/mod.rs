@@ -43,7 +43,7 @@ impl App {
             | Msg::ExtensionRestarted { .. }
             | Msg::RunFaceClustering { .. }
             | Msg::FaceClusteringDone(_)
-            | Msg::FaceClustersPartial(_)
+            | Msg::FaceClustersBatchDone(_)
             | Msg::FaceClustersLoaded(_)
             | Msg::FaceCropsReady(_)
             | Msg::OpenPeopleView

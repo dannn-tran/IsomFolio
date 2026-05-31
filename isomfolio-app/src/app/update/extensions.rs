@@ -193,7 +193,7 @@ impl App {
                 Task::stream(face_cluster_stream(ext, conn, chunks, total_indexed, force_full))
             }
 
-            Msg::FaceClustersPartial(summaries) => {
+            Msg::FaceClustersBatchDone(summaries) => {
                 let count = summaries.len();
                 self.faces.clusters = summaries;
                 self.faces.status = Some(format!("{count} people found so far…"));
@@ -749,7 +749,7 @@ fn face_cluster_stream(
                     Some((Msg::FaceClusteringDone(summaries), s))
                 } else {
                     s.batch_idx += 1;
-                    Some((Msg::FaceClustersPartial(summaries), s))
+                    Some((Msg::FaceClustersBatchDone(summaries), s))
                 }
             }
             ClusterPoll::Failed(e) => {
