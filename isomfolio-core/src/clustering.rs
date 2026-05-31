@@ -1,6 +1,87 @@
 //! Face embedding clustering. Ported from the C# Faces extension's `Clustering`
 //! class; the inference engine returns raw embeddings and the host clusters them.
 
+use sha2::{Digest, Sha256};
+
+use crate::models::FaceEmbeddingRow;
+
+/// Cluster id for faces that DBSCAN (or centroid assignment) leaves unclustered.
+pub const NOISE_CLUSTER_ID: &str = "face-unknown";
+
+/// Result of turning per-face labels into persistable clusters.
+pub struct ClusterAssembly {
+    /// (cluster_id, file_id, bbox_x, bbox_y, bbox_w, bbox_h) — clustered faces
+    /// plus noise under [`NOISE_CLUSTER_ID`].
+    pub members: Vec<(String, String, f64, f64, f64, f64)>,
+    /// (cluster_id, centroid) for real clusters only — noise has no centroid.
+    pub centroids: Vec<(String, Vec<f32>)>,
+}
+
+/// Group labelled faces into clusters: real clusters get a content-derived
+/// stable id and an L2-normalised centroid; label `< 0` faces go to
+/// [`NOISE_CLUSTER_ID`]. `rows` and `labels` must align by index.
+pub fn assemble_clusters(rows: &[FaceEmbeddingRow], labels: &[i32]) -> ClusterAssembly {
+    use std::collections::BTreeMap;
+
+    let mut by_label: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
+    let mut noise: Vec<usize> = Vec::new();
+    for (i, &label) in labels.iter().enumerate() {
+        if label < 0 {
+            noise.push(i);
+        } else {
+            by_label.entry(label).or_default().push(i);
+        }
+    }
+
+    // Largest clusters first — purely cosmetic, but keeps output deterministic.
+    let mut groups: Vec<Vec<usize>> = by_label.into_values().collect();
+    groups.sort_by(|a, b| b.len().cmp(&a.len()));
+
+    let mut members = Vec::new();
+    let mut centroids = Vec::new();
+
+    for group in groups {
+        let id = stable_cluster_id(group.iter().map(|&i| {
+            (rows[i].file_id.as_str(), rows[i].bbox_x, rows[i].bbox_y)
+        }));
+        let vecs: Vec<Vec<f32>> = group.iter().map(|&i| rows[i].vec.clone()).collect();
+        centroids.push((id.clone(), compute_centroid(&vecs)));
+        for &i in &group {
+            let r = &rows[i];
+            members.push((id.clone(), r.file_id.clone(), r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h));
+        }
+    }
+
+    for &i in &noise {
+        let r = &rows[i];
+        members.push((
+            NOISE_CLUSTER_ID.to_string(),
+            r.file_id.clone(),
+            r.bbox_x,
+            r.bbox_y,
+            r.bbox_w,
+            r.bbox_h,
+        ));
+    }
+
+    ClusterAssembly { members, centroids }
+}
+
+/// Content-derived cluster id, stable across runs for the same membership.
+/// Mirrors the C# `StableClusterId`: sorted `file_id:x.x:y.y` keys, SHA-256,
+/// first 16 lowercase hex chars.
+fn stable_cluster_id<'a>(members: impl Iterator<Item = (&'a str, f64, f64)>) -> String {
+    let mut keys: Vec<String> = members
+        .map(|(file_id, x, y)| format!("{file_id}:{x:.1}:{y:.1}"))
+        .collect();
+    keys.sort();
+    let combined = keys.join("\n");
+
+    let digest = Sha256::digest(combined.as_bytes());
+    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    format!("face-{hex}")
+}
+
 /// DBSCAN over face embeddings using cosine distance. Returns a label per
 /// embedding; `-1` marks noise. `eps` is a cosine-distance radius, so two
 /// embeddings are neighbours when their cosine similarity is `>= 1 - eps`.
@@ -219,6 +300,59 @@ mod tests {
 
             let norm = centroid.iter().map(|x| x * x).sum::<f32>().sqrt();
             assert!((0.99..=1.01).contains(&norm));
+        }
+    }
+
+    mod assemble_clusters {
+        use crate::models::FaceEmbeddingRow;
+
+        fn row(file_id: &str, x: f64, y: f64, vec: Vec<f32>) -> FaceEmbeddingRow {
+            FaceEmbeddingRow {
+                file_id: file_id.to_string(),
+                bbox_x: x,
+                bbox_y: y,
+                bbox_w: 0.1,
+                bbox_h: 0.1,
+                vec,
+            }
+        }
+
+        #[test]
+        fn groups_clusters_and_routes_noise() {
+            let rows = vec![
+                row("a", 0.1, 0.1, vec![1.0, 0.0]),
+                row("b", 0.2, 0.2, vec![1.0, 0.0]),
+                row("c", 0.3, 0.3, vec![0.0, 1.0]),
+                row("d", 0.4, 0.4, vec![0.5, 0.5]),
+            ];
+            let labels = [0, 0, 1, -1];
+            let out = super::super::assemble_clusters(&rows, &labels);
+
+            // 3 clustered members + 1 noise member
+            assert_eq!(out.members.len(), 4);
+            // 2 real clusters → 2 centroids (noise has none)
+            assert_eq!(out.centroids.len(), 2);
+
+            let noise: Vec<_> = out
+                .members
+                .iter()
+                .filter(|(cid, ..)| cid == super::super::NOISE_CLUSTER_ID)
+                .collect();
+            assert_eq!(noise.len(), 1);
+            assert_eq!(noise[0].1, "d");
+        }
+
+        #[test]
+        fn cluster_id_is_stable_and_order_independent() {
+            let rows_ab = vec![row("a", 0.1, 0.1, vec![1.0]), row("b", 0.2, 0.2, vec![1.0])];
+            let rows_ba = vec![row("b", 0.2, 0.2, vec![1.0]), row("a", 0.1, 0.1, vec![1.0])];
+
+            let id1 = super::super::assemble_clusters(&rows_ab, &[0, 0]).members[0].0.clone();
+            let id2 = super::super::assemble_clusters(&rows_ba, &[0, 0]).members[0].0.clone();
+
+            assert_eq!(id1, id2);
+            assert!(id1.starts_with("face-"));
+            assert_eq!(id1.len(), "face-".len() + 16);
         }
     }
 }
