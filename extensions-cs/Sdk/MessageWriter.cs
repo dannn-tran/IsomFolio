@@ -10,7 +10,6 @@ public interface IMessageWriter
     ValueTask SendFatalAsync(bool repairable, string message);
     ValueTask SendProgressAsync(ulong id, int percent);
     ValueTask SendClassifyResponseAsync(ulong id, ClassifyResult result);
-    ValueTask SendClusterResponseAsync(ulong id, ClusterResult result);
     ValueTask SendErrorResponseAsync(ulong id, string error);
 }
 
@@ -24,7 +23,6 @@ public class MessageWriter(TextWriter output) : IMessageWriter, IDisposable
     public ValueTask SendFatalAsync(bool repairable, string message) => SendAsync(new FatalMessage(repairable, message));
     public ValueTask SendProgressAsync(ulong id, int percent) => SendAsync(new ProgressMessage(id, percent));
     public ValueTask SendClassifyResponseAsync(ulong id, ClassifyResult result) => SendAsync(new OkResponse<ClassifyResult>(id, result));
-    public ValueTask SendClusterResponseAsync(ulong id, ClusterResult result) => SendAsync(new OkResponse<ClusterResult>(id, result));
     public ValueTask SendErrorResponseAsync(ulong id, string error) => SendAsync(new ErrorResponse(id, error));
 
     public void Dispose()
@@ -41,7 +39,6 @@ public class MessageWriter(TextWriter output) : IMessageWriter, IDisposable
             OkResponse<HandshakeResult> r   => JsonSerializer.Serialize(r, SdkJsonContext.Default.OkResponseHandshakeResult),
             OkResponse<PingResult> r        => JsonSerializer.Serialize(r, SdkJsonContext.Default.OkResponsePingResult),
             OkResponse<ClassifyResult> r    => JsonSerializer.Serialize(r, SdkJsonContext.Default.OkResponseClassifyResult),
-            OkResponse<ClusterResult> r     => JsonSerializer.Serialize(r, SdkJsonContext.Default.OkResponseClusterResult),
             ErrorResponse e                 => JsonSerializer.Serialize(e, SdkJsonContext.Default.ErrorResponse),
             _ => throw new ArgumentOutOfRangeException(nameof(msg), msg.GetType().Name, "unregistered OutboundMessage type")
         };

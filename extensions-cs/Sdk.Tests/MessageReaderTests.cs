@@ -29,19 +29,6 @@ public class MessageReaderTests
     }
 
     [Fact]
-    public async Task ParsesClusterFacesRequest()
-    {
-        var msgs = await CollectAsync(
-            "{\"id\":1,\"method\":\"cluster_faces\",\"params\":{\"files\":[],\"force_full\":true}}\n",
-            TestContext.Current.CancellationToken);
-
-        var req = Assert.IsType<ClusterFacesRequest>(Assert.Single(msgs));
-        Assert.Equal(1UL, req.Id);
-        Assert.True(req.Params.ForceFull);
-        Assert.Empty(req.Params.Files);
-    }
-
-    [Fact]
     public async Task ReturnsFalseOnEof()
     {
         var msgs = await CollectAsync("", TestContext.Current.CancellationToken);
@@ -52,24 +39,9 @@ public class MessageReaderTests
     public async Task SkipsBlankLines()
     {
         var msgs = await CollectAsync(
-            "\n\n{\"id\":2,\"method\":\"cluster_faces\",\"params\":{\"files\":[],\"force_full\":false}}\n",
+            "\n\n{\"id\":2,\"method\":\"ping\"}\n",
             TestContext.Current.CancellationToken);
         Assert.Equal(2UL, Assert.Single(msgs).Id);
-    }
-
-    [Fact]
-    public async Task DeserializesClusterFacesFileParams()
-    {
-        var json = """
-            {"id":1,"method":"cluster_faces","params":{"files":[{"file_id":"abc","image_path":"/tmp/a.jpg","file_mtime":123}],"force_full":false}}
-            """;
-        var msgs = await CollectAsync(json + "\n", TestContext.Current.CancellationToken);
-
-        var req = Assert.IsType<ClusterFacesRequest>(Assert.Single(msgs));
-        Assert.Single(req.Params.Files);
-        Assert.Equal("abc", req.Params.Files[0].FileId);
-        Assert.Equal("/tmp/a.jpg", req.Params.Files[0].ImagePath);
-        Assert.Equal(123L, req.Params.Files[0].FileMtime);
     }
 
     [Fact]

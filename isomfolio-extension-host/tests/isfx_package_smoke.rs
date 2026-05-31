@@ -13,7 +13,6 @@
 //! To force a failure when no packages are present, set `ISFX_REQUIRE_PACKAGE=1`.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use isomfolio_extension_host::{install_extension_package, uninstall_extension, ExtensionProcess};
 use tempfile::TempDir;
@@ -76,6 +75,15 @@ fn each_discovered_isfx_passes_smoke_test() {
             .unwrap_or_else(|e| panic!("install {} failed: {e}", pkg.display()));
 
         let extension_name = manifest.name.clone();
+
+        // The inference engine is an HTTP server, not an IEP extension — it has
+        // no stdin/stdout handshake, so this IEP smoke harness can't drive it.
+        if manifest.capabilities.iter().any(|c| c == "inference_engine") {
+            eprintln!("notice: skipping {extension_name} — inference_engine runs over HTTP, not IEP");
+            uninstall_extension(install_root.path(), &extension_name).ok();
+            continue;
+        }
+
         let proc = ExtensionProcess::launch(manifest, Some(data_dir.path().to_path_buf()), None)
             .unwrap_or_else(|e| panic!("launch {extension_name} failed: {e}"));
 
@@ -119,48 +127,6 @@ fn each_discovered_isfx_passes_smoke_test() {
 /// no test image is available for capabilities that need one.
 fn exercise_capability(proc: &ExtensionProcess, capability: &str) {
     match capability {
-        "cluster_faces" => {
-            let Some(image) = sample_face_image() else {
-                eprintln!("notice: skipping cluster_faces inference — test image missing");
-                return;
-            };
-            let params = serde_json::json!({
-                "files": [{
-                    "file_id": "smoke-test",
-                    "image_path": image.to_string_lossy(),
-                    "file_mtime": 0
-                }],
-                "force_full": true
-            });
-            let handle = proc.send("cluster_faces", params).expect("send cluster_faces");
-            let result_opt = handle.result_rx.recv_timeout(Duration::from_secs(600));
-            let result = match result_opt {
-                Ok(Ok(r)) => r,
-                Ok(Err(e)) => {
-                    let stderr = proc.last_stderr();
-                    panic!(
-                        "cluster_faces returned error: {e}. Last stderr:\n{}",
-                        stderr.join("\n")
-                    );
-                }
-                Err(_) => {
-                    let stderr = proc.last_stderr();
-                    panic!(
-                        "cluster_faces produced no result within 10 minutes. Last stderr:\n{}",
-                        stderr.join("\n")
-                    );
-                }
-            };
-            let clusters = result["clusters"].as_array().expect("missing clusters array");
-            let noise = result["noise"].as_array().expect("missing noise array");
-            let face_count: usize =
-                clusters.iter().map(|c| c["members"].as_array().map(|m| m.len()).unwrap_or(0)).sum::<usize>()
-                + noise.len();
-            assert!(
-                face_count >= 1,
-                "expected to detect at least one face in test_face.jpg, got {face_count} (clusters={clusters:?}, noise={noise:?})"
-            );
-        }
         "classify" => {
             let image = sample_face_image()
                 .map(|p| p.to_string_lossy().into_owned())

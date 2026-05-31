@@ -9,7 +9,7 @@ public class MessageWriterTests
     {
         var sw = new StringWriter();
         var writer = new MessageWriter(sw);
-        await writer.SendHandshakeResponseAsync(1, "2.0.0", [ExtensionCapability.ClusterFaces, ExtensionCapability.Classify]);
+        await writer.SendHandshakeResponseAsync(1, "2.0.0", [ExtensionCapability.Classify]);
         var root = JsonDocument.Parse(sw.ToString().Trim()).RootElement;
 
         Assert.Equal("ok", root.GetProperty("type").GetString());
@@ -18,7 +18,6 @@ public class MessageWriterTests
         Assert.Equal(1, result.GetProperty("protocol_version").GetInt32());
         Assert.Equal("2.0.0", result.GetProperty("extension_version").GetString());
         var caps = result.GetProperty("capabilities").EnumerateArray().Select(e => e.GetString()).ToList();
-        Assert.Contains("cluster_faces", caps);
         Assert.Contains("classify", caps);
     }
 
@@ -71,24 +70,5 @@ public class MessageWriterTests
         Assert.Equal("progress", root.GetProperty("type").GetString());
         Assert.Equal(7UL, root.GetProperty("id").GetUInt64());
         Assert.Equal(45, root.GetProperty("percent").GetInt32());
-    }
-
-    [Fact]
-    public async Task SendClusterResponse_EmitsTypeOkAndResult()
-    {
-        var sw = new StringWriter();
-        var writer = new MessageWriter(sw);
-        var result = new ClusterResult(
-            [new ClusterEntry("face-abc", [new FaceMember("file1", new BboxData(0.1f, 0.2f, 0.3f, 0.4f))])],
-            [new FaceMember("file2", new BboxData(0.5f, 0.6f, 0.1f, 0.1f))]
-        );
-        await writer.SendClusterResponseAsync(1, result);
-        var root = JsonDocument.Parse(sw.ToString().Trim()).RootElement;
-
-        Assert.Equal("ok", root.GetProperty("type").GetString());
-        Assert.Equal(1UL, root.GetProperty("id").GetUInt64());
-        var r = root.GetProperty("result");
-        Assert.True(r.TryGetProperty("clusters", out _));
-        Assert.True(r.TryGetProperty("noise", out _));
     }
 }
