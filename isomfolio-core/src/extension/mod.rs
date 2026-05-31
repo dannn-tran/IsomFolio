@@ -33,8 +33,9 @@ pub fn uninstall_extension(name: &str) -> Result<(), String> {
 pub struct ExtensionProcess(Arc<isomfolio_extension_host::ExtensionProcess>);
 
 impl ExtensionProcess {
-    /// Launch extension. Pass `catalog_db_path` only for first-party extensions
-    /// that read/write the catalog DB directly (currently: Faces / cluster_faces).
+    /// Launch extension. `catalog_db_path` is reserved for first-party extensions
+    /// that read/write the catalog DB directly; no current extension uses it (the
+    /// face engine runs as a managed HTTP process, and the host owns the DB).
     pub fn launch(
         manifest: ExtensionManifest,
         catalog_db_path: Option<&std::path::Path>,
