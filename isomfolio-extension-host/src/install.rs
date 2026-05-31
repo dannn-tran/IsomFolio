@@ -1,12 +1,10 @@
 use std::fs;
-use std::io::{self, BufReader, Read};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use zip::ZipArchive;
 
 use crate::manifest::{discover_extensions, ExtensionManifest};
-use crate::process::{format_log_line, BoundedLines};
 
 /// Install an `.isfx` zip package into `extensions_root`.
 ///
@@ -19,7 +17,6 @@ use crate::process::{format_log_line, BoundedLines};
 pub fn install_extension_package(
     package_path: &Path,
     extensions_root: &Path,
-    data_dir: &Path,
 ) -> Result<ExtensionManifest, String> {
     let file = fs::File::open(package_path).map_err(|e| format!("open package: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
@@ -63,7 +60,7 @@ pub fn install_extension_package(
         }
     }
 
-    let installed = discover_extensions(extensions_root)
+    discover_extensions(extensions_root)
         .into_iter()
         .find(|m| m.name == manifest.name)
         .ok_or_else(|| {
@@ -71,13 +68,7 @@ pub fn install_extension_package(
                 "installed '{}' but executable not found — check the binary name matches the extension name",
                 manifest.name
             )
-        })?;
-
-    if installed.needs_setup {
-        run_setup(&installed, data_dir)?;
-    }
-
-    Ok(installed)
+        })
 }
 
 /// Resolve a zip entry's path to a safe relative path under the extension dir.
@@ -99,33 +90,6 @@ fn safe_relative_path(raw: &str) -> Option<PathBuf> {
     Some(out)
 }
 
-fn run_setup(manifest: &ExtensionManifest, data_dir: &Path) -> Result<(), String> {
-    let mut child = Command::new(&manifest.executable)
-        .arg("setup")
-        .arg("--data-dir")
-        .arg(data_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn setup for '{}': {e}", manifest.name))?;
-
-    let stderr = child.stderr.take().expect("stderr piped on spawn");
-    for line in BoundedLines(BufReader::new(stderr)) {
-        let Ok(line) = line else { break };
-        eprintln!("[{}] {}", manifest.name, format_log_line(&line));
-    }
-
-    let status = child.wait().map_err(|e| format!("wait for setup: {e}"))?;
-    if !status.success() {
-        return Err(format!(
-            "'{}' setup exited with {}",
-            manifest.name,
-            status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".to_string())
-        ));
-    }
-    Ok(())
-}
-
 /// Remove an installed extension by name from `extensions_root`, including its files.
 pub fn uninstall_extension(extensions_root: &Path, name: &str) -> Result<(), String> {
     let extension_dir = extensions_root.join(name);
@@ -137,87 +101,41 @@ pub fn uninstall_extension(extensions_root: &Path, name: &str) -> Result<(), Str
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-    use tempfile::TempDir;
+    use super::safe_relative_path;
+    use std::path::PathBuf;
 
-    fn write_script(dir: &Path, name: &str, script: &str) -> std::path::PathBuf {
-        let exe = dir.join(name);
-        fs::write(&exe, format!("#!/bin/sh\n{script}")).unwrap();
-        let mut perms = fs::metadata(&exe).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&exe, perms).unwrap();
-        exe
-    }
-
-    fn make_manifest(exe: std::path::PathBuf) -> ExtensionManifest {
-        ExtensionManifest {
-            name: "test-extension".to_string(),
-            version: "1.0.0".to_string(),
-            capabilities: vec![],
-            description: "test".to_string(),
-            needs_setup: true,
-            config_schema: vec![],
-            executable: exe,
-        }
+    #[test]
+    fn accepts_flat_filename() {
+        assert_eq!(safe_relative_path("faces"), Some(PathBuf::from("faces")));
     }
 
     #[test]
-    fn setup_is_invoked() {
-        let tmp = TempDir::new().unwrap();
-        let sentinel = tmp.path().join("setup_ran");
-        let exe = write_script(tmp.path(), "test-extension", &format!("touch {}", sentinel.display()));
-        let data = TempDir::new().unwrap();
-        run_setup(&make_manifest(exe), data.path()).expect("setup failed");
-        assert!(sentinel.exists(), "setup was not run");
+    fn accepts_nested_path() {
+        assert_eq!(
+            safe_relative_path("runtimes/osx-arm64/native/libonnxruntime.dylib"),
+            Some(PathBuf::from("runtimes/osx-arm64/native/libonnxruntime.dylib"))
+        );
     }
 
     #[test]
-    fn setup_failure_returns_error() {
-        let tmp = TempDir::new().unwrap();
-        let exe = write_script(tmp.path(), "test-extension", "exit 1");
-        let data = TempDir::new().unwrap();
-        let err = run_setup(&make_manifest(exe), data.path()).unwrap_err();
-        assert!(err.contains("setup exited with 1"), "unexpected: {err}");
+    fn rejects_parent_dir_escape() {
+        assert_eq!(safe_relative_path("../etc/passwd"), None);
+        assert_eq!(safe_relative_path("a/../../b"), None);
     }
 
-    mod safe_relative_path_tests {
-        use super::super::safe_relative_path;
-        use std::path::PathBuf;
+    #[test]
+    fn rejects_absolute_paths() {
+        assert_eq!(safe_relative_path("/etc/passwd"), None);
+    }
 
-        #[test]
-        fn accepts_flat_filename() {
-            assert_eq!(safe_relative_path("faces"), Some(PathBuf::from("faces")));
-        }
+    #[test]
+    fn strips_curdir() {
+        assert_eq!(safe_relative_path("./faces"), Some(PathBuf::from("faces")));
+    }
 
-        #[test]
-        fn accepts_nested_path() {
-            assert_eq!(
-                safe_relative_path("runtimes/osx-arm64/native/libonnxruntime.dylib"),
-                Some(PathBuf::from("runtimes/osx-arm64/native/libonnxruntime.dylib"))
-            );
-        }
-
-        #[test]
-        fn rejects_parent_dir_escape() {
-            assert_eq!(safe_relative_path("../etc/passwd"), None);
-            assert_eq!(safe_relative_path("a/../../b"), None);
-        }
-
-        #[test]
-        fn rejects_absolute_paths() {
-            assert_eq!(safe_relative_path("/etc/passwd"), None);
-        }
-
-        #[test]
-        fn strips_curdir() {
-            assert_eq!(safe_relative_path("./faces"), Some(PathBuf::from("faces")));
-        }
-
-        #[test]
-        fn rejects_empty() {
-            assert_eq!(safe_relative_path(""), None);
-            assert_eq!(safe_relative_path("./"), None);
-        }
+    #[test]
+    fn rejects_empty() {
+        assert_eq!(safe_relative_path(""), None);
+        assert_eq!(safe_relative_path("./"), None);
     }
 }
