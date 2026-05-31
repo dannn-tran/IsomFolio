@@ -1340,6 +1340,90 @@ pub fn get_uncached_face_file_paths(conn: &Connection) -> Result<Vec<(String, St
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
+/// Encode a face embedding as a little-endian f32 BLOB for the `vec` column.
+fn encode_vec(v: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(v.len() * 4);
+    for x in v {
+        bytes.extend_from_slice(&x.to_le_bytes());
+    }
+    bytes
+}
+
+fn decode_vec(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+/// Replace all embeddings for a file (one row per detected face). Called after
+/// each `/embed` response; deleting by file_id first clears stale rows from a
+/// prior mtime so re-indexed files don't accumulate duplicates.
+pub fn insert_face_embeddings(
+    conn: &Connection,
+    file_id: &str,
+    mtime: i64,
+    faces: &[(f64, f64, f64, f64, Vec<f32>)],
+) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    conn.execute("DELETE FROM face_embeddings WHERE file_id = ?1", [file_id])?;
+    for (x, y, w, h, vec) in faces {
+        conn.execute(
+            "INSERT OR REPLACE INTO face_embeddings
+                (file_id, mtime, bbox_x, bbox_y, bbox_w, bbox_h, vec)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![file_id, mtime, x, y, w, h, encode_vec(vec)],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn load_all_face_embeddings(
+    conn: &Connection,
+) -> Result<Vec<crate::models::FaceEmbeddingRow>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT file_id, bbox_x, bbox_y, bbox_w, bbox_h, vec FROM face_embeddings",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(crate::models::FaceEmbeddingRow {
+            file_id: r.get(0)?,
+            bbox_x: r.get(1)?,
+            bbox_y: r.get(2)?,
+            bbox_w: r.get(3)?,
+            bbox_h: r.get(4)?,
+            vec: decode_vec(&r.get::<_, Vec<u8>>(5)?),
+        })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// Replace the centroid set wholesale (one per cluster) for the
+/// AssignToCentroids fast path on subsequent runs.
+pub fn save_face_centroids(
+    conn: &Connection,
+    centroids: &[(String, Vec<f32>)],
+) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    conn.execute_batch("DELETE FROM face_centroids")?;
+    for (cluster_id, vec) in centroids {
+        conn.execute(
+            "INSERT OR REPLACE INTO face_centroids (cluster_id, vec) VALUES (?1, ?2)",
+            params![cluster_id, encode_vec(vec)],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn load_face_centroids(conn: &Connection) -> Result<Vec<(String, Vec<f32>)>, AppError> {
+    let mut stmt = conn.prepare("SELECT cluster_id, vec FROM face_centroids")?;
+    let rows = stmt.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, decode_vec(&r.get::<_, Vec<u8>>(1)?)))
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
 pub fn rename_face_cluster(
     conn: &Connection,
     cluster_id: &str,
@@ -1457,6 +1541,52 @@ mod tests {
         upsert_tags(&conn, "x", &["c".to_string()]).unwrap();
         let tags = get_tags_for_file(&conn, "x").unwrap();
         assert_eq!(tags, vec!["c"]);
+    }
+
+    mod face_persistence {
+        use super::*;
+
+        #[test]
+        fn embeddings_roundtrip() {
+            let (conn, _f) = open_temp();
+            let faces = vec![
+                (0.1, 0.2, 0.3, 0.4, vec![1.0f32, -0.5, 0.25]),
+                (0.5, 0.6, 0.1, 0.1, vec![0.0f32, 1.0, 2.0]),
+            ];
+            insert_face_embeddings(&conn, "f1", 1234, &faces).unwrap();
+
+            let rows = load_all_face_embeddings(&conn).unwrap();
+            assert_eq!(rows.len(), 2);
+            let r0 = rows.iter().find(|r| (r.bbox_x - 0.1).abs() < 1e-9).unwrap();
+            assert_eq!(r0.file_id, "f1");
+            assert_eq!(r0.vec, vec![1.0f32, -0.5, 0.25]);
+        }
+
+        #[test]
+        fn reinsert_replaces_stale_rows() {
+            let (conn, _f) = open_temp();
+            insert_face_embeddings(&conn, "f1", 1, &[(0.1, 0.1, 0.1, 0.1, vec![1.0])]).unwrap();
+            insert_face_embeddings(&conn, "f1", 2, &[(0.9, 0.9, 0.1, 0.1, vec![2.0])]).unwrap();
+
+            let rows = load_all_face_embeddings(&conn).unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].vec, vec![2.0f32]);
+        }
+
+        #[test]
+        fn centroids_roundtrip() {
+            let (conn, _f) = open_temp();
+            save_face_centroids(
+                &conn,
+                &[("c1".to_string(), vec![0.1, 0.2]), ("c2".to_string(), vec![0.3])],
+            )
+            .unwrap();
+
+            let mut got = load_face_centroids(&conn).unwrap();
+            got.sort_by(|a, b| a.0.cmp(&b.0));
+            assert_eq!(got.len(), 2);
+            assert_eq!(got[0], ("c1".to_string(), vec![0.1f32, 0.2]));
+        }
     }
 
     #[test]

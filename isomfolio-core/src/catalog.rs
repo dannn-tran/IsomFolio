@@ -73,6 +73,27 @@ impl Catalog {
         db::get_uncached_face_file_paths(&self.conn)
     }
 
+    pub fn insert_face_embeddings(
+        &self,
+        file_id: &str,
+        mtime: i64,
+        faces: &[(f64, f64, f64, f64, Vec<f32>)],
+    ) -> Result<(), AppError> {
+        db::insert_face_embeddings(&self.conn, file_id, mtime, faces)
+    }
+
+    pub fn load_all_face_embeddings(&self) -> Result<Vec<crate::models::FaceEmbeddingRow>, AppError> {
+        db::load_all_face_embeddings(&self.conn)
+    }
+
+    pub fn save_face_centroids(&self, centroids: &[(String, Vec<f32>)]) -> Result<(), AppError> {
+        db::save_face_centroids(&self.conn, centroids)
+    }
+
+    pub fn load_face_centroids(&self) -> Result<Vec<(String, Vec<f32>)>, AppError> {
+        db::load_face_centroids(&self.conn)
+    }
+
     pub fn get_indexed_paths_in_folder(
         &self,
         root: &str,

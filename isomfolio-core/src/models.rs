@@ -158,6 +158,18 @@ pub struct FaceClusterMember {
     pub bbox_h: f64,
 }
 
+/// One detected face: its bounding box and embedding vector, as stored in
+/// `face_embeddings`. The host clusters these (DBSCAN) into `face_clusters`.
+#[derive(Debug, Clone)]
+pub struct FaceEmbeddingRow {
+    pub file_id: String,
+    pub bbox_x: f64,
+    pub bbox_y: f64,
+    pub bbox_w: f64,
+    pub bbox_h: f64,
+    pub vec: Vec<f32>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("database error: {0}")]
