@@ -65,6 +65,14 @@ impl Catalog {
         db::get_all_file_paths_with_mtimes(&self.conn)
     }
 
+    pub fn sweep_face_embeddings(&self) -> Result<(), AppError> {
+        db::sweep_face_embeddings(&self.conn)
+    }
+
+    pub fn get_uncached_face_file_paths(&self) -> Result<Vec<(String, String, i64)>, AppError> {
+        db::get_uncached_face_file_paths(&self.conn)
+    }
+
     pub fn get_indexed_paths_in_folder(
         &self,
         root: &str,

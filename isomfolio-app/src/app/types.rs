@@ -284,6 +284,7 @@ pub enum Msg {
 
     RunFaceClustering { force_full: bool },
     FaceClusteringDone(Vec<isomfolio_core::models::FaceClusterSummary>),
+    FaceClustersPartial(Vec<isomfolio_core::models::FaceClusterSummary>),
     FaceClustersLoaded(Vec<isomfolio_core::models::FaceClusterSummary>),
     RenameFaceCluster(String),
     RenameFaceClusterInputChanged(String),

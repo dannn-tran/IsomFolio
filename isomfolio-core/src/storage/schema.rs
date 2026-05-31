@@ -137,6 +137,29 @@ CREATE TABLE IF NOT EXISTS face_cluster_names (
 pub const CREATE_FACE_CLUSTER_IDX: &str =
     "CREATE INDEX IF NOT EXISTS idx_fc_cluster ON face_clusters(cluster_id);";
 
+pub const CREATE_FACE_EMBEDDINGS: &str = "
+CREATE TABLE IF NOT EXISTS face_embeddings (
+    file_id     TEXT NOT NULL,
+    mtime       INTEGER NOT NULL,
+    bbox_x      REAL NOT NULL,
+    bbox_y      REAL NOT NULL,
+    bbox_w      REAL NOT NULL,
+    bbox_h      REAL NOT NULL,
+    vec         BLOB NOT NULL,
+    PRIMARY KEY (file_id, bbox_x, bbox_y)
+);
+";
+
+pub const CREATE_FACE_EMBEDDINGS_IDX: &str =
+    "CREATE INDEX IF NOT EXISTS idx_fe_file ON face_embeddings(file_id, mtime);";
+
+pub const CREATE_FACE_CENTROIDS: &str = "
+CREATE TABLE IF NOT EXISTS face_centroids (
+    cluster_id  TEXT PRIMARY KEY,
+    vec         BLOB NOT NULL
+);
+";
+
 /// Run once per DB open; errors silently ignored (already applied).
 pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE files ADD COLUMN created_at_unix INTEGER NOT NULL DEFAULT 0",
@@ -191,4 +214,7 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_FACE_CLUSTERS,
     CREATE_FACE_CLUSTER_NAMES,
     CREATE_FACE_CLUSTER_IDX,
+    CREATE_FACE_EMBEDDINGS,
+    CREATE_FACE_EMBEDDINGS_IDX,
+    CREATE_FACE_CENTROIDS,
 ];

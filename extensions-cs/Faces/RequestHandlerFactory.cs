@@ -8,8 +8,13 @@ public class RequestHandlerFactory(IMessageWriter writer)
     private readonly FacesLogger _log = new("startup");
 
     /// <param name="extDir">Install directory — holds <c>config.json</c>.</param>
-    /// <param name="dataDir">Persistent data directory — survives reinstalls. Holds models and <c>state.db</c>.</param>
-    public async Task<RequestHandler> CreateAsync(string extDir, string dataDir, CancellationToken ct = default)
+    /// <param name="dataDir">Persistent data directory — survives reinstalls. Holds models.</param>
+    /// <param name="catalogDbPath">Catalog DB path passed by the host via <c>--catalog-db</c>.</param>
+    public async Task<RequestHandler> CreateAsync(
+        string extDir,
+        string dataDir,
+        string catalogDbPath,
+        CancellationToken ct = default)
     {
         var config = await GetConfigAsync(extDir, ct);
         var variant = ModelVariant.Current(config.ModelVariant);
@@ -26,10 +31,7 @@ public class RequestHandlerFactory(IMessageWriter writer)
         var (detector, recognizer) = await Task.Run(
             () => (new FaceDetector(detPath), new FaceRecognizer(recPath)), ct);
 
-        var stateDbPath = Path.Combine(dataDir, "state.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(stateDbPath)!);
-        var cache = new EmbeddingCache(stateDbPath);
-
+        var cache = new EmbeddingCache(catalogDbPath);
         return new RequestHandler(config, writer, cache, detector, recognizer);
     }
 

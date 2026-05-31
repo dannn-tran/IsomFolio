@@ -2,71 +2,71 @@ using Microsoft.Data.Sqlite;
 
 namespace IsomFolio.Extensions.Faces;
 
+/// Reads and writes face embeddings in the catalog DB (face_embeddings / face_centroids tables).
+/// Schema is owned by the Rust host — this class does not CREATE TABLE.
 public class EmbeddingCache : IDisposable
 {
-    private const string ModelVersion = "scrfd-10g+arcface-w600k-r50-v2";
     private readonly SqliteConnection _conn;
 
-    public EmbeddingCache(string dbPath)
+    public EmbeddingCache(string catalogDbPath)
     {
-        _conn = new SqliteConnection($"Data Source={dbPath}");
+        _conn = new SqliteConnection($"Data Source={catalogDbPath}");
         _conn.Open();
 
         using var cmd = _conn.CreateCommand();
+        // Pragmas are idempotent; tables use IF NOT EXISTS so this is safe when
+        // the Rust host has already created them and safe in tests where it hasn't.
         cmd.CommandText = """
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
             CREATE TABLE IF NOT EXISTS face_embeddings (
-                id           INTEGER PRIMARY KEY,
-                file_id      TEXT NOT NULL,
-                file_mtime   INTEGER NOT NULL,
-                model_version TEXT NOT NULL,
-                bbox_x       REAL NOT NULL,
-                bbox_y       REAL NOT NULL,
-                bbox_w       REAL NOT NULL,
-                bbox_h       REAL NOT NULL,
-                vec          BLOB NOT NULL
+                file_id TEXT NOT NULL,
+                mtime   INTEGER NOT NULL,
+                bbox_x  REAL NOT NULL,
+                bbox_y  REAL NOT NULL,
+                bbox_w  REAL NOT NULL,
+                bbox_h  REAL NOT NULL,
+                vec     BLOB NOT NULL,
+                PRIMARY KEY (file_id, bbox_x, bbox_y)
             );
-            CREATE INDEX IF NOT EXISTS idx_fe_key
-                ON face_embeddings (file_id, file_mtime, model_version);
-            CREATE TABLE IF NOT EXISTS cluster_centroids (
-                cluster_id   TEXT PRIMARY KEY,
-                centroid     BLOB NOT NULL
+            CREATE INDEX IF NOT EXISTS idx_fe_file ON face_embeddings(file_id, mtime);
+            CREATE TABLE IF NOT EXISTS face_centroids (
+                cluster_id TEXT PRIMARY KEY,
+                vec        BLOB NOT NULL
             );
             """;
         cmd.ExecuteNonQuery();
     }
 
-    public bool IsCached(string fileId, long fileMtime)
+    public bool IsCached(string fileId, long mtime)
     {
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "SELECT 1 FROM face_embeddings WHERE file_id = @fid AND file_mtime = @mt AND model_version = @mv LIMIT 1";
+        cmd.CommandText =
+            "SELECT 1 FROM face_embeddings WHERE file_id = @fid AND mtime = @mt LIMIT 1";
         cmd.Parameters.AddWithValue("@fid", fileId);
-        cmd.Parameters.AddWithValue("@mt", fileMtime);
-        cmd.Parameters.AddWithValue("@mv", ModelVersion);
+        cmd.Parameters.AddWithValue("@mt", mtime);
         return cmd.ExecuteScalar() != null;
     }
 
-    public void DeleteStale(string fileId, long fileMtime)
+    public void DeleteStale(string fileId, long mtime)
     {
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM face_embeddings WHERE file_id = @fid AND (file_mtime != @mt OR model_version != @mv)";
+        cmd.CommandText =
+            "DELETE FROM face_embeddings WHERE file_id = @fid AND mtime != @mt";
         cmd.Parameters.AddWithValue("@fid", fileId);
-        cmd.Parameters.AddWithValue("@mt", fileMtime);
-        cmd.Parameters.AddWithValue("@mv", ModelVersion);
+        cmd.Parameters.AddWithValue("@mt", mtime);
         cmd.ExecuteNonQuery();
     }
 
-    public void InsertEmbedding(string fileId, long fileMtime, float bboxX, float bboxY, float bboxW, float bboxH, float[] vec)
+    public void InsertEmbedding(string fileId, long mtime, float bboxX, float bboxY, float bboxW, float bboxH, float[] vec)
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO face_embeddings (file_id, file_mtime, model_version, bbox_x, bbox_y, bbox_w, bbox_h, vec)
-            VALUES (@fid, @mt, @mv, @bx, @by, @bw, @bh, @vec)
+            INSERT OR REPLACE INTO face_embeddings (file_id, mtime, bbox_x, bbox_y, bbox_w, bbox_h, vec)
+            VALUES (@fid, @mt, @bx, @by, @bw, @bh, @vec)
             """;
         cmd.Parameters.AddWithValue("@fid", fileId);
-        cmd.Parameters.AddWithValue("@mt", fileMtime);
-        cmd.Parameters.AddWithValue("@mv", ModelVersion);
+        cmd.Parameters.AddWithValue("@mt", mtime);
         cmd.Parameters.AddWithValue("@bx", bboxX);
         cmd.Parameters.AddWithValue("@by", bboxY);
         cmd.Parameters.AddWithValue("@bw", bboxW);
@@ -80,8 +80,8 @@ public class EmbeddingCache : IDisposable
     public List<EmbeddingRow> LoadAll()
     {
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "SELECT file_id, bbox_x, bbox_y, bbox_w, bbox_h, vec FROM face_embeddings WHERE model_version = @mv";
-        cmd.Parameters.AddWithValue("@mv", ModelVersion);
+        cmd.CommandText =
+            "SELECT file_id, bbox_x, bbox_y, bbox_w, bbox_h, vec FROM face_embeddings";
 
         var rows = new List<EmbeddingRow>();
         using var reader = cmd.ExecuteReader();
@@ -103,7 +103,7 @@ public class EmbeddingCache : IDisposable
     {
         var centroids = new Dictionary<string, float[]>();
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "SELECT cluster_id, centroid FROM cluster_centroids";
+        cmd.CommandText = "SELECT cluster_id, vec FROM face_centroids";
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
             centroids[reader.GetString(0)] = BytesToFloats((byte[])reader.GetValue(1));
@@ -115,15 +115,16 @@ public class EmbeddingCache : IDisposable
         using var tx = _conn.BeginTransaction();
         using (var del = _conn.CreateCommand())
         {
-            del.CommandText = "DELETE FROM cluster_centroids";
+            del.CommandText = "DELETE FROM face_centroids";
             del.ExecuteNonQuery();
         }
         foreach (var (id, centroid) in centroids)
         {
             using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "INSERT INTO cluster_centroids (cluster_id, centroid) VALUES (@id, @c)";
+            cmd.CommandText =
+                "INSERT INTO face_centroids (cluster_id, vec) VALUES (@id, @v)";
             cmd.Parameters.AddWithValue("@id", id);
-            cmd.Parameters.AddWithValue("@c", FloatsToBytes(centroid));
+            cmd.Parameters.AddWithValue("@v", FloatsToBytes(centroid));
             cmd.ExecuteNonQuery();
         }
         tx.Commit();

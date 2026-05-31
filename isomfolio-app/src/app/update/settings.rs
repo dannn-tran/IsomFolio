@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use iced::Task;
+use isomfolio_core::app_paths::db_path;
 use isomfolio_core::extension::{
     install_extension_package, load_extension_config, save_extension_config, uninstall_extension,
     ConfigFieldKind, ExtensionProcess,
@@ -131,8 +132,13 @@ impl App {
                         .position(|a| &a.manifest.name == extension_name);
                     if let Some(idx) = idx {
                         let manifest = self.extensions[idx].manifest.clone();
+                        let catalog_db = if manifest.capabilities.contains(&"cluster_faces".to_string()) {
+                            Some(std::path::PathBuf::from(db_path(&self.catalog_dir)))
+                        } else {
+                            None
+                        };
                         restart_tasks.push(Task::perform(
-                            async move { ExtensionProcess::launch(manifest).map(Arc::new).ok() },
+                            async move { ExtensionProcess::launch(manifest, catalog_db.as_deref()).map(Arc::new).ok() },
                             move |p| Msg::ExtensionRestarted { idx, process: p },
                         ));
                     }
@@ -163,11 +169,17 @@ impl App {
                 self.settings.status = None;
                 let task_id = self.bg_push("Installing extension…");
                 self.settings.install_task_id = Some(task_id);
+                let catalog_db = std::path::PathBuf::from(db_path(&self.catalog_dir));
                 Task::perform(
                     async move {
                         let path = std::path::PathBuf::from(path);
                         install_extension_package(&path).and_then(|m| {
-                            ExtensionProcess::launch(m).map(Arc::new).map_err(|e| e.to_string())
+                            let db = if m.capabilities.contains(&"cluster_faces".to_string()) {
+                                Some(catalog_db.as_path())
+                            } else {
+                                None
+                            };
+                            ExtensionProcess::launch(m, db).map(Arc::new).map_err(|e| e.to_string())
                         })
                     },
                     |result| match result {

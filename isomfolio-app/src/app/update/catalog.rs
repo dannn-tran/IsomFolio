@@ -14,13 +14,19 @@ impl App {
             Msg::CatalogReady => {
                 self.start_thumbnail_pool();
                 let sidebar_task = self.load_sidebar_task();
+                let catalog_db = std::path::PathBuf::from(db_path(&self.catalog_dir));
                 let extension_task = Task::perform(
                     async move {
                         let manifests = discover_extensions();
                         manifests
                             .into_iter()
                             .filter_map(|m| {
-                                ExtensionProcess::launch(m)
+                                let db = if m.capabilities.contains(&"cluster_faces".to_string()) {
+                                    Some(catalog_db.as_path())
+                                } else {
+                                    None
+                                };
+                                ExtensionProcess::launch(m, db)
                                     .map(Arc::new)
                                     .map_err(|e| eprintln!("[extension] launch failed: {e}"))
                                     .ok()

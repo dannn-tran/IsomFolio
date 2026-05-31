@@ -33,10 +33,19 @@ pub fn uninstall_extension(name: &str) -> Result<(), String> {
 pub struct ExtensionProcess(Arc<isomfolio_extension_host::ExtensionProcess>);
 
 impl ExtensionProcess {
-    pub fn launch(manifest: ExtensionManifest) -> Result<Self, AppError> {
-        isomfolio_extension_host::ExtensionProcess::launch(manifest, Some(models_dir()))
-            .map(|p| ExtensionProcess(Arc::new(p)))
-            .map_err(map_err)
+    /// Launch extension. Pass `catalog_db_path` only for first-party extensions
+    /// that read/write the catalog DB directly (currently: Faces / cluster_faces).
+    pub fn launch(
+        manifest: ExtensionManifest,
+        catalog_db_path: Option<&std::path::Path>,
+    ) -> Result<Self, AppError> {
+        isomfolio_extension_host::ExtensionProcess::launch(
+            manifest,
+            Some(models_dir()),
+            catalog_db_path.map(|p| p.to_path_buf()),
+        )
+        .map(|p| ExtensionProcess(Arc::new(p)))
+        .map_err(map_err)
     }
 
     pub fn manifest(&self) -> &ExtensionManifest {

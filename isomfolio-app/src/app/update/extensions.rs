@@ -129,8 +129,13 @@ impl App {
                 };
                 let manifest = self.extensions.get(addon_idx).map(|a| a.manifest.clone());
                 if let Some(manifest) = manifest {
+                    let catalog_db = if manifest.capabilities.contains(&"cluster_faces".to_string()) {
+                        Some(std::path::PathBuf::from(isomfolio_core::app_paths::db_path(&self.catalog_dir)))
+                    } else {
+                        None
+                    };
                     Task::perform(
-                        async move { ExtensionProcess::launch(manifest).map(Arc::new).ok() },
+                        async move { ExtensionProcess::launch(manifest, catalog_db.as_deref()).map(Arc::new).ok() },
                         move |p| Msg::ExtensionRestarted { idx: addon_idx, process: p },
                     )
                 } else {
@@ -152,105 +157,47 @@ impl App {
                 };
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 self.faces.is_clustering = true;
-                self.faces.status = Some("Clustering faces… (0%)".to_string());
+                self.faces.status = Some("Clustering faces…".to_string());
                 self.task_panel_open = true;
 
-                let files = {
+                // Sweep stale embeddings then fetch only cache-miss files.
+                let (uncached, total_indexed) = {
                     let g = conn.lock_unwrap();
-                    g.get_all_file_paths_with_mtimes().unwrap_or_default()
-                };
-                let params = cluster_faces_request_params(&files, force_full);
-
-                let handle = match ext.send("cluster_faces", params) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        self.faces.status = Some(format!("face clustering error: {e}"));
-                        return Task::none();
+                    if let Err(e) = g.sweep_face_embeddings() {
+                        eprintln!("[faces] sweep failed: {e}");
                     }
+                    let uncached = g.get_uncached_face_file_paths().unwrap_or_default();
+                    let total = g.get_all_file_paths_with_mtimes()
+                        .map(|v| v.len())
+                        .unwrap_or(uncached.len());
+                    (uncached, total)
                 };
 
-                enum ClusterPoll {
-                    Progress(u8),
-                    Done(Vec<isomfolio_core::models::FaceClusterSummary>),
-                    Failed(String),
-                    Pending,
+                if total_indexed == 0 {
+                    self.faces.is_clustering = false;
+                    self.faces.status = Some("No files to cluster".to_string());
+                    return Task::none();
                 }
 
-                let stream = futures::stream::unfold(
-                    (handle, conn, ext, false),
-                    |(handle, conn, ext, done)| async move {
-                        if done {
-                            return None;
-                        }
-                        let conn2 = conn.clone();
-                        let (poll, handle) = tokio::task::spawn_blocking(
-                            move || -> Option<(ClusterPoll, _)> {
-                                let result = match handle
-                                    .progress_rx
-                                    .recv_timeout(Duration::from_millis(200))
-                                {
-                                    Ok(percent) => {
-                                        return Some((ClusterPoll::Progress(percent), handle));
-                                    }
-                                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                        match handle.result_rx.try_recv() {
-                                            Ok(r) => r,
-                                            Err(_) => return Some((ClusterPoll::Pending, handle)),
-                                        }
-                                    }
-                                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                        handle.result_rx.recv().ok()?
-                                    }
-                                };
-                                match result {
-                                    Ok(value) => {
-                                        let clusters = parse_cluster_response(value);
-                                        let g = conn2.lock_unwrap();
-                                        if let Err(e) = g.save_face_clusters(&clusters) {
-                                            eprintln!("[db] save_face_clusters failed: {e}");
-                                        }
-                                        let summaries =
-                                            g.get_face_cluster_summaries().unwrap_or_default();
-                                        Some((ClusterPoll::Done(summaries), handle))
-                                    }
-                                    Err(e) => Some((ClusterPoll::Failed(e), handle)),
-                                }
-                            },
-                        )
-                        .await
-                        .ok()
-                        .flatten()?;
+                // Split uncached files into 50-file batches. If all files are already cached,
+                // send one batch with all files so the extension still runs clustering on the cache.
+                const BATCH_SIZE: usize = 50;
+                let chunks: Vec<Vec<(String, String, i64)>> = if uncached.is_empty() {
+                    let g = conn.lock_unwrap();
+                    let all = g.get_all_file_paths_with_mtimes().unwrap_or_default();
+                    vec![all]
+                } else {
+                    uncached.chunks(BATCH_SIZE).map(<[_]>::to_vec).collect()
+                };
 
-                        match poll {
-                            ClusterPoll::Progress(percent) => Some((
-                                Msg::ExtensionBatchProgress {
-                                    name: "Clustering faces".into(),
-                                    done: percent as usize,
-                                    total: 100,
-                                },
-                                (handle, conn, ext, false),
-                            )),
-                            ClusterPoll::Done(summaries) => {
-                                Some((Msg::FaceClusteringDone(summaries), (handle, conn, ext, true)))
-                            }
-                            ClusterPoll::Failed(e) => {
-                                eprintln!("[faces] cluster_faces error: {e}");
-                                let tail = ext.formatted_last_stderr();
-                                if tail.is_empty() {
-                                    eprintln!("[{}] (no stderr captured before exit)", ext.manifest.name);
-                                } else {
-                                    eprintln!("[{}] last stderr:", ext.manifest.name);
-                                    for line in tail {
-                                        eprintln!("[{}] {line}", ext.manifest.name);
-                                    }
-                                }
-                                Some((Msg::FaceClusteringDone(Vec::new()), (handle, conn, ext, true)))
-                            }
-                            ClusterPoll::Pending => Some((Msg::NoOp, (handle, conn, ext, false))),
-                        }
-                    },
-                );
-                Task::stream(stream)
+                Task::stream(face_cluster_stream(ext, conn, chunks, total_indexed, force_full))
+            }
+
+            Msg::FaceClustersPartial(summaries) => {
+                let count = summaries.len();
+                self.faces.clusters = summaries;
+                self.faces.status = Some(format!("{count} people found so far…"));
+                self.load_face_crops_task()
             }
 
             Msg::FaceClusteringDone(summaries) => {
@@ -356,6 +303,11 @@ impl App {
             }
 
             Msg::ExtensionRestarted { idx, process } => {
+                if self.faces.is_clustering {
+                    self.faces.is_clustering = false;
+                    self.faces.status =
+                        Some("Clustering interrupted — extension restarted".to_string());
+                }
                 let msg = if let Some(p) = process {
                     if idx < self.extensions.len() {
                         self.extensions[idx] = p;
@@ -680,4 +632,142 @@ fn parse_cluster_response(v: serde_json::Value) -> Vec<FaceClusterMember> {
         });
     }
     rows
+}
+
+fn face_cluster_stream(
+    ext: Arc<ExtensionProcess>,
+    conn: Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
+    chunks: Vec<Vec<(String, String, i64)>>,
+    total_indexed: usize,
+    force_full: bool,
+) -> impl futures::Stream<Item = Msg> {
+    enum ClusterPoll {
+        Progress(u8),
+        Done(Vec<isomfolio_core::models::FaceClusterSummary>),
+        Failed(String),
+        Pending,
+    }
+
+    struct BatchState {
+        chunks: Vec<Vec<(String, String, i64)>>,
+        batch_idx: usize,
+        files_sent: usize,
+        total_indexed: usize,
+        handle: Option<isomfolio_core::extension::ExtensionCallHandle>,
+        conn: Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
+        ext: Arc<ExtensionProcess>,
+        force_full: bool,
+        done: bool,
+    }
+
+    let total_batches = chunks.len();
+    let state = BatchState {
+        chunks,
+        batch_idx: 0,
+        files_sent: 0,
+        total_indexed,
+        handle: None,
+        ext,
+        conn,
+        force_full,
+        done: false,
+    };
+
+    futures::stream::unfold(state, move |mut s| async move {
+        if s.done {
+            return None;
+        }
+
+        if s.handle.is_none() {
+            let chunk = &s.chunks[s.batch_idx];
+            let params = cluster_faces_request_params(chunk, s.force_full);
+            match s.ext.send("cluster_faces", params) {
+                Ok(h) => s.handle = Some(h),
+                Err(e) => {
+                    eprintln!("[faces] batch {} send error: {e}", s.batch_idx + 1);
+                    s.done = true;
+                    let summaries = s.conn.lock_unwrap()
+                        .get_face_cluster_summaries().unwrap_or_default();
+                    return Some((Msg::FaceClusteringDone(summaries), s));
+                }
+            }
+        }
+
+        let handle = s.handle.take().unwrap();
+        let conn2 = s.conn.clone();
+        let batch_idx = s.batch_idx;
+        let is_last = batch_idx + 1 >= total_batches;
+        let files_sent = s.files_sent + s.chunks[batch_idx].len();
+        let total_indexed = s.total_indexed;
+
+        let poll_result = tokio::task::spawn_blocking(
+            move || -> Option<(ClusterPoll, isomfolio_core::extension::ExtensionCallHandle)> {
+                let result = match handle.progress_rx.recv_timeout(Duration::from_millis(200)) {
+                    Ok(percent) => return Some((ClusterPoll::Progress(percent), handle)),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        match handle.result_rx.try_recv() {
+                            Ok(r) => r,
+                            Err(_) => return Some((ClusterPoll::Pending, handle)),
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        handle.result_rx.recv().ok()?
+                    }
+                };
+                match result {
+                    Ok(value) => {
+                        let clusters = parse_cluster_response(value);
+                        let g = conn2.lock_unwrap();
+                        if let Err(e) = g.save_face_clusters(&clusters) {
+                            eprintln!("[db] save_face_clusters failed: {e}");
+                        }
+                        let summaries = g.get_face_cluster_summaries().unwrap_or_default();
+                        Some((ClusterPoll::Done(summaries), handle))
+                    }
+                    Err(e) => Some((ClusterPoll::Failed(e), handle)),
+                }
+            },
+        )
+        .await
+        .ok()
+        .flatten()?;
+
+        let (poll, handle) = poll_result;
+        let batch_share = 100 / total_batches;
+
+        match poll {
+            ClusterPoll::Progress(percent) => {
+                let overall = batch_idx * batch_share + percent as usize * batch_share / 100;
+                let label = format!("Clustering faces ({files_sent} / {total_indexed})");
+                s.handle = Some(handle);
+                Some((Msg::ExtensionBatchProgress { name: label, done: overall, total: 100 }, s))
+            }
+            ClusterPoll::Done(summaries) => {
+                s.files_sent = files_sent;
+                if is_last {
+                    s.done = true;
+                    Some((Msg::FaceClusteringDone(summaries), s))
+                } else {
+                    s.batch_idx += 1;
+                    Some((Msg::FaceClustersPartial(summaries), s))
+                }
+            }
+            ClusterPoll::Failed(e) => {
+                eprintln!("[faces] cluster_faces error (batch {}): {e}", batch_idx + 1);
+                let tail = s.ext.formatted_last_stderr();
+                if !tail.is_empty() {
+                    eprintln!("[{}] last stderr:", s.ext.manifest.name);
+                    for line in &tail { eprintln!("[{}] {line}", s.ext.manifest.name); }
+                }
+                s.done = true;
+                let summaries = s.conn.lock_unwrap()
+                    .get_face_cluster_summaries().unwrap_or_default();
+                Some((Msg::FaceClusteringDone(summaries), s))
+            }
+            ClusterPoll::Pending => {
+                s.handle = Some(handle);
+                Some((Msg::NoOp, s))
+            }
+        }
+    })
 }

@@ -17,14 +17,15 @@ public static class Program
         };
 
         var dataDir = SdkArgs.DataDir(args);
+        var catalogDbPath = SdkArgs.CatalogDbPath(args);
 
         if (SdkArgs.IsSetupMode(args))
             await RunSetupAsync(dataDir);
         else
-            await RunAsync(dataDir);
+            await RunAsync(dataDir, catalogDbPath);
     }
 
-    private static async Task RunAsync(string dataDir)
+    private static async Task RunAsync(string dataDir, string? catalogDbPath)
     {
         var log = new FacesLogger("startup");
         using var cts = new CancellationTokenSource();
@@ -45,8 +46,11 @@ public static class Program
             IRequestHandler handler;
             try
             {
+                if (catalogDbPath is null)
+                    throw new InvalidOperationException("--catalog-db not provided; cannot open embedding cache");
+
                 await log.LogAsync(LogLevel.Info, "loading face models…");
-                handler = await new RequestHandlerFactory(writer).CreateAsync(AppContext.BaseDirectory, dataDir, cts.Token);
+                handler = await new RequestHandlerFactory(writer).CreateAsync(AppContext.BaseDirectory, dataDir, catalogDbPath, cts.Token);
                 await log.LogAsync(LogLevel.Info, "models ready");
             }
             catch (Exception ex)

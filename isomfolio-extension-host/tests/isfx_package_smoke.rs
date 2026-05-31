@@ -76,7 +76,7 @@ fn each_discovered_isfx_passes_smoke_test() {
             .unwrap_or_else(|e| panic!("install {} failed: {e}", pkg.display()));
 
         let extension_name = manifest.name.clone();
-        let proc = ExtensionProcess::launch(manifest, Some(data_dir.path().to_path_buf()))
+        let proc = ExtensionProcess::launch(manifest, Some(data_dir.path().to_path_buf()), None)
             .unwrap_or_else(|e| panic!("launch {extension_name} failed: {e}"));
 
         assert_eq!(

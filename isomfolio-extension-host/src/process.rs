@@ -73,15 +73,24 @@ pub struct ExtensionProcess {
 }
 
 impl ExtensionProcess {
-    /// Launch the extension. `data_dir`, if provided, is passed to the child as `--data-dir <path>`.
-    /// Extensions that need a writable scratch / models location should use it.
-    pub fn launch(manifest: ExtensionManifest, data_dir: Option<PathBuf>) -> Result<Self, Error> {
+    /// Launch the extension.
+    /// `data_dir` is passed as `--data-dir <path>` (models / persistent scratch).
+    /// `catalog_db_path` is passed as `--catalog-db <path>` for first-party extensions
+    /// that read/write the catalog DB directly (e.g. Faces).
+    pub fn launch(
+        manifest: ExtensionManifest,
+        data_dir: Option<PathBuf>,
+        catalog_db_path: Option<PathBuf>,
+    ) -> Result<Self, Error> {
         let mut cmd = Command::new(&manifest.executable);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if let Some(d) = data_dir {
             cmd.arg("--data-dir").arg(d);
+        }
+        if let Some(p) = catalog_db_path {
+            cmd.arg("--catalog-db").arg(p);
         }
         let mut child = cmd
             .spawn()
@@ -448,7 +457,7 @@ done
         let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         let result = proc.call("echo", serde_json::json!({"msg": "hello"})).expect("call failed");
         assert_eq!(result["ok"], true);
     }
@@ -463,7 +472,7 @@ printf '{"type":"ok","id":%s,"result":{"protocol_version":99,"extension_version"
 printf '{"type":"ready"}\n'
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let err = ExtensionProcess::launch(make_manifest(exe), None).unwrap_err();
+        let err = ExtensionProcess::launch(make_manifest(exe), None, None).unwrap_err();
         assert!(err.to_string().contains("unsupported protocol version"));
     }
 
@@ -472,7 +481,7 @@ printf '{"type":"ready"}\n'
         let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         let requests: Vec<(&str, serde_json::Value)> = (0..5)
             .map(|i| ("echo", serde_json::json!({"n": i})))
             .collect();
@@ -506,7 +515,7 @@ while IFS= read -r line; do
 done
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         let requests: Vec<(&str, serde_json::Value)> = (0..5)
             .map(|i| ("echo", serde_json::json!({"n": i})))
             .collect();
@@ -541,7 +550,7 @@ while IFS= read -r line; do
 done
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         let handle = proc.send("echo", serde_json::json!({})).expect("send failed");
         let progress_values: Vec<u8> = std::iter::from_fn(|| {
             handle.progress_rx.recv_timeout(Duration::from_secs(5)).ok()
@@ -570,7 +579,7 @@ while IFS= read -r line; do
 done
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         let _ = proc.call("test", serde_json::json!({}));
         std::thread::sleep(Duration::from_millis(100));
         let stderr = proc.last_stderr();
@@ -593,7 +602,7 @@ while IFS= read -r line; do
 done
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         let err = proc.call("echo", serde_json::json!({})).unwrap_err();
         assert!(err.to_string().contains("something went wrong"));
     }
@@ -603,7 +612,7 @@ done
         let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         let handle = proc.send_many(&[]).expect("send_many failed");
         assert_eq!(handle.total, 0);
     }
@@ -613,7 +622,7 @@ done
         let _guard = PROC_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let exe = write_test_extension(tmp.path(), echo_script());
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         for i in 0..10 {
             let result = proc.call("echo", serde_json::json!({"i": i})).expect("call failed");
             assert_eq!(result["ok"], true);
@@ -630,7 +639,7 @@ printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"extension_version":
 printf '{"type":"fatal","repairable":true,"message":"models missing"}\n'
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let err = ExtensionProcess::launch(make_manifest(exe), None).unwrap_err();
+        let err = ExtensionProcess::launch(make_manifest(exe), None, None).unwrap_err();
         assert!(err.to_string().contains("models missing"), "unexpected error: {err}");
     }
 
@@ -644,7 +653,7 @@ printf '{"type":"ok","id":%s,"result":{"protocol_version":1,"extension_version":
 printf '{"type":"ready"}\n'
 "#;
         let exe = write_test_extension(tmp.path(), script);
-        let proc = ExtensionProcess::launch(make_manifest(exe), None).expect("launch failed");
+        let proc = ExtensionProcess::launch(make_manifest(exe), None, None).expect("launch failed");
         std::thread::sleep(Duration::from_millis(100));
         let err = proc.call("echo", serde_json::json!({})).unwrap_err();
         let msg = err.to_string();

@@ -15,4 +15,16 @@ public static class SdkArgs
         }
         return AppContext.BaseDirectory;
     }
+
+    /// Catalog DB path passed by the host via `--catalog-db <path>`.
+    /// Null when the argument is absent (non-catalog-aware extensions and tests).
+    public static string? CatalogDbPath(string[] args)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--catalog-db")
+                return args[i + 1];
+        }
+        return null;
+    }
 }
