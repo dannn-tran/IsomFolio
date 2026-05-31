@@ -12,8 +12,8 @@ use super::styles::{
     STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER, WARN,
 };
 use crate::app::{
-    format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, Msg, BUFFER_ROWS,
-    GRID_PADDING, TILE_GAP,
+    format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, DatePreset, Msg,
+    BUFFER_ROWS, GRID_PADDING, TILE_GAP,
 };
 
 impl App {
@@ -27,7 +27,7 @@ impl App {
         );
 
         let toolbar_row = row![
-            text_input("Search photos…", &self.search_text)
+            text_input("Search names & tags…", &self.search_text)
                 .on_input(Msg::SearchChanged)
                 .padding([SPACE_1_5, SPACE_2_5])
                 .size(TEXT_BASE)
@@ -276,7 +276,10 @@ impl App {
     pub(super) fn view_filter_panel(&self) -> Element<'_, Msg> {
         let mut col = column![].spacing(SPACE_1_5).padding([SPACE_1_5, SPACE_3]);
 
-        let mut tags_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
+        let tags_label = if self.filters.tags.len() > 1 { "Tags (all)" } else { "Tags" };
+        let mut tags_row = row![text(tags_label).size(TEXT_SM).color(FG_DIM)]
+            .spacing(SPACE_1_5)
+            .align_y(Alignment::Center);
         for tag in &self.filters.tags {
             tags_row = tags_row.push(
                 button(text(format!("{tag} ×")).size(TEXT_SM))
@@ -329,6 +332,23 @@ impl App {
                     .color(ERR),
             );
         }
+
+        let mut preset_row = row![Space::new().width(SPACE_3)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for (label, preset) in [
+            ("Last 7 days", DatePreset::Last7),
+            ("Last 30 days", DatePreset::Last30),
+            ("This month", DatePreset::ThisMonth),
+            ("This year", DatePreset::ThisYear),
+        ] {
+            preset_row = preset_row.push(
+                button(text(label).size(TEXT_SM))
+                    .on_press(Msg::SetDatePreset(preset))
+                    .style(ghost_btn_style),
+            );
+        }
+        col = col.push(preset_row);
 
         let mut ext_row = row![text("Type").size(TEXT_SM).color(FG_DIM)]
             .spacing(SPACE_1)

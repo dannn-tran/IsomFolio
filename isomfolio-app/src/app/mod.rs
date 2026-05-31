@@ -903,6 +903,23 @@ pub fn unix_to_date_str(ts: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// Compute `(from, to)` `YYYY-MM-DD` strings for a date preset, relative to today.
+pub fn date_preset_range(preset: crate::app::DatePreset) -> (String, String) {
+    use crate::app::DatePreset;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let today = unix_to_date_str(now);
+    let from = match preset {
+        DatePreset::Last7 => unix_to_date_str(now - 7 * 86400),
+        DatePreset::Last30 => unix_to_date_str(now - 30 * 86400),
+        DatePreset::ThisMonth => format!("{}-01", &today[..7]),
+        DatePreset::ThisYear => format!("{}-01-01", &today[..4]),
+    };
+    (from, today)
+}
+
 pub fn parse_date_str(s: &str) -> Option<i64> {
     if s.trim().is_empty() {
         return None;

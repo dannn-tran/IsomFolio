@@ -160,6 +160,7 @@ pub enum Msg {
     RemoveFilterTag(String),
     FilterDateFromChanged(String),
     FilterDateToChanged(String),
+    SetDatePreset(DatePreset),
     ToggleFilterFileType(String),
     ClearFilters,
 
@@ -339,6 +340,14 @@ pub enum UndoOp {
     RemovedTag { file_ids: Vec<String>, tag: String },
     SetRatings { before: Vec<(String, Option<i32>)> },
     SetFlags { before: Vec<(String, Flag)> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatePreset {
+    Last7,
+    Last30,
+    ThisMonth,
+    ThisYear,
 }
 
 pub struct FilterState {

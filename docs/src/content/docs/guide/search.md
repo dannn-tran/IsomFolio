@@ -23,8 +23,8 @@ Click the filter icon in the toolbar to open the criteria panel. It supports:
 
 | Criterion | Options |
 |---|---|
-| **Tags** | Include photos tagged with all specified tags |
-| **Date from / to** | Filter by capture date (EXIF) or file date within a range |
+| **Tags** | Include photos tagged with **all** specified tags (the label reads "Tags (all)" once you add more than one) |
+| **Date from / to** | Filter by capture date (EXIF) or file date within a range. Quick presets — **Last 7 days**, **Last 30 days**, **This month**, **This year** — fill the range for you |
 | **File types** | Toggle individual extensions (JPEG, PNG, WebP, GIF) |
 | **Rating** | Minimum star rating (≥ 1 through ≥ 5) |
 | **Flag** | All / Picks only / Rejects only / Unflagged only |
@@ -40,7 +40,7 @@ The text search bar and criteria panel work together. You can search for "paris"
 
 Sort controls appear in the toolbar:
 
-- **Sort field** — cycle through Name, Date, Rating
+- **Sort field** — cycle through Name, Date Shot, Size, Type
 - **Sort direction** — ascending or descending
 
 Sorting and filtering are independent — you can sort any filtered result set.

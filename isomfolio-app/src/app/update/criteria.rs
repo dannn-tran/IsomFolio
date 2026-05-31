@@ -81,6 +81,14 @@ impl App {
                 self.load_files_task()
             }
 
+            Msg::SetDatePreset(preset) => {
+                let (from, to) = super::super::date_preset_range(preset);
+                self.filters.date_from = from;
+                self.filters.date_to = to;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
             Msg::ToggleFilterFileType(ext) => {
                 if self.filters.exts.contains(&ext) {
                     self.filters.exts.remove(&ext);
