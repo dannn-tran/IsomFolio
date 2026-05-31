@@ -726,7 +726,84 @@ impl App {
             ));
         }
 
+        col = col.push(Space::new().height(SPACE_3));
+        col = col.push(self.inference_engine_section());
+
         col.into()
+    }
+
+    /// Inference-engine settings: Auto (managed local) vs a custom URL, the
+    /// managed port, and the people-clustering knobs (eps / min faces).
+    fn inference_engine_section(&self) -> Element<'_, Msg> {
+        let custom = self.app_settings.inference_custom_url.is_some();
+
+        let header = column![
+            text("Face inference engine").size(TEXT_BASE).color(FG),
+            text("Where face detection runs. Auto manages a local engine; Custom URL points at a self-hosted one.")
+                .size(TEXT_SM)
+                .color(FG_DIM),
+        ]
+        .spacing(SPACE_0_5);
+
+        let mode_chips = row![
+            button(text("Auto").size(TEXT_MD))
+                .on_press_maybe(custom.then_some(Msg::ToggleInferenceCustom))
+                .style(if custom { ghost_btn_style } else { active_chip_style }),
+            button(text("Custom URL").size(TEXT_MD))
+                .on_press_maybe((!custom).then_some(Msg::ToggleInferenceCustom))
+                .style(if custom { active_chip_style } else { ghost_btn_style }),
+        ]
+        .spacing(SPACE_1_5);
+
+        let mut col = column![header, mode_chips].spacing(SPACE_2).width(Length::Fill);
+
+        if custom {
+            let url = self.app_settings.inference_custom_url.clone().unwrap_or_default();
+            col = col.push(
+                text_input("http://127.0.0.1:45876", &url)
+                    .on_input(Msg::InferenceUrlChanged)
+                    .size(TEXT_MD)
+                    .padding(SPACE_1_5),
+            );
+        } else {
+            col = col.push(self.labeled_input(
+                "Port",
+                &self.app_settings.inference_port.to_string(),
+                Msg::InferencePortChanged,
+            ));
+        }
+
+        col = col.push(self.labeled_input(
+            "Sensitivity (lower = stricter, 0.05–2.0)",
+            &format!("{:.2}", self.app_settings.face_eps),
+            Msg::FaceEpsChanged,
+        ));
+        col = col.push(self.labeled_input(
+            "Min faces per person",
+            &self.app_settings.face_min_pts.to_string(),
+            Msg::FaceMinPtsChanged,
+        ));
+
+        col.into()
+    }
+
+    fn labeled_input<'a>(
+        &self,
+        label: &str,
+        value: &str,
+        on_input: impl Fn(String) -> Msg + 'a,
+    ) -> Element<'a, Msg> {
+        row![
+            text(label.to_string()).size(TEXT_SM).color(FG_DIM).width(Length::FillPortion(2)),
+            text_input("", value)
+                .on_input(on_input)
+                .size(TEXT_MD)
+                .padding(SPACE_1)
+                .width(Length::FillPortion(1)),
+        ]
+        .align_y(Alignment::Center)
+        .spacing(SPACE_2)
+        .into()
     }
 
     fn toggle_row<'a>(
@@ -767,7 +844,7 @@ impl App {
             Space::new().width(Length::Fill),
             text(format!(
                 "{} installed",
-                self.extensions.len()
+                self.extensions.len() + self.inference_manifest.is_some() as usize
             ))
             .size(TEXT_SM)
             .color(FG_DIM),
@@ -782,7 +859,7 @@ impl App {
         .spacing(0)
         .width(Length::Fill);
 
-        if self.extensions.is_empty() {
+        if self.extensions.is_empty() && self.inference_manifest.is_none() {
             body = body.push(
                 container(
                     text("No extensions installed. Click \"Install from file…\" above to add one.")
@@ -905,6 +982,66 @@ impl App {
                 }
             }
 
+            body = body.push(Space::new().height(SPACE_3));
+        }
+
+        // The inference engine isn't an IEP process (not in self.extensions), so
+        // render it from its manifest: identity, model_variant config, Remove.
+        if let Some(engine) = &self.inference_manifest {
+            let name = engine.name.clone();
+            body = body.push(
+                row![
+                    column![
+                        row![
+                            text(name.clone()).size(TEXT_BASE).color(FG),
+                            text("inference engine").size(TEXT_SM).color(ACCENT),
+                        ]
+                        .spacing(SPACE_1_5),
+                        text(engine.description.clone()).size(TEXT_SM).color(FG_DIM),
+                    ]
+                    .spacing(SPACE_0_5),
+                    Space::new().width(Length::Fill),
+                    button(text("Remove").size(TEXT_SM))
+                        .on_press(Msg::UninstallExtension(name.clone()))
+                        .style(danger_btn_style),
+                ]
+                .align_y(Alignment::Center)
+                .spacing(SPACE_2),
+            );
+
+            let empty_map = std::collections::HashMap::new();
+            let field_values = self.settings.extension_configs.get(&name).unwrap_or(&empty_map);
+            for field in &engine.config_schema {
+                use isomfolio_core::extension::ConfigFieldKind;
+                if !matches!(field.kind, ConfigFieldKind::Select) {
+                    continue;
+                }
+                let current = field_values.get(&field.key).cloned()
+                    .or_else(|| field.default.clone())
+                    .unwrap_or_default();
+                body = body.push(Space::new().height(SPACE_2));
+                body = body.push(text(&field.label).size(TEXT_MD).color(FG_DIM));
+                body = body.push(Space::new().height(SPACE_1_5));
+                let mut option_row = row![].spacing(SPACE_1_5);
+                for opt in &field.options {
+                    let selected = current == *opt;
+                    let opt_val = opt.clone();
+                    let k = field.key.clone();
+                    let an = name.clone();
+                    option_row = option_row.push(
+                        button(text(opt.as_str()).size(TEXT_MD))
+                            .on_press(Msg::SettingsConfigChanged {
+                                extension_name: an,
+                                key: k,
+                                value: opt_val,
+                            })
+                            .style(move |t: &Theme, st| {
+                                if selected { active_chip_style(t, st) } else { ghost_btn_style(t, st) }
+                            }),
+                    );
+                }
+                body = body.push(option_row);
+            }
             body = body.push(Space::new().height(SPACE_3));
         }
 

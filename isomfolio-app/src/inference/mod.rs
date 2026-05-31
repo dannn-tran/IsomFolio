@@ -10,10 +10,6 @@ pub use process::ManagedInferenceProcess;
 
 use serde::{Deserialize, Serialize};
 
-/// Fixed default port, configurable in Settings. Localhost-only.
-/// Mirrors Immich's fixed-default ML port (3003) approach.
-pub const DEFAULT_PORT: u16 = 45876;
-
 /// One file to embed. `path` must be resolvable by the engine — same path for
 /// a local engine; for a remote/Docker engine the path must be mounted there.
 #[derive(Debug, Clone, Serialize)]

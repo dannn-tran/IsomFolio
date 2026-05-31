@@ -306,6 +306,11 @@ impl App {
             | Msg::UninstallExtension(_)
             | Msg::SetPreferredExtension { .. }
             | Msg::ToggleAutoFaceCluster
+            | Msg::ToggleInferenceCustom
+            | Msg::InferenceUrlChanged(_)
+            | Msg::InferencePortChanged(_)
+            | Msg::FaceEpsChanged(_)
+            | Msg::FaceMinPtsChanged(_)
             | Msg::ToggleImportXmpTags
             | Msg::ToggleImportAppleTags
             | Msg::ToggleAutoAdvanceOnFlag => self.handle_settings(msg),

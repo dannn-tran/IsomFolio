@@ -75,6 +75,19 @@ pub struct AppSettings {
     /// Auto-advance to the next photo after flagging (Pick/Reject/Unflagged) in loupe mode.
     #[serde(default = "default_true")]
     pub auto_advance_on_flag: bool,
+    /// Custom inference-engine base URL. `None` = Auto (managed local engine);
+    /// `Some(url)` = connect to a user-hosted engine instead of spawning one.
+    #[serde(default)]
+    pub inference_custom_url: Option<String>,
+    /// Port the managed local engine binds (ignored when a custom URL is set).
+    #[serde(default = "default_inference_port")]
+    pub inference_port: u16,
+    /// DBSCAN cosine-distance radius — lower groups only very similar faces.
+    #[serde(default = "default_face_eps")]
+    pub face_eps: f32,
+    /// Minimum faces required to form a person cluster.
+    #[serde(default = "default_face_min_pts")]
+    pub face_min_pts: u32,
 }
 
 impl Default for AppSettings {
@@ -85,11 +98,18 @@ impl Default for AppSettings {
             import_xmp_tags: None,
             import_apple_tags: None,
             auto_advance_on_flag: true,
+            inference_custom_url: None,
+            inference_port: default_inference_port(),
+            face_eps: default_face_eps(),
+            face_min_pts: default_face_min_pts(),
         }
     }
 }
 
 fn default_true() -> bool { true }
+fn default_inference_port() -> u16 { 45876 }
+fn default_face_eps() -> f32 { 0.4 }
+fn default_face_min_pts() -> u32 { 2 }
 
 fn settings_path() -> PathBuf {
     app_data_root().join("settings.json")

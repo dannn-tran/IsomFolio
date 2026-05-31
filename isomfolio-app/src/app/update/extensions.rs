@@ -9,7 +9,7 @@ use isomfolio_core::extension::ExtensionProcess;
 use isomfolio_core::indexing::thumbnail::thumbnail_cache_path;
 use isomfolio_core::models::ThumbnailState;
 
-use crate::inference::{EmbedFile, InferenceClient, ManagedInferenceProcess, DEFAULT_PORT};
+use crate::inference::{EmbedFile, InferenceClient, ManagedInferenceProcess};
 use super::LockUnwrap;
 use super::super::{App, Msg, ViewMode};
 
@@ -143,26 +143,39 @@ impl App {
             }
 
             Msg::RunFaceClustering { force_full } => {
-                // Ensure a running engine first. If none yet, spawn the managed
-                // local engine and come back via InferenceEngineReady.
+                // Ensure a running engine first. If none yet, acquire one
+                // (custom URL, or managed local) and come back via InferenceEngineReady.
                 if self.inference.is_none() {
-                    let Some(manifest) = self.inference_manifest.clone() else {
-                        self.faces.is_clustering = false;
-                        self.faces.status =
-                            Some("No inference engine installed".to_string());
-                        return Task::none();
+                    let custom_url = self
+                        .app_settings
+                        .inference_custom_url
+                        .clone()
+                        .filter(|u| !u.trim().is_empty());
+                    // Auto mode needs the installed engine binary; custom URL does not.
+                    let binary = if custom_url.is_none() {
+                        match self.inference_manifest.as_ref() {
+                            Some(m) => Some(m.executable.clone()),
+                            None => {
+                                self.faces.is_clustering = false;
+                                self.faces.status =
+                                    Some("No inference engine installed".to_string());
+                                return Task::none();
+                            }
+                        }
+                    } else {
+                        None
                     };
                     self.faces.is_clustering = true;
                     self.faces.status = Some("Starting inference engine…".to_string());
                     self.task_panel_open = true;
-                    let binary = manifest.executable.clone();
+                    let port = self.app_settings.inference_port;
                     let data_dir = isomfolio_core::app_paths::models_dir();
                     // Photo roots — mounted into the engine container (Intel Mac)
                     // so it resolves image paths identically; ignored natively.
                     let mounts: Vec<PathBuf> =
                         self.watchers.iter().map(|(p, _)| PathBuf::from(p)).collect();
                     return Task::perform(
-                        spawn_inference_engine(binary, data_dir, mounts),
+                        acquire_inference_client(custom_url, port, binary, data_dir, mounts),
                         move |client| Msg::InferenceEngineReady { client, force_full },
                     );
                 }
@@ -197,8 +210,12 @@ impl App {
                 const BATCH_SIZE: usize = 50;
                 let chunks: Vec<Vec<(String, String, i64)>> =
                     uncached.chunks(BATCH_SIZE).map(<[_]>::to_vec).collect();
+                let eps = self.app_settings.face_eps;
+                let min_pts = self.app_settings.face_min_pts as usize;
 
-                Task::stream(face_cluster_stream(client, conn, chunks, total_indexed, force_full))
+                Task::stream(face_cluster_stream(
+                    client, conn, chunks, total_indexed, force_full, eps, min_pts,
+                ))
             }
 
             Msg::InferenceEngineReady { client, force_full } => match client {
@@ -561,24 +578,33 @@ fn classify_request_params(file_id: &str, thumbnail_path: String) -> serde_json:
 
 /// Spawn the managed local engine, wait for it to become healthy (generous —
 /// the first run downloads models), and wrap it in a client.
-async fn spawn_inference_engine(
-    binary: PathBuf,
+/// Obtain a healthy inference client: a user-supplied remote URL if set,
+/// otherwise the managed local engine (native, or Docker on Intel Mac).
+async fn acquire_inference_client(
+    custom_url: Option<String>,
+    port: u16,
+    binary: Option<PathBuf>,
     data_dir: PathBuf,
     mounts: Vec<PathBuf>,
 ) -> Result<Arc<InferenceClient>, String> {
-    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    let proc = {
-        let _ = &binary; // unused on the Docker path
-        ManagedInferenceProcess::spawn_docker(DEFAULT_PORT, &data_dir, &mounts)
-            .map_err(|e| e.to_string())?
+    let client = if let Some(url) = custom_url {
+        let _ = (&binary, &data_dir, &mounts);
+        InferenceClient::remote(url.trim()).map_err(|e| e.to_string())?
+    } else {
+        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+        let proc = {
+            let _ = &binary; // unused on the Docker path
+            ManagedInferenceProcess::spawn_docker(port, &data_dir, &mounts)
+                .map_err(|e| e.to_string())?
+        };
+        #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+        let proc = {
+            let _ = &mounts; // mounts only matter for the Docker path
+            let binary = binary.ok_or("no engine binary")?;
+            ManagedInferenceProcess::spawn(&binary, port, &data_dir).map_err(|e| e.to_string())?
+        };
+        InferenceClient::managed(proc).map_err(|e| e.to_string())?
     };
-    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-    let proc = {
-        let _ = &mounts; // mounts only matter for the Docker path
-        ManagedInferenceProcess::spawn(&binary, DEFAULT_PORT, &data_dir)
-            .map_err(|e| e.to_string())?
-    };
-    let client = InferenceClient::managed(proc).map_err(|e| e.to_string())?;
     client
         .wait_healthy(Duration::from_secs(600))
         .await
@@ -586,18 +612,17 @@ async fn spawn_inference_engine(
     Ok(Arc::new(client))
 }
 
-// Default DBSCAN parameters until exposed in Settings (step 7).
-const FACE_EPS: f32 = 0.4;
-const FACE_MIN_PTS: usize = 2;
-
 /// Drive the engine: embed each batch of uncached files, persist embeddings,
 /// then cluster all cached embeddings once at the end.
+#[allow(clippy::too_many_arguments)]
 fn face_cluster_stream(
     client: Arc<InferenceClient>,
     conn: Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
     chunks: Vec<Vec<(String, String, i64)>>,
     total_indexed: usize,
     force_full: bool,
+    eps: f32,
+    min_pts: usize,
 ) -> impl futures::Stream<Item = Msg> {
     enum Stage {
         Embed(usize),
@@ -611,13 +636,16 @@ fn face_cluster_stream(
         chunks: Vec<Vec<(String, String, i64)>>,
         total_indexed: usize,
         force_full: bool,
+        eps: f32,
+        min_pts: usize,
         files_sent: usize,
         stage: Stage,
     }
 
     let total_batches = chunks.len();
     let stage = if chunks.is_empty() { Stage::Cluster } else { Stage::Embed(0) };
-    let state = St { client, conn, chunks, total_indexed, force_full, files_sent: 0, stage };
+    let state =
+        St { client, conn, chunks, total_indexed, force_full, eps, min_pts, files_sent: 0, stage };
 
     futures::stream::unfold(state, move |mut s| async move {
         match s.stage {
@@ -674,6 +702,8 @@ fn face_cluster_stream(
             Stage::Cluster => {
                 let conn = s.conn.clone();
                 let force_full = s.force_full;
+                let eps = s.eps;
+                let min_pts = s.min_pts;
                 let summaries = tokio::task::spawn_blocking(move || {
                     let g = conn.lock_unwrap();
                     let rows = g.load_all_face_embeddings().unwrap_or_default();
@@ -687,9 +717,9 @@ fn face_cluster_stream(
                     let labels = if !force_full && !centroids.is_empty() {
                         let cvecs: Vec<Vec<f32>> =
                             centroids.iter().map(|(_, v)| v.clone()).collect();
-                        clustering::assign_to_centroids(&embeddings, &cvecs, FACE_EPS)
+                        clustering::assign_to_centroids(&embeddings, &cvecs, eps)
                     } else {
-                        clustering::dbscan(&embeddings, FACE_EPS, FACE_MIN_PTS)
+                        clustering::dbscan(&embeddings, eps, min_pts)
                     };
 
                     let assembly = clustering::assemble_clusters(&rows, &labels);

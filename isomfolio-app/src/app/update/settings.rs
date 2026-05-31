@@ -230,6 +230,12 @@ impl App {
                 if let Some(idx) = self.extensions.iter().position(|a| a.manifest.name == name) {
                     self.extensions.remove(idx);
                 }
+                // The engine isn't in self.extensions — clear it explicitly and
+                // drop any managed client so it stops.
+                if self.inference_manifest.as_ref().is_some_and(|m| m.name == name) {
+                    self.inference_manifest = None;
+                    self.inference = None;
+                }
                 self.app_settings.preferred_extension.retain(|_, v| v != &name);
                 if let Err(e) = uninstall_extension(&name) {
                     self.settings.status = Some(format!("Uninstall failed: {e}"));
@@ -269,6 +275,54 @@ impl App {
             Msg::ToggleAutoAdvanceOnFlag => {
                 self.app_settings.auto_advance_on_flag = !self.app_settings.auto_advance_on_flag;
                 isomfolio_core::app_paths::save_settings(&self.app_settings);
+                Task::none()
+            }
+
+            Msg::ToggleInferenceCustom => {
+                self.app_settings.inference_custom_url =
+                    match self.app_settings.inference_custom_url {
+                        Some(_) => None,
+                        None => Some(String::new()),
+                    };
+                // A mode change invalidates any running managed/remote client.
+                self.inference = None;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                Task::none()
+            }
+
+            Msg::InferenceUrlChanged(url) => {
+                self.app_settings.inference_custom_url = Some(url);
+                self.inference = None;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                Task::none()
+            }
+
+            Msg::InferencePortChanged(s) => {
+                if let Ok(port) = s.trim().parse::<u16>() {
+                    self.app_settings.inference_port = port;
+                    self.inference = None;
+                    isomfolio_core::app_paths::save_settings(&self.app_settings);
+                }
+                Task::none()
+            }
+
+            Msg::FaceEpsChanged(s) => {
+                if let Ok(eps) = s.trim().parse::<f32>() {
+                    if (0.05..=2.0).contains(&eps) {
+                        self.app_settings.face_eps = eps;
+                        isomfolio_core::app_paths::save_settings(&self.app_settings);
+                    }
+                }
+                Task::none()
+            }
+
+            Msg::FaceMinPtsChanged(s) => {
+                if let Ok(n) = s.trim().parse::<u32>() {
+                    if n >= 1 {
+                        self.app_settings.face_min_pts = n;
+                        isomfolio_core::app_paths::save_settings(&self.app_settings);
+                    }
+                }
                 Task::none()
             }
 
