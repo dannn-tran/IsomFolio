@@ -81,6 +81,18 @@ impl App {
                 self.load_files_task()
             }
 
+            Msg::SetPersonFilter(cluster) => {
+                self.filters.person = cluster;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::SetAddedWithinFilter(days) => {
+                self.filters.added_within_days = days;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
             Msg::SetDatePreset(preset) => {
                 let (from, to) = super::super::date_preset_range(preset);
                 self.filters.date_from = from;
@@ -107,6 +119,8 @@ impl App {
                 self.filters.flag_filter = isomfolio_core::models::FlagFilter::All;
                 self.filters.rating_min = None;
                 self.filters.has_location = None;
+                self.filters.person = None;
+                self.filters.added_within_days = None;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }

@@ -415,6 +415,47 @@ impl App {
         }
         col = col.push(loc_row);
 
+        let named: Vec<&isomfolio_core::models::FaceClusterSummary> = self
+            .faces
+            .clusters
+            .iter()
+            .filter(|c| c.name.is_some())
+            .collect();
+        if !named.is_empty() {
+            let mut person_row = row![text("Person").size(TEXT_SM).color(FG_DIM)]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center);
+            let any_active = self.filters.person.is_none();
+            person_row = person_row.push(
+                button(text("Any").size(TEXT_SM))
+                    .on_press(Msg::SetPersonFilter(None))
+                    .style(if any_active { active_chip_style } else { ghost_btn_style }),
+            );
+            for c in named {
+                let name = c.name.clone().unwrap_or_default();
+                let active = self.filters.person.as_deref() == Some(c.cluster_id.as_str());
+                person_row = person_row.push(
+                    button(text(name).size(TEXT_SM))
+                        .on_press(Msg::SetPersonFilter(Some(c.cluster_id.clone())))
+                        .style(if active { active_chip_style } else { ghost_btn_style }),
+                );
+            }
+            col = col.push(person_row.wrap());
+        }
+
+        let mut added_row = row![text("Added").size(TEXT_SM).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for (label, days) in [("Any", None), ("7 days", Some(7)), ("30 days", Some(30))] {
+            let active = self.filters.added_within_days == days;
+            added_row = added_row.push(
+                button(text(label).size(TEXT_SM))
+                    .on_press(Msg::SetAddedWithinFilter(days))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+        col = col.push(added_row);
+
         if self.has_active_filters() {
             let is_smart = self.current_album_is_smart();
             let mut action_row = row![

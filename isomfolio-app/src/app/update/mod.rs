@@ -273,6 +273,8 @@ impl App {
             | Msg::FilterDateFromChanged(_)
             | Msg::FilterDateToChanged(_)
             | Msg::SetDatePreset(_)
+            | Msg::SetPersonFilter(_)
+            | Msg::SetAddedWithinFilter(_)
             | Msg::ToggleFilterFileType(_)
             | Msg::ClearFilters => self.handle_filters(msg),
 

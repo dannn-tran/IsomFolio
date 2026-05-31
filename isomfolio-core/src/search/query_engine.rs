@@ -177,6 +177,20 @@ fn execute_query_inner(
         }
     }
 
+    if let Some(ref cluster_id) = query.person_cluster {
+        sql.push_str(&format!(
+            " AND f.id IN (SELECT file_id FROM face_clusters WHERE cluster_id = ?{param_idx})"
+        ));
+        params.push(Box::new(cluster_id.clone()));
+        param_idx += 1;
+    }
+
+    if let Some(after) = query.added_after {
+        sql.push_str(&format!(" AND f.created_at_unix >= ?{param_idx}"));
+        params.push(Box::new(after));
+        param_idx += 1;
+    }
+
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
     let nulls_clause = if matches!(query.sort_by, SortField::Date) { " NULLS LAST" } else { "" };
     sql.push_str(&format!(" ORDER BY {} {}{}", sort_column(query.sort_by), dir, nulls_clause));
@@ -421,6 +435,42 @@ mod tests {
             let results = execute_manual_album_search(&conn, &"a1".to_string(), &q).unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].id, "f1");
+        }
+    }
+
+    mod person_and_added {
+        use super::*;
+
+        #[test]
+        fn person_cluster_restricts_to_members() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "f1", "a.jpg", "/p", "jpg", 100);
+            insert(&conn, "f2", "b.jpg", "/p", "jpg", 200);
+            conn.execute(
+                "INSERT INTO face_clusters (cluster_id, file_id, bbox_x, bbox_y, bbox_w, bbox_h)
+                 VALUES ('face-maya', 'f1', 0.1, 0.1, 0.2, 0.2)",
+                [],
+            )
+            .unwrap();
+
+            let q = SearchQuery { person_cluster: Some("face-maya".into()), ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "f1");
+        }
+
+        #[test]
+        fn added_after_filters_by_catalog_add_time() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "old", "a.jpg", "/p", "jpg", 100);
+            insert(&conn, "new", "b.jpg", "/p", "jpg", 200);
+            conn.execute("UPDATE files SET created_at_unix = 1000 WHERE id = 'old'", []).unwrap();
+            conn.execute("UPDATE files SET created_at_unix = 5000 WHERE id = 'new'", []).unwrap();
+
+            let q = SearchQuery { added_after: Some(3000), ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "new");
         }
     }
 }

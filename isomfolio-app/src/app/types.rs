@@ -242,6 +242,8 @@ pub enum Msg {
     SetFlagFilter(FlagFilter),
     SetRatingFilter(Option<i32>),
     SetLocationFilter(Option<bool>),
+    SetPersonFilter(Option<String>),
+    SetAddedWithinFilter(Option<i64>),
 
     ExtensionsDiscovered(Option<ExtensionManifest>),
 
@@ -362,6 +364,10 @@ pub struct FilterState {
     pub rating_min: Option<i32>,
     pub hide_rejects: bool,
     pub has_location: Option<bool>,
+    /// Selected person face-cluster id, if filtering by person.
+    pub person: Option<String>,
+    /// "Added recently" window in days (filters on catalog add time); None = any.
+    pub added_within_days: Option<i64>,
 }
 
 impl Default for FilterState {
@@ -378,6 +384,8 @@ impl Default for FilterState {
             rating_min: None,
             hide_rejects: false,
             has_location: None,
+            person: None,
+            added_within_days: None,
         }
     }
 }

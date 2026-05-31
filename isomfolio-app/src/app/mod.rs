@@ -472,6 +472,8 @@ impl App {
             || self.filters.rating_min.is_some()
             || self.filters.hide_rejects
             || self.filters.has_location.is_some()
+            || self.filters.person.is_some()
+            || self.filters.added_within_days.is_some()
     }
 
     pub fn bg_push(&mut self, label: impl Into<String>) -> crate::app::types::BgTaskId {
@@ -547,6 +549,14 @@ impl App {
             flag_filter: effective_flag,
             rating_min: self.filters.rating_min,
             has_location: self.filters.has_location,
+            person_cluster: self.filters.person.clone(),
+            added_after: self.filters.added_within_days.map(|days| {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                now - days * 86400
+            }),
             include_orphaned: self.search_text.is_empty() && !self.has_active_filters(),
             ..Default::default()
         }

@@ -91,6 +91,12 @@ pub struct SearchQuery {
     pub rating_min: Option<i32>,
     pub has_faces: Option<bool>,
     pub has_location: Option<bool>,
+    /// Restrict to files belonging to a face cluster (person), by cluster_id.
+    #[serde(default)]
+    pub person_cluster: Option<String>,
+    /// Restrict to files added to the catalog at/after this Unix timestamp (created_at_unix).
+    #[serde(default)]
+    pub added_after: Option<i64>,
     /// Include orphaned (missing) files in results. False by default so search/filter/albums
     /// never surface missing files. Set to true only when browsing a folder with no active criteria.
     #[serde(default)]
@@ -113,6 +119,8 @@ impl Default for SearchQuery {
             rating_min: None,
             has_faces: None,
             has_location: None,
+            person_cluster: None,
+            added_after: None,
             include_orphaned: false,
         }
     }
