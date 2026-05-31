@@ -647,6 +647,13 @@ impl App {
                     .width(Length::Fill),
             );
 
+            if self.grid_selected.len() > 1 {
+                col = col.push(
+                    text(format!("Applies to {} photos", self.grid_selected.len()))
+                        .size(TEXT_XS)
+                        .color(FG_MUTED),
+                );
+            }
         }
 
         if self.detail_file().is_some() {
