@@ -754,19 +754,10 @@ fn face_cluster_stream(
             }
             ClusterPoll::Failed(e) => {
                 eprintln!("[faces] cluster_faces error (batch {}): {e}", batch_idx + 1);
-                let raw_stderr = s.ext.last_stderr();
                 let tail = s.ext.formatted_last_stderr();
                 if !tail.is_empty() {
                     eprintln!("[{}] last stderr:", s.ext.manifest.name);
                     for line in &tail { eprintln!("[{}] {line}", s.ext.manifest.name); }
-                }
-                // If a specific file caused the crash, skip it permanently so it
-                // doesn't block every subsequent run.
-                if let Some(file_id) = crashed_file_id(&raw_stderr, &s.chunks[batch_idx]) {
-                    eprintln!("[faces] skipping {file_id} (caused ONNX crash)");
-                    if let Err(err) = s.conn.lock_unwrap().insert_face_skip_file(&file_id) {
-                        eprintln!("[db] insert_face_skip_file failed: {err}");
-                    }
                 }
                 s.done = true;
                 let summaries = s.conn.lock_unwrap()
@@ -779,27 +770,4 @@ fn face_cluster_stream(
             }
         }
     })
-}
-
-/// Parse raw extension stderr lines to find the file index of the last attempted inference,
-/// then return its file_id from the batch chunk.
-///
-/// The extension logs `{"component":"inference","message":"N/M /path/to/file"}` just before
-/// starting native ONNX inference on each file. A SIGSEGV in ONNX kills the process without
-/// any further output, so the last such line identifies the crashing file.
-fn crashed_file_id(
-    raw_stderr: &[String],
-    chunk: &[(String, String, i64)],
-) -> Option<String> {
-    for line in raw_stderr.iter().rev() {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
-        if v["component"].as_str() != Some("inference") { continue }
-        let Some(msg) = v["message"].as_str() else { continue };
-        // Message format: "14/50 /path/to/file.jpg"
-        // "processed N/M" lines have a non-numeric prefix and are skipped by the parse below.
-        let slash = msg.find('/')?;
-        let idx: usize = msg[..slash].trim().parse().ok()?;
-        return chunk.get(idx).map(|(id, _, _)| id.clone());
-    }
-    None
 }

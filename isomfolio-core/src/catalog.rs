@@ -73,10 +73,6 @@ impl Catalog {
         db::get_uncached_face_file_paths(&self.conn)
     }
 
-    pub fn insert_face_skip_file(&self, file_id: &str) -> Result<(), AppError> {
-        db::insert_face_skip_file(&self.conn, file_id)
-    }
-
     pub fn get_indexed_paths_in_folder(
         &self,
         root: &str,

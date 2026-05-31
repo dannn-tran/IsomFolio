@@ -1326,30 +1326,18 @@ pub fn sweep_face_embeddings(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Return (file_id, path, modified_time) for non-orphaned files with no up-to-date embedding,
-/// excluding files that have previously caused an ONNX crash (face_skip_list).
+/// Return (file_id, path, modified_time) for non-orphaned files with no up-to-date embedding.
 pub fn get_uncached_face_file_paths(conn: &Connection) -> Result<Vec<(String, String, i64)>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT f.id, f.path, f.modified_time
          FROM files f
          LEFT JOIN face_embeddings e ON f.id = e.file_id AND f.modified_time = e.mtime
-         WHERE e.file_id IS NULL
-           AND f.is_orphaned = 0
-           AND f.id NOT IN (SELECT file_id FROM face_skip_list)",
+         WHERE e.file_id IS NULL AND f.is_orphaned = 0",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
     })?;
     Ok(rows.filter_map(|r| r.ok()).collect())
-}
-
-/// Mark a file as permanently skipped for face inference (e.g. caused an ONNX native crash).
-pub fn insert_face_skip_file(conn: &Connection, file_id: &str) -> Result<(), AppError> {
-    conn.execute(
-        "INSERT OR IGNORE INTO face_skip_list (file_id) VALUES (?1)",
-        [file_id],
-    )?;
-    Ok(())
 }
 
 pub fn rename_face_cluster(

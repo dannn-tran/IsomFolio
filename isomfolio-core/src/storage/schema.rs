@@ -217,11 +217,4 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_FACE_EMBEDDINGS,
     CREATE_FACE_EMBEDDINGS_IDX,
     CREATE_FACE_CENTROIDS,
-    CREATE_FACE_SKIP_LIST,
 ];
-
-pub const CREATE_FACE_SKIP_LIST: &str = "
-CREATE TABLE IF NOT EXISTS face_skip_list (
-    file_id TEXT PRIMARY KEY
-);
-";
