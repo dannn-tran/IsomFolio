@@ -8,7 +8,9 @@ isomfolio-core = { path = "../isomfolio-core" }
 iced = { version = "0.14", features = ["image", "tokio", "advanced"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff"] }
 rfd = "0.17.2"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+thiserror = "2.0"
 rawler = "0.7.2"

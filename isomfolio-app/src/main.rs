@@ -1,4 +1,5 @@
 mod app;
+mod inference;
 mod view;
 
 use app::App;
