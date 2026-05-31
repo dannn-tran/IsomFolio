@@ -43,17 +43,54 @@ impl App {
                                 format!("\"{}\" is inside a catalog — choose a regular folder", name);
                             return Task::none();
                         }
-                        Task::done(Msg::SyncStart(path))
+                        let subfolder_count = count_subfolders(&path);
+                        self.add_folder_prompt = Some(super::super::AddFolderPrompt {
+                            path,
+                            recursive: true,
+                            subfolder_count,
+                        });
+                        Task::none()
                     }
                 }
             }
 
-            Msg::SyncStart(path) => {
+            Msg::AddFolderPromptToggleRecursive => {
+                if let Some(p) = self.add_folder_prompt.as_mut() {
+                    p.recursive = !p.recursive;
+                }
+                Task::none()
+            }
+
+            Msg::AddFolderCancel => {
+                self.add_folder_prompt = None;
+                Task::none()
+            }
+
+            Msg::AddFolderConfirm => {
+                let Some(prompt) = self.add_folder_prompt.take() else {
+                    return Task::none();
+                };
+                Task::done(Msg::SyncStart { path: prompt.path, recursive: prompt.recursive })
+            }
+
+            Msg::ToggleFolderExpanded(path) => {
+                if !self.expanded_folders.remove(&path) {
+                    self.expanded_folders.insert(path);
+                }
+                Task::none()
+            }
+
+            Msg::SyncStart { path, recursive } => {
                 self.last_synced_path = Some(path.clone());
                 self.is_syncing = true;
                 self.task_panel_open = true;
                 self.status = "Syncing…".to_string();
-                self.sync_folder_task(path)
+                if let Some(conn) = self.catalog.clone() {
+                    let p = path.clone();
+                    let guard = conn.lock_unwrap();
+                    let _ = guard.upsert_library_root(&p, recursive);
+                }
+                self.sync_folder_task(path, recursive)
             }
 
             Msg::SyncComplete { count, new_file_ids } => {
@@ -99,9 +136,11 @@ impl App {
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
+                self.expanded_folders.remove(&path);
                 Task::perform(
                     async move {
                         let guard = conn.lock_unwrap();
+                        let _ = guard.remove_library_root(&path);
                         guard.delete_files_by_root_folder(&path).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::FolderRemoved, Msg::DbError),
@@ -119,7 +158,8 @@ impl App {
                 self.is_syncing = true;
                 self.task_panel_open = true;
                 self.status = "Syncing…".to_string();
-                self.sync_folder_task(path)
+                let recursive = self.recursive_for(&path);
+                self.sync_folder_task(path, recursive)
             }
 
             Msg::FileWatcherEvent(event) => {
@@ -244,7 +284,7 @@ impl App {
                 // Re-enter sync now that the settings have a definite value.
                 self.is_syncing = true;
                 self.status = "Syncing…".to_string();
-                self.sync_folder_task(prompt.pending_path)
+                self.sync_folder_task(prompt.pending_path, prompt.recursive)
             }
 
             Msg::MetadataImportPromptCancel => {
@@ -256,7 +296,18 @@ impl App {
         }
     }
 
-    pub(super) fn sync_folder_task(&mut self, path: String) -> Task<Msg> {
+    /// Scan depth for re-syncing `path`: an explicit library root uses its
+    /// stored setting; anything else (a subfolder, or a pre-roots-table
+    /// catalog) re-syncs recursively, matching the historical default.
+    fn recursive_for(&self, path: &str) -> bool {
+        self.library_roots
+            .iter()
+            .find(|r| r.path == path)
+            .map(|r| r.recursive)
+            .unwrap_or(true)
+    }
+
+    pub(super) fn sync_folder_task(&mut self, path: String, recursive: bool) -> Task<Msg> {
         // First sync ever / first sync after a fresh settings.json — prompt
         // before doing anything. The user's answer saves to settings and
         // re-enters this function via SyncStart.
@@ -267,6 +318,7 @@ impl App {
                 pending_path: path,
                 import_xmp: true,
                 import_apple: cfg!(target_os = "macos"),
+                recursive,
             });
             self.is_syncing = false;
             self.status = String::new();
@@ -284,7 +336,7 @@ impl App {
                     let cat = conn.lock_unwrap();
                     cat.sync_folder(&path, &|prog| {
                         let _ = wtx.try_send(FileEvent::SyncProgress(prog));
-                    }, import_xmp, import_apple)
+                    }, import_xmp, import_apple, recursive)
                     .map(|r| (r.total_count, r.new_file_ids))
                     .unwrap_or((0, Vec::new()))
                 })
@@ -411,4 +463,22 @@ fn is_under_catalog_dir(path: &str) -> bool {
     std::path::Path::new(path)
         .components()
         .any(|c| Path::new(c.as_os_str()).extension().map_or(false, |ext| ext == CATALOG_EXT))
+}
+
+/// Count immediate subdirectories of `path` (ignoring nested catalogs), so the
+/// add-folder prompt can tell the user how many subfolders "include subfolders"
+/// will pull in.
+fn count_subfolders(path: &str) -> usize {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .map_or(true, |n| !n.ends_with(&format!(".{CATALOG_EXT}")))
+        })
+        .count()
 }

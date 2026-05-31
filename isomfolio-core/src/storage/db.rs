@@ -285,6 +285,39 @@ pub fn get_folder_counts(conn: &Connection) -> Result<Vec<(String, usize)>, AppE
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
+/// A folder the user explicitly added to the library, with its scan depth.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryRoot {
+    pub path: String,
+    pub recursive: bool,
+}
+
+pub fn upsert_library_root(conn: &Connection, path: &str, recursive: bool) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT INTO library_roots (path, recursive, added_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(path) DO UPDATE SET recursive = excluded.recursive",
+        params![path, recursive as i64, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn remove_library_root(conn: &Connection, path: &str) -> Result<(), AppError> {
+    conn.execute("DELETE FROM library_roots WHERE path = ?1", [path])?;
+    Ok(())
+}
+
+pub fn list_library_roots(conn: &Connection) -> Result<Vec<LibraryRoot>, AppError> {
+    let mut stmt =
+        conn.prepare("SELECT path, recursive FROM library_roots ORDER BY path")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(LibraryRoot {
+            path: row.get::<_, String>(0)?,
+            recursive: row.get::<_, i64>(1)? != 0,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn get_all_file_ids(conn: &Connection) -> Result<Vec<String>, AppError> {
     let mut stmt = conn.prepare("SELECT id FROM files")?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
@@ -1462,4 +1495,35 @@ mod tests {
         }
     }
 
+    mod library_roots {
+        use super::*;
+
+        #[test]
+        fn upsert_then_list_returns_root() {
+            let (conn, _f) = open_temp();
+            upsert_library_root(&conn, "/photos", true).unwrap();
+            let roots = list_library_roots(&conn).unwrap();
+            assert_eq!(roots, vec![LibraryRoot { path: "/photos".into(), recursive: true }]);
+        }
+
+        #[test]
+        fn upsert_is_idempotent_and_updates_recursive() {
+            let (conn, _f) = open_temp();
+            upsert_library_root(&conn, "/photos", true).unwrap();
+            upsert_library_root(&conn, "/photos", false).unwrap();
+            let roots = list_library_roots(&conn).unwrap();
+            assert_eq!(roots.len(), 1);
+            assert!(!roots[0].recursive);
+        }
+
+        #[test]
+        fn remove_deletes_the_root() {
+            let (conn, _f) = open_temp();
+            upsert_library_root(&conn, "/a", true).unwrap();
+            upsert_library_root(&conn, "/b", false).unwrap();
+            remove_library_root(&conn, "/a").unwrap();
+            let roots = list_library_roots(&conn).unwrap();
+            assert_eq!(roots, vec![LibraryRoot { path: "/b".into(), recursive: false }]);
+        }
+    }
 }

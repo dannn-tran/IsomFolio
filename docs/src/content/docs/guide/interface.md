@@ -12,7 +12,7 @@ The left panel lists everything in your library:
 | Section | What it shows |
 |---|---|
 | **All Files** | Every photo across all folders |
-| **Folders** | One entry per watched folder. Click to filter to that folder. |
+| **Folders** | A tree of your watched folders. Subfolders nest under their parent; click the chevron to expand/collapse and click a folder to see its photos (and everything beneath it). |
 | **Albums** | Manual collections you've created by dragging photos |
 | **Smart Albums** | Criteria-based albums that update automatically |
 | **People** | Face clusters (if the face-clustering extension is installed) |

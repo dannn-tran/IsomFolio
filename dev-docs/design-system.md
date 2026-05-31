@@ -121,6 +121,16 @@ Two row height constants exist to express the hierarchy between containers and i
 
 Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM_HEIGHT`.
 
+### Folder tree
+
+Folders render as a navigable **tree**, not a flat list. The tree is built by `folder_tree::build_tree` from the distinct indexed folder paths (`get_folder_counts`); pure pass-through ancestors (no own photos, a single child) are collapsed so the displayed roots are the deepest folders the user actually has photos under — never `/`, `/Users`, etc.
+
+- **Expand/collapse** → a leading chevron (`▸` collapsed, `▾` expanded), `icon_btn_style`, in a fixed `CHEVRON_W` (16 px) slot. Folders with no children get an equal-width `Space` so all labels align. Toggling fires `ToggleFolderExpanded(path)`; expansion state lives in `App.expanded_folders` (not persisted).
+- **Indentation** → each depth level adds `SPACE_3` of leading space. The truncation budget shrinks with depth so deep labels still clip cleanly with a tooltip.
+- **Count** → shows `total_count` (photos in the folder *and* all descendants), not just direct children.
+- **Selection** → clicking the label selects the folder (`SidebarItem::Folder`) and loads its photos recursively. The chevron is a separate button and does not change selection.
+- **Scan depth** → whether subfolders are indexed is chosen once when the folder is added (the "Include subfolders" checkbox in the add-folder dialog) and stored per root in the `library_roots` table. Re-sync honours the stored choice; unknown paths default to recursive.
+
 ### Context menu
 
 Implemented as a `stack` overlay anchored to the cursor position. No scrim — context menus are non-blocking.

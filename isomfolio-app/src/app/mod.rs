@@ -98,6 +98,14 @@ pub struct MetadataImportPrompt {
     pub pending_path: String,
     pub import_xmp: bool,
     pub import_apple: bool,
+    pub recursive: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AddFolderPrompt {
+    pub path: String,
+    pub recursive: bool,
+    pub subfolder_count: usize,
 }
 
 pub struct App {
@@ -108,6 +116,10 @@ pub struct App {
     pub loupe: LoupeState,
 
     pub folders: Vec<(String, String, usize)>,
+    pub folder_tree: Vec<isomfolio_core::folder_tree::FolderNode>,
+    pub expanded_folders: HashSet<String>,
+    pub library_roots: Vec<isomfolio_core::storage::db::LibraryRoot>,
+    pub add_folder_prompt: Option<AddFolderPrompt>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
     pub selected_item: SidebarItem,
@@ -322,6 +334,10 @@ impl App {
             view_mode: ViewMode::Browse,
             loupe: LoupeState::default(),
             folders: Vec::new(),
+            folder_tree: Vec::new(),
+            expanded_folders: HashSet::new(),
+            library_roots: Vec::new(),
+            add_folder_prompt: None,
             albums: Vec::new(),
             album_counts: HashMap::new(),
             selected_item: SidebarItem::AllFiles,
@@ -669,6 +685,8 @@ impl App {
             async move {
                 let cat = catalog.lock_unwrap();
                 let raw_folders = cat.get_folder_counts().unwrap_or_default();
+                let folder_tree = cat.folder_tree().unwrap_or_default();
+                let library_roots = cat.list_library_roots().unwrap_or_default();
                 let albums = cat.get_all_albums().unwrap_or_default();
                 let album_counts = cat.get_all_album_file_counts().unwrap_or_default();
                 drop(cat);
@@ -690,10 +708,12 @@ impl App {
                         (path, display, count)
                     })
                     .collect();
-                (folders, albums, album_counts)
+                (folders, folder_tree, library_roots, albums, album_counts)
             },
-            |(folders, albums, album_counts)| Msg::SidebarLoaded {
+            |(folders, folder_tree, library_roots, albums, album_counts)| Msg::SidebarLoaded {
                 folders,
+                folder_tree,
+                library_roots,
                 albums,
                 album_counts,
             },

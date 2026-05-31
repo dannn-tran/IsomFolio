@@ -3,6 +3,7 @@ use iced::{
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
+use isomfolio_core::folder_tree::FolderNode;
 use isomfolio_core::models::AlbumKind;
 
 use super::styles::{
@@ -74,32 +75,12 @@ impl App {
 
         content = content.push(folders_header);
 
-        for (path, display_name, count) in &self.folders {
-            let name = display_name.clone();
-            let sel = self.selected_item == SidebarItem::Folder(path.clone());
-            if self.folder_pending_remove.as_deref() == Some(path.as_str()) {
-                content = content.push(confirm_action_row(
-                    "Remove folder? Indexed data deleted.".to_string(),
-                    Msg::RemoveFolder(path.clone()),
-                    Msg::CancelRemoveFolder,
-                ));
-            } else if self.remove_missing_folder.as_deref() == Some(path.as_str()) {
-                let n = self.files.iter().filter(|f| f.is_orphaned
-                    && (f.folder == *path || f.folder.starts_with(&format!("{path}/")))).count();
-                content = content.push(confirm_action_row(
-                    format!("Remove {n} missing from catalog?"),
-                    Msg::ConfirmRemoveMissing,
-                    Msg::CancelRemoveMissing,
-                ));
-            } else {
-                content = content.push(folder_sidebar_row(
-                    name,
-                    path.clone(),
-                    *count,
-                    sel,
-                    max_chars,
-                ));
-            }
+        let mut folder_rows: Vec<Element<Msg>> = Vec::new();
+        for node in &self.folder_tree {
+            self.collect_folder_rows(node, 0, max_chars, &mut folder_rows);
+        }
+        for r in folder_rows {
+            content = content.push(r);
         }
 
         content = content
@@ -244,6 +225,42 @@ impl App {
             })
             .into()
     }
+
+    /// Append `node` and (if expanded) its descendants to `out` as indented rows.
+    fn collect_folder_rows<'a>(
+        &'a self,
+        node: &'a FolderNode,
+        depth: usize,
+        max_chars: usize,
+        out: &mut Vec<Element<'a, Msg>>,
+    ) {
+        let path = node.path.as_str();
+        if self.folder_pending_remove.as_deref() == Some(path) {
+            out.push(confirm_action_row(
+                "Remove folder? Indexed data deleted.".to_string(),
+                Msg::RemoveFolder(node.path.clone()),
+                Msg::CancelRemoveFolder,
+            ));
+        } else if self.remove_missing_folder.as_deref() == Some(path) {
+            let n = self.files.iter().filter(|f| f.is_orphaned
+                && (f.folder == node.path || f.folder.starts_with(&format!("{path}/")))).count();
+            out.push(confirm_action_row(
+                format!("Remove {n} missing from catalog?"),
+                Msg::ConfirmRemoveMissing,
+                Msg::CancelRemoveMissing,
+            ));
+        } else {
+            let sel = self.selected_item == SidebarItem::Folder(node.path.clone());
+            let expanded = self.expanded_folders.contains(&node.path);
+            out.push(folder_tree_row(node, depth, sel, expanded, max_chars));
+        }
+
+        if !node.children.is_empty() && self.expanded_folders.contains(&node.path) {
+            for child in &node.children {
+                self.collect_folder_rows(child, depth + 1, max_chars, out);
+            }
+        }
+    }
 }
 
 fn truncate_label(s: &str, max: usize) -> (String, bool) {
@@ -266,13 +283,21 @@ fn label_tooltip<'a>(full_name: String) -> Element<'a, Msg> {
         .into()
 }
 
-fn folder_sidebar_row<'a>(
-    name: String,
-    path: String,
-    count: usize,
+/// Width of the chevron / its placeholder, so parent and leaf labels align.
+const CHEVRON_W: f32 = 16.0;
+
+fn folder_tree_row<'a>(
+    node: &'a FolderNode,
+    depth: usize,
     selected: bool,
+    expanded: bool,
     max_chars: usize,
 ) -> Element<'a, Msg> {
+    let path = node.path.clone();
+    let name = node.name.clone();
+    let count = node.total_count;
+    let has_children = !node.children.is_empty();
+
     let bg = if selected {
         Color {
             r: ACCENT.r * 0.6,
@@ -286,7 +311,21 @@ fn folder_sidebar_row<'a>(
     let border_color = if selected { ACCENT } else { Color::TRANSPARENT };
     let text_color = if selected { Color::WHITE } else { FG };
 
-    let (display_name, was_truncated) = truncate_label(&name, max_chars);
+    // Indent deepens with tree depth; truncation budget shrinks to match.
+    let indent = depth as f32 * SPACE_3;
+    let effective_max = max_chars.saturating_sub(depth * 2 + 2).max(4);
+    let (display_name, was_truncated) = truncate_label(&name, effective_max);
+
+    let chevron: Element<Msg> = if has_children {
+        button(text(if expanded { "▾" } else { "▸" }).size(TEXT_SM).color(FG_DIM))
+            .on_press(Msg::ToggleFolderExpanded(path.clone()))
+            .width(Length::Fixed(CHEVRON_W))
+            .style(icon_btn_style)
+            .into()
+    } else {
+        Space::new().width(CHEVRON_W).into()
+    };
+
     let label_btn = button(
         row![
             container(
@@ -315,15 +354,18 @@ fn folder_sidebar_row<'a>(
         snap: false,
     });
 
-    let inner = container(label_btn)
-        .height(FOLDER_ITEM_HEIGHT)
-        .align_y(Alignment::Center)
-        .padding([0.0, SPACE_1])
-        .style(move |_: &Theme| container::Style {
-            background: Some(Background::Color(bg)),
-            border: Border { color: border_color, width: 0.0, radius: 4.0.into() },
-            ..Default::default()
-        });
+    let inner = container(
+        row![Space::new().width(indent), chevron, label_btn]
+            .align_y(Alignment::Center),
+    )
+    .height(FOLDER_ITEM_HEIGHT)
+    .align_y(Alignment::Center)
+    .padding([0.0, SPACE_1])
+    .style(move |_: &Theme| container::Style {
+        background: Some(Background::Color(bg)),
+        border: Border { color: border_color, width: 0.0, radius: 4.0.into() },
+        ..Default::default()
+    });
 
     let entity = SidebarItem::Folder(path.clone());
     let row_el = mouse_area(inner)

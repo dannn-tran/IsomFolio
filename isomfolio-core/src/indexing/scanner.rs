@@ -16,7 +16,7 @@ pub struct ScannedFile {
     pub meta: metadata::EmbeddedMetadata,
 }
 
-fn discover_paths(root_path: &str) -> Vec<String> {
+fn discover_paths(root_path: &str, recursive: bool) -> Vec<String> {
     let mut results = Vec::new();
     let mut dirs = vec![root_path.to_string()];
     while let Some(dir) = dirs.pop() {
@@ -34,6 +34,9 @@ fn discover_paths(root_path: &str) -> Vec<String> {
                 None => continue,
             };
             if ft.is_dir() {
+                if !recursive {
+                    continue;
+                }
                 let is_catalog = Path::new(&path)
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -65,6 +68,7 @@ pub fn sync_folder(
     on_progress: &dyn Fn(SyncProgress),
     import_xmp_tags: bool,
     import_apple_tags: bool,
+    recursive: bool,
 ) -> Result<SyncResult, AppError> {
     let folder_name = Path::new(root_path)
         .file_name()
@@ -100,7 +104,7 @@ pub fn sync_folder(
         Ok(())
     };
 
-    for path in discover_paths(root_path) {
+    for path in discover_paths(root_path, recursive) {
         let asset = match asset_file_from_path(&path) {
             Some(a) => a,
             None => continue,
@@ -312,4 +316,39 @@ pub fn reconcile_folder(
         .collect();
 
     Ok(ReconcileResult { new_or_modified, orphaned, sidecar_changed })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    mod discover_paths {
+        use super::*;
+
+        fn setup_tree() -> tempfile::TempDir {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            fs::write(root.join("top.jpg"), b"x").unwrap();
+            fs::create_dir(root.join("sub")).unwrap();
+            fs::write(root.join("sub").join("nested.jpg"), b"x").unwrap();
+            dir
+        }
+
+        #[test]
+        fn recursive_includes_subfolder_files() {
+            let dir = setup_tree();
+            let found = discover_paths(dir.path().to_str().unwrap(), true);
+            assert_eq!(found.len(), 2);
+            assert!(found.iter().any(|p| p.ends_with("nested.jpg")));
+        }
+
+        #[test]
+        fn shallow_skips_subfolder_files() {
+            let dir = setup_tree();
+            let found = discover_paths(dir.path().to_str().unwrap(), false);
+            assert_eq!(found.len(), 1);
+            assert!(found[0].ends_with("top.jpg"));
+        }
+    }
 }

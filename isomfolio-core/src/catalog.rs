@@ -61,6 +61,23 @@ impl Catalog {
         db::get_folder_counts(&self.conn)
     }
 
+    /// Build the navigable folder tree for the sidebar from the indexed folders.
+    pub fn folder_tree(&self) -> Result<Vec<crate::folder_tree::FolderNode>, AppError> {
+        Ok(crate::folder_tree::build_tree(&db::get_folder_counts(&self.conn)?))
+    }
+
+    pub fn upsert_library_root(&self, path: &str, recursive: bool) -> Result<(), AppError> {
+        db::upsert_library_root(&self.conn, path, recursive)
+    }
+
+    pub fn remove_library_root(&self, path: &str) -> Result<(), AppError> {
+        db::remove_library_root(&self.conn, path)
+    }
+
+    pub fn list_library_roots(&self) -> Result<Vec<db::LibraryRoot>, AppError> {
+        db::list_library_roots(&self.conn)
+    }
+
     pub fn get_all_file_paths_with_mtimes(&self) -> Result<Vec<(String, String, i64)>, AppError> {
         db::get_all_file_paths_with_mtimes(&self.conn)
     }
@@ -292,8 +309,17 @@ impl Catalog {
         on_progress: &dyn Fn(SyncProgress),
         import_xmp_tags: bool,
         import_apple_tags: bool,
+        recursive: bool,
     ) -> Result<SyncResult, AppError> {
-        scanner::sync_folder(&self.conn, root_path, &|_| {}, on_progress, import_xmp_tags, import_apple_tags)
+        scanner::sync_folder(
+            &self.conn,
+            root_path,
+            &|_| {},
+            on_progress,
+            import_xmp_tags,
+            import_apple_tags,
+            recursive,
+        )
     }
 
     pub fn resync_files(&self, paths: &[String]) -> Result<(), AppError> {

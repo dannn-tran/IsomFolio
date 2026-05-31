@@ -57,7 +57,15 @@ The database is a standard SQLite 3 file. You can open and query it with any SQL
 
 **face_clusters** / **face_cluster_members** — face recognition data
 
-**folders** — watched folder paths
+**library_roots** — folders you explicitly added to the library
+
+| Column | Type | Description |
+|---|---|---|
+| `path` | TEXT | Absolute path of the added folder (primary key) |
+| `recursive` | INTEGER | 1 = subfolders are indexed, 0 = top level only |
+| `added_at` | INTEGER | Unix timestamp when the folder was added |
+
+The set of folders shown in the sidebar tree is derived from the `folder` column of the `files` table; `library_roots` records which folders the user added and at what scan depth.
 
 ## Thumbnail cache
 

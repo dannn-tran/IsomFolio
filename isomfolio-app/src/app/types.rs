@@ -6,7 +6,9 @@ use iced::{keyboard, widget, Point};
 
 pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
 use isomfolio_core::extension::ExtensionManifest;
+use isomfolio_core::folder_tree::FolderNode;
 use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag};
+use isomfolio_core::storage::db::LibraryRoot;
 
 #[derive(Debug, Clone)]
 pub enum ContextMenuTarget {
@@ -86,6 +88,8 @@ pub enum Msg {
     FilesLoaded(Vec<AssetFile>),
     SidebarLoaded {
         folders: Vec<(String, String, usize)>,
+        folder_tree: Vec<FolderNode>,
+        library_roots: Vec<LibraryRoot>,
         albums: Vec<Album>,
         album_counts: HashMap<String, usize>,
     },
@@ -115,7 +119,11 @@ pub enum Msg {
     DropCompleted,
 
     SyncPickFolder,
-    SyncStart(String),
+    SyncStart { path: String, recursive: bool },
+    AddFolderPromptToggleRecursive,
+    AddFolderConfirm,
+    AddFolderCancel,
+    ToggleFolderExpanded(String),
     SyncComplete { count: usize, new_file_ids: Vec<String> },
 
     StartCreateAlbum,

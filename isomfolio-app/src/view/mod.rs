@@ -193,6 +193,9 @@ impl App {
         if self.metadata_import_prompt.is_some() {
             layers.push(self.view_metadata_import_prompt());
         }
+        if self.add_folder_prompt.is_some() {
+            layers.push(self.view_add_folder_prompt());
+        }
         let root: Element<Msg> = if layers.len() == 1 {
             layers.remove(0)
         } else {
@@ -966,6 +969,66 @@ impl App {
         }
 
         body.into()
+    }
+
+    fn view_add_folder_prompt(&self) -> Element<'_, Msg> {
+        let prompt = match &self.add_folder_prompt {
+            Some(p) => p,
+            None => return Space::new().into(),
+        };
+        let name = std::path::Path::new(&prompt.path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(prompt.path.as_str());
+
+        let glyph = if prompt.recursive { "☑" } else { "☐" };
+        let subfolder_label = match prompt.subfolder_count {
+            0 => "Include subfolders (none found)".to_string(),
+            1 => "Include subfolders (1 found)".to_string(),
+            n => format!("Include subfolders ({n} found)"),
+        };
+        let toggle = button(
+            row![
+                text(glyph).size(TEXT_BASE).color(FG),
+                text(subfolder_label).size(TEXT_MD).color(FG),
+            ]
+            .spacing(SPACE_1_5)
+            .align_y(Alignment::Center),
+        )
+        .on_press(Msg::AddFolderPromptToggleRecursive)
+        .style(ghost_btn_style);
+
+        let body = column![
+            text(format!("Add \u{201C}{name}\u{201D} to the library"))
+                .size(TEXT_TITLE).color(FG),
+            Space::new().height(SPACE_2),
+            text("Photos in this folder are indexed. With subfolders included, the whole tree is indexed and shown as a navigable hierarchy in the sidebar.")
+                .size(TEXT_SM).color(FG_DIM),
+            Space::new().height(SPACE_4),
+            toggle,
+            Space::new().height(SPACE_4),
+            row![
+                button(text("Cancel").size(TEXT_BASE))
+                    .on_press(Msg::AddFolderCancel)
+                    .style(ghost_btn_style),
+                Space::new().width(Length::Fill),
+                button(text("Add").size(TEXT_BASE))
+                    .on_press(Msg::AddFolderConfirm)
+                    .style(active_chip_style),
+            ]
+            .align_y(Alignment::Center),
+        ]
+        .spacing(0)
+        .width(440);
+
+        let modal = container(body)
+            .padding(SPACE_6)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_MODAL)),
+                border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
+                ..Default::default()
+            });
+        modal_with_backdrop(modal).into()
     }
 
     fn view_metadata_import_prompt(&self) -> Element<'_, Msg> {

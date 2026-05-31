@@ -29,12 +29,14 @@ A **catalog** is how IsomFolio organises your photos. Think of it as a project f
 
 2. Navigate to a folder of photos and click **Open**.
 
-3. IsomFolio scans the folder, generates thumbnails, and adds the photos to the library. A progress indicator appears in the status bar.
+3. Choose whether to **Include subfolders**. Leave it checked to index the whole folder tree (shown as an expandable hierarchy in the sidebar); uncheck it to index only the photos directly in the chosen folder.
+
+4. IsomFolio scans the folder, generates thumbnails, and adds the photos to the library. A progress indicator appears in the status bar.
 
 </Steps>
 
 <Aside type="tip">
-You can add multiple folders. Each appears as a separate entry in the sidebar. IsomFolio watches all added folders for new, changed, and deleted files — changes appear automatically without a manual rescan.
+You can add multiple folders. Each appears in the **Folders** sidebar, where subfolders nest under their parent — click the chevron to expand or collapse, and click a folder to see its photos (including everything in its subfolders). IsomFolio watches added folders for new, changed, and deleted files.
 </Aside>
 
 ## What you'll see
