@@ -41,7 +41,7 @@ impl App {
                         .filter(|c| &c.cluster_id != source_id)
                         .collect();
                     if others.is_empty() {
-                        column![text("No other clusters").size(TEXT_MD).color(FG_DIM)]
+                        column![text("No other people").size(TEXT_MD).color(FG_DIM)]
                             .padding([SPACE_1, SPACE_1_5])
                     } else {
                         let mut col = column![].spacing(0);

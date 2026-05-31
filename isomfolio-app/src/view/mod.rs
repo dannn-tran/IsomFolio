@@ -303,7 +303,7 @@ impl App {
         if self.faces.is_clustering {
             let detail = self.faces.status.as_deref().unwrap_or("");
             col = col.push(Space::new().height(SPACE_2));
-            col = col.push(task_row("Face clustering".into(), detail.to_string(), None, None));
+            col = col.push(task_row("Finding people".into(), detail.to_string(), None, None));
         }
 
         // Explicit bg_tasks
@@ -706,7 +706,7 @@ impl App {
             Msg::ToggleAutoAdvanceOnFlag,
         ));
         col = col.push(self.toggle_row(
-            "Auto face clustering",
+            "Auto-detect people",
             "Run after each sync that finds new photos.",
             self.app_settings.auto_face_cluster,
             Msg::ToggleAutoFaceCluster,

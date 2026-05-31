@@ -152,7 +152,7 @@ impl App {
             .into()
         } else {
             let display = cluster.name.as_deref().unwrap_or(
-                if cluster_id == "face-unknown" { "Unknown" } else { "?" }
+                if cluster_id == "face-unknown" { "Unknown" } else { "Unnamed" }
             );
             let count = cluster.file_count;
             column![
