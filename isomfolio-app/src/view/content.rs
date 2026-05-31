@@ -474,7 +474,7 @@ impl App {
             let size_str = format_file_size(file.size_bytes);
             let date_unix = file.exif_date_unix.unwrap_or(file.mtime_unix);
             let date_str = unix_to_date_str(date_unix);
-            let date_label = if file.exif_date_unix.is_some() { "Taken" } else { "Date " };
+            let date_label = if file.exif_date_unix.is_some() { "Taken" } else { "Modified" };
 
             col = col
                 .push(text(format!("Size  {size_str}")).size(TEXT_SM).color(FG_DIM))
