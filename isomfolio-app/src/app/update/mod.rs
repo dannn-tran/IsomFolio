@@ -34,13 +34,8 @@ impl App {
             | Msg::NewCatalogNameChanged(_)
             | Msg::ConfirmNewCatalog => self.handle_catalog_msg(msg),
 
-            // — extensions & face clustering —
-            Msg::ExtensionsDiscovered(..)
-            | Msg::RunExtension { .. }
-            | Msg::ExtensionProgress { .. }
-            | Msg::ExtensionBatchProgress { .. }
-            | Msg::ExtensionBatchDone { .. }
-            | Msg::ExtensionRestarted { .. }
+            // — inference engine & face clustering —
+            Msg::ExtensionsDiscovered(_)
             | Msg::RunFaceClustering { .. }
             | Msg::FaceClusterProgress { .. }
             | Msg::InferenceEngineReady { .. }
@@ -93,19 +88,6 @@ impl App {
             | Msg::AllTagsLoaded(_)
             | Msg::TagsSavedResult(_, _)
             | Msg::RepeatLastTag
-            | Msg::AcceptPendingTag(_)
-            | Msg::RejectPendingTag(_)
-            | Msg::AcceptAllPending
-            | Msg::RejectAllPending
-            | Msg::PendingTagsUpdated
-            | Msg::AcceptAllInView
-            | Msg::RejectAllInView
-            | Msg::PendingCountsLoaded { .. }
-            | Msg::PendingTotalLoaded(_)
-            | Msg::SetSuggestionView(_)
-            | Msg::PendingTagGroupsLoaded(_)
-            | Msg::AcceptPendingTagGlobally(_)
-            | Msg::RejectPendingTagGlobally(_)
             | Msg::SetDetailRating(_)
             | Msg::SetFlag(_)
             | Msg::FlagsApplied
@@ -301,11 +283,9 @@ impl App {
             | Msg::SaveSettings
             | Msg::InstallExtensionPickFile
             | Msg::ExtensionPackagePicked(_)
-            | Msg::ExtensionInstalled(_)
             | Msg::EngineInstalled(_)
             | Msg::ExtensionInstallFailed(_)
             | Msg::UninstallExtension(_)
-            | Msg::SetPreferredExtension { .. }
             | Msg::ToggleAutoFaceCluster
             | Msg::ToggleInferenceCustom
             | Msg::InferenceUrlChanged(_)
@@ -348,14 +328,12 @@ impl App {
                         }
                     }
                 }
-                let going_to_suggestions = matches!(item, SidebarItem::Suggestions);
                 self.selected_item = item;
                 if matches!(self.view_mode, super::ViewMode::People) {
                     self.view_mode = super::ViewMode::Browse;
                 }
                 self.files.clear();
                 self.file_ratings.clear();
-                self.pending_counts_by_id.clear();
                 self.scroll_y = 0.0;
                 self.loupe.idx = 0;
                 self.grid_selected.clear();
@@ -365,12 +343,6 @@ impl App {
                 self.detail.file_id = None;
                 self.remove_from_album_pending = false;
                 self.smart_album_dirty = false;
-                if going_to_suggestions {
-                    self.detail.show = true;
-                    if matches!(self.suggestion_view, super::SuggestionView::Tag) {
-                        return self.load_pending_tag_groups_task();
-                    }
-                }
                 self.load_files_task()
             }
 
@@ -380,12 +352,7 @@ impl App {
                 self.status = format!("{} photo(s)", self.files.len());
                 let t1 = self.maybe_load_detail();
                 let t2 = self.load_ratings_task();
-                let t3 = if matches!(self.selected_item, SidebarItem::Suggestions) {
-                    self.load_pending_counts_task()
-                } else {
-                    Task::none()
-                };
-                Task::batch([t1, t2, t3])
+                Task::batch([t1, t2])
             }
 
             Msg::SidebarLoaded { folders, albums, album_counts } => {

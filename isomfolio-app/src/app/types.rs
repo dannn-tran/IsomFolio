@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use iced::{keyboard, widget, Point};
 
 pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
-use isomfolio_core::extension::{ExtensionManifest, ExtensionProcess};
+use isomfolio_core::extension::ExtensionManifest;
 use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag};
 
 #[derive(Debug, Clone)]
@@ -54,19 +54,12 @@ pub enum ViewMode {
     Settings,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SuggestionView {
-    Photo,
-    Tag,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum SidebarItem {
     AllFiles,
     Folder(String),
     Album(AlbumId),
     FaceCluster(String),
-    Suggestions,
 }
 
 #[derive(Debug, Clone)]
@@ -171,8 +164,6 @@ pub enum Msg {
     DetailLoaded {
         file_id: String,
         tags: Vec<String>,
-        tag_confidence: HashMap<String, f32>,
-        pending_tags: Vec<(String, Option<f32>)>,
         rating: Option<i32>,
         label: Option<String>,
         title: Option<String>,
@@ -192,19 +183,6 @@ pub enum Msg {
     HoverMenuTab(String),
     CloseMenuDropdown,
     TogglePreview,
-    AcceptPendingTag(String),
-    RejectPendingTag(String),
-    AcceptAllPending,
-    RejectAllPending,
-    PendingTagsUpdated,
-    AcceptAllInView,
-    RejectAllInView,
-    PendingCountsLoaded { counts: HashMap<String, usize>, total: usize },
-    PendingTotalLoaded(usize),
-    SetSuggestionView(SuggestionView),
-    PendingTagGroupsLoaded(Vec<isomfolio_core::models::PendingTagGroup>),
-    AcceptPendingTagGlobally(String),
-    RejectPendingTagGlobally(String),
 
     OpenTagBrowser,
     CloseTagBrowser,
@@ -256,12 +234,7 @@ pub enum Msg {
     SetRatingFilter(Option<i32>),
     SetLocationFilter(Option<bool>),
 
-    ExtensionsDiscovered(Vec<Arc<ExtensionProcess>>, Option<ExtensionManifest>),
-    RunExtension { addon_idx: usize, method: String, file_ids: Vec<String> },
-    ExtensionProgress { addon_idx: usize, file_id: String, percent: u8 },
-    ExtensionBatchProgress { name: String, done: usize, total: usize },
-    ExtensionBatchDone { addon_idx: usize, method: String, applied: usize, failed: usize },
-    ExtensionRestarted { idx: usize, process: Option<Arc<ExtensionProcess>> },
+    ExtensionsDiscovered(Option<ExtensionManifest>),
 
     BgTaskDismissed(BgTaskId),
     ToggleTaskPanel,
@@ -282,11 +255,9 @@ pub enum Msg {
     SaveSettings,
     InstallExtensionPickFile,
     ExtensionPackagePicked(Option<String>),
-    ExtensionInstalled(Arc<ExtensionProcess>),
     EngineInstalled(ExtensionManifest),
     ExtensionInstallFailed(String),
     UninstallExtension(String),
-    SetPreferredExtension { capability: String, extension_name: String },
 
     RunFaceClustering { force_full: bool },
     FaceClusterProgress { files_done: usize, total: usize, percent: u8 },
@@ -403,8 +374,6 @@ pub struct DetailState {
     pub file_id: Option<String>,
     pub batch_file_ids: Vec<String>,
     pub tags: Vec<String>,
-    pub tag_confidence: HashMap<String, f32>,
-    pub pending_tags: Vec<(String, Option<f32>)>,
     pub tag_input: String,
     pub all_tags: Vec<String>,
     pub recent_tags: Vec<String>,
@@ -431,8 +400,6 @@ impl Default for DetailState {
             file_id: None,
             batch_file_ids: Vec::new(),
             tags: Vec::new(),
-            tag_confidence: HashMap::new(),
-            pending_tags: Vec::new(),
             tag_input: String::new(),
             all_tags: Vec::new(),
             recent_tags: Vec::new(),

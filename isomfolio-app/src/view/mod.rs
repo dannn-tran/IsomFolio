@@ -872,8 +872,6 @@ impl App {
     }
 
     fn settings_extensions_pane(&self) -> Element<'_, Msg> {
-        use isomfolio_core::extension::ConfigFieldKind;
-
         let install_btn = row![
             button(text("Install from file…").size(TEXT_BASE))
                 .on_press(Msg::InstallExtensionPickFile)
@@ -881,7 +879,7 @@ impl App {
             Space::new().width(Length::Fill),
             text(format!(
                 "{} installed",
-                self.extensions.len() + self.inference_manifest.is_some() as usize
+                self.inference_manifest.is_some() as usize
             ))
             .size(TEXT_SM)
             .color(FG_DIM),
@@ -896,7 +894,7 @@ impl App {
         .spacing(0)
         .width(Length::Fill);
 
-        if self.extensions.is_empty() && self.inference_manifest.is_none() {
+        if self.inference_manifest.is_none() {
             body = body.push(
                 container(
                     text("No extensions installed. Click \"Install from file…\" above to add one.")
@@ -905,121 +903,6 @@ impl App {
                 )
                 .padding(SPACE_3),
             );
-        }
-
-        for ext in &self.extensions {
-            let name = ext.manifest.name.clone();
-            let desc = ext.manifest.description.clone();
-
-            // Header row: name + uninstall button
-            body = body.push(
-                row![
-                    column![
-                        text(name.clone()).size(TEXT_BASE).color(FG),
-                        text(desc).size(TEXT_SM).color(FG_DIM),
-                    ]
-                    .spacing(SPACE_0_5),
-                    Space::new().width(Length::Fill),
-                    button(text("Remove").size(TEXT_SM))
-                        .on_press(Msg::UninstallExtension(name.clone()))
-                        .style(|_: &Theme, s| {
-                            let alpha = match s {
-                                iced::widget::button::Status::Hovered => 0.13,
-                                _ => 0.0,
-                            };
-                            iced::widget::button::Style {
-                                background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: alpha })),
-                                text_color: styles::ERR,
-                                border: Border { radius: 4.0.into(), ..Default::default() },
-                                shadow: iced::Shadow::default(),
-                                snap: false,
-                            }
-                        }),
-                ]
-                .align_y(Alignment::Center)
-                .spacing(SPACE_2),
-            );
-
-            // Config fields
-            let empty_map = std::collections::HashMap::new();
-            let field_values = self.settings.extension_configs.get(&name).unwrap_or(&empty_map);
-
-            for field in &ext.manifest.config_schema {
-                let current = field_values.get(&field.key).cloned().unwrap_or_default();
-                let key = field.key.clone();
-                let extension_name = name.clone();
-
-                body = body.push(Space::new().height(SPACE_2));
-                body = body.push(text(&field.label).size(TEXT_MD).color(FG_DIM));
-                body = body.push(Space::new().height(SPACE_1_5));
-
-                match field.kind {
-                    ConfigFieldKind::Select => {
-                        let mut option_row = row![].spacing(SPACE_1_5);
-                        for opt in &field.options {
-                            let selected = current == *opt;
-                            let opt_val = opt.clone();
-                            let k = key.clone();
-                            let an = extension_name.clone();
-                            option_row = option_row.push(
-                                button(text(opt.as_str()).size(TEXT_MD))
-                                    .on_press(Msg::SettingsConfigChanged {
-                                        extension_name: an,
-                                        key: k,
-                                        value: opt_val,
-                                    })
-                                    .style(move |t: &Theme, st| {
-                                        if selected { active_chip_style(t, st) } else { ghost_btn_style(t, st) }
-                                    }),
-                            );
-                        }
-                        body = body.push(option_row);
-                    }
-                    ConfigFieldKind::Secret => {
-                        body = body.push(
-                            text_input(field.default.as_deref().unwrap_or(""), &current)
-                                .on_input(move |v| Msg::SettingsConfigChanged {
-                                    extension_name: extension_name.clone(),
-                                    key: key.clone(),
-                                    value: v,
-                                })
-                                .secure(true)
-                                .padding([SPACE_2, SPACE_2_5])
-                                .size(TEXT_BASE)
-                                .width(Length::Fill),
-                        );
-                    }
-                    ConfigFieldKind::Text => {
-                        body = body.push(
-                            text_input(field.default.as_deref().unwrap_or(""), &current)
-                                .on_input(move |v| Msg::SettingsConfigChanged {
-                                    extension_name: extension_name.clone(),
-                                    key: key.clone(),
-                                    value: v,
-                                })
-                                .padding([SPACE_2, SPACE_2_5])
-                                .size(TEXT_BASE)
-                                .width(Length::Fill),
-                        );
-                    }
-                    ConfigFieldKind::Number | ConfigFieldKind::Integer => {
-                        let placeholder = field.default.as_deref().unwrap_or("0");
-                        body = body.push(
-                            text_input(placeholder, &current)
-                                .on_input(move |v| Msg::SettingsConfigChanged {
-                                    extension_name: extension_name.clone(),
-                                    key: key.clone(),
-                                    value: v,
-                                })
-                                .padding([SPACE_2, SPACE_2_5])
-                                .size(TEXT_BASE)
-                                .width(120),
-                        );
-                    }
-                }
-            }
-
-            body = body.push(Space::new().height(SPACE_3));
         }
 
         // The inference engine isn't an IEP process (not in self.extensions), so
@@ -1080,50 +963,6 @@ impl App {
                 body = body.push(option_row);
             }
             body = body.push(Space::new().height(SPACE_3));
-        }
-
-        // Capability defaults — only shown when 2+ extensions share a capability
-        let mut cap_map: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
-        for ext in &self.extensions {
-            for cap in &ext.manifest.capabilities {
-                cap_map.entry(cap.clone()).or_default().push(ext.manifest.name.clone());
-            }
-        }
-        let mut contested: Vec<(String, Vec<String>)> = cap_map
-            .into_iter()
-            .filter(|(_, names)| names.len() > 1)
-            .collect();
-        contested.sort_by(|a, b| a.0.cmp(&b.0));
-        if !contested.is_empty() {
-            body = body.push(Space::new().height(SPACE_4));
-            body = body.push(text("Defaults").size(TEXT_SM).color(FG_DIM));
-            body = body.push(Space::new().height(SPACE_2));
-            for (cap, names) in contested {
-                let current = self.app_settings.preferred_extension.get(&cap).cloned()
-                    .unwrap_or_else(|| names[0].clone());
-                body = body.push(text(format!("Auto-{cap}:")).size(TEXT_MD).color(FG));
-                body = body.push(Space::new().height(SPACE_1_5));
-                let mut chip_row = row![].spacing(SPACE_1_5);
-                for n in names {
-                    let selected = current == n;
-                    let cap2 = cap.clone();
-                    let n2 = n.clone();
-                    let n_label = n.clone();
-                    chip_row = chip_row.push(
-                        button(text(n_label).size(TEXT_MD))
-                            .on_press(Msg::SetPreferredExtension {
-                                capability: cap2,
-                                extension_name: n2,
-                            })
-                            .style(move |t: &Theme, s| {
-                                if selected { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
-                            }),
-                    );
-                }
-                body = body.push(chip_row);
-                body = body.push(Space::new().height(SPACE_2));
-            }
         }
 
         body.into()

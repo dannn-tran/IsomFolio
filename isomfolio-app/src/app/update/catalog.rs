@@ -2,7 +2,7 @@ use std::sync::{mpsc, Arc};
 
 use iced::Task;
 use isomfolio_core::app_paths::db_path;
-use isomfolio_core::extension::{discover_extensions, ExtensionProcess};
+use isomfolio_core::extension::discover_extensions;
 use isomfolio_core::path_utils::CATALOG_EXT;
 
 use super::LockUnwrap;
@@ -16,26 +16,13 @@ impl App {
                 let sidebar_task = self.load_sidebar_task();
                 let extension_task = Task::perform(
                     async move {
-                        // The inference engine is an HTTP server, not an IEP extension —
-                        // capture its manifest but launch it on demand, not here.
-                        let manifests = discover_extensions();
-                        let engine = manifests
-                            .iter()
-                            .find(|m| m.capabilities.iter().any(|c| c == "inference_engine"))
-                            .cloned();
-                        let procs = manifests
+                        // The inference engine is launched on demand (HTTP), not here —
+                        // just locate its manifest.
+                        discover_extensions()
                             .into_iter()
-                            .filter(|m| !m.capabilities.iter().any(|c| c == "inference_engine"))
-                            .filter_map(|m| {
-                                ExtensionProcess::launch(m, None)
-                                    .map(Arc::new)
-                                    .map_err(|e| eprintln!("[extension] launch failed: {e}"))
-                                    .ok()
-                            })
-                            .collect::<Vec<_>>();
-                        (procs, engine)
+                            .find(|m| m.capabilities.iter().any(|c| c == "inference_engine"))
                     },
-                    |(procs, engine)| Msg::ExtensionsDiscovered(procs, engine),
+                    Msg::ExtensionsDiscovered,
                 );
                 let face_task = if let Some(conn) = self.catalog.clone() {
                     Task::perform(
@@ -48,8 +35,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                let pending_task = self.refresh_pending_total_task();
-                Task::batch([sidebar_task, extension_task, face_task, pending_task])
+                Task::batch([sidebar_task, extension_task, face_task])
             }
 
             Msg::OpenCatalog(path) => {

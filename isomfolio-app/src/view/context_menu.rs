@@ -164,36 +164,6 @@ impl App {
                 }
                 items.push(Some(("Add to Album ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)));
 
-                let classify_addons: Vec<(usize, &str)> = self
-                    .extensions
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, a)| a.manifest.capabilities.iter().any(|c| c == "classify"))
-                    .map(|(i, a)| (i, a.manifest.name.as_str()))
-                    .collect();
-
-                if !classify_addons.is_empty() {
-                    items.push(None);
-                    let file_ids: Vec<String> = self.grid_selected.iter().cloned().collect();
-                    let multiple = classify_addons.len() > 1;
-                    for (idx, name) in classify_addons {
-                        let label = if multiple {
-                            format!("Auto-tag with {name}")
-                        } else {
-                            "Auto-tag".into()
-                        };
-                        items.push(Some((
-                            label,
-                            Msg::RunExtension {
-                                addon_idx: idx,
-                                method: "classify".to_string(),
-                                file_ids: file_ids.clone(),
-                            },
-                            false,
-                        )));
-                    }
-                }
-
                 items.push(None);
                 items.push(Some(("Import XMP metadata".into(), Msg::SyncXmpForSelection, false)));
                 if cfg!(target_os = "macos") {

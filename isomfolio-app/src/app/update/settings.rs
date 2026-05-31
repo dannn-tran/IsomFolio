@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use iced::Task;
 use isomfolio_core::extension::{
     discover_extensions, install_extension_package, load_extension_config, save_extension_config,
-    uninstall_extension, ConfigFieldKind, ExtensionProcess,
+    uninstall_extension, ConfigFieldKind,
 };
 
 use super::super::{App, Msg, SettingsState, ViewMode};
@@ -18,23 +16,22 @@ impl App {
                     return Task::none();
                 }
                 let mut extension_configs = std::collections::HashMap::new();
-                for ext in &self.extensions {
-                    if ext.manifest.config_schema.is_empty() {
-                        continue;
+                if let Some(manifest) = self.inference_manifest.as_ref() {
+                    if !manifest.config_schema.is_empty() {
+                        let ext_dir =
+                            manifest.executable.parent().unwrap_or(std::path::Path::new("."));
+                        let stored = load_extension_config(ext_dir);
+                        let mut fields = std::collections::HashMap::new();
+                        for field in &manifest.config_schema {
+                            let val = stored
+                                .get(&field.key)
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(field.default.as_deref().unwrap_or(""))
+                                .to_string();
+                            fields.insert(field.key.clone(), val);
+                        }
+                        extension_configs.insert(manifest.name.clone(), fields);
                     }
-                    let ext_dir =
-                        ext.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
-                    let stored = load_extension_config(ext_dir);
-                    let mut fields = std::collections::HashMap::new();
-                    for field in &ext.manifest.config_schema {
-                        let val = stored
-                            .get(&field.key)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(field.default.as_deref().unwrap_or(""))
-                            .to_string();
-                        fields.insert(field.key.clone(), val);
-                    }
-                    extension_configs.insert(ext.manifest.name.clone(), fields);
                 }
                 self.settings = SettingsState {
                     tab: self.settings.tab,
@@ -59,10 +56,10 @@ impl App {
 
             Msg::SettingsConfigChanged { extension_name, key, value } => {
                 let kind = self
-                    .extensions
-                    .iter()
-                    .find(|a| a.manifest.name == extension_name)
-                    .and_then(|a| a.manifest.config_schema.iter().find(|f| f.key == key))
+                    .inference_manifest
+                    .as_ref()
+                    .filter(|m| m.name == extension_name)
+                    .and_then(|m| m.config_schema.iter().find(|f| f.key == key))
                     .map(|f| &f.kind);
                 let valid = match kind {
                     Some(ConfigFieldKind::Number) => {
@@ -87,62 +84,45 @@ impl App {
             }
 
             Msg::SaveSettings => {
-                let mut restart_tasks = Vec::new();
-                for (extension_name, fields) in &self.settings.extension_configs {
-                    let schema = self
-                        .extensions
-                        .iter()
-                        .find(|a| &a.manifest.name == extension_name)
-                        .map(|a| &a.manifest.config_schema);
-                    let config: serde_json::Value = fields
-                        .iter()
-                        .map(|(k, v)| {
-                            let kind = schema
-                                .and_then(|s| s.iter().find(|f| &f.key == k))
-                                .map(|f| &f.kind);
-                            let val = match kind {
-                                Some(ConfigFieldKind::Number) => v
-                                    .parse::<f64>()
-                                    .map(serde_json::Value::from)
-                                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
-                                Some(ConfigFieldKind::Integer) => v
-                                    .parse::<i64>()
-                                    .map(serde_json::Value::from)
-                                    .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
-                                _ => serde_json::Value::String(v.clone()),
-                            };
-                            (k.clone(), val)
-                        })
-                        .collect::<serde_json::Map<_, _>>()
-                        .into();
-                    let ext_dir = self
-                        .extensions
-                        .iter()
-                        .find(|a| &a.manifest.name == extension_name)
-                        .and_then(|a| a.manifest.executable.parent().map(|p| p.to_path_buf()))
-                        .unwrap_or_default();
-                    if let Err(e) = save_extension_config(&ext_dir, &config) {
-                        self.status = format!("Settings save failed: {e}");
-                        return Task::none();
-                    }
-                    let idx = self
-                        .extensions
-                        .iter()
-                        .position(|a| &a.manifest.name == extension_name);
-                    if let Some(idx) = idx {
-                        let manifest = self.extensions[idx].manifest.clone();
-                        restart_tasks.push(Task::perform(
-                            async move { ExtensionProcess::launch(manifest, None).map(Arc::new).ok() },
-                            move |p| Msg::ExtensionRestarted { idx, process: p },
-                        ));
-                    }
+                // The inference engine is the only configurable extension.
+                let Some(manifest) = self.inference_manifest.clone() else {
+                    return Task::none();
+                };
+                let Some(fields) = self.settings.extension_configs.get(&manifest.name) else {
+                    return Task::none();
+                };
+                let config: serde_json::Value = fields
+                    .iter()
+                    .map(|(k, v)| {
+                        let kind = manifest.config_schema.iter().find(|f| &f.key == k).map(|f| &f.kind);
+                        let val = match kind {
+                            Some(ConfigFieldKind::Number) => v
+                                .parse::<f64>()
+                                .map(serde_json::Value::from)
+                                .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
+                            Some(ConfigFieldKind::Integer) => v
+                                .parse::<i64>()
+                                .map(serde_json::Value::from)
+                                .unwrap_or_else(|_| serde_json::Value::String(v.clone())),
+                            _ => serde_json::Value::String(v.clone()),
+                        };
+                        (k.clone(), val)
+                    })
+                    .collect::<serde_json::Map<_, _>>()
+                    .into();
+                let ext_dir = manifest
+                    .executable
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_default();
+                if let Err(e) = save_extension_config(&ext_dir, &config) {
+                    self.status = format!("Settings save failed: {e}");
+                    return Task::none();
                 }
-                if restart_tasks.is_empty() {
-                    Task::none()
-                } else {
-                    self.settings.status = Some("Saving & restarting extensions…".to_string());
-                    Task::batch(restart_tasks)
-                }
+                // New config (e.g. model size) takes effect on the next run.
+                self.inference = None;
+                self.settings.status = Some("Settings saved".to_string());
+                Task::none()
             }
 
             Msg::InstallExtensionPickFile => Task::perform(
@@ -167,42 +147,20 @@ impl App {
                     async move {
                         let path = std::path::PathBuf::from(path);
                         match install_extension_package(&path) {
-                            Err(e) => InstallOutcome::Failed(e),
-                            // The engine is launched on demand, not as an IEP process.
-                            // Re-discover to get the executable-populated manifest.
-                            Ok(m) if m.capabilities.iter().any(|c| c == "inference_engine") => {
-                                match discover_extensions()
-                                    .into_iter()
-                                    .find(|d| d.capabilities.iter().any(|c| c == "inference_engine"))
-                                {
-                                    Some(engine) => InstallOutcome::Engine(engine),
-                                    None => InstallOutcome::Failed(
-                                        "engine installed but manifest not found".to_string(),
-                                    ),
-                                }
-                            }
-                            Ok(m) => match ExtensionProcess::launch(m, None).map(Arc::new) {
-                                Ok(p) => InstallOutcome::Process(p),
-                                Err(e) => InstallOutcome::Failed(e.to_string()),
-                            },
+                            Err(e) => Err(e),
+                            // The engine is launched on demand (HTTP). Re-discover
+                            // to get the executable-populated manifest.
+                            Ok(_) => discover_extensions()
+                                .into_iter()
+                                .find(|d| d.capabilities.iter().any(|c| c == "inference_engine"))
+                                .ok_or_else(|| "installed package is not an inference engine".to_string()),
                         }
                     },
                     |outcome| match outcome {
-                        InstallOutcome::Process(p) => Msg::ExtensionInstalled(p),
-                        InstallOutcome::Engine(m) => Msg::EngineInstalled(m),
-                        InstallOutcome::Failed(e) => Msg::ExtensionInstallFailed(e),
+                        Ok(m) => Msg::EngineInstalled(m),
+                        Err(e) => Msg::ExtensionInstallFailed(e),
                     },
                 )
-            }
-
-            Msg::ExtensionInstalled(process) => {
-                let name = process.manifest.name.clone();
-                self.extensions.push(process);
-                if let Some(id) = self.settings.install_task_id.take() {
-                    self.bg_complete(id);
-                }
-                self.status = format!("'{name}' installed");
-                Task::none()
             }
 
             Msg::EngineInstalled(manifest) => {
@@ -227,28 +185,17 @@ impl App {
             }
 
             Msg::UninstallExtension(name) => {
-                if let Some(idx) = self.extensions.iter().position(|a| a.manifest.name == name) {
-                    self.extensions.remove(idx);
-                }
-                // The engine isn't in self.extensions — clear it explicitly and
-                // drop any managed client so it stops.
+                // The engine is the only installable extension; drop its manifest
+                // and any managed client so it stops.
                 if self.inference_manifest.as_ref().is_some_and(|m| m.name == name) {
                     self.inference_manifest = None;
                     self.inference = None;
                 }
-                self.app_settings.preferred_extension.retain(|_, v| v != &name);
                 if let Err(e) = uninstall_extension(&name) {
                     self.settings.status = Some(format!("Uninstall failed: {e}"));
                 } else {
                     self.settings.status = Some(format!("'{name}' removed"));
                 }
-                isomfolio_core::app_paths::save_settings(&self.app_settings);
-                Task::none()
-            }
-
-            Msg::SetPreferredExtension { capability, extension_name } => {
-                self.app_settings.preferred_extension.insert(capability, extension_name);
-                isomfolio_core::app_paths::save_settings(&self.app_settings);
                 Task::none()
             }
 
@@ -329,12 +276,4 @@ impl App {
             _ => Task::none(),
         }
     }
-}
-
-/// Outcome of installing an `.isfx` package: a launched IEP process, the
-/// inference engine (launched on demand), or a failure.
-enum InstallOutcome {
-    Process(Arc<ExtensionProcess>),
-    Engine(isomfolio_core::extension::ExtensionManifest),
-    Failed(String),
 }

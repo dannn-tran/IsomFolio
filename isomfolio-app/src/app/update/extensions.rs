@@ -5,9 +5,6 @@ use std::time::Duration;
 use iced::futures;
 use iced::Task;
 use isomfolio_core::clustering;
-use isomfolio_core::extension::ExtensionProcess;
-use isomfolio_core::indexing::thumbnail::thumbnail_cache_path;
-use isomfolio_core::models::ThumbnailState;
 
 use crate::inference::{EmbedFile, InferenceClient, ManagedInferenceProcess};
 use super::LockUnwrap;
@@ -16,93 +13,8 @@ use super::super::{App, Msg, ViewMode};
 impl App {
     pub(super) fn handle_extension_msg(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
-            Msg::ExtensionsDiscovered(extensions, engine) => {
-                let count = extensions.len();
-                self.extensions = extensions;
+            Msg::ExtensionsDiscovered(engine) => {
                 self.inference_manifest = engine;
-                if count > 0 {
-                    self.status = format!(
-                        "{count} extension{} loaded",
-                        if count == 1 { "" } else { "s" }
-                    );
-                }
-                Task::none()
-            }
-
-            Msg::RunExtension { addon_idx, method, file_ids } => {
-                let Some(ext) = self.extensions.get(addon_idx).cloned() else {
-                    return Task::none();
-                };
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                let catalog_dir = self.catalog_dir.clone();
-                let total = file_ids.len();
-                let extension_name = ext.manifest.name.clone();
-                self.status = format!("{extension_name}… (0/{total})");
-
-                let requests: Vec<(&str, serde_json::Value)> = file_ids
-                    .iter()
-                    .map(|id| {
-                        let thumb = match self.thumbnails.get(id) {
-                            Some(ThumbnailState::Ready(path)) => path.clone(),
-                            _ => thumbnail_cache_path(&catalog_dir, id),
-                        };
-                        (method.as_str(), classify_request_params(id, thumb))
-                    })
-                    .collect();
-
-                let handle = match ext.send_many(&requests) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        self.status = format!("extension error: {e}");
-                        return Task::none();
-                    }
-                };
-
-                let stream = futures::stream::unfold(
-                    ClassifyState { handle, conn, name: extension_name, addon_idx, done: 0, applied: 0, failed: 0 },
-                    |mut s| async move {
-                        let rx = s.handle.rx.clone();
-                        let result =
-                            tokio::task::spawn_blocking(move || rx.lock_unwrap().recv()).await;
-                        match result {
-                            Ok(Ok(Ok(value))) => {
-                                if let Some((fid, tags)) = extract_scored_tags(value) {
-                                    if !tags.is_empty() && !fid.is_empty() {
-                                        let g = s.conn.lock_unwrap();
-                                        if let Err(e) = g.insert_pending_tags(&fid, &tags) {
-                                            eprintln!("[db] insert_pending_tags failed: {e}");
-                                        }
-                                        s.applied += 1;
-                                    }
-                                }
-                                s.done += 1;
-                                s.into_next_msg()
-                            }
-                            Ok(Ok(Err(e))) => {
-                                eprintln!("[extension] classify error: {e}");
-                                s.done += 1;
-                                s.failed += 1;
-                                s.into_next_msg()
-                            }
-                            _ => {
-                                s.failed += s.handle.total.saturating_sub(s.done);
-                                s.done = s.handle.total;
-                                s.into_next_msg()
-                            }
-                        }
-                    },
-                );
-                Task::stream(stream)
-            }
-
-            Msg::ExtensionProgress { .. } => Task::none(),
-
-            Msg::ExtensionBatchProgress { name, done, total } => {
-                self.status = if total == 100 {
-                    format!("{name}… ({done}%)")
-                } else {
-                    format!("{name}… ({done}/{total})")
-                };
                 Task::none()
             }
 
@@ -110,37 +22,6 @@ impl App {
                 self.faces.progress = Some(percent as f32 / 100.0);
                 self.faces.status = Some(format!("{files_done} / {total} photos"));
                 Task::none()
-            }
-
-            Msg::ExtensionBatchDone { addon_idx, method, applied, failed } => {
-                if failed == 0 {
-                    self.status = format!(
-                        "{method} done — {applied} file{} updated",
-                        if applied == 1 { "" } else { "s" }
-                    );
-                    return self.refresh_pending_total_task();
-                }
-                let report_path = self
-                    .extensions
-                    .get(addon_idx)
-                    .and_then(|ext| write_crash_report(ext, applied, failed));
-                self.status = match &report_path {
-                    Some(path) => format!(
-                        "{method} done — {applied} updated, {failed} failed — report: {path}"
-                    ),
-                    None => format!(
-                        "{method} done — {applied} updated, {failed} failed (extension crashed)"
-                    ),
-                };
-                let manifest = self.extensions.get(addon_idx).map(|a| a.manifest.clone());
-                if let Some(manifest) = manifest {
-                    Task::perform(
-                        async move { ExtensionProcess::launch(manifest, None).map(Arc::new).ok() },
-                        move |p| Msg::ExtensionRestarted { idx: addon_idx, process: p },
-                    )
-                } else {
-                    Task::none()
-                }
             }
 
             Msg::RunFaceClustering { force_full } => {
@@ -343,55 +224,8 @@ impl App {
                 )
             }
 
-            Msg::ExtensionRestarted { idx, process } => {
-                if self.faces.is_clustering {
-                    self.faces.is_clustering = false;
-                    self.faces.status =
-                        Some("Clustering interrupted — extension restarted".to_string());
-                }
-                let msg = if let Some(p) = process {
-                    if idx < self.extensions.len() {
-                        self.extensions[idx] = p;
-                    } else {
-                        self.extensions.push(p);
-                    }
-                    "Extension restarted".to_string()
-                } else {
-                    "Extension restart failed — check logs".to_string()
-                };
-                if matches!(self.view_mode, super::super::ViewMode::Settings) {
-                    self.settings.status = Some(msg);
-                } else {
-                    self.status = msg;
-                }
-                Task::none()
-            }
-
             _ => Task::none(),
         }
-    }
-
-    pub(super) fn auto_tag_task(&self, new_file_ids: Vec<String>) -> Task<Msg> {
-        let preferred =
-            self.app_settings.preferred_extension.get("classify").map(|s| s.as_str());
-        let classify_idx = self
-            .extensions
-            .iter()
-            .position(|a| {
-                a.manifest.capabilities.iter().any(|c| c == "classify")
-                    && preferred.map_or(true, |p| a.manifest.name == p)
-            })
-            .or_else(|| {
-                self.extensions.iter().position(|a| {
-                    a.manifest.capabilities.iter().any(|c| c == "classify")
-                })
-            });
-        let Some(addon_idx) = classify_idx else { return Task::none() };
-        Task::done(Msg::RunExtension {
-            addon_idx,
-            method: "classify".to_string(),
-            file_ids: new_file_ids,
-        })
     }
 
     pub(super) fn load_face_crops_task(&self) -> Task<Msg> {
@@ -424,68 +258,6 @@ impl App {
     }
 }
 
-fn write_crash_report(
-    ext: &ExtensionProcess,
-    applied: usize,
-    failed: usize,
-) -> Option<String> {
-    use isomfolio_core::app_paths::crash_reports_dir;
-    let dir = crash_reports_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let path = dir.join(format!("{}-{ts}.txt", ext.manifest.name));
-
-    let stderr_lines = ext.last_stderr();
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
-
-    let ext_dir =
-        ext.manifest.executable.parent().unwrap_or(std::path::Path::new("."));
-    let config = isomfolio_core::extension::load_extension_config(ext_dir);
-    let config_redacted: serde_json::Map<String, serde_json::Value> = config
-        .as_object()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(k, v)| {
-            let is_secret = ext.manifest.config_schema.iter().any(|f| {
-                f.key == k
-                    && matches!(f.kind, isomfolio_core::extension::ConfigFieldKind::Secret)
-            });
-            if is_secret { (k, serde_json::Value::String("***".into())) } else { (k, v) }
-        })
-        .collect();
-
-    let mut report = String::new();
-    report.push_str(&format!("Extension: {}\n", ext.manifest.name));
-    report.push_str(&format!(
-        "OS: {} {}\n",
-        std::env::consts::OS,
-        std::env::consts::ARCH
-    ));
-    report.push_str(&format!("CPU cores: {cores}\n"));
-    report.push_str(&format!(
-        "Config: {}\n",
-        serde_json::to_string(&config_redacted).unwrap_or_default()
-    ));
-    report.push_str(&format!("Applied: {applied}, Failed: {failed}\n"));
-    report.push_str("\n--- stderr (last 100 lines) ---\n");
-    for line in &stderr_lines {
-        report.push_str(line);
-        report.push('\n');
-    }
-    if stderr_lines.is_empty() {
-        report.push_str("(no output)\n");
-    }
-
-    match std::fs::write(&path, &report) {
-        Ok(_) => Some(path.to_string_lossy().into_owned()),
-        Err(_) => None,
-    }
-}
-
 fn generate_face_crops(
     catalog_dir: &str,
     reps: &[(String, String, f64, f64, f64, f64)],
@@ -515,69 +287,6 @@ fn generate_face_crops(
             Some((cluster_id.clone(), out_path))
         })
         .collect()
-}
-
-struct ClassifyState {
-    handle: isomfolio_core::extension::BatchHandle,
-    conn: Arc<std::sync::Mutex<isomfolio_core::Catalog>>,
-    name: String,
-    addon_idx: usize,
-    done: usize,
-    applied: usize,
-    failed: usize,
-}
-
-impl ClassifyState {
-    fn into_next_msg(self) -> Option<(Msg, Self)> {
-        if self.done >= self.handle.total {
-            Some((
-                Msg::ExtensionBatchDone {
-                    addon_idx: self.addon_idx,
-                    method: "classify".into(),
-                    applied: self.applied,
-                    failed: self.failed,
-                },
-                self,
-            ))
-        } else {
-            Some((
-                Msg::ExtensionBatchProgress {
-                    name: self.name.clone(),
-                    done: self.done,
-                    total: self.handle.total,
-                },
-                self,
-            ))
-        }
-    }
-}
-
-#[derive(serde::Serialize)]
-struct ClassifyRequest<'a> {
-    file_id: &'a str,
-    thumbnail_path: String,
-}
-
-#[derive(serde::Deserialize)]
-struct ClassifyResponse {
-    file_id: String,
-    #[serde(default)]
-    tags: Vec<ClassifyTag>,
-}
-
-#[derive(serde::Deserialize)]
-struct ClassifyTag {
-    tag: String,
-    confidence: Option<f32>,
-}
-
-fn extract_scored_tags(result: serde_json::Value) -> Option<(String, Vec<(String, Option<f32>)>)> {
-    let resp = serde_json::from_value::<ClassifyResponse>(result).ok()?;
-    Some((resp.file_id, resp.tags.into_iter().map(|t| (t.tag, t.confidence)).collect()))
-}
-
-fn classify_request_params(file_id: &str, thumbnail_path: String) -> serde_json::Value {
-    serde_json::to_value(ClassifyRequest { file_id, thumbnail_path }).unwrap_or_default()
 }
 
 /// Spawn the managed local engine, wait for it to become healthy (generous —

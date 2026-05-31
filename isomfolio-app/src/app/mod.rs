@@ -10,7 +10,6 @@ use std::time::Instant;
 
 use iced::{event, keyboard, mouse, Event, Point, Size, Subscription, Task};
 
-use isomfolio_core::extension::ExtensionProcess;
 use isomfolio_core::app_paths::db_path;
 use isomfolio_core::Catalog;
 use isomfolio_core::indexing::thumbnail::{
@@ -115,10 +114,6 @@ pub struct App {
 
     pub files: Vec<AssetFile>,
     pub file_ratings: HashMap<String, i32>,
-    pub pending_counts_by_id: HashMap<String, usize>,
-    pub pending_tag_file_count: usize,
-    pub suggestion_view: SuggestionView,
-    pub pending_tag_groups: Vec<isomfolio_core::models::PendingTagGroup>,
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
@@ -177,7 +172,6 @@ pub struct App {
     pub sidebar_width: f32,
     pub sidebar_resizing: bool,
 
-    pub extensions: Vec<Arc<ExtensionProcess>>,
     pub settings: SettingsState,
     pub app_settings: isomfolio_core::app_paths::AppSettings,
 
@@ -333,10 +327,6 @@ impl App {
             selected_item: SidebarItem::AllFiles,
             files: Vec::new(),
             file_ratings: HashMap::new(),
-            pending_counts_by_id: HashMap::new(),
-            pending_tag_file_count: 0,
-            suggestion_view: SuggestionView::Photo,
-            pending_tag_groups: Vec::new(),
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
@@ -400,7 +390,6 @@ impl App {
             tag_browser: None,
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_resizing: false,
-            extensions: Vec::new(),
             settings: SettingsState::default(),
             app_settings: isomfolio_core::app_paths::read_settings(),
             faces: FaceState::default(),
@@ -490,13 +479,6 @@ impl App {
         });
         self.task_panel_open = true;
         id
-    }
-
-    pub fn bg_update(&mut self, id: crate::app::types::BgTaskId, progress: Option<f32>, label: Option<String>) {
-        if let Some(t) = self.bg_tasks.iter_mut().find(|t| t.id == id) {
-            t.progress = progress;
-            if let Some(l) = label { t.label = l; }
-        }
     }
 
     pub fn bg_complete(&mut self, id: crate::app::types::BgTaskId) {
@@ -621,35 +603,6 @@ impl App {
         }
     }
 
-    pub(crate) fn enqueue_thumbnails_for_ids(&mut self, ids_and_paths: &[(String, String)]) {
-        let Some(pool) = &self.thumb_ctx.pool else { return };
-        let catalog_dir = self.catalog_dir.clone();
-        let mut newly_enqueued = 0usize;
-        for (priority, (id, path)) in ids_and_paths.iter().enumerate() {
-            if !self.thumbnails.contains_key(id) {
-                self.thumbnails.insert(id.clone(), ThumbnailState::Pending);
-                let cache = thumbnail_cache_path(&catalog_dir, id);
-                if std::path::Path::new(&cache).exists() {
-                    self.thumbnails.insert(id.clone(), ThumbnailState::Ready(cache));
-                } else {
-                    pool.enqueue(id, path, priority as i32);
-                    newly_enqueued += 1;
-                }
-            }
-        }
-        if newly_enqueued > 0 {
-            self.thumb_ctx.done_gen += 1;
-            if self.thumb_ctx.pending == 0 {
-                self.thumb_ctx.total = newly_enqueued;
-                self.thumb_ctx.start_at = Some(Instant::now());
-            } else {
-                self.thumb_ctx.total += newly_enqueued;
-            }
-            self.thumb_ctx.pending += newly_enqueued;
-            self.task_panel_open = true;
-        }
-    }
-
     pub(crate) fn start_watchers_for_folders(&mut self) {
         let current: HashSet<String> = self.watchers.iter().map(|(p, _)| p.clone()).collect();
         let new_paths: Vec<String> = self
@@ -702,48 +655,9 @@ impl App {
                     SidebarItem::FaceCluster(cluster_id) => {
                         cat.get_files_in_face_cluster(&cluster_id).unwrap_or_default()
                     }
-                    SidebarItem::Suggestions => {
-                        cat.get_files_with_pending_tags().unwrap_or_default()
-                    }
                 }
             },
             Msg::FilesLoaded,
-        )
-    }
-
-    pub fn load_pending_counts_task(&self) -> Task<Msg> {
-        let Some(catalog) = self.catalog.clone() else { return Task::none() };
-        let ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
-        Task::perform(
-            async move {
-                let cat = catalog.lock_unwrap();
-                let counts = cat.get_pending_counts_for_files(&ids).unwrap_or_default();
-                let total = cat.get_pending_tag_count().unwrap_or(0);
-                (counts, total)
-            },
-            |(counts, total)| Msg::PendingCountsLoaded { counts, total },
-        )
-    }
-
-    pub fn refresh_pending_total_task(&self) -> Task<Msg> {
-        let Some(catalog) = self.catalog.clone() else { return Task::none() };
-        Task::perform(
-            async move {
-                let cat = catalog.lock_unwrap();
-                cat.get_pending_tag_count().unwrap_or(0)
-            },
-            Msg::PendingTotalLoaded,
-        )
-    }
-
-    pub fn load_pending_tag_groups_task(&self) -> Task<Msg> {
-        let Some(catalog) = self.catalog.clone() else { return Task::none() };
-        Task::perform(
-            async move {
-                let cat = catalog.lock_unwrap();
-                cat.get_pending_tags_grouped().unwrap_or_default()
-            },
-            Msg::PendingTagGroupsLoaded,
         )
     }
 
@@ -805,10 +719,7 @@ impl App {
             return Task::perform(
                 async move {
                     let cat = catalog.lock_unwrap();
-                    let tags_with_conf = cat.get_tags_with_confidence(&file_id).unwrap_or_default();
-                    let tags: Vec<String> = tags_with_conf.iter().map(|(t, _)| t.clone()).collect();
-                    let tag_confidence: std::collections::HashMap<String, f32> = tags_with_conf.iter().filter_map(|(t, c)| Some((t.clone(), (*c)?))).collect();
-                    let pending_tags = cat.get_pending_tags(&file_id).unwrap_or_default();
+                    let tags = cat.get_tags_for_file(&file_id).unwrap_or_default();
                     let meta_opt = cat.get_metadata(&file_id).ok().flatten();
                     let (rating, label, title, exif_tech) = match meta_opt {
                         Some(m) => (
@@ -819,13 +730,11 @@ impl App {
                         ),
                         None => (None, None, None, None),
                     };
-                    (file_id, tags, tag_confidence, pending_tags, rating, label, title, exif_tech)
+                    (file_id, tags, rating, label, title, exif_tech)
                 },
-                |(file_id, tags, tag_confidence, pending_tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
+                |(file_id, tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
                     file_id,
                     tags,
-                    tag_confidence,
-                    pending_tags,
                     rating,
                     label,
                     title,

@@ -67,7 +67,6 @@ impl App {
                     self.load_files_task()
                 };
                 let has_new = !new_file_ids.is_empty();
-                let t_autotag = if has_new { self.auto_tag_task(new_file_ids) } else { Task::none() };
                 let t_faces = if has_new
                     && self.app_settings.auto_face_cluster
                     && self.inference_manifest.is_some()
@@ -76,7 +75,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([t1, t_nav, t_autotag, t_faces])
+                Task::batch([t1, t_nav, t_faces])
             }
 
             Msg::RequestRemoveFolder(path) => {

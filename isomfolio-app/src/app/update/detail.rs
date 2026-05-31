@@ -19,8 +19,6 @@ impl App {
             Msg::DetailLoaded {
                 file_id,
                 tags,
-                tag_confidence,
-                pending_tags,
                 rating,
                 label,
                 title,
@@ -29,8 +27,6 @@ impl App {
                 self.detail.file_id = Some(file_id);
                 self.detail.batch_file_ids.clear();
                 self.detail.tags = tags;
-                self.detail.tag_confidence = tag_confidence;
-                self.detail.pending_tags = pending_tags;
                 self.detail.rating = rating;
                 self.detail.label = label;
                 self.detail.title = title;
@@ -122,174 +118,6 @@ impl App {
                     return Task::none();
                 };
                 self.handle_detail_msg(Msg::AddDetailTagDirect(tag))
-            }
-
-            Msg::AcceptPendingTag(tag) => {
-                let Some(ref fid) = self.detail.file_id else { return Task::none() };
-                let fid = fid.clone();
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                self.detail.pending_tags.retain(|(t, _)| t != &tag);
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.accept_pending_tag(&fid, &tag).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
-                )
-            }
-
-            Msg::RejectPendingTag(tag) => {
-                let Some(ref fid) = self.detail.file_id else { return Task::none() };
-                let fid = fid.clone();
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                self.detail.pending_tags.retain(|(t, _)| t != &tag);
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.reject_pending_tag(&fid, &tag).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
-                )
-            }
-
-            Msg::AcceptAllPending => {
-                let Some(ref fid) = self.detail.file_id else { return Task::none() };
-                let fid = fid.clone();
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                self.detail.pending_tags.clear();
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.accept_all_pending(&fid).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
-                )
-            }
-
-            Msg::RejectAllPending => {
-                let Some(ref fid) = self.detail.file_id else { return Task::none() };
-                let fid = fid.clone();
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                self.detail.pending_tags.clear();
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.reject_all_pending(&fid).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
-                )
-            }
-
-            Msg::PendingTagsUpdated => {
-                self.detail.file_id = None;
-                let mut tasks = vec![self.maybe_load_detail(), self.refresh_pending_total_task()];
-                if matches!(
-                    self.selected_item,
-                    super::super::SidebarItem::Suggestions,
-                ) && matches!(self.suggestion_view, super::super::SuggestionView::Tag)
-                {
-                    tasks.push(self.load_pending_tag_groups_task());
-                }
-                Task::batch(tasks)
-            }
-
-            Msg::AcceptAllInView => {
-                let ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
-                if ids.is_empty() {
-                    return Task::none();
-                }
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                self.pending_counts_by_id.clear();
-                self.detail.pending_tags.clear();
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.accept_all_pending_batch(&ids).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::Reload, Msg::DbError),
-                )
-            }
-
-            Msg::RejectAllInView => {
-                let ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
-                if ids.is_empty() {
-                    return Task::none();
-                }
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                self.pending_counts_by_id.clear();
-                self.detail.pending_tags.clear();
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.reject_all_pending_batch(&ids).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::Reload, Msg::DbError),
-                )
-            }
-
-            Msg::PendingCountsLoaded { counts, total } => {
-                self.pending_counts_by_id = counts;
-                self.pending_tag_file_count = total;
-                Task::none()
-            }
-
-            Msg::PendingTotalLoaded(total) => {
-                self.pending_tag_file_count = total;
-                Task::none()
-            }
-
-            Msg::SetSuggestionView(view) => {
-                self.suggestion_view = view;
-                // Loading the right data is handled by SidebarItemClicked when entering
-                // Suggestions. Switching mid-view loads here.
-                if matches!(self.selected_item, super::super::SidebarItem::Suggestions) {
-                    match view {
-                        super::super::SuggestionView::Tag => self.load_pending_tag_groups_task(),
-                        super::super::SuggestionView::Photo => self.load_files_task(),
-                    }
-                } else {
-                    Task::none()
-                }
-            }
-
-            Msg::PendingTagGroupsLoaded(groups) => {
-                self.pending_tag_groups = groups;
-                self.status = format!("{} pending tag(s)", self.pending_tag_groups.len());
-                let samples: Vec<(String, String)> = self
-                    .pending_tag_groups
-                    .iter()
-                    .flat_map(|g| g.sample_files.iter().take(4).cloned())
-                    .collect();
-                self.enqueue_thumbnails_for_ids(&samples);
-                Task::none()
-            }
-
-            Msg::AcceptPendingTagGlobally(tag) => {
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                let tag_clone = tag.clone();
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.accept_pending_tag_globally(&tag_clone)
-                            .err()
-                            .map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
-                )
-            }
-
-            Msg::RejectPendingTagGlobally(tag) => {
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                let tag_clone = tag.clone();
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.reject_pending_tag_globally(&tag_clone)
-                            .err()
-                            .map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::PendingTagsUpdated, Msg::DbError),
-                )
             }
 
             Msg::SetDetailRating(n) => {
