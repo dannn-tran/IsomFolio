@@ -109,6 +109,12 @@ impl App {
             None
         };
 
+        let pick_count = self
+            .files
+            .iter()
+            .filter(|f| f.flag == isomfolio_core::models::Flag::Pick)
+            .count();
+
         let mut status_row = row![
             text(status).size(TEXT_MD).color(FG),
             Space::new().width(Length::Fill),
@@ -118,6 +124,14 @@ impl App {
 
         if let Some(btn) = remove_btn {
             status_row = status_row.push(btn);
+        }
+
+        if pick_count > 0 {
+            status_row = status_row.push(
+                text(format!("✓ {pick_count}"))
+                    .size(TEXT_MD)
+                    .color(ACCENT),
+            );
         }
 
         let status_bar = container(status_row)
