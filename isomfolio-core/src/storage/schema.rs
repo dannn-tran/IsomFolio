@@ -186,17 +186,9 @@ pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE tags DROP COLUMN origin",
     // Drop sources — provenance tracking moved out of the tags table
     "ALTER TABLE tags DROP COLUMN sources",
+    // AI auto-tagging removed — drop its suggestion-staging table.
+    "DROP TABLE IF EXISTS pending_tags",
 ];
-
-pub const CREATE_PENDING_TAGS: &str = "
-CREATE TABLE IF NOT EXISTS pending_tags (
-    file_id     TEXT NOT NULL,
-    tag         TEXT NOT NULL COLLATE NOCASE,
-    confidence  REAL,
-    PRIMARY KEY (file_id, tag),
-    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
-);
-";
 
 pub const ALL_DDL: &[&str] = &[
     CREATE_FILES,
@@ -210,7 +202,6 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_ALBUMS,
     CREATE_ALBUM_FILES,
     CREATE_ALBUM_FILES_INDEX,
-    CREATE_PENDING_TAGS,
     CREATE_FACE_CLUSTERS,
     CREATE_FACE_CLUSTER_NAMES,
     CREATE_FACE_CLUSTER_IDX,

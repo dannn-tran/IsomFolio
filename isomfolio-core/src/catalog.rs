@@ -115,10 +115,6 @@ impl Catalog {
         db::get_tags_for_file(&self.conn, file_id)
     }
 
-    pub fn get_tags_with_confidence(&self, file_id: &str) -> Result<Vec<(String, Option<f32>)>, AppError> {
-        db::get_tags_with_confidence(&self.conn, file_id)
-    }
-
     pub fn add_tags_merge_scored(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
         db::add_tags_merge_scored(&self.conn, file_id, tags)
     }
@@ -133,65 +129,6 @@ impl Catalog {
 
     pub fn count_orphans_in_folder(&self, folder: &str) -> Result<usize, AppError> {
         db::count_orphans_in_folder(&self.conn, folder)
-    }
-
-    pub fn insert_pending_tags(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
-        db::insert_pending_tags(&self.conn, file_id, tags)
-    }
-
-    pub fn get_pending_tags(&self, file_id: &str) -> Result<Vec<(String, Option<f32>)>, AppError> {
-        db::get_pending_tags(&self.conn, file_id)
-    }
-
-    pub fn get_pending_tag_count(&self) -> Result<usize, AppError> {
-        db::get_pending_tag_count(&self.conn)
-    }
-
-    pub fn accept_pending_tag(&self, file_id: &str, tag: &str) -> Result<(), AppError> {
-        db::accept_pending_tag(&self.conn, file_id, tag)
-    }
-
-    pub fn reject_pending_tag(&self, file_id: &str, tag: &str) -> Result<(), AppError> {
-        db::reject_pending_tag(&self.conn, file_id, tag)
-    }
-
-    pub fn accept_all_pending(&self, file_id: &str) -> Result<usize, AppError> {
-        db::accept_all_pending(&self.conn, file_id)
-    }
-
-    pub fn get_files_with_pending_tags(&self) -> Result<Vec<AssetFile>, AppError> {
-        db::get_files_with_pending_tags(&self.conn)
-    }
-
-    pub fn get_pending_counts_for_files(
-        &self,
-        file_ids: &[String],
-    ) -> Result<HashMap<String, usize>, AppError> {
-        db::get_pending_counts_for_files(&self.conn, file_ids)
-    }
-
-    pub fn accept_all_pending_batch(&self, file_ids: &[String]) -> Result<usize, AppError> {
-        db::accept_all_pending_batch(&self.conn, file_ids)
-    }
-
-    pub fn reject_all_pending_batch(&self, file_ids: &[String]) -> Result<usize, AppError> {
-        db::reject_all_pending_batch(&self.conn, file_ids)
-    }
-
-    pub fn get_pending_tags_grouped(&self) -> Result<Vec<PendingTagGroup>, AppError> {
-        db::get_pending_tags_grouped(&self.conn)
-    }
-
-    pub fn accept_pending_tag_globally(&self, tag: &str) -> Result<usize, AppError> {
-        db::accept_pending_tag_globally(&self.conn, tag)
-    }
-
-    pub fn reject_pending_tag_globally(&self, tag: &str) -> Result<usize, AppError> {
-        db::reject_pending_tag_globally(&self.conn, tag)
-    }
-
-    pub fn reject_all_pending(&self, file_id: &str) -> Result<usize, AppError> {
-        db::reject_all_pending(&self.conn, file_id)
     }
 
     pub fn get_shared_tags(&self, file_ids: &[String]) -> Result<Vec<String>, AppError> {
