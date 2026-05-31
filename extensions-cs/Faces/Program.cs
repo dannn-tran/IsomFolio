@@ -8,6 +8,9 @@ using IsomFolio.Extensions.Sdk;
 
 var dataDir = SdkArgs.DataDir(args);
 var port = ParsePort(args);
+// Bind loopback by default (managed local engine). In a container we need
+// 0.0.0.0 so the published port is reachable from the host.
+var bindAnyIp = ParseHost(args) == "0.0.0.0";
 // Precedence: --variant arg > config.json (host config UI) > env > default.
 var variant = ModelVariant.Current(ParseVariant(args) ?? ReadConfiguredVariant());
 
@@ -22,7 +25,11 @@ _ = engine.LoadAsync(dataDir, variant);
 
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
-builder.WebHost.ConfigureKestrel(o => o.ListenLocalhost(port));
+builder.WebHost.ConfigureKestrel(o =>
+{
+    if (bindAnyIp) o.ListenAnyIP(port);
+    else o.ListenLocalhost(port);
+});
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.TypeInfoResolverChain.Insert(0, EngineJsonContext.Default));
 
@@ -48,6 +55,14 @@ static int ParsePort(string[] args)
         if (args[i] == "--port" && int.TryParse(args[i + 1], out var p))
             return p;
     return 45876;
+}
+
+static string ParseHost(string[] args)
+{
+    for (var i = 0; i < args.Length - 1; i++)
+        if (args[i] == "--host")
+            return args[i + 1];
+    return "127.0.0.1";
 }
 
 static string? ParseVariant(string[] args)

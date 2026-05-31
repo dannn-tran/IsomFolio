@@ -157,8 +157,12 @@ impl App {
                     self.task_panel_open = true;
                     let binary = manifest.executable.clone();
                     let data_dir = isomfolio_core::app_paths::models_dir();
+                    // Photo roots — mounted into the engine container (Intel Mac)
+                    // so it resolves image paths identically; ignored natively.
+                    let mounts: Vec<PathBuf> =
+                        self.watchers.iter().map(|(p, _)| PathBuf::from(p)).collect();
                     return Task::perform(
-                        spawn_inference_engine(binary, data_dir),
+                        spawn_inference_engine(binary, data_dir, mounts),
                         move |client| Msg::InferenceEngineReady { client, force_full },
                     );
                 }
@@ -560,9 +564,20 @@ fn classify_request_params(file_id: &str, thumbnail_path: String) -> serde_json:
 async fn spawn_inference_engine(
     binary: PathBuf,
     data_dir: PathBuf,
+    mounts: Vec<PathBuf>,
 ) -> Result<Arc<InferenceClient>, String> {
-    let proc = ManagedInferenceProcess::spawn(&binary, DEFAULT_PORT, &data_dir)
-        .map_err(|e| e.to_string())?;
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    let proc = {
+        let _ = &binary; // unused on the Docker path
+        ManagedInferenceProcess::spawn_docker(DEFAULT_PORT, &data_dir, &mounts)
+            .map_err(|e| e.to_string())?
+    };
+    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+    let proc = {
+        let _ = &mounts; // mounts only matter for the Docker path
+        ManagedInferenceProcess::spawn(&binary, DEFAULT_PORT, &data_dir)
+            .map_err(|e| e.to_string())?
+    };
     let client = InferenceClient::managed(proc).map_err(|e| e.to_string())?;
     client
         .wait_healthy(Duration::from_secs(600))
