@@ -20,6 +20,7 @@ Press `?` at any time to open the in-app shortcut help panel.
 | `Esc` | Cancel / back (close loupe, close modals) |
 | `Cmd+A` | Select all |
 | `Cmd+Shift+A` | Deselect all |
+| `Cmd+R` | Sync the selected folder |
 
 ## View
 

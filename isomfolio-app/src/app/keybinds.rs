@@ -96,6 +96,9 @@ pub fn default_bindings() -> Vec<KeyBind> {
         // Tagging
         KeyBind { key: Char("."), mods: Mods::NONE, when_ignored: true, action: || Msg::RepeatLastTag, label: "Repeat Last Tag", category: Tagging },
 
+        // Sync
+        KeyBind { key: Char("r"), mods: Mods::CMD, when_ignored: true, action: || Msg::SyncSelectedFolder, label: "Sync Selected Folder", category: Navigation },
+
         // Help / Settings
         KeyBind { key: Char("?"), mods: Mods::NONE, when_ignored: true, action: || Msg::ToggleShortcutHelp, label: "Shortcut Help", category: View },
         KeyBind { key: Char(","), mods: Mods::CMD,  when_ignored: true, action: || Msg::OpenSettings,        label: "Settings",       category: View },

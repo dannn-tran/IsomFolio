@@ -299,6 +299,7 @@ pub enum Msg {
     OpenContextMenu(Point, ContextMenuTarget),
     CloseContextMenu,
     SyncFolder(String),
+    SyncSelectedFolder,
     DuplicateAlbum(AlbumId),
     ShowInFinder(Vec<String>),
     AddSelectionToAlbum(AlbumId),

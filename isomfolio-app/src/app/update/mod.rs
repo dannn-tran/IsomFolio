@@ -64,6 +64,7 @@ impl App {
             | Msg::RemoveFolder(_)
             | Msg::FolderRemoved
             | Msg::SyncFolder(_)
+            | Msg::SyncSelectedFolder
             | Msg::FileWatcherEvent(_)
             | Msg::FlushFileEvents(_)
             | Msg::SyncXmpForSelection

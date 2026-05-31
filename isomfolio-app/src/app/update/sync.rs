@@ -153,6 +153,18 @@ impl App {
                 Task::batch([t1, t2])
             }
 
+            Msg::SyncSelectedFolder => {
+                if self.is_syncing || self.sync_pending {
+                    return Task::none();
+                }
+                match &self.selected_item {
+                    super::super::SidebarItem::Folder(path) => {
+                        Task::done(Msg::SyncFolder(path.clone()))
+                    }
+                    _ => Task::none(),
+                }
+            }
+
             Msg::SyncFolder(path) => {
                 self.context_menu = None;
                 self.is_syncing = true;
