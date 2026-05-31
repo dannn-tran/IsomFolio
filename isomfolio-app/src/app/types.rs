@@ -289,6 +289,7 @@ pub enum Msg {
     SetPreferredExtension { capability: String, extension_name: String },
 
     RunFaceClustering { force_full: bool },
+    FaceClusterProgress { files_done: usize, total: usize, percent: u8 },
     InferenceEngineReady {
         client: Result<Arc<crate::inference::InferenceClient>, String>,
         force_full: bool,

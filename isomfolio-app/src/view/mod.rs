@@ -208,15 +208,93 @@ impl App {
         }
     }
 
+    /// Every long-running process, mapped to one uniform task shape. The task
+    /// panel renders only this — no per-process special-casing.
+    fn active_tasks(&self) -> Vec<TaskView> {
+        let mut tasks = Vec::new();
+
+        if self.faces.is_clustering {
+            tasks.push(TaskView {
+                title: "Finding people".into(),
+                detail: self.faces.status.clone().unwrap_or_default(),
+                progress: match self.faces.progress {
+                    Some(r) => TaskProgress::Determinate(r),
+                    None => TaskProgress::Indeterminate,
+                },
+                failed: false,
+                dismiss: None,
+            });
+        }
+
+        if self.is_syncing {
+            let detail = if self.status.starts_with("Syncing") {
+                self.status.clone()
+            } else {
+                "Scanning…".into()
+            };
+            tasks.push(TaskView {
+                title: "Sync".into(),
+                detail,
+                progress: TaskProgress::Indeterminate,
+                failed: false,
+                dismiss: None,
+            });
+        }
+
+        if self.thumb_ctx.total > 0 {
+            let total = self.thumb_ctx.total;
+            let done = total.saturating_sub(self.thumb_ctx.pending);
+            let ratio = done as f32 / total.max(1) as f32;
+            let eta = if done >= 3 {
+                self.thumb_ctx
+                    .start_at
+                    .map(|s| {
+                        let elapsed = s.elapsed().as_secs_f64();
+                        let secs =
+                            (self.thumb_ctx.pending as f64 / (done as f64 / elapsed)).ceil() as u64;
+                        if secs < 60 {
+                            format!(" · ~{secs}s")
+                        } else {
+                            format!(" · ~{}m{}s", secs / 60, secs % 60)
+                        }
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            tasks.push(TaskView {
+                title: "Thumbnails".into(),
+                detail: format!("{done} / {total}{eta}"),
+                progress: TaskProgress::Determinate(ratio),
+                failed: false,
+                dismiss: None,
+            });
+        }
+
+        for task in &self.bg_tasks {
+            let failed = task.failed.is_some();
+            tasks.push(TaskView {
+                title: task.label.clone(),
+                detail: task.failed.clone().unwrap_or_default(),
+                progress: match task.progress {
+                    Some(r) => TaskProgress::Determinate(r),
+                    None => TaskProgress::Indeterminate,
+                },
+                failed,
+                dismiss: failed.then_some(task.id),
+            });
+        }
+
+        tasks
+    }
+
     fn view_task_panel(&self) -> Element<'_, Msg> {
         let open = self.task_panel_open;
+        let tasks = self.active_tasks();
 
         // Collapsed pill — shows when panel is minimised.
         if !open {
-            let n = self.bg_tasks.len()
-                + usize::from(self.thumb_ctx.total > 0)
-                + usize::from(self.is_syncing)
-                + usize::from(self.faces.is_clustering);
+            let n = tasks.len();
             let label = if n == 1 { "1 task".to_string() } else { format!("{n} tasks") };
             let pill = container(
                 button(
@@ -271,50 +349,9 @@ impl App {
             .spacing(SPACE_1),
         );
 
-        // Thumbnails (synthetic)
-        if self.thumb_ctx.total > 0 {
-            let total = self.thumb_ctx.total;
-            let done = total.saturating_sub(self.thumb_ctx.pending);
-            let ratio = done as f32 / total.max(1) as f32;
-            let eta = if done >= 3 {
-                self.thumb_ctx.start_at.map(|s| {
-                    let elapsed = s.elapsed().as_secs_f64();
-                    let secs = (self.thumb_ctx.pending as f64 / (done as f64 / elapsed)).ceil() as u64;
-                    if secs < 60 { format!(" ~{secs}s") } else { format!(" ~{}m{}s", secs / 60, secs % 60) }
-                }).unwrap_or_default()
-            } else { String::new() };
+        for task in tasks {
             col = col.push(Space::new().height(SPACE_2));
-            col = col.push(task_row(
-                format!("Thumbnails{eta}"),
-                format!("{done}/{total}"),
-                Some(ratio),
-                None,
-            ));
-        }
-
-        // Sync (synthetic)
-        if self.is_syncing {
-            let detail = if self.status.starts_with("Syncing") { &self.status } else { "" };
-            col = col.push(Space::new().height(SPACE_2));
-            col = col.push(task_row("Sync".into(), detail.to_string(), None, None));
-        }
-
-        // Face clustering (synthetic)
-        if self.faces.is_clustering {
-            let detail = self.faces.status.as_deref().unwrap_or("");
-            col = col.push(Space::new().height(SPACE_2));
-            col = col.push(task_row("Finding people".into(), detail.to_string(), None, None));
-        }
-
-        // Explicit bg_tasks
-        for task in &self.bg_tasks {
-            col = col.push(Space::new().height(SPACE_2));
-            col = col.push(task_row(
-                task.label.clone(),
-                task.failed.clone().unwrap_or_default(),
-                task.progress,
-                task.failed.as_ref().map(|_| task.id),
-            ));
+            col = col.push(task_row(task));
         }
 
         let panel = container(col.padding([SPACE_1_5, SPACE_2]))
@@ -1274,23 +1311,46 @@ where
     iced::widget::stack(vec![backdrop.into(), centered.into()]).into()
 }
 
-fn task_row(
-    label: String,
+/// One uniform progress entry — the only thing the task panel renders.
+enum TaskProgress {
+    /// Known fraction 0.0–1.0.
+    Determinate(f32),
+    /// In progress, amount unknown (engine starting, scanning, …).
+    Indeterminate,
+}
+
+struct TaskView {
+    title: String,
     detail: String,
-    progress: Option<f32>,
-    dismiss_id: Option<crate::app::BgTaskId>,
-) -> Element<'static, Msg> {
-    let failed = dismiss_id.is_some();
-    let label_color = if failed { ERR } else { FG };
+    progress: TaskProgress,
+    failed: bool,
+    dismiss: Option<crate::app::BgTaskId>,
+}
+
+/// A 2px-high colored segment occupying `portion` of the track width.
+fn bar_segment(portion: u16, color: Color) -> Element<'static, Msg> {
+    container(Space::new())
+        .width(Length::FillPortion(portion.max(1)))
+        .height(2)
+        .style(move |_: &Theme| container::Style {
+            background: Some(Background::Color(color)),
+            border: Border { radius: 1.0.into(), ..Default::default() },
+            ..Default::default()
+        })
+        .into()
+}
+
+fn task_row(task: TaskView) -> Element<'static, Msg> {
+    let label_color = if task.failed { ERR } else { FG };
 
     let mut header = row![
-        text(label).size(TEXT_SM).color(label_color),
+        text(task.title).size(TEXT_SM).color(label_color),
         Space::new().width(Length::Fill),
     ]
     .align_y(Alignment::Center)
     .spacing(SPACE_1);
 
-    if let Some(id) = dismiss_id {
+    if let Some(id) = task.dismiss {
         header = header.push(
             button(text("✕").size(TEXT_SM).color(FG_MUTED))
                 .on_press(Msg::BgTaskDismissed(id))
@@ -1300,41 +1360,34 @@ fn task_row(
 
     let mut col = column![header].spacing(SPACE_0_5);
 
-    if failed {
-        if !detail.is_empty() {
-            col = col.push(text(detail).size(TEXT_SM).color(ERR));
+    if task.failed {
+        if !task.detail.is_empty() {
+            col = col.push(text(task.detail).size(TEXT_SM).color(ERR));
         }
-    } else if let Some(ratio) = progress {
-        let filled = ((ratio * 1000.0) as u16).max(1);
-        let empty = (1000u16).saturating_sub(filled).max(1);
-        let bar = row![
-            container(Space::new())
-                .width(Length::FillPortion(filled))
-                .height(2)
-                .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(ACCENT)),
-                    border: Border { radius: 1.0.into(), ..Default::default() },
-                    ..Default::default()
-                }),
-            container(Space::new())
-                .width(Length::FillPortion(empty))
-                .height(2)
-                .style(|_: &Theme| container::Style {
-                    background: Some(Background::Color(BG_PROGRESS_TRACK)),
-                    border: Border { radius: 1.0.into(), ..Default::default() },
-                    ..Default::default()
-                }),
-        ]
-        .width(Length::Fill);
-        let mut bar_row = row![bar].align_y(Alignment::Center).spacing(SPACE_1);
-        if !detail.is_empty() {
-            bar_row = bar_row.push(text(detail).size(TEXT_SM).color(FG_MUTED));
+        return col.into();
+    }
+
+    // Determinate fills proportionally; indeterminate floats a centered segment
+    // so it reads as "working, amount unknown" rather than a partial fill.
+    let bar = match task.progress {
+        TaskProgress::Determinate(ratio) => {
+            let filled = (ratio.clamp(0.0, 1.0) * 1000.0) as u16;
+            row![
+                bar_segment(filled, ACCENT),
+                bar_segment(1000u16.saturating_sub(filled), BG_PROGRESS_TRACK),
+            ]
         }
-        col = col.push(bar_row);
-    } else if !detail.is_empty() {
-        col = col.push(text(detail).size(TEXT_SM).color(FG_MUTED));
-    } else {
-        col = col.push(text("···").size(TEXT_SM).color(FG_MUTED));
+        TaskProgress::Indeterminate => row![
+            bar_segment(35, BG_PROGRESS_TRACK),
+            bar_segment(30, ACCENT),
+            bar_segment(35, BG_PROGRESS_TRACK),
+        ],
+    }
+    .width(Length::Fill);
+    col = col.push(bar);
+
+    if !task.detail.is_empty() {
+        col = col.push(text(task.detail).size(TEXT_SM).color(FG_MUTED));
     }
 
     col.into()

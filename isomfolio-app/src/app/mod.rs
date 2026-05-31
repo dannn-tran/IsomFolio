@@ -83,11 +83,14 @@ pub struct FaceState {
     pub rename_input: String,
     pub status: Option<String>,
     pub is_clustering: bool,
+    /// Embedding progress 0.0–1.0 while clustering; `None` = indeterminate
+    /// (engine starting / model download).
+    pub progress: Option<f32>,
 }
 
 impl Default for FaceState {
     fn default() -> Self {
-        Self { clusters: Vec::new(), crop_handles: HashMap::new(), rename_cluster_id: None, rename_input: String::new(), status: None, is_clustering: false }
+        Self { clusters: Vec::new(), crop_handles: HashMap::new(), rename_cluster_id: None, rename_input: String::new(), status: None, is_clustering: false, progress: None }
     }
 }
 

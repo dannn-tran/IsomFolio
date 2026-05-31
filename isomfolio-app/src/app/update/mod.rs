@@ -42,6 +42,7 @@ impl App {
             | Msg::ExtensionBatchDone { .. }
             | Msg::ExtensionRestarted { .. }
             | Msg::RunFaceClustering { .. }
+            | Msg::FaceClusterProgress { .. }
             | Msg::InferenceEngineReady { .. }
             | Msg::FaceClusteringDone(_)
             | Msg::FaceClustersBatchDone(_)

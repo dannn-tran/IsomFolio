@@ -98,16 +98,17 @@ impl App {
             Msg::ExtensionProgress { .. } => Task::none(),
 
             Msg::ExtensionBatchProgress { name, done, total } => {
-                let msg = if total == 100 {
+                self.status = if total == 100 {
                     format!("{name}… ({done}%)")
                 } else {
                     format!("{name}… ({done}/{total})")
                 };
-                if name.contains("faces") || name.contains("Clustering") || name.contains("people") {
-                    self.faces.status = Some(msg);
-                } else {
-                    self.status = msg;
-                }
+                Task::none()
+            }
+
+            Msg::FaceClusterProgress { files_done, total, percent } => {
+                self.faces.progress = Some(percent as f32 / 100.0);
+                self.faces.status = Some(format!("{files_done} / {total} photos"));
                 Task::none()
             }
 
@@ -166,6 +167,7 @@ impl App {
                         None
                     };
                     self.faces.is_clustering = true;
+                    self.faces.progress = None;
                     self.faces.status = Some("Starting inference engine…".to_string());
                     self.task_panel_open = true;
                     let port = self.app_settings.inference_port;
@@ -183,6 +185,7 @@ impl App {
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let client = self.inference.clone().unwrap();
                 self.faces.is_clustering = true;
+                self.faces.progress = None;
                 self.faces.status = Some("Finding people…".to_string());
                 self.task_panel_open = true;
 
@@ -241,6 +244,7 @@ impl App {
                 let count = summaries.len();
                 self.faces.clusters = summaries;
                 self.faces.is_clustering = false;
+                self.faces.progress = None;
                 self.faces.status = Some(format!("{count} people found"));
                 self.load_face_crops_task()
             }
@@ -686,10 +690,10 @@ fn face_cluster_stream(
                         let next = i + 1;
                         s.stage = if next < s.chunks.len() { Stage::Embed(next) } else { Stage::Cluster };
                         // Embedding occupies the 0–80% band; clustering is the tail.
-                        let done = next * 80 / total_batches;
-                        let label =
-                            format!("Finding people ({} / {})", s.files_sent, s.total_indexed);
-                        Some((Msg::ExtensionBatchProgress { name: label, done, total: 100 }, s))
+                        let percent = (next * 80 / total_batches) as u8;
+                        let files_done = s.files_sent;
+                        let total = s.total_indexed;
+                        Some((Msg::FaceClusterProgress { files_done, total, percent }, s))
                     }
                     Err(e) => {
                         eprintln!("[faces] embed batch {} failed: {e}", i + 1);
