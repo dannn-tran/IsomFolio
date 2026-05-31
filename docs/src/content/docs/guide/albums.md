@@ -60,7 +60,7 @@ When you modify criteria while viewing a smart album without saving, a dot indic
 ## Typical workflows
 
 **Portfolio selection**
-1. Auto-tag all photos with the CLIP extension.
+1. Tag your best work with a keyword like `portrait`.
 2. Create a smart album: rating ≥ 4 stars AND tag = `portrait`.
 3. The album shows your best portraits, auto-updating as you rate more photos.
 

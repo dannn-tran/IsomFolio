@@ -42,8 +42,7 @@ The database is a standard SQLite 3 file. You can open and query it with any SQL
 |---|---|---|
 | `file_id` | TEXT | References `files.id` |
 | `tag` | TEXT | Tag string |
-| `origin` | TEXT | `manual` or `ai` |
-| `pending` | INTEGER | 1 = AI suggestion not yet reviewed |
+| `confidence` | REAL | Optional; null for manual and imported tags |
 
 **albums** — album definitions
 
@@ -81,7 +80,7 @@ Items stored in `~/Library/Application Support/IsomFolio/`:
 | File | Purpose |
 |---|---|
 | `recent_catalogs.json` | List of recently opened catalog paths |
-| `prefs.json` | App preferences (preferred extensions, etc.) |
+| `settings.json` | App preferences (auto-detect people, inference engine, import options, etc.) |
 | `extensions/` | Installed extension directories |
 | `crash_reports/` | Extension crash reports |
 | `face_crops/` | Cached face crop images for the People view |

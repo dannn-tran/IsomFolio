@@ -11,11 +11,11 @@ Yes. IsomFolio is open-source and free to use.
 
 ### Does it require an internet connection?
 
-No. The core app is fully offline. The autotag-openai extension is the only component that makes network requests, and it requires an explicit API key — it does not run automatically.
+No, for everyday use. The only network access is a one-time download of the face-recognition models (~200 MB) the first time you use the face extension. Everything else — browsing, thumbnails, tagging, face clustering — is fully offline.
 
 ### Will my photos be uploaded anywhere?
 
-Never, unless you deliberately use the autotag-openai extension (which sends thumbnails to OpenAI). All other processing — thumbnails, CLIP tagging, face clustering — happens locally.
+Never. All processing — thumbnails, face detection, and clustering — happens locally on your machine.
 
 ### Does IsomFolio modify my original photos?
 
@@ -55,15 +55,7 @@ No. All core features — browsing, culling, tagging, albums, search — work wi
 
 ### Is GPU required for AI features?
 
-No. Both autotag-clip and the face-clustering extension run entirely on CPU. GPU inference is not currently supported. CPU-based CLIP tagging is reasonably fast (a few seconds per batch); face clustering on very large libraries can take longer.
-
-### How accurate is the AI tagging?
-
-autotag-clip accuracy varies by subject. It performs well on common subjects (people, animals, landscapes, objects) and less well on abstract or highly specific content. Confidence scores help filter out weak matches. You always review suggestions before they're confirmed.
-
-### Can I run multiple AI extensions?
-
-Yes. You can install and run both autotag-clip and autotag-openai. Use the **preferred extension** setting to choose which one runs automatically on new imports. The other remains available for manual runs.
+No. The face extension runs entirely on CPU. GPU inference is not currently supported. The first run embeds your whole library (which can take a while on large collections); later runs only process new photos.
 
 ---
 
@@ -80,10 +72,6 @@ Yes. `Cmd+Z` undoes the last operation. The undo history covers tag edits, ratin
 ### Does IsomFolio support RAW files?
 
 Not yet. JPEG, PNG, WebP, and GIF are supported. RAW support is planned.
-
-### What is a "pending tag"?
-
-A pending tag is an AI suggestion that hasn't been confirmed yet. It appears separately from regular tags in the Info panel with accept/reject controls. Pending tags are not included in search results until accepted.
 
 ---
 

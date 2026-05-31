@@ -22,7 +22,6 @@ This comparison is based on publicly available information as of 2025. Feature p
 | **Pick/reject flags** | ✅ | ✅ | ❌ | ✅ | ✅ |
 | **Tags / keywords** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Smart albums/folders** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **AI auto-tagging** | ✅ (opt-in, local or cloud) | ✅ (cloud, Firefly) | ✅ (cloud) | ❌ | Partial |
 | **Face recognition** | ✅ (opt-in, local) | ✅ (cloud) | ✅ (on-device) | ❌ | ✅ (local) |
 | **Open data format** | ✅ (SQLite) | ❌ (proprietary) | ❌ (proprietary) | ❌ (proprietary) | ✅ (SQLite) |
 | **Extension system** | ✅ | ❌ | ❌ | ❌ | Partial (plugins) |
@@ -33,9 +32,8 @@ This comparison is based on publicly available information as of 2025. Feature p
 
 **Choose IsomFolio if:**
 - You want your photo metadata in an open, inspectable format (SQLite) with no lock-in
-- You want local AI tagging and face recognition without sending photos to any cloud
+- You want local face recognition without sending photos to any cloud
 - You want a fast, keyboard-driven culling workflow without paying a subscription
-- You're a developer and want to extend the app with custom AI capabilities
 - Privacy is a non-negotiable requirement
 
 **Consider alternatives if:**
@@ -51,7 +49,7 @@ IsomFolio differences:
 - **Free** vs $10+/month
 - **Open SQLite catalog** vs proprietary `.lrcat`
 - **No editing** vs full develop module
-- **Local AI (CLIP)** vs Adobe Firefly (cloud)
+- **Local face recognition** vs Adobe Firefly (cloud AI)
 - **Extensible** via `.isfx` packages
 
 ## vs Apple Photos

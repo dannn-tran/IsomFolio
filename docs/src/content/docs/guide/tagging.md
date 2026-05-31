@@ -1,11 +1,9 @@
 ---
 title: Tagging
-description: Add, manage, and search tags — including AI-suggested tags from extensions.
+description: Add, manage, and search tags.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
-Tags are freeform text labels attached to photos. They power smart albums, search, and AI workflows.
+Tags are freeform text labels attached to photos. They power smart albums and search.
 
 ## Adding tags manually
 
@@ -28,19 +26,6 @@ Select multiple photos before opening the Info panel. The panel enters **batch m
 - Adding a tag adds it to all selected photos
 - Removing a tag removes it from all selected photos
 
-## AI-suggested tags (pending tags)
-
-When an auto-tagging extension runs, it produces **pending tags** — AI suggestions that appear separately from confirmed tags. You review them individually:
-
-- **Accept** (`✓`) — adds the tag permanently
-- **Reject** (`✗`) — discards the suggestion
-- **Accept All** — accepts all pending tags for the selected photo(s) at once
-- **Reject All** — discards all pending suggestions
-
-<Aside type="tip">
-Pending tags let you use AI suggestions as a starting point without committing to them. You stay in control of your taxonomy.
-</Aside>
-
 ## Tag hierarchies
 
 Tags support a path-style hierarchy using `/` as a separator:
@@ -58,16 +43,9 @@ The **Tag Browser** (accessible from the View menu) shows your full tag tree, le
 
 Renaming a tag in the Tag Browser updates every photo that has that tag — it's a global rename, not a per-photo edit.
 
-## Tag origins
+## Where tags come from
 
-Every tag has an origin:
-
-| Origin | Source |
-|---|---|
-| **Manual** | Added by you via the Info panel |
-| **AI** | Accepted from an AI extension suggestion |
-
-Origin is tracked in the database but is not currently displayed in the UI.
+Tags are added by you in the Info panel, or imported from existing photo metadata on first sync — XMP keywords (`dc:subject`) and, on macOS, Apple Finder tags. Imported tags are merged in additively and never removed on re-sync.
 
 ## Tag browser
 

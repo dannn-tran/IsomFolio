@@ -5,36 +5,34 @@ description: How the IsomFolio extension system works and why AI capabilities ar
 
 import { Aside } from '@astrojs/starlight/components';
 
-IsomFolio's extension system lets you add AI capabilities — auto-tagging, face recognition, and more — without bundling those dependencies into the core app.
+IsomFolio's extension system lets you add AI capabilities — currently **face recognition** — without bundling those dependencies into the core app.
 
 ## Why extensions?
 
-AI libraries (CLIP models, face detection, neural networks) are large, slow to install, and often require specific Python environments or GPU drivers. Not every user needs them. IsomFolio keeps the core app lean and fast, and lets you opt in to exactly the AI you want.
+AI libraries (face detection and recognition models, neural-network runtimes) are large and slow to install, and not every user needs them. IsomFolio keeps the core app lean and fast, and lets you opt in to exactly the AI you want.
 
-## How extensions work
+## How it works
 
-Extensions are **separate executables** that IsomFolio launches as child processes. They communicate over a simple JSON protocol on stdin/stdout. They can be written in any language — the bundled extensions are written in Rust and Python.
+The face extension ships as an **inference engine**: a small local HTTP server that turns images into face embeddings. IsomFolio starts it on demand, sends batches of photos, stores the results, and does the grouping itself. Nothing leaves your machine.
 
 ```
 ~/.local/share/IsomFolio/extensions/
-├── autotag-clip/
-│   ├── manifest.json      ← describes capabilities and config schema
-│   └── autotag-clip       ← the executable
 └── faces/
-    ├── manifest.json
-    └── faces
+    ├── manifest.json   ← capabilities + config schema
+    └── faces           ← the inference engine executable
 ```
+
+On Apple Silicon, Windows, and Linux the engine runs natively. On Intel Macs it runs in a Docker container (the underlying ONNX Runtime no longer ships an Intel-Mac native build) — see [Face Clustering](/extensions/face-clustering/).
 
 ## The manifest
 
 Every extension ships a `manifest.json` that tells IsomFolio:
-- What capabilities it provides (`classify`, `cluster_faces`, etc.)
-- What configuration fields it needs (API keys, model paths, thresholds)
-- Whether it needs a setup step on first install
+- What capability it provides (`inference_engine`)
+- What configuration fields it exposes (e.g. model size)
 
 ## Installing an extension
 
-Extensions are distributed as `.isfx` files — which are zip archives with a specific layout. Install one via **Settings → Extensions → Install Extension**.
+Extensions are distributed as `.isfx` files — zip archives with a specific layout. Install one via **Settings → Extensions → Install Extension**.
 
 See [Installing Extensions →](/extensions/installing/)
 
@@ -45,37 +43,12 @@ Extensions are executables that run on your machine. Only install extensions fro
 </Aside>
 
 IsomFolio takes these precautions when installing:
-- Zip archives are extracted with path traversal protection (no `../../` escape attacks)
+- Zip archives are extracted with path-traversal protection (no `../../` escape attacks)
 - Executables are set to the minimum required permissions
-- Each extension runs in its own child process, isolated from the main app
-
-## Writing your own extension
-
-The extension protocol is documented in the [`isfx-sdk`](https://github.com/picas9dan/isomfolio/tree/main/extensions/isfx-sdk) crate. A minimal extension in Rust:
-
-```rust
-use isfx_sdk as sdk;
-
-fn main() {
-    sdk::run(|request| {
-        match request.method.as_str() {
-            "classify" => {
-                // process request.params, return tags
-                sdk::Response::ok(serde_json::json!({
-                    "file_id": request.params["file_id"],
-                    "tags": [{ "tag": "my-tag", "confidence": 0.9 }]
-                }))
-            }
-            _ => sdk::Response::error("unknown method"),
-        }
-    });
-}
-```
+- The engine binds to localhost only and is torn down when the app quits
 
 ## Available extensions
 
 | Extension | Capability | Language |
 |---|---|---|
-| [autotag-clip](/extensions/autotag-clip/) | Auto-tagging via CLIP embeddings | Rust + ONNX |
-| [autotag-openai](/extensions/autotag-openai/) | Auto-tagging via OpenAI Vision API | Rust |
-| [faces](/extensions/face-clustering/) | Face detection + clustering | C# + ML.NET |
+| [faces](/extensions/face-clustering/) | Face detection + embeddings (HTTP inference engine) | C# + ONNX Runtime |

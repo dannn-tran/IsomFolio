@@ -38,7 +38,7 @@ Press `I` to toggle the Info panel on the right side. It shows:
 - File name, path, dimensions, file size
 - Camera metadata: make/model, lens, focal length, aperture, shutter speed, ISO, flash (when EXIF is present)
 - GPS location coordinates (when embedded in the photo)
-- Tags (add/remove manually or accept/reject AI suggestions)
+- Tags (add/remove manually)
 - Rating (1–5 stars)
 - Flag status (unflagged, pick, reject)
 
@@ -54,7 +54,7 @@ The toolbar runs along the top:
 | **Sort** | Cycle through sort fields (name, date, rating) and toggle ascending/descending |
 | **Filter** | Open the criteria panel for advanced filtering |
 | **View toggle** | Switch between Browse, Preview, and Loupe views |
-| **Extension menu** | Run an installed extension (auto-tag, etc.) on selected photos |
+| **Extension menu** | Run installed engine actions (e.g. Find People) |
 
 ## Status Bar
 
@@ -62,7 +62,7 @@ The thin bar at the bottom shows:
 
 - Photo count for the current view
 - Thumbnail generation progress (when scanning)
-- Extension progress (when auto-tagging)
+- Face clustering progress (when finding people)
 - Error messages
 
 ## View modes

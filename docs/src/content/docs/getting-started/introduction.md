@@ -9,7 +9,7 @@ IsomFolio is a **local-first photo library manager** for macOS. It organises you
 
 - **Photographers** who shoot in volume and need fast culling (ratings, flags, keyboard shortcuts).
 - **Privacy-conscious users** who want full control over where their photos are stored and processed.
-- **Power users** who want AI assistance (auto-tagging, face recognition) without surrendering data to a cloud service.
+- **Power users** who want AI assistance (face recognition) without surrendering data to a cloud service.
 
 ## What it does
 
