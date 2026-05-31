@@ -1,6 +1,0 @@
-{
-  "name": "test-addon",
-  "version": "1.0.0",
-  "capabilities": ["classify"],
-  "description": "Test addon that returns hardcoded tags for validating the addon host pipeline"
-}

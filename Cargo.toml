@@ -3,9 +3,5 @@ members = [
     "isomfolio-extension-host",
     "isomfolio-core",
     "isomfolio-app",
-    "extensions/isomfolio-extension-sdk",
-    "extensions/test-addon",
-    "extensions/autotag-clip",
-    "extensions/autotag-openai",
 ]
 resolver = "2"
