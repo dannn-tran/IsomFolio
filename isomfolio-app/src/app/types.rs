@@ -280,7 +280,7 @@ pub enum Msg {
     RatingsApplied,
     RatingsLoaded(HashMap<String, i32>),
     ToggleHideRejects,
-    SetFlagFilter(FlagFilter),
+    ToggleFlagFilter(Flag),
     SetRatingFilter(isomfolio_core::models::RatingFilter),
     SetRatingCmp(RatingCmp),
     SetLocationFilter(Option<bool>),
@@ -378,7 +378,7 @@ pub enum ExportMode {
     Move,
 }
 
-use isomfolio_core::models::FlagFilter;
+use isomfolio_core::models::FlagSelection;
 
 pub enum UndoOp {
     AddedTag { file_ids: Vec<String>, tag: String },
@@ -431,11 +431,10 @@ pub struct FilterState {
     pub date_to: String,
     pub exts: HashSet<String>,
     pub save_smart_input: Option<String>,
-    pub flag_filter: FlagFilter,
+    pub flags: FlagSelection,
     pub rating: isomfolio_core::models::RatingFilter,
     /// UI-only: comparator applied to the next star-count chip click.
     pub rating_cmp: RatingCmp,
-    pub hide_rejects: bool,
     pub has_location: Option<bool>,
     /// Selected person face-cluster id, if filtering by person.
     pub person: Option<String>,
@@ -455,10 +454,9 @@ impl Default for FilterState {
             date_to: String::new(),
             exts: HashSet::new(),
             save_smart_input: None,
-            flag_filter: FlagFilter::All,
+            flags: FlagSelection::default(),
             rating: isomfolio_core::models::RatingFilter::Any,
             rating_cmp: RatingCmp::AtLeast,
-            hide_rejects: false,
             has_location: None,
             person: None,
             added_within_days: None,

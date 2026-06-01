@@ -4,7 +4,10 @@ use iced::{
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
-use isomfolio_core::models::{Flag, FlagFilter, RatingFilter, SortField, ThumbnailState};
+use isomfolio_core::models::{Flag, FlagSelection, RatingFilter, SortField, ThumbnailState};
+
+/// The flag selection that "Hide Rejects" represents: show picks + unflagged.
+const HIDE_REJECTS: FlagSelection = FlagSelection { pick: true, unflagged: true, reject: false };
 
 /// Sort fields in the order they appear in the toolbar dropdown.
 const SORT_FIELDS: [SortField; 4] =
@@ -34,7 +37,7 @@ impl App {
     pub(super) fn view_grid(&self) -> Element<'_, Msg> {
         let filter_panel_open = self.filters.show;
         let filters_active = self.has_active_filters();
-        let hide_rejects_on = self.filters.hide_rejects;
+        let hide_rejects_on = self.filters.flags == HIDE_REJECTS;
 
         let sort_choices: Vec<SortChoice> = SORT_FIELDS.iter().copied().map(SortChoice).collect();
         let sort_picker = pick_list(
@@ -422,30 +425,23 @@ impl App {
         }
         col = col.push(ext_row);
 
+        // Flag chips are an OR-combinable set (multi-select): show any combination
+        // of Picks / Unflagged / Rejects. All-on = no filtering.
         let mut flag_row = row![text("Flag").size(TEXT_SM).color(FG_DIM)]
             .spacing(SPACE_1)
             .align_y(Alignment::Center);
-        for (label, filter) in [
-            ("All", FlagFilter::All),
-            ("Picks", FlagFilter::Picks),
-            ("Rejects", FlagFilter::Rejects),
-            ("Unflagged", FlagFilter::Unflagged),
+        for (label, flag) in [
+            ("Picks", Flag::Pick),
+            ("Unflagged", Flag::Unflagged),
+            ("Rejects", Flag::Reject),
         ] {
-            let active = self.filters.flag_filter == filter;
+            let active = self.filters.flags.allows(flag);
             flag_row = flag_row.push(
                 button(text(label).size(TEXT_SM))
-                    .on_press(Msg::SetFlagFilter(filter))
+                    .on_press(Msg::ToggleFlagFilter(flag))
                     .style(if active { active_chip_style } else { ghost_btn_style }),
             );
         }
-        let hide_rejects_active = self.filters.hide_rejects;
-        flag_row = flag_row
-            .push(Space::new().width(SPACE_2))
-            .push(
-                button(text(if hide_rejects_active { "Hide Rejects ●" } else { "Hide Rejects" }).size(TEXT_SM))
-                    .on_press(Msg::ToggleHideRejects)
-                    .style(if hide_rejects_active { active_chip_style } else { ghost_btn_style }),
-            );
         col = col.push(flag_row);
 
         col = col.push(self.rating_filter_row());

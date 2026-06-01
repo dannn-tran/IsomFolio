@@ -95,7 +95,7 @@ impl App {
             | Msg::RatingsApplied
             | Msg::RatingsLoaded(_)
             | Msg::ToggleHideRejects
-            | Msg::SetFlagFilter(_)
+            | Msg::ToggleFlagFilter(_)
             | Msg::SetRatingFilter(_)
             | Msg::SetRatingCmp(_)
             | Msg::SetLocationFilter(_)
@@ -336,7 +336,7 @@ impl App {
                             self.search_text = q.text.clone().unwrap_or_default();
                             self.filters.has_location = q.has_location;
                             self.filters.rating = q.rating;
-                            self.filters.flag_filter = q.flag_filter;
+                            self.filters.flags = q.flags;
                             self.filters.person = q.person_cluster.clone();
                             self.filters.camera = q.camera_model.clone();
                             self.filters.added_within_days = q.added_within_days;

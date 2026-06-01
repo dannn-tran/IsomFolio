@@ -130,7 +130,7 @@ impl App {
                 self.filters.date_from.clear();
                 self.filters.date_to.clear();
                 self.filters.exts.clear();
-                self.filters.flag_filter = isomfolio_core::models::FlagFilter::All;
+                self.filters.flags = isomfolio_core::models::FlagSelection::default();
                 self.filters.rating = isomfolio_core::models::RatingFilter::Any;
                 self.filters.has_location = None;
                 self.filters.person = None;

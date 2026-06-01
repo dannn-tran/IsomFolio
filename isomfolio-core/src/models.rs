@@ -67,13 +67,57 @@ pub enum SortField {
     Ext,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum FlagFilter {
-    All,
-    Picks,
-    Rejects,
-    Unflagged,
-    NotReject,
+/// Which flags pass the filter — an OR-combinable inclusion set (Lightroom-style
+/// flag toggles), so culls like "Picks OR Unflagged" are expressible. Each bool
+/// means "include this flag." Empty (none) or full (all three) both mean *no
+/// filtering*. Subsumes the old "hide rejects" toggle: it's just the selection
+/// `{pick, unflagged}`, so there's a single source of truth.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct FlagSelection {
+    pub pick: bool,
+    pub unflagged: bool,
+    pub reject: bool,
+}
+
+impl FlagSelection {
+    fn count(&self) -> usize {
+        [self.pick, self.unflagged, self.reject].iter().filter(|b| **b).count()
+    }
+
+    /// No effective filter: nothing selected or everything selected.
+    pub fn shows_all(&self) -> bool {
+        matches!(self.count(), 0 | 3)
+    }
+
+    pub fn is_active(&self) -> bool {
+        !self.shows_all()
+    }
+
+    pub fn allows(&self, flag: Flag) -> bool {
+        match flag {
+            Flag::Pick => self.pick,
+            Flag::Unflagged => self.unflagged,
+            Flag::Reject => self.reject,
+        }
+    }
+
+    pub fn toggled(mut self, flag: Flag) -> Self {
+        match flag {
+            Flag::Pick => self.pick = !self.pick,
+            Flag::Unflagged => self.unflagged = !self.unflagged,
+            Flag::Reject => self.reject = !self.reject,
+        }
+        self
+    }
+
+    /// Flag values that pass, as their i64 storage codes.
+    pub fn allowed_codes(&self) -> Vec<i64> {
+        [Flag::Pick, Flag::Unflagged, Flag::Reject]
+            .into_iter()
+            .filter(|f| self.allows(*f))
+            .map(|f| f as i64)
+            .collect()
+    }
 }
 
 /// Star-rating filter. Culling needs more than "≥ N" — e.g. "unrated only"
@@ -106,7 +150,8 @@ pub struct SearchQuery {
     pub date_to: Option<i64>,
     pub sort_by: SortField,
     pub sort_asc: bool,
-    pub flag_filter: FlagFilter,
+    #[serde(default)]
+    pub flags: FlagSelection,
     #[serde(default)]
     pub rating: RatingFilter,
     pub has_faces: Option<bool>,
@@ -140,7 +185,7 @@ impl Default for SearchQuery {
             date_to: None,
             sort_by: SortField::Name,
             sort_asc: true,
-            flag_filter: FlagFilter::All,
+            flags: FlagSelection::default(),
             rating: RatingFilter::default(),
             has_faces: None,
             has_location: None,

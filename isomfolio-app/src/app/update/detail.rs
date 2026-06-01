@@ -179,9 +179,7 @@ impl App {
             }
 
             Msg::FlagsApplied => {
-                if self.filters.hide_rejects
-                    || self.filters.flag_filter != isomfolio_core::models::FlagFilter::All
-                {
+                if self.filters.flags.is_active() {
                     self.load_files_task()
                 } else {
                     Task::none()
@@ -240,12 +238,21 @@ impl App {
             }
 
             Msg::ToggleHideRejects => {
-                self.filters.hide_rejects = !self.filters.hide_rejects;
+                // Convenience for the common cull: toggle between "show picks +
+                // unflagged" and "show all".
+                use isomfolio_core::models::FlagSelection;
+                let hide = FlagSelection { pick: true, unflagged: true, reject: false };
+                self.filters.flags = if self.filters.flags == hide {
+                    FlagSelection::default()
+                } else {
+                    hide
+                };
+                self.mark_smart_dirty();
                 self.load_files_task()
             }
 
-            Msg::SetFlagFilter(filter) => {
-                self.filters.flag_filter = filter;
+            Msg::ToggleFlagFilter(flag) => {
+                self.filters.flags = self.filters.flags.toggled(flag);
                 self.mark_smart_dirty();
                 self.load_files_task()
             }

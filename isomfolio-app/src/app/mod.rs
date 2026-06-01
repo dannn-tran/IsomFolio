@@ -515,14 +515,12 @@ impl App {
     }
 
     pub fn has_active_filters(&self) -> bool {
-        use isomfolio_core::models::FlagFilter;
         !self.filters.tags.is_empty()
             || !self.filters.exts.is_empty()
             || !self.filters.date_from.is_empty()
             || !self.filters.date_to.is_empty()
-            || self.filters.flag_filter != FlagFilter::All
+            || self.filters.flags.is_active()
             || self.filters.rating.is_active()
-            || self.filters.hide_rejects
             || self.filters.has_location.is_some()
             || self.filters.person.is_some()
             || self.filters.added_within_days.is_some()
@@ -597,12 +595,6 @@ impl App {
                 Some(t.to_string())
             }
         };
-        use isomfolio_core::models::FlagFilter;
-        let effective_flag = if self.filters.hide_rejects && self.filters.flag_filter == FlagFilter::All {
-            FlagFilter::NotReject
-        } else {
-            self.filters.flag_filter
-        };
         SearchQuery {
             text: text_opt,
             tags: self.filters.tags.clone(),
@@ -611,7 +603,7 @@ impl App {
             date_to: parse_date_str(&self.filters.date_to),
             sort_by: self.sort_by,
             sort_asc: self.sort_asc,
-            flag_filter: effective_flag,
+            flags: self.filters.flags,
             rating: self.filters.rating,
             has_location: self.filters.has_location,
             person_cluster: self.filters.person.clone(),

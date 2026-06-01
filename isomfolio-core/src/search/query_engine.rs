@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use crate::models::{AlbumId, AppError, AssetFile, Flag, FlagFilter, RatingFilter, SearchQuery, SortField};
+use crate::models::{AlbumId, AppError, AssetFile, FlagSelection, RatingFilter, SearchQuery, SortField};
 use crate::search::fts;
 use crate::storage::db::{read_asset_file, FILE_COLS_PREFIXED as FILE_COLS};
 
@@ -12,30 +12,25 @@ fn sort_column(f: SortField) -> &'static str {
     }
 }
 
-fn append_flag_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, flag_filter: FlagFilter) {
-    match flag_filter {
-        FlagFilter::All => {}
-        FlagFilter::Picks => {
-            sql.push_str(&format!(" AND f.flag = ?{param_idx}"));
-            params.push(Box::new(Flag::Pick as i64));
-            *param_idx += 1;
-        }
-        FlagFilter::Rejects => {
-            sql.push_str(&format!(" AND f.flag = ?{param_idx}"));
-            params.push(Box::new(Flag::Reject as i64));
-            *param_idx += 1;
-        }
-        FlagFilter::Unflagged => {
-            sql.push_str(&format!(" AND f.flag = ?{param_idx}"));
-            params.push(Box::new(Flag::Unflagged as i64));
-            *param_idx += 1;
-        }
-        FlagFilter::NotReject => {
-            sql.push_str(&format!(" AND f.flag != ?{param_idx}"));
-            params.push(Box::new(Flag::Reject as i64));
-            *param_idx += 1;
-        }
+fn append_flag_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, flags: FlagSelection) {
+    if flags.shows_all() {
+        return;
     }
+    let codes = flags.allowed_codes();
+    if codes.is_empty() {
+        sql.push_str(" AND 1 = 0");
+        return;
+    }
+    let placeholders: Vec<String> = codes
+        .iter()
+        .map(|c| {
+            let p = format!("?{param_idx}");
+            params.push(Box::new(*c));
+            *param_idx += 1;
+            p
+        })
+        .collect();
+    sql.push_str(&format!(" AND f.flag IN ({})", placeholders.join(",")));
 }
 
 fn append_rating_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, rating: RatingFilter) {
@@ -162,7 +157,7 @@ fn execute_query_inner(
         param_idx += 1;
     }
 
-    append_flag_filter(&mut sql, &mut params, &mut param_idx, query.flag_filter);
+    append_flag_filter(&mut sql, &mut params, &mut param_idx, query.flags);
     append_rating_filter(&mut sql, &mut params, &mut param_idx, query.rating);
 
     if let Some(has_faces) = query.has_faces {
@@ -236,6 +231,7 @@ pub fn execute_manual_album_search(
 mod tests {
     use super::*;
     use rusqlite::Connection;
+    use crate::models::Flag;
     use crate::storage::db;
     use tempfile::NamedTempFile;
 
@@ -271,7 +267,7 @@ mod tests {
     mod flag_filter {
         use super::*;
         use rusqlite::Connection;
-        use crate::models::Flag;
+        use crate::models::{Flag, FlagSelection};
         use crate::storage::db;
         use tempfile::NamedTempFile;
 
@@ -287,10 +283,14 @@ mod tests {
             (conn, f)
         }
 
+        fn only(pick: bool, unflagged: bool, reject: bool) -> FlagSelection {
+            FlagSelection { pick, unflagged, reject }
+        }
+
         #[test]
         fn filter_picks() {
             let (conn, _f) = setup();
-            let q = SearchQuery { flag_filter: FlagFilter::Picks, ..Default::default() };
+            let q = SearchQuery { flags: only(true, false, false), ..Default::default() };
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 2);
             assert!(results.iter().all(|r| r.flag == Flag::Pick));
@@ -299,16 +299,16 @@ mod tests {
         #[test]
         fn filter_rejects() {
             let (conn, _f) = setup();
-            let q = SearchQuery { flag_filter: FlagFilter::Rejects, ..Default::default() };
+            let q = SearchQuery { flags: only(false, false, true), ..Default::default() };
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].id, "reject1");
         }
 
         #[test]
-        fn filter_not_reject() {
+        fn picks_or_unflagged_excludes_rejects() {
             let (conn, _f) = setup();
-            let q = SearchQuery { flag_filter: FlagFilter::NotReject, ..Default::default() };
+            let q = SearchQuery { flags: only(true, true, false), ..Default::default() };
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 3);
             assert!(results.iter().all(|r| r.flag != Flag::Reject));
@@ -317,10 +317,21 @@ mod tests {
         #[test]
         fn filter_unflagged() {
             let (conn, _f) = setup();
-            let q = SearchQuery { flag_filter: FlagFilter::Unflagged, ..Default::default() };
+            let q = SearchQuery { flags: only(false, true, false), ..Default::default() };
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].id, "plain1");
+        }
+
+        #[test]
+        fn none_or_all_selected_returns_everything() {
+            let (conn, _f) = setup();
+            // Default = nothing selected = no filter.
+            let q = SearchQuery { flags: FlagSelection::default(), ..Default::default() };
+            assert_eq!(execute_search(&conn, &q).unwrap().len(), 4);
+            // All three selected = also no filter.
+            let q = SearchQuery { flags: only(true, true, true), ..Default::default() };
+            assert_eq!(execute_search(&conn, &q).unwrap().len(), 4);
         }
     }
 
