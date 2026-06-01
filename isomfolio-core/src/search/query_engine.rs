@@ -191,6 +191,14 @@ fn execute_query_inner(
         param_idx += 1;
     }
 
+    if let Some(ref camera) = query.camera_model {
+        sql.push_str(&format!(
+            " AND f.id IN (SELECT file_id FROM metadata WHERE camera_model = ?{param_idx})"
+        ));
+        params.push(Box::new(camera.clone()));
+        param_idx += 1;
+    }
+
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
     let nulls_clause = if matches!(query.sort_by, SortField::Date) { " NULLS LAST" } else { "" };
     sql.push_str(&format!(" ORDER BY {} {}{}", sort_column(query.sort_by), dir, nulls_clause));
@@ -471,6 +479,28 @@ mod tests {
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].id, "new");
+        }
+
+        #[test]
+        fn camera_model_restricts_results() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "f1", "a.jpg", "/p", "jpg", 100);
+            insert(&conn, "f2", "b.jpg", "/p", "jpg", 200);
+            conn.execute(
+                "INSERT INTO metadata (file_id, camera_model) VALUES ('f1', 'Canon EOS R5')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO metadata (file_id, camera_model) VALUES ('f2', 'NIKON Z6')",
+                [],
+            )
+            .unwrap();
+
+            let q = SearchQuery { camera_model: Some("Canon EOS R5".into()), ..Default::default() };
+            let results = execute_search(&conn, &q).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "f1");
         }
     }
 }

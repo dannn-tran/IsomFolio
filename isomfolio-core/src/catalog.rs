@@ -78,6 +78,10 @@ impl Catalog {
         db::list_library_roots(&self.conn)
     }
 
+    pub fn distinct_camera_models(&self) -> Result<Vec<String>, AppError> {
+        db::distinct_camera_models(&self.conn)
+    }
+
     pub fn get_all_file_paths_with_mtimes(&self) -> Result<Vec<(String, String, i64)>, AppError> {
         db::get_all_file_paths_with_mtimes(&self.conn)
     }

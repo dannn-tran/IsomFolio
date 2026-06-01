@@ -90,6 +90,7 @@ pub enum Msg {
         folders: Vec<(String, String, usize)>,
         folder_tree: Vec<FolderNode>,
         library_roots: Vec<LibraryRoot>,
+        cameras: Vec<String>,
         albums: Vec<Album>,
         album_counts: HashMap<String, usize>,
     },
@@ -244,6 +245,7 @@ pub enum Msg {
     SetLocationFilter(Option<bool>),
     SetPersonFilter(Option<String>),
     SetAddedWithinFilter(Option<i64>),
+    SetCameraFilter(Option<String>),
 
     ExtensionsDiscovered(Option<ExtensionManifest>),
 
@@ -368,6 +370,8 @@ pub struct FilterState {
     pub person: Option<String>,
     /// "Added recently" window in days (filters on catalog add time); None = any.
     pub added_within_days: Option<i64>,
+    /// Selected EXIF camera model, if filtering by camera.
+    pub camera: Option<String>,
 }
 
 impl Default for FilterState {
@@ -386,6 +390,7 @@ impl Default for FilterState {
             has_location: None,
             person: None,
             added_within_days: None,
+            camera: None,
         }
     }
 }

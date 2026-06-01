@@ -318,6 +318,16 @@ pub fn list_library_roots(conn: &Connection) -> Result<Vec<LibraryRoot>, AppErro
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
+/// Distinct non-null EXIF camera models present in the catalog, sorted.
+pub fn distinct_camera_models(conn: &Connection) -> Result<Vec<String>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT camera_model FROM metadata
+         WHERE camera_model IS NOT NULL AND camera_model != '' ORDER BY camera_model",
+    )?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn get_all_file_ids(conn: &Connection) -> Result<Vec<String>, AppError> {
     let mut stmt = conn.prepare("SELECT id FROM files")?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;

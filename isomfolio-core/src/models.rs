@@ -97,6 +97,9 @@ pub struct SearchQuery {
     /// Restrict to files added to the catalog at/after this Unix timestamp (created_at_unix).
     #[serde(default)]
     pub added_after: Option<i64>,
+    /// Restrict to files whose EXIF camera model matches exactly.
+    #[serde(default)]
+    pub camera_model: Option<String>,
     /// Include orphaned (missing) files in results. False by default so search/filter/albums
     /// never surface missing files. Set to true only when browsing a folder with no active criteria.
     #[serde(default)]
@@ -121,6 +124,7 @@ impl Default for SearchQuery {
             has_location: None,
             person_cluster: None,
             added_after: None,
+            camera_model: None,
             include_orphaned: false,
         }
     }

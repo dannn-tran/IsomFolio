@@ -93,6 +93,12 @@ impl App {
                 self.load_files_task()
             }
 
+            Msg::SetCameraFilter(camera) => {
+                self.filters.camera = camera;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
             Msg::SetDatePreset(preset) => {
                 let (from, to) = super::super::date_preset_range(preset);
                 self.filters.date_from = from;
@@ -121,6 +127,7 @@ impl App {
                 self.filters.has_location = None;
                 self.filters.person = None;
                 self.filters.added_within_days = None;
+                self.filters.camera = None;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }

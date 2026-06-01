@@ -111,6 +111,7 @@ pub struct App {
     pub folder_tree: Vec<isomfolio_core::folder_tree::FolderNode>,
     pub expanded_folders: HashSet<String>,
     pub library_roots: Vec<isomfolio_core::storage::db::LibraryRoot>,
+    pub cameras: Vec<String>,
     pub add_folder_prompt: Option<AddFolderPrompt>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
@@ -328,6 +329,7 @@ impl App {
             folder_tree: Vec::new(),
             expanded_folders: HashSet::new(),
             library_roots: Vec::new(),
+            cameras: Vec::new(),
             add_folder_prompt: None,
             albums: Vec::new(),
             album_counts: HashMap::new(),
@@ -474,6 +476,7 @@ impl App {
             || self.filters.has_location.is_some()
             || self.filters.person.is_some()
             || self.filters.added_within_days.is_some()
+            || self.filters.camera.is_some()
     }
 
     pub fn bg_push(&mut self, label: impl Into<String>) -> crate::app::types::BgTaskId {
@@ -550,6 +553,7 @@ impl App {
             rating_min: self.filters.rating_min,
             has_location: self.filters.has_location,
             person_cluster: self.filters.person.clone(),
+            camera_model: self.filters.camera.clone(),
             added_after: self.filters.added_within_days.map(|days| {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -687,6 +691,7 @@ impl App {
                 let raw_folders = cat.get_folder_counts().unwrap_or_default();
                 let folder_tree = cat.folder_tree().unwrap_or_default();
                 let library_roots = cat.list_library_roots().unwrap_or_default();
+                let cameras = cat.distinct_camera_models().unwrap_or_default();
                 let albums = cat.get_all_albums().unwrap_or_default();
                 let album_counts = cat.get_all_album_file_counts().unwrap_or_default();
                 drop(cat);
@@ -708,14 +713,17 @@ impl App {
                         (path, display, count)
                     })
                     .collect();
-                (folders, folder_tree, library_roots, albums, album_counts)
+                (folders, folder_tree, library_roots, cameras, albums, album_counts)
             },
-            |(folders, folder_tree, library_roots, albums, album_counts)| Msg::SidebarLoaded {
-                folders,
-                folder_tree,
-                library_roots,
-                albums,
-                album_counts,
+            |(folders, folder_tree, library_roots, cameras, albums, album_counts)| {
+                Msg::SidebarLoaded {
+                    folders,
+                    folder_tree,
+                    library_roots,
+                    cameras,
+                    albums,
+                    album_counts,
+                }
             },
         )
     }

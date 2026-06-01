@@ -31,6 +31,7 @@ Click the filter icon in the toolbar to open the criteria panel. It supports:
 | **Location** | Any / With GPS / Without GPS |
 | **Person** | Restrict to a named face cluster — appears once you have named people. Combine with tags/dates for "photos of Maya tagged portrait in 2023" |
 | **Added** | Any / last 7 days / last 30 days, by when the photo entered the catalog ("what's new") |
+| **Camera** | Restrict to one EXIF camera model — appears once your library has camera metadata |
 
 All criteria combine with AND logic — a photo must match every active criterion to appear.
 

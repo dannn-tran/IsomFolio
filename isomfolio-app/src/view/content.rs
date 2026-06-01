@@ -456,6 +456,27 @@ impl App {
         }
         col = col.push(added_row);
 
+        if !self.cameras.is_empty() {
+            let mut cam_row = row![text("Camera").size(TEXT_SM).color(FG_DIM)]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center);
+            let any_active = self.filters.camera.is_none();
+            cam_row = cam_row.push(
+                button(text("Any").size(TEXT_SM))
+                    .on_press(Msg::SetCameraFilter(None))
+                    .style(if any_active { active_chip_style } else { ghost_btn_style }),
+            );
+            for cam in &self.cameras {
+                let active = self.filters.camera.as_deref() == Some(cam.as_str());
+                cam_row = cam_row.push(
+                    button(text(cam.clone()).size(TEXT_SM))
+                        .on_press(Msg::SetCameraFilter(Some(cam.clone())))
+                        .style(if active { active_chip_style } else { ghost_btn_style }),
+                );
+            }
+            col = col.push(cam_row.wrap());
+        }
+
         if self.has_active_filters() {
             let is_smart = self.current_album_is_smart();
             let mut action_row = row![

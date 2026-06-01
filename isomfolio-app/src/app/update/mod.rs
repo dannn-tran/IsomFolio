@@ -275,6 +275,7 @@ impl App {
             | Msg::SetDatePreset(_)
             | Msg::SetPersonFilter(_)
             | Msg::SetAddedWithinFilter(_)
+            | Msg::SetCameraFilter(_)
             | Msg::ToggleFilterFileType(_)
             | Msg::ClearFilters => self.handle_filters(msg),
 
@@ -358,10 +359,11 @@ impl App {
                 Task::batch([t1, t2])
             }
 
-            Msg::SidebarLoaded { folders, folder_tree, library_roots, albums, album_counts } => {
+            Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts } => {
                 self.folders = folders;
                 self.folder_tree = folder_tree;
                 self.library_roots = library_roots;
+                self.cameras = cameras;
                 self.albums = albums;
                 self.album_counts = album_counts;
                 self.start_watchers_for_folders();
