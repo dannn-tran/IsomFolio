@@ -76,8 +76,8 @@ If results look wrong (one person split across groups, or two people merged), tr
 
 | Mode | What it processes | When to use |
 |---|---|---|
-| **Incremental** (default) | Embeds new/changed photos, assigns faces to existing people | Regular use after adding new photos |
-| **Full re-cluster** | Re-groups every face from scratch | After bulk imports, or if results are inaccurate |
+| **Incremental** (default) | Embeds only new/changed photos, assigns their faces to existing people, and groups any leftovers into **new** people — without disturbing names | Regular use after adding new photos |
+| **Full re-cluster** (⟳ button) | Re-groups every face from scratch | After changing match settings (eps / min faces), bulk imports, or if results look wrong |
 
 ## Working with people
 

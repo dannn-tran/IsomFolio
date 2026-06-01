@@ -430,27 +430,27 @@ fn face_cluster_stream(
                     if rows.is_empty() {
                         return g.get_face_cluster_summaries().unwrap_or_default();
                     }
-                    let embeddings: Vec<Vec<f32>> = rows.iter().map(|r| r.vec.clone()).collect();
                     let centroids = g.load_face_centroids().unwrap_or_default();
 
-                    // Incremental: assign to known people. Full: rediscover via DBSCAN.
-                    let labels = if !force_full && !centroids.is_empty() {
-                        let cvecs: Vec<Vec<f32>> =
-                            centroids.iter().map(|(_, v)| v.clone()).collect();
-                        clustering::assign_to_centroids(&embeddings, &cvecs, eps)
+                    // Incremental: keep known people, discover new ones among the
+                    // leftovers. Full: rediscover everything via DBSCAN.
+                    let assembly = if !force_full && !centroids.is_empty() {
+                        clustering::cluster_incremental(&rows, &centroids, eps, min_pts)
                     } else {
-                        clustering::dbscan(&embeddings, eps, min_pts)
+                        let embeddings: Vec<Vec<f32>> =
+                            rows.iter().map(|r| r.vec.clone()).collect();
+                        let labels = clustering::dbscan(&embeddings, eps, min_pts);
+                        clustering::assemble_clusters(&rows, &labels)
                     };
 
-                    let assembly = clustering::assemble_clusters(&rows, &labels);
                     if let Err(e) = g.save_face_clusters(&assembly.members) {
                         eprintln!("[db] save_face_clusters failed: {e}");
                     }
-                    // Keep existing centroids on an incremental run.
-                    if force_full || centroids.is_empty() {
-                        if let Err(e) = g.save_face_centroids(&assembly.centroids) {
-                            eprintln!("[db] save_face_centroids failed: {e}");
-                        }
+                    // assembly.centroids is the full set to persist: the DBSCAN
+                    // result on a full run, or existing + newly-discovered on an
+                    // incremental one.
+                    if let Err(e) = g.save_face_centroids(&assembly.centroids) {
+                        eprintln!("[db] save_face_centroids failed: {e}");
                     }
                     g.get_face_cluster_summaries().unwrap_or_default()
                 })

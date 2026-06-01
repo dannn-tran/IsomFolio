@@ -150,9 +150,12 @@ This split allows re-installing an extension (e.g., after a version update) with
 
 ## Face clustering specifics
 
-Face clustering (the Faces extension) is **intentionally manual-only**. It is a full-library operation — O(n) inference over all photos — and is too expensive to run automatically on every sync event. It must be triggered explicitly by the user.
+The host owns clustering; the inference engine only embeds faces (`POST /embed`). Two things are incremental:
 
-Auto face clustering on new imports specifically (incremental) is a known gap but not planned until a streaming/incremental clustering approach is designed.
+- **Embedding** — only cache-miss files are sent to the engine (`get_uncached_face_file_paths`); embeddings persist in `face_embeddings`. The expensive inference never repeats for an unchanged file.
+- **Clustering** — `clustering::cluster_incremental` assigns each face to the nearest *existing* centroid within `eps` (keeping that cluster's id so named people stay named), then runs DBSCAN over only the *unassigned* faces to discover brand-new people. Cost is ~O(n·k) assignment + O(m²) over the m leftovers, versus O(n²) for a full DBSCAN.
+
+The manual ⟳ button runs a **full** re-cluster (`force_full: true`, DBSCAN over everything) — needed after changing `face_eps` / `face_min_pts`. The **incremental** path runs automatically after a sync that finds new files (when `auto_face_cluster` is on, the default), so adding photos surfaces new people cheaply without a full rebuild. Cluster names survive id changes either way: `save_face_clusters` re-associates names to the new cluster with maximum membership overlap.
 
 The ORT (ONNX Runtime) sessions for detection and recognition must have `EnableCpuMemArena = false` and `EnableMemoryPattern = false`. The default arena grows native heap across `Run()` calls and never releases to the OS, causing exhaustion over a large batch. This was validated via a 50-image stress test.
 

@@ -73,6 +73,83 @@ pub fn assemble_clusters(rows: &[FaceEmbeddingRow], labels: &[i32]) -> ClusterAs
     ClusterAssembly { members, centroids }
 }
 
+/// Incremental clustering: assign faces to existing people, then discover new
+/// ones among the leftovers.
+///
+/// Unlike a plain centroid assignment (which dumps every unmatched face into
+/// noise and so can never surface a new person), this:
+/// 1. assigns each face to the nearest existing centroid within `eps`, keeping
+///    that centroid's `cluster_id` so named people stay named;
+/// 2. runs DBSCAN over the *unassigned* faces to form brand-new clusters;
+/// 3. returns all faces as members plus the union of existing + new centroids
+///    (existing centroids are passed through unchanged — periodic full
+///    re-clustering recomputes them).
+pub fn cluster_incremental(
+    rows: &[FaceEmbeddingRow],
+    existing_centroids: &[(String, Vec<f32>)],
+    eps: f32,
+    min_pts: usize,
+) -> ClusterAssembly {
+    use std::collections::BTreeMap;
+
+    let make_member = |r: &FaceEmbeddingRow, cluster_id: String| FaceClusterMember {
+        cluster_id,
+        file_id: r.file_id.clone(),
+        bbox_x: r.bbox_x,
+        bbox_y: r.bbox_y,
+        bbox_w: r.bbox_w,
+        bbox_h: r.bbox_h,
+    };
+
+    let embeddings: Vec<Vec<f32>> = rows.iter().map(|r| r.vec.clone()).collect();
+    let cvecs: Vec<Vec<f32>> = existing_centroids.iter().map(|(_, v)| v.clone()).collect();
+    let assigned = assign_to_centroids(&embeddings, &cvecs, eps);
+
+    let mut members = Vec::new();
+    let mut unassigned: Vec<usize> = Vec::new();
+    for (i, &label) in assigned.iter().enumerate() {
+        if label >= 0 {
+            members.push(make_member(&rows[i], existing_centroids[label as usize].0.clone()));
+        } else {
+            unassigned.push(i);
+        }
+    }
+
+    // Discover new people among faces that matched no existing person.
+    let un_embeddings: Vec<Vec<f32>> = unassigned.iter().map(|&i| rows[i].vec.clone()).collect();
+    let un_labels = dbscan(&un_embeddings, eps, min_pts);
+
+    let mut by_label: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
+    let mut noise: Vec<usize> = Vec::new();
+    for (j, &label) in un_labels.iter().enumerate() {
+        if label < 0 {
+            noise.push(unassigned[j]);
+        } else {
+            by_label.entry(label).or_default().push(unassigned[j]);
+        }
+    }
+
+    let mut groups: Vec<Vec<usize>> = by_label.into_values().collect();
+    groups.sort_by(|a, b| b.len().cmp(&a.len()));
+
+    let mut centroids = existing_centroids.to_vec();
+    for group in groups {
+        let id = stable_cluster_id(
+            group.iter().map(|&i| (rows[i].file_id.as_str(), rows[i].bbox_x, rows[i].bbox_y)),
+        );
+        let vecs: Vec<Vec<f32>> = group.iter().map(|&i| rows[i].vec.clone()).collect();
+        centroids.push((id.clone(), compute_centroid(&vecs)));
+        for &i in &group {
+            members.push(make_member(&rows[i], id.clone()));
+        }
+    }
+    for &i in &noise {
+        members.push(make_member(&rows[i], NOISE_CLUSTER_ID.to_string()));
+    }
+
+    ClusterAssembly { members, centroids }
+}
+
 /// Content-derived cluster id, stable across runs for the same membership.
 /// Mirrors the C# `StableClusterId`: sorted `file_id:x.x:y.y` keys, SHA-256,
 /// first 16 lowercase hex chars.
@@ -293,6 +370,65 @@ mod tests {
             let labels = assign_to_centroids(&embeddings, &centroids, 0.3);
 
             assert_eq!(labels[0], -1);
+        }
+    }
+
+    mod cluster_incremental {
+        use super::*;
+        use crate::models::FaceEmbeddingRow;
+
+        fn row(file_id: &str, x: f64, vec: Vec<f32>) -> FaceEmbeddingRow {
+            FaceEmbeddingRow {
+                file_id: file_id.to_string(),
+                bbox_x: x,
+                bbox_y: 0.1,
+                bbox_w: 0.1,
+                bbox_h: 0.1,
+                vec,
+            }
+        }
+
+        #[test]
+        fn assigns_to_existing_centroid_keeping_its_id() {
+            let existing = vec![("face-maya".to_string(), normalize(&[1.0, 0.0, 0.0]))];
+            let rows = vec![row("a", 0.1, normalize(&[0.95, 0.05, 0.0]))];
+            let out = cluster_incremental(&rows, &existing, 0.3, 1);
+
+            assert_eq!(out.members.len(), 1);
+            assert_eq!(out.members[0].cluster_id, "face-maya");
+            // No new centroid — existing set unchanged.
+            assert_eq!(out.centroids.len(), 1);
+        }
+
+        #[test]
+        fn discovers_a_new_person_from_unassigned_faces() {
+            let existing = vec![("face-maya".to_string(), normalize(&[1.0, 0.0, 0.0]))];
+            // Three similar faces far from Maya → should form a new cluster, not noise.
+            let rows = vec![
+                row("b", 0.2, normalize(&[0.0, 0.0, 1.0])),
+                row("c", 0.3, normalize(&[0.05, 0.0, 0.95])),
+                row("d", 0.4, normalize(&[0.0, 0.05, 0.95])),
+            ];
+            let out = cluster_incremental(&rows, &existing, 0.3, 2);
+
+            // Both land in the same brand-new cluster (not face-unknown).
+            let new_id = &out.members[0].cluster_id;
+            assert_ne!(new_id, NOISE_CLUSTER_ID);
+            assert_ne!(new_id, "face-maya");
+            assert!(out.members.iter().all(|m| &m.cluster_id == new_id));
+            // Existing centroid preserved + one new centroid.
+            assert_eq!(out.centroids.len(), 2);
+            assert!(out.centroids.iter().any(|(id, _)| id == "face-maya"));
+        }
+
+        #[test]
+        fn lone_unmatched_face_below_min_pts_is_noise() {
+            let existing = vec![("face-maya".to_string(), normalize(&[1.0, 0.0, 0.0]))];
+            let rows = vec![row("b", 0.2, normalize(&[0.0, 1.0, 0.0]))];
+            let out = cluster_incremental(&rows, &existing, 0.3, 2);
+
+            assert_eq!(out.members[0].cluster_id, NOISE_CLUSTER_ID);
+            assert_eq!(out.centroids.len(), 1); // only the existing one
         }
     }
 
