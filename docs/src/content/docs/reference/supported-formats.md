@@ -20,7 +20,7 @@ description: Image formats and sidecar files that IsomFolio can index and displa
 
 When a `.xmp` sidecar is present, IsomFolio reads it on every sync:
 
-- **`dc:subject` keywords** are imported as tags (shown with an "XMP" label in the Info panel)
+- **`dc:subject` keywords** are imported as tags, merged with your manual tags (imported and manual tags are not distinguished once in the catalog)
 - **`xmp:Rating`** seeds the photo's star rating
 - **`xmp:Label`** and Dublin Core title/description are shown read-only in the Info panel
 

@@ -156,8 +156,8 @@ Implemented as a `stack` overlay anchored to the cursor position. No scrim — c
 | Folder | Rescan · — · Remove from Library… |
 | Manual album | Rename · Duplicate · — · Delete… |
 | Smart album | Rename · Duplicate · Edit Criteria · — · Delete… |
-| Grid tile (single) | Open in Loupe · Add to Album ▶ · — · Auto-tag · — · Show in Finder |
-| Grid tile (multi-select) | Add to Album ▶ · — · Auto-tag · — · (count label, no loupe) |
+| Grid tile (single) | Open in Loupe · Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder / Locate… · Copy to Folder… · Move to Folder… |
+| Grid tile (multi-select) | Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder · Copy to Folder… · Move to Folder… |
 | Recent catalog item | Open · Remove from Recents |
 
 Ellipsis (…) in a menu item label signals the action has a secondary step (rename → inline input; delete → inline confirm; add to album → submenu). Items without ellipsis execute immediately.
