@@ -6,7 +6,7 @@ use iced::{
 use isomfolio_core::models::FaceClusterSummary;
 
 use super::styles::{
-    BG_GRID, BG_TILE_LOADING, FG, FG_DIM, FG_MUTED,
+    ghost_btn_style, BG_GRID, BG_TILE_LOADING, FG, FG_DIM, FG_MUTED,
     SPACE_1, SPACE_1_5, SPACE_2, SPACE_3, SPACE_4, TEXT_BASE, TEXT_SM,
 };
 use crate::app::{App, Msg, SidebarItem, TILE_GAP};
@@ -46,18 +46,31 @@ impl App {
         }
 
         if self.faces.clusters.is_empty() && self.faces.status.is_none() {
+            let empty = if self.inference_manifest.is_none() {
+                column![
+                    text("People needs a face engine").size(TEXT_BASE).color(FG_DIM),
+                    text("Install one to detect and group faces — it runs locally, on your machine.")
+                        .size(TEXT_SM).color(FG_MUTED),
+                    Space::new().height(SPACE_2),
+                    button(text("Open Settings → Extensions").size(TEXT_SM))
+                        .on_press(Msg::OpenSettings)
+                        .style(ghost_btn_style),
+                ]
+                .spacing(SPACE_1)
+                .align_x(Alignment::Center)
+            } else {
+                column![
+                    text("No people found yet").size(TEXT_BASE).color(FG_DIM),
+                    text("Click ⟳ in the sidebar to run face detection").size(TEXT_SM).color(FG_MUTED),
+                ]
+                .spacing(SPACE_1)
+                .align_x(Alignment::Center)
+            };
             content = content.push(
-                container(
-                    column![
-                        text("No people found yet").size(TEXT_BASE).color(FG_DIM),
-                        text("Click ⟳ in the sidebar to run face detection").size(TEXT_SM).color(FG_MUTED),
-                    ]
-                    .spacing(SPACE_1)
+                container(empty)
+                    .width(Length::Fill)
+                    .padding(SPACE_4)
                     .align_x(Alignment::Center),
-                )
-                .width(Length::Fill)
-                .padding(SPACE_4)
-                .align_x(Alignment::Center),
             );
         }
 
