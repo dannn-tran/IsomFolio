@@ -185,9 +185,14 @@ fn execute_query_inner(
         param_idx += 1;
     }
 
-    if let Some(after) = query.added_after {
+    if let Some(days) = query.added_within_days {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let cutoff = now - days * 86400;
         sql.push_str(&format!(" AND f.created_at_unix >= ?{param_idx}"));
-        params.push(Box::new(after));
+        params.push(Box::new(cutoff));
         param_idx += 1;
     }
 
@@ -468,14 +473,26 @@ mod tests {
         }
 
         #[test]
-        fn added_after_filters_by_catalog_add_time() {
+        fn added_within_days_filters_by_catalog_add_time() {
             let (conn, _f) = open_temp();
             insert(&conn, "old", "a.jpg", "/p", "jpg", 100);
             insert(&conn, "new", "b.jpg", "/p", "jpg", 200);
-            conn.execute("UPDATE files SET created_at_unix = 1000 WHERE id = 'old'", []).unwrap();
-            conn.execute("UPDATE files SET created_at_unix = 5000 WHERE id = 'new'", []).unwrap();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            conn.execute(
+                "UPDATE files SET created_at_unix = ?1 WHERE id = 'old'",
+                [now - 100 * 86400],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE files SET created_at_unix = ?1 WHERE id = 'new'",
+                [now - 86400],
+            )
+            .unwrap();
 
-            let q = SearchQuery { added_after: Some(3000), ..Default::default() };
+            let q = SearchQuery { added_within_days: Some(30), ..Default::default() };
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].id, "new");

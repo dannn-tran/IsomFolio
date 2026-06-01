@@ -94,9 +94,11 @@ pub struct SearchQuery {
     /// Restrict to files belonging to a face cluster (person), by cluster_id.
     #[serde(default)]
     pub person_cluster: Option<String>,
-    /// Restrict to files added to the catalog at/after this Unix timestamp (created_at_unix).
+    /// Restrict to files added to the catalog within the last N days. Stored as a
+    /// relative window (not an absolute timestamp) so a saved smart album stays
+    /// rolling — the cutoff is computed at query time.
     #[serde(default)]
-    pub added_after: Option<i64>,
+    pub added_within_days: Option<i64>,
     /// Restrict to files whose EXIF camera model matches exactly.
     #[serde(default)]
     pub camera_model: Option<String>,
@@ -123,7 +125,7 @@ impl Default for SearchQuery {
             has_faces: None,
             has_location: None,
             person_cluster: None,
-            added_after: None,
+            added_within_days: None,
             camera_model: None,
             include_orphaned: false,
         }

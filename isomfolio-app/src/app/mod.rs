@@ -574,13 +574,7 @@ impl App {
             has_location: self.filters.has_location,
             person_cluster: self.filters.person.clone(),
             camera_model: self.filters.camera.clone(),
-            added_after: self.filters.added_within_days.map(|days| {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                now - days * 86400
-            }),
+            added_within_days: self.filters.added_within_days,
             include_orphaned: self.search_text.is_empty() && !self.has_active_filters(),
             ..Default::default()
         }

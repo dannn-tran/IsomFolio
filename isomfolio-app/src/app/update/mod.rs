@@ -328,6 +328,11 @@ impl App {
                             self.filters.exts = q.extensions.iter().cloned().collect();
                             self.search_text = q.text.clone().unwrap_or_default();
                             self.filters.has_location = q.has_location;
+                            self.filters.rating_min = q.rating_min;
+                            self.filters.flag_filter = q.flag_filter;
+                            self.filters.person = q.person_cluster.clone();
+                            self.filters.camera = q.camera_model.clone();
+                            self.filters.added_within_days = q.added_within_days;
                             self.filters.show = true;
                         }
                     }
