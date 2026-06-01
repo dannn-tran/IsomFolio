@@ -76,6 +76,25 @@ pub enum FlagFilter {
     NotReject,
 }
 
+/// Star-rating filter. Culling needs more than "≥ N" — e.g. "unrated only"
+/// (the review queue) and "≤ N" / "exactly N". `Unrated` and `AtMost` treat a
+/// missing rating as 0.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum RatingFilter {
+    #[default]
+    Any,
+    Unrated,
+    AtLeast(i32),
+    Exactly(i32),
+    AtMost(i32),
+}
+
+impl RatingFilter {
+    pub fn is_active(&self) -> bool {
+        !matches!(self, RatingFilter::Any)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SearchQuery {
     pub text: Option<String>,
@@ -88,7 +107,8 @@ pub struct SearchQuery {
     pub sort_by: SortField,
     pub sort_asc: bool,
     pub flag_filter: FlagFilter,
-    pub rating_min: Option<i32>,
+    #[serde(default)]
+    pub rating: RatingFilter,
     pub has_faces: Option<bool>,
     pub has_location: Option<bool>,
     /// Restrict to files belonging to a face cluster (person), by cluster_id.
@@ -121,7 +141,7 @@ impl Default for SearchQuery {
             sort_by: SortField::Name,
             sort_asc: true,
             flag_filter: FlagFilter::All,
-            rating_min: None,
+            rating: RatingFilter::default(),
             has_faces: None,
             has_location: None,
             person_cluster: None,

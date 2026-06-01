@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use crate::models::{AlbumId, AppError, AssetFile, Flag, FlagFilter, SearchQuery, SortField};
+use crate::models::{AlbumId, AppError, AssetFile, Flag, FlagFilter, RatingFilter, SearchQuery, SortField};
 use crate::search::fts;
 use crate::storage::db::{read_asset_file, FILE_COLS_PREFIXED as FILE_COLS};
 
@@ -38,9 +38,16 @@ fn append_flag_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql
     }
 }
 
-fn append_rating_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, rating_min: i32) {
-    sql.push_str(&format!(" AND COALESCE(m.rating, 0) >= ?{param_idx}"));
-    params.push(Box::new(rating_min));
+fn append_rating_filter(sql: &mut String, params: &mut Vec<Box<dyn rusqlite::ToSql>>, param_idx: &mut usize, rating: RatingFilter) {
+    let (op, value) = match rating {
+        RatingFilter::Any => return,
+        RatingFilter::Unrated => ("=", 0),
+        RatingFilter::AtLeast(n) => (">=", n),
+        RatingFilter::Exactly(n) => ("=", n),
+        RatingFilter::AtMost(n) => ("<=", n),
+    };
+    sql.push_str(&format!(" AND COALESCE(m.rating, 0) {op} ?{param_idx}"));
+    params.push(Box::new(value));
     *param_idx += 1;
 }
 
@@ -60,7 +67,7 @@ fn execute_query_inner(
         _ => None,
     };
 
-    let needs_meta = query.rating_min.is_some();
+    let needs_meta = query.rating.is_active();
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1usize;
 
@@ -156,10 +163,7 @@ fn execute_query_inner(
     }
 
     append_flag_filter(&mut sql, &mut params, &mut param_idx, query.flag_filter);
-
-    if let Some(min) = query.rating_min {
-        append_rating_filter(&mut sql, &mut params, &mut param_idx, min);
-    }
+    append_rating_filter(&mut sql, &mut params, &mut param_idx, query.rating);
 
     if let Some(has_faces) = query.has_faces {
         if has_faces {
@@ -448,6 +452,58 @@ mod tests {
             let results = execute_manual_album_search(&conn, &"a1".to_string(), &q).unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].id, "f1");
+        }
+    }
+
+    mod rating_filter {
+        use super::*;
+        use crate::storage::db;
+
+        fn setup() -> (Connection, NamedTempFile) {
+            let (conn, f) = open_temp();
+            insert(&conn, "r0", "a.jpg", "/p", "jpg", 1); // unrated
+            insert(&conn, "r2", "b.jpg", "/p", "jpg", 2);
+            insert(&conn, "r3", "c.jpg", "/p", "jpg", 3);
+            insert(&conn, "r5", "d.jpg", "/p", "jpg", 4);
+            db::set_file_rating(&conn, "r2", Some(2)).unwrap();
+            db::set_file_rating(&conn, "r3", Some(3)).unwrap();
+            db::set_file_rating(&conn, "r5", Some(5)).unwrap();
+            (conn, f)
+        }
+
+        fn ids(conn: &Connection, rating: RatingFilter) -> Vec<String> {
+            let q = SearchQuery { rating, sort_by: SortField::Date, ..Default::default() };
+            execute_search(conn, &q).unwrap().into_iter().map(|f| f.id).collect()
+        }
+
+        #[test]
+        fn unrated_only() {
+            let (c, _f) = setup();
+            assert_eq!(ids(&c, RatingFilter::Unrated), vec!["r0"]);
+        }
+
+        #[test]
+        fn at_least_three() {
+            let (c, _f) = setup();
+            assert_eq!(ids(&c, RatingFilter::AtLeast(3)), vec!["r3", "r5"]);
+        }
+
+        #[test]
+        fn exactly_two() {
+            let (c, _f) = setup();
+            assert_eq!(ids(&c, RatingFilter::Exactly(2)), vec!["r2"]);
+        }
+
+        #[test]
+        fn at_most_two_includes_unrated() {
+            let (c, _f) = setup();
+            assert_eq!(ids(&c, RatingFilter::AtMost(2)), vec!["r0", "r2"]);
+        }
+
+        #[test]
+        fn any_returns_all() {
+            let (c, _f) = setup();
+            assert_eq!(ids(&c, RatingFilter::Any).len(), 4);
         }
     }
 

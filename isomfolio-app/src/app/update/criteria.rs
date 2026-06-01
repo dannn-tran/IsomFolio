@@ -16,6 +16,14 @@ impl App {
                 self.load_files_task()
             }
 
+            Msg::SetSortField(field) => {
+                if self.sort_by == field {
+                    return Task::none();
+                }
+                self.sort_by = field;
+                self.load_files_task()
+            }
+
             Msg::SortCycleAll => {
                 if self.sort_asc {
                     self.sort_asc = false;
@@ -123,7 +131,7 @@ impl App {
                 self.filters.date_to.clear();
                 self.filters.exts.clear();
                 self.filters.flag_filter = isomfolio_core::models::FlagFilter::All;
-                self.filters.rating_min = None;
+                self.filters.rating = isomfolio_core::models::RatingFilter::Any;
                 self.filters.has_location = None;
                 self.filters.person = None;
                 self.filters.added_within_days = None;

@@ -7,7 +7,7 @@ use iced::{keyboard, widget, Point};
 pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
 use isomfolio_core::extension::ExtensionManifest;
 use isomfolio_core::folder_tree::FolderNode;
-use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag};
+use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, SortField};
 use isomfolio_core::storage::db::LibraryRoot;
 
 #[derive(Debug, Clone)]
@@ -38,9 +38,7 @@ pub const TILE_SIZE_MIN: f32 = 80.0;
 pub const TILE_SIZE_MAX: f32 = 400.0;
 pub const SIDEBAR_WIDTH_MIN: f32 = 140.0;
 pub const SIDEBAR_WIDTH_MAX: f32 = 400.0;
-pub const ALBUM_ROW_GAP: f32 = 2.0;
 pub const BUFFER_ROWS: usize = 2;
-pub const SIDEBAR_ALBUMS_BASE_Y: f32 = 184.0;
 pub const SEARCH_BAR_HEIGHT: f32 = 40.0;
 pub const CRITERIA_ROW_HEIGHT: f32 = 32.0;
 pub const CRITERIA_ROW_COUNT: usize = 5;
@@ -135,7 +133,21 @@ pub enum Msg {
         dx: i32,
         dy: i32,
     },
+    /// Shift+Arrow: extend the grid selection toward the new position.
+    NavigateExtend {
+        dx: i32,
+        dy: i32,
+    },
+    /// Delete/Backspace: remove the selected photos from the current manual
+    /// album (non-destructive — files stay on disk and in the catalog).
+    DeleteKeyPressed,
     OpenLoupe,
+    /// Loupe zoom/pan changed via trackpad/scroll or pan-drag (new scale + offset).
+    LoupeZoomChanged { scale: f32, pan: iced::Vector },
+    /// Loupe zoom button: multiply the current zoom by `factor` (centred).
+    LoupeZoomBy(f32),
+    /// Reset loupe zoom/pan to fit-to-window.
+    LoupeZoomReset,
 
     Scrolled {
         y: f32,
@@ -179,6 +191,7 @@ pub enum Msg {
 
     SortFieldCycle,
     SortDirToggle,
+    SetSortField(SortField),
 
     SearchChanged(String),
 
@@ -268,7 +281,8 @@ pub enum Msg {
     RatingsLoaded(HashMap<String, i32>),
     ToggleHideRejects,
     SetFlagFilter(FlagFilter),
-    SetRatingFilter(Option<i32>),
+    SetRatingFilter(isomfolio_core::models::RatingFilter),
+    SetRatingCmp(RatingCmp),
     SetLocationFilter(Option<bool>),
     SetPersonFilter(Option<String>),
     SetAddedWithinFilter(Option<i64>),
@@ -373,6 +387,34 @@ pub enum UndoOp {
     SetFlags { before: Vec<(String, Flag)> },
 }
 
+/// Comparator for the star-rating filter UI. Combined with a star count chip to
+/// produce a `RatingFilter::{AtLeast,Exactly,AtMost}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RatingCmp {
+    AtLeast,
+    Exactly,
+    AtMost,
+}
+
+impl RatingCmp {
+    pub fn apply(self, n: i32) -> isomfolio_core::models::RatingFilter {
+        use isomfolio_core::models::RatingFilter;
+        match self {
+            RatingCmp::AtLeast => RatingFilter::AtLeast(n),
+            RatingCmp::Exactly => RatingFilter::Exactly(n),
+            RatingCmp::AtMost => RatingFilter::AtMost(n),
+        }
+    }
+
+    pub fn symbol(self) -> &'static str {
+        match self {
+            RatingCmp::AtLeast => "≥",
+            RatingCmp::Exactly => "=",
+            RatingCmp::AtMost => "≤",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DatePreset {
     Last7,
@@ -390,7 +432,9 @@ pub struct FilterState {
     pub exts: HashSet<String>,
     pub save_smart_input: Option<String>,
     pub flag_filter: FlagFilter,
-    pub rating_min: Option<i32>,
+    pub rating: isomfolio_core::models::RatingFilter,
+    /// UI-only: comparator applied to the next star-count chip click.
+    pub rating_cmp: RatingCmp,
     pub hide_rejects: bool,
     pub has_location: Option<bool>,
     /// Selected person face-cluster id, if filtering by person.
@@ -412,7 +456,8 @@ impl Default for FilterState {
             exts: HashSet::new(),
             save_smart_input: None,
             flag_filter: FlagFilter::All,
-            rating_min: None,
+            rating: isomfolio_core::models::RatingFilter::Any,
+            rating_cmp: RatingCmp::AtLeast,
             hide_rejects: false,
             has_location: None,
             person: None,

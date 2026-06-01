@@ -1,10 +1,24 @@
 use iced::widget::scrollable::Direction;
 use iced::{
-    widget::{button, column, container, image, row, scrollable, stack, text, text_input, Space},
+    widget::{button, column, container, image, pick_list, row, scrollable, stack, text, text_input, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
-use isomfolio_core::models::{Flag, FlagFilter, ThumbnailState};
+use isomfolio_core::models::{Flag, FlagFilter, RatingFilter, SortField, ThumbnailState};
+
+/// Sort fields in the order they appear in the toolbar dropdown.
+const SORT_FIELDS: [SortField; 4] =
+    [SortField::Name, SortField::Date, SortField::Size, SortField::Ext];
+
+/// `pick_list` wrapper so a `SortField` renders with its human label.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SortChoice(SortField);
+
+impl std::fmt::Display for SortChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(sort_field_label(self.0))
+    }
+}
 
 use super::styles::{
     active_chip_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID, BG_TILE_LOADING, BORDER,
@@ -13,18 +27,26 @@ use super::styles::{
 };
 use crate::app::{
     format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, DatePreset, Msg,
-    BUFFER_ROWS, GRID_PADDING, TILE_GAP,
+    RatingCmp, BUFFER_ROWS, GRID_PADDING, TILE_GAP,
 };
 
 impl App {
     pub(super) fn view_grid(&self) -> Element<'_, Msg> {
         let filter_panel_open = self.filters.show;
         let filters_active = self.has_active_filters();
-        let sort_label = format!(
-            "{} {}",
-            sort_field_label(self.sort_by),
-            if self.sort_asc { "▲" } else { "▼" }
-        );
+        let hide_rejects_on = self.filters.hide_rejects;
+
+        let sort_choices: Vec<SortChoice> = SORT_FIELDS.iter().copied().map(SortChoice).collect();
+        let sort_picker = pick_list(
+            sort_choices,
+            Some(SortChoice(self.sort_by)),
+            |c| Msg::SetSortField(c.0),
+        )
+        .text_size(TEXT_MD)
+        .padding([SPACE_1, SPACE_1_5]);
+        let sort_dir = button(text(if self.sort_asc { "▲" } else { "▼" }).size(TEXT_MD))
+            .on_press(Msg::SortDirToggle)
+            .style(ghost_btn_style);
 
         let toolbar_row = row![
             text_input("Search names & tags…", &self.search_text)
@@ -32,6 +54,11 @@ impl App {
                 .padding([SPACE_1_5, SPACE_2_5])
                 .size(TEXT_BASE)
                 .width(Length::Fill),
+            button(text("Hide Rejects").size(TEXT_MD))
+                .on_press(Msg::ToggleHideRejects)
+                .style(move |t: &Theme, s| {
+                    if hide_rejects_on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+                }),
             button(
                 text(if filters_active { "Filters ●" } else { "Filters" })
                     .size(TEXT_MD)
@@ -44,9 +71,9 @@ impl App {
                     ghost_btn_style(t, s)
                 }
             }),
-            button(text(sort_label).size(TEXT_MD))
-                .on_press(Msg::SortCycleAll)
-                .style(ghost_btn_style),
+            text("Sort").size(TEXT_MD).color(FG_DIM),
+            sort_picker,
+            sort_dir,
         ]
         .spacing(SPACE_2)
         .align_y(Alignment::Center);
@@ -273,6 +300,38 @@ impl App {
         stack(layers).into()
     }
 
+    /// Star-rating filter: Any · Unrated · a comparator (≥ = ≤) · star counts.
+    /// The comparator combines with a star chip to form the active filter, so
+    /// culls like "unrated only", "exactly 2", or "≤ 1" are all expressible.
+    fn rating_filter_row(&self) -> Element<'_, Msg> {
+        let cur = self.filters.rating;
+        let cmp = self.filters.rating_cmp;
+
+        let mut r = row![text("Stars").size(TEXT_SM).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+
+        let chip = |label: String, active: bool, msg: Msg| {
+            button(text(label).size(TEXT_SM))
+                .on_press(msg)
+                .style(if active { active_chip_style } else { ghost_btn_style })
+        };
+
+        r = r.push(chip("Any".into(), matches!(cur, RatingFilter::Any), Msg::SetRatingFilter(RatingFilter::Any)));
+        r = r.push(chip("Unrated".into(), matches!(cur, RatingFilter::Unrated), Msg::SetRatingFilter(RatingFilter::Unrated)));
+
+        for c in [RatingCmp::AtLeast, RatingCmp::Exactly, RatingCmp::AtMost] {
+            r = r.push(chip(c.symbol().into(), cmp == c, Msg::SetRatingCmp(c)));
+        }
+
+        for n in 1..=5i32 {
+            let active = matches!(cur,
+                RatingFilter::AtLeast(v) | RatingFilter::Exactly(v) | RatingFilter::AtMost(v) if v == n);
+            r = r.push(chip(n.to_string(), active, Msg::SetRatingFilter(cmp.apply(n))));
+        }
+        r.into()
+    }
+
     pub(super) fn view_filter_panel(&self) -> Element<'_, Msg> {
         let mut col = column![].spacing(SPACE_1_5).padding([SPACE_1_5, SPACE_3]);
 
@@ -389,18 +448,7 @@ impl App {
             );
         col = col.push(flag_row);
 
-        let mut rating_row = row![text("Stars").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        for (label, min) in [("Any", None), ("1+", Some(1)), ("2+", Some(2)), ("3+", Some(3)), ("4+", Some(4)), ("5", Some(5))] {
-            let active = self.filters.rating_min == min;
-            rating_row = rating_row.push(
-                button(text(label).size(TEXT_SM))
-                    .on_press(Msg::SetRatingFilter(min))
-                    .style(if active { active_chip_style } else { ghost_btn_style }),
-            );
-        }
-        col = col.push(rating_row);
+        col = col.push(self.rating_filter_row());
 
         let mut loc_row = row![text("Location").size(TEXT_SM).color(FG_DIM)]
             .spacing(SPACE_1)

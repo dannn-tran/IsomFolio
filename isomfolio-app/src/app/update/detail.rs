@@ -231,7 +231,7 @@ impl App {
             }
 
             Msg::RatingsApplied => {
-                if self.filters.rating_min.is_some() { self.load_files_task() } else { Task::none() }
+                if self.filters.rating.is_active() { self.load_files_task() } else { Task::none() }
             }
 
             Msg::RatingsLoaded(map) => {
@@ -250,10 +250,26 @@ impl App {
                 self.load_files_task()
             }
 
-            Msg::SetRatingFilter(min) => {
-                self.filters.rating_min = min;
+            Msg::SetRatingFilter(rating) => {
+                self.filters.rating = rating;
                 self.mark_smart_dirty();
                 self.load_files_task()
+            }
+
+            Msg::SetRatingCmp(cmp) => {
+                self.filters.rating_cmp = cmp;
+                // Re-apply the comparator to the current star count, if one is set.
+                use isomfolio_core::models::RatingFilter;
+                let n = match self.filters.rating {
+                    RatingFilter::AtLeast(n) | RatingFilter::Exactly(n) | RatingFilter::AtMost(n) => Some(n),
+                    _ => None,
+                };
+                if let Some(n) = n {
+                    self.filters.rating = cmp.apply(n);
+                    self.mark_smart_dirty();
+                    return self.load_files_task();
+                }
+                Task::none()
             }
 
             Msg::SetLocationFilter(val) => {

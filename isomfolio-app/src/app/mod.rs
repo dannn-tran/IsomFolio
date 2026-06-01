@@ -34,11 +34,32 @@ pub struct LoupeState {
     pub idx: usize,
     pub full_res: Option<(usize, iced::widget::image::Handle)>,
     pub prefetch: HashMap<usize, iced::widget::image::Handle>,
+    /// Zoom factor (1.0 = fit-to-window) and pan offset in screen pixels.
+    /// Shared by the trackpad gestures and the zoom buttons.
+    pub zoom: f32,
+    pub pan: iced::Vector,
+}
+
+pub const LOUPE_ZOOM_MIN: f32 = 1.0;
+pub const LOUPE_ZOOM_MAX: f32 = 8.0;
+
+impl LoupeState {
+    /// Reset zoom/pan back to fit-to-window (on open and on navigate).
+    pub fn reset_zoom(&mut self) {
+        self.zoom = 1.0;
+        self.pan = iced::Vector::ZERO;
+    }
 }
 
 impl Default for LoupeState {
     fn default() -> Self {
-        Self { idx: 0, full_res: None, prefetch: HashMap::new() }
+        Self {
+            idx: 0,
+            full_res: None,
+            prefetch: HashMap::new(),
+            zoom: 1.0,
+            pan: iced::Vector::ZERO,
+        }
     }
 }
 
@@ -113,6 +134,9 @@ pub struct App {
     pub library_roots: Vec<isomfolio_core::storage::db::LibraryRoot>,
     pub cameras: Vec<String>,
     pub pending_restore: Option<SidebarItem>,
+    /// Folder subtree to auto-expand once the sidebar tree reloads (set after a
+    /// sync so a freshly-added folder's children are revealed, not collapsed).
+    pub expand_under_path: Option<String>,
     pub add_folder_prompt: Option<AddFolderPrompt>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
@@ -124,6 +148,19 @@ pub struct App {
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
     pub anchor_idx: Option<usize>,
+    /// Moving end of a range-selection (Shift+Arrow / Shift+click). `anchor_idx`
+    /// is the fixed end; the selection spans the two.
+    pub select_lead: Option<usize>,
+    /// Selection snapshot taken when the anchor was last set (plain/Cmd click).
+    /// A Shift range is computed as `base ∪ [anchor..=lead]`, so Shift can both
+    /// grow and shrink the range while preserving disjoint Cmd-selected tiles.
+    pub selection_base: std::collections::HashSet<String>,
+    /// Last focused grid index per sidebar item (token), so returning to a
+    /// folder/album restores the grid position instead of jumping to the top.
+    pub saved_positions: HashMap<String, usize>,
+    /// Grid index to restore after the next `FilesLoaded` (set when switching
+    /// to a view that has a remembered position).
+    pub pending_restore_idx: Option<usize>,
 
     pub scroll_y: f32,
     pub viewport_height: f32,
@@ -337,6 +374,7 @@ impl App {
             library_roots: Vec::new(),
             cameras: Vec::new(),
             pending_restore: None,
+            expand_under_path: None,
             dirty_folders: HashSet::new(),
             add_folder_prompt: None,
             albums: Vec::new(),
@@ -348,6 +386,10 @@ impl App {
             grid_selected: HashSet::new(),
             tile_px: 180.0,
             anchor_idx: None,
+            select_lead: None,
+            selection_base: HashSet::new(),
+            saved_positions: HashMap::new(),
+            pending_restore_idx: None,
             scroll_y: 0.0,
             viewport_height: 600.0,
             viewport_width: 1060.0,
@@ -479,7 +521,7 @@ impl App {
             || !self.filters.date_from.is_empty()
             || !self.filters.date_to.is_empty()
             || self.filters.flag_filter != FlagFilter::All
-            || self.filters.rating_min.is_some()
+            || self.filters.rating.is_active()
             || self.filters.hide_rejects
             || self.filters.has_location.is_some()
             || self.filters.person.is_some()
@@ -570,7 +612,7 @@ impl App {
             sort_by: self.sort_by,
             sort_asc: self.sort_asc,
             flag_filter: effective_flag,
-            rating_min: self.filters.rating_min,
+            rating: self.filters.rating,
             has_location: self.filters.has_location,
             person_cluster: self.filters.person.clone(),
             camera_model: self.filters.camera.clone(),

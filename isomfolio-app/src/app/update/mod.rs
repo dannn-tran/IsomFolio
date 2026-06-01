@@ -97,6 +97,7 @@ impl App {
             | Msg::ToggleHideRejects
             | Msg::SetFlagFilter(_)
             | Msg::SetRatingFilter(_)
+            | Msg::SetRatingCmp(_)
             | Msg::SetLocationFilter(_)
             | Msg::Undo
             | Msg::Redo
@@ -106,7 +107,11 @@ impl App {
             Msg::TileSizeUp
             | Msg::TileSizeDown
             | Msg::Navigate { .. }
+            | Msg::NavigateExtend { .. }
             | Msg::OpenLoupe
+            | Msg::LoupeZoomChanged { .. }
+            | Msg::LoupeZoomBy(_)
+            | Msg::LoupeZoomReset
             | Msg::TogglePreview
             | Msg::SidebarResizeStart
             | Msg::MouseMoved(_)
@@ -255,6 +260,7 @@ impl App {
             | Msg::RemoveFromAlbum
             | Msg::CancelRemoveFromAlbum
             | Msg::ConfirmRemoveFromAlbum
+            | Msg::DeleteKeyPressed
             | Msg::SaveAsSmartAlbum
             | Msg::SmartAlbumNameChanged(_)
             | Msg::ConfirmSmartAlbum
@@ -264,6 +270,7 @@ impl App {
             // — search & filter criteria —
             Msg::SortFieldCycle
             | Msg::SortDirToggle
+            | Msg::SetSortField(_)
             | Msg::SortCycleAll
             | Msg::SearchChanged(_)
             | Msg::ToggleFilterPanel
@@ -328,7 +335,7 @@ impl App {
                             self.filters.exts = q.extensions.iter().cloned().collect();
                             self.search_text = q.text.clone().unwrap_or_default();
                             self.filters.has_location = q.has_location;
-                            self.filters.rating_min = q.rating_min;
+                            self.filters.rating = q.rating;
                             self.filters.flag_filter = q.flag_filter;
                             self.filters.person = q.person_cluster.clone();
                             self.filters.camera = q.camera_model.clone();
@@ -337,6 +344,13 @@ impl App {
                         }
                     }
                 }
+                // Remember where we were in the outgoing view, then look up a
+                // saved position for the one we're switching to so returning to
+                // a folder/album lands where we left off instead of the top.
+                if let Some(idx) = self.anchor_idx {
+                    self.saved_positions.insert(self.selected_item.to_token(), idx);
+                }
+                let restore_idx = self.saved_positions.get(&item.to_token()).copied();
                 self.selected_item = item;
                 if matches!(self.view_mode, super::ViewMode::People) {
                     self.view_mode = super::ViewMode::Browse;
@@ -345,7 +359,11 @@ impl App {
                 self.file_ratings.clear();
                 self.scroll_y = 0.0;
                 self.loupe.idx = 0;
+                self.anchor_idx = None;
+                self.select_lead = None;
+                self.pending_restore_idx = restore_idx;
                 self.grid_selected.clear();
+                self.selection_base.clear();
                 self.drag.state = None;
                 self.drag.ids.clear();
                 self.filters.save_smart_input = None;
@@ -360,9 +378,24 @@ impl App {
                 self.files = files;
                 self.enqueue_thumbnails();
                 self.status = format!("{} photo(s)", self.files.len());
+                let restore = self.pending_restore_idx.take().and_then(|idx| {
+                    (idx < self.files.len()).then(|| {
+                        self.anchor_idx = Some(idx);
+                        self.select_lead = Some(idx);
+                        self.grid_selected.clear();
+                        self.selection_base.clear();
+                        if let Some(f) = self.files.get(idx) {
+                            self.grid_selected.insert(f.id.clone());
+                        }
+                        self.scroll_to_index(idx)
+                    })
+                });
                 let t1 = self.maybe_load_detail();
                 let t2 = self.load_ratings_task();
-                Task::batch([t1, t2])
+                match restore {
+                    Some(scroll) => Task::batch([scroll, t1, t2]),
+                    None => Task::batch([t1, t2]),
+                }
             }
 
             Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts } => {
@@ -372,6 +405,11 @@ impl App {
                 self.cameras = cameras;
                 self.albums = albums;
                 self.album_counts = album_counts;
+                if let Some(target) = self.expand_under_path.take() {
+                    for p in isomfolio_core::folder_tree::expand_paths_for(&self.folder_tree, &target) {
+                        self.expanded_folders.insert(p);
+                    }
+                }
                 self.start_watchers_for_folders();
                 let restore = self.pending_restore.take().filter(|item| match item {
                     SidebarItem::AllFiles => true,
@@ -487,6 +525,9 @@ impl App {
                 self.scroll_y = 0.0;
                 self.files.clear();
                 self.grid_selected.clear();
+                self.selection_base.clear();
+                self.anchor_idx = None;
+                self.select_lead = None;
                 self.load_files_task()
             }
 
