@@ -123,10 +123,17 @@ impl App {
 
             Msg::FaceClusteringDone(summaries) => {
                 let count = summaries.len();
+                let unnamed = summaries.iter().filter(|c| c.name.is_none()).count();
                 self.faces.clusters = summaries;
                 self.faces.is_clustering = false;
                 self.faces.progress = None;
-                self.faces.status = Some(format!("{count} people found"));
+                let msg = if unnamed > 0 {
+                    format!("{count} people found · {unnamed} unnamed")
+                } else {
+                    format!("{count} people found")
+                };
+                self.faces.status = Some(msg.clone());
+                self.status = msg;
                 self.load_face_crops_task()
             }
 
