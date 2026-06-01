@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use iced::Task;
-use isomfolio_core::file_index::compute_file_id;
 use isomfolio_core::indexing::types::FileEvent;
 use isomfolio_core::path_utils::{normalize_path, CATALOG_EXT};
 
@@ -97,6 +96,12 @@ impl App {
                 self.is_syncing = false;
                 self.status = format!("Synced {count} photo(s)");
                 let path = self.last_synced_path.take();
+                if let Some(ref synced) = path {
+                    let sep = std::path::MAIN_SEPARATOR;
+                    let prefix = format!("{synced}{sep}");
+                    self.dirty_folders
+                        .retain(|d| d != synced && !d.starts_with(&prefix));
+                }
                 let t1 = self.load_sidebar_task();
                 let t_nav = if let Some(p) = path {
                     Task::done(Msg::SidebarItemClicked(super::super::SidebarItem::Folder(p)))
@@ -137,6 +142,9 @@ impl App {
                     return Task::none();
                 };
                 self.expanded_folders.remove(&path);
+                let sep = std::path::MAIN_SEPARATOR;
+                let prefix = format!("{path}{sep}");
+                self.dirty_folders.retain(|d| d != &path && !d.starts_with(&prefix));
                 Task::perform(
                     async move {
                         let guard = conn.lock_unwrap();
@@ -207,40 +215,46 @@ impl App {
                     return Task::none();
                 };
 
-                let mut upsert: Vec<String> = Vec::new();
-                let mut orphan_ids: Vec<String> = Vec::new();
-
+                // Content changes of an already-tracked file (same path) are a
+                // cache refresh only — re-read derived data + regenerate the
+                // thumbnail, never touching user metadata. Structural changes
+                // (add / delete / rename) are NOT auto-applied: they mark the
+                // folder dirty and the user applies them by syncing. This keeps
+                // the catalog transparent and avoids orphaning on transient
+                // unmount/move events.
+                let mut modified: Vec<String> = Vec::new();
                 for event in events {
                     match event {
-                        FileEvent::Created(p) | FileEvent::Modified(p) => upsert.push(p),
-                        FileEvent::Deleted(p) => {
-                            orphan_ids.push(compute_file_id(&normalize_path(&p)));
+                        FileEvent::Modified(p) => modified.push(p),
+                        FileEvent::Created(p) | FileEvent::Deleted(p) => {
+                            if let Some(folder) = parent_folder(&p) {
+                                self.dirty_folders.insert(folder);
+                            }
                         }
                         FileEvent::Renamed { old_path, new_path } => {
-                            orphan_ids.push(compute_file_id(&normalize_path(&old_path)));
-                            upsert.push(new_path);
+                            if let Some(folder) = parent_folder(&old_path) {
+                                self.dirty_folders.insert(folder);
+                            }
+                            if let Some(folder) = parent_folder(&new_path) {
+                                self.dirty_folders.insert(folder);
+                            }
                         }
                         FileEvent::SyncProgress(_) => {}
                     }
                 }
 
-                if upsert.is_empty() && orphan_ids.is_empty() {
+                if modified.is_empty() {
                     return Task::none();
                 }
 
+                self.refresh_thumbnails(&modified);
+                let to_resync = modified;
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             let cat = conn.lock_unwrap();
-                            if !upsert.is_empty() {
-                                if let Err(e) = cat.resync_files(&upsert) {
-                                    eprintln!("[db] resync_files failed: {e}");
-                                }
-                            }
-                            if !orphan_ids.is_empty() {
-                                if let Err(e) = cat.mark_orphaned_batch(&orphan_ids) {
-                                    eprintln!("[db] mark_orphaned_batch failed: {e}");
-                                }
+                            if let Err(e) = cat.resync_files(&to_resync) {
+                                eprintln!("[db] resync_files failed: {e}");
                             }
                         })
                         .await
@@ -408,6 +422,16 @@ impl App {
             _ => Task::none(),
         }
     }
+}
+
+/// Normalised parent folder of a path — matches the `folder` column stored on
+/// files, so it lines up with folder-tree node paths for dirty-marking.
+fn parent_folder(path: &str) -> Option<String> {
+    let norm = normalize_path(path);
+    std::path::Path::new(&norm)
+        .parent()
+        .and_then(|p| p.to_str())
+        .map(|s| s.to_string())
 }
 
 fn is_under_catalog_dir(path: &str) -> bool {

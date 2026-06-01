@@ -135,6 +135,11 @@ pub struct App {
 
     pub thumb_ctx: ThumbnailContext,
 
+    /// Folders the watcher has flagged as changed-on-disk since the last sync.
+    /// The watcher never auto-applies — these surface as a badge and the user
+    /// applies them by syncing (transparency: see project_image_loading_design).
+    pub dirty_folders: HashSet<String>,
+
     pub watcher_tx: mpsc::SyncSender<FileEvent>,
     pub watcher_rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<FileEvent>>>>,
     pub watchers: Vec<(String, FileWatcher)>,
@@ -332,6 +337,7 @@ impl App {
             library_roots: Vec::new(),
             cameras: Vec::new(),
             pending_restore: None,
+            dirty_folders: HashSet::new(),
             add_folder_prompt: None,
             albums: Vec::new(),
             album_counts: HashMap::new(),
@@ -634,6 +640,39 @@ impl App {
             }
             self.thumb_ctx.pending += newly_enqueued;
             self.task_panel_open = true;
+        }
+    }
+
+    /// Force-regenerate cached thumbnails for the given paths (content changed
+    /// on disk but the path — and thus the file id — is unchanged). Busts the
+    /// stale cache entry and re-enqueues. User metadata is untouched.
+    pub(crate) fn refresh_thumbnails(&mut self, paths: &[String]) {
+        if self.thumb_ctx.pool.is_none() {
+            return;
+        }
+        let catalog_dir = self.catalog_dir.clone();
+        let mut enqueued = 0usize;
+        for path in paths {
+            let id = isomfolio_core::file_index::compute_file_id(
+                &isomfolio_core::path_utils::normalize_path(path),
+            );
+            let cache = thumbnail_cache_path(&catalog_dir, &id);
+            let _ = std::fs::remove_file(&cache);
+            self.thumbnails.insert(id.clone(), ThumbnailState::Pending);
+            if let Some(pool) = &self.thumb_ctx.pool {
+                pool.enqueue(&id, path, 0);
+            }
+            enqueued += 1;
+        }
+        if enqueued > 0 {
+            self.thumb_ctx.done_gen += 1;
+            if self.thumb_ctx.pending == 0 {
+                self.thumb_ctx.total = enqueued;
+                self.thumb_ctx.start_at = Some(Instant::now());
+            } else {
+                self.thumb_ctx.total += enqueued;
+            }
+            self.thumb_ctx.pending += enqueued;
         }
     }
 

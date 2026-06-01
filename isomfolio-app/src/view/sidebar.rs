@@ -252,7 +252,8 @@ impl App {
         } else {
             let sel = self.selected_item == SidebarItem::Folder(node.path.clone());
             let expanded = self.expanded_folders.contains(&node.path);
-            out.push(folder_tree_row(node, depth, sel, expanded, max_chars));
+            let dirty = self.folder_is_dirty(path);
+            out.push(folder_tree_row(node, depth, sel, expanded, dirty, max_chars));
         }
 
         if !node.children.is_empty() && self.expanded_folders.contains(&node.path) {
@@ -260,6 +261,15 @@ impl App {
                 self.collect_folder_rows(child, depth + 1, max_chars, out);
             }
         }
+    }
+
+    /// A folder is dirty if the watcher flagged on-disk changes in it or any
+    /// descendant since the last sync.
+    fn folder_is_dirty(&self, path: &str) -> bool {
+        let prefix = format!("{path}{}", std::path::MAIN_SEPARATOR);
+        self.dirty_folders
+            .iter()
+            .any(|d| d == path || d.starts_with(&prefix))
     }
 }
 
@@ -291,6 +301,7 @@ fn folder_tree_row<'a>(
     depth: usize,
     selected: bool,
     expanded: bool,
+    dirty: bool,
     max_chars: usize,
 ) -> Element<'a, Msg> {
     let path = node.path.clone();
@@ -336,6 +347,11 @@ fn folder_tree_row<'a>(
             )
             .width(Length::Fill)
             .clip(true),
+            if dirty {
+                text("●").size(TEXT_SM).color(ACCENT)
+            } else {
+                text("").size(TEXT_SM).color(FG_MUTED)
+            },
             if count > 0 {
                 text(format!(" {count}")).size(TEXT_SM).color(FG_MUTED)
             } else {

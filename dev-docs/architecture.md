@@ -49,14 +49,14 @@ Keyboard shortcuts are defined declaratively in `src/app/keybinds.rs` and the sh
 
 | Event | Action |
 |---|---|
-| File created (watcher) | Index; apply first-sync rules (metadata + tag import if enabled) |
-| File modified (watcher) | Refresh file identity only — no metadata writes; user edits survive |
-| File deleted (watcher) | Mark orphaned |
-| File renamed/moved | Orphans old path, indexes new path as fresh file. User uses Locate… to recover. |
+| File created (watcher) | **Structural** — mark the folder dirty (accent dot). Not indexed until the user syncs. |
+| File modified (watcher) | **Content-only, same path** — refresh file identity + regenerate the thumbnail. No metadata writes; user edits survive. Applied automatically (cache refresh, not a catalog mutation). |
+| File deleted (watcher) | **Structural** — mark the folder dirty. Orphaning happens on sync, not on the raw event. |
+| File renamed/moved | **Structural** — mark both folders dirty; resolved on sync. User uses Locate… to recover metadata. |
 | XMP sidecar changed | Not watched — explicit via right-click → Import XMP metadata |
-| Sync Folder (user) | New files → first-sync rules; existing → identity refresh only |
+| Sync Folder (user) | Applies structural changes: new → first-sync rules; missing → orphan; existing → identity refresh. Clears the folder's dirty state. |
 
-**Watcher is a dirty flag, not a reconciler.** It signals that something changed; the app decides when to act. There is no auto-reconcile on startup.
+**Watcher is a dirty flag, not a reconciler.** Structural changes (add / delete / rename) are *surfaced* — a dirty dot on the folder — and applied only when the user syncs, so a transient unmount or move never silently orphans records or imports junk. The one exception is a pure content edit of an already-tracked file: that has no structural effect and no metadata risk, so its thumbnail is refreshed in place. There is no auto-reconcile on startup.
 
 ### XMP precedence
 

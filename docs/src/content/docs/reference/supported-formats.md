@@ -24,7 +24,7 @@ When a `.xmp` sidecar is present, IsomFolio reads it on every sync:
 - **`xmp:Rating`** seeds the photo's star rating
 - **`xmp:Label`** and Dublin Core title/description are shown read-only in the Info panel
 
-When the file watcher detects that a `.xmp` sidecar has changed, a notification appears in the sidebar — **"XMP updated — N files"** — with Apply and Dismiss buttons. Clicking Apply imports the new metadata; Dismiss ignores the change until the next manual sync. XMP writing is not supported — IsomFolio does not modify your sidecar files.
+Sidecars are read on sync, not watched continuously. To pull in changes you made to a `.xmp` in another app, select the affected photos and use **right-click → Import XMP metadata**. XMP writing is not supported — IsomFolio never modifies your sidecar files.
 
 ## Formats not supported
 

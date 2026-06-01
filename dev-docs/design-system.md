@@ -130,6 +130,7 @@ Folders render as a navigable **tree**, not a flat list. The tree is built by `f
 - **Count** → shows `total_count` (photos in the folder *and* all descendants), not just direct children.
 - **Selection** → clicking the label selects the folder (`SidebarItem::Folder`) and loads its photos recursively. The chevron is a separate button and does not change selection.
 - **Scan depth** → whether subfolders are indexed is chosen once when the folder is added (the "Include subfolders" checkbox in the add-folder dialog) and stored per root in the `library_roots` table. Re-sync honours the stored choice; unknown paths default to recursive.
+- **Dirty dot** → an accent `●` after the folder name means the watcher saw structural changes on disk (files added / removed / renamed) that have not been applied. The catalog is never mutated silently — the user applies the changes by syncing the folder (`Cmd+R` or context menu), which clears the dot. (Pure content edits to an already-tracked file are not structural: they just refresh that file's thumbnail, no dot.)
 
 ### Context menu
 

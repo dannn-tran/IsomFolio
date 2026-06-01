@@ -43,7 +43,7 @@ Yes. Delete `MyPhotos.isfcatalog/thumbnails/` and IsomFolio will regenerate thum
 
 ### What happens if I move my photos?
 
-If photos move to a new path, IsomFolio marks them as orphaned. Use **File → Sync Folder** on the affected folder to update paths. IsomFolio does not automatically track file moves — a file moved is treated as a deletion at the old path and a new file at the new path.
+When files are added, removed, moved, or renamed in a watched folder, IsomFolio flags that folder with a dot in the sidebar — it does **not** change your catalog automatically. Sync the folder (`Cmd+R` or right-click → Sync Folder) to apply the changes: new files are indexed, missing files are marked orphaned. A move is treated as a deletion at the old path and a new file at the new path; use **Locate…** to reconnect a moved file and keep its ratings and tags. (Editing a photo's pixels in place — same path — just refreshes its thumbnail; nothing to sync.)
 
 ---
 
