@@ -203,6 +203,14 @@ fn execute_query_inner(
         param_idx += 1;
     }
 
+    if let Some(ref label) = query.color_label {
+        sql.push_str(&format!(
+            " AND f.id IN (SELECT file_id FROM metadata WHERE label = ?{param_idx})"
+        ));
+        params.push(Box::new(label.clone()));
+        param_idx += 1;
+    }
+
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
     let nulls_clause = if matches!(query.sort_by, SortField::Date) { " NULLS LAST" } else { "" };
     sql.push_str(&format!(" ORDER BY {} {}{}", sort_column(query.sort_by), dir, nulls_clause));
@@ -515,6 +523,30 @@ mod tests {
         fn any_returns_all() {
             let (c, _f) = setup();
             assert_eq!(ids(&c, RatingFilter::Any).len(), 4);
+        }
+    }
+
+    mod color_label {
+        use super::*;
+        use crate::storage::db;
+
+        #[test]
+        fn filters_by_color_label_round_trip() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "red1", "a.jpg", "/p", "jpg", 1);
+            insert(&conn, "red2", "b.jpg", "/p", "jpg", 2);
+            insert(&conn, "blue1", "c.jpg", "/p", "jpg", 3);
+            db::set_files_label(&conn, &["red1".into(), "red2".into()], Some("Red")).unwrap();
+            db::set_files_label(&conn, &["blue1".into()], Some("Blue")).unwrap();
+
+            let q = SearchQuery { color_label: Some("Red".into()), sort_by: SortField::Date, ..Default::default() };
+            let ids: Vec<String> = execute_search(&conn, &q).unwrap().into_iter().map(|f| f.id).collect();
+            assert_eq!(ids, vec!["red1", "red2"]);
+
+            // Clearing a label drops it from the filter.
+            db::set_files_label(&conn, &["red1".into()], None).unwrap();
+            let ids: Vec<String> = execute_search(&conn, &q).unwrap().into_iter().map(|f| f.id).collect();
+            assert_eq!(ids, vec!["red2"]);
         }
     }
 

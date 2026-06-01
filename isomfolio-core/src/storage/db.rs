@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -913,6 +913,37 @@ pub fn set_files_rating(conn: &Connection, file_ids: &[String], rating: Option<i
     }
     tx.commit()?;
     Ok(())
+}
+
+pub fn set_files_label(conn: &Connection, file_ids: &[String], label: Option<&str>) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    for id in file_ids {
+        conn.execute(
+            "INSERT INTO metadata (file_id, label) VALUES (?1, ?2) \
+             ON CONFLICT(file_id) DO UPDATE SET label = excluded.label",
+            params![id.as_str(), label],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Colour labels for the given files (file_id → label), skipping files with no label.
+pub fn get_file_labels(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, String>, AppError> {
+    let mut out = std::collections::HashMap::new();
+    let mut stmt = conn.prepare("SELECT label FROM metadata WHERE file_id = ?1")?;
+    for id in file_ids {
+        let label: Option<String> = stmt
+            .query_row(params![id.as_str()], |r| r.get(0))
+            .optional()?
+            .flatten();
+        if let Some(l) = label {
+            if !l.is_empty() {
+                out.insert(id.clone(), l);
+            }
+        }
+    }
+    Ok(out)
 }
 
 pub fn copy_album_files(

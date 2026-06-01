@@ -1,6 +1,7 @@
 mod compare;
 mod content;
 mod context_menu;
+mod loupe_image;
 mod menu_bar;
 mod people;
 mod sidebar;
@@ -434,11 +435,13 @@ impl App {
         };
 
         let img_element: Element<Msg> = match img_handle {
-            Some(handle) => image(handle)
-                .content_fit(iced::ContentFit::Contain)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
+            Some(handle) => loupe_image::LoupeImage::new(
+                handle,
+                self.loupe.zoom,
+                self.loupe.pan,
+                |scale, pan| Msg::LoupeZoomChanged { scale, pan },
+            )
+            .into(),
             None => {
                 if let Some(file) = self.files.get(idx) {
                     let thumb = self
@@ -511,6 +514,23 @@ impl App {
             ..Default::default()
         });
 
+        let zoom_pct = (self.loupe.zoom * 100.0).round() as i32;
+        let zoomed = self.loupe.zoom > crate::app::LOUPE_ZOOM_MIN;
+        let zoom_cluster = row![
+            button(text("−").size(TEXT_LG))
+                .on_press(Msg::LoupeZoomBy(0.8))
+                .style(ghost_btn_style),
+            text(format!("{zoom_pct}%")).size(TEXT_MD).color(FG_DIM),
+            button(text("+").size(TEXT_LG))
+                .on_press(Msg::LoupeZoomBy(1.25))
+                .style(ghost_btn_style),
+            button(text("Fit").size(TEXT_MD).color(if zoomed { FG } else { FG_DIM }))
+                .on_press(Msg::LoupeZoomReset)
+                .style(ghost_btn_style),
+        ]
+        .spacing(SPACE_2)
+        .align_y(Alignment::Center);
+
         let bottom_bar = container(
             row![
                 Space::new().width(Length::Fill),
@@ -520,6 +540,8 @@ impl App {
                 button(text("Next ›").size(TEXT_BASE))
                     .on_press(Msg::Navigate { dx: 1, dy: 0 })
                     .style(ghost_btn_style),
+                Space::new().width(SPACE_3),
+                zoom_cluster,
                 Space::new().width(Length::Fill),
             ]
             .spacing(SPACE_3)
@@ -595,9 +617,33 @@ impl App {
                 );
             }
 
+            let cur_label = self
+                .files
+                .get(idx)
+                .and_then(|f| self.file_labels.get(&f.id))
+                .cloned();
+            let mut color_row = row![].spacing(SPACE_1).align_y(Alignment::Center);
+            for name in styles::COLOR_LABELS {
+                let active = cur_label.as_deref() == Some(name);
+                let swatch = styles::color_label_swatch(name);
+                color_row = color_row.push(
+                    button(text("●").size(TEXT_LG).color(swatch))
+                        .on_press(Msg::SetColorLabel(Some(name.to_string())))
+                        .style(move |_: &Theme, _| button::Style {
+                            background: if active { Some(Background::Color(Color { a: 0.25, ..swatch })) } else { None },
+                            text_color: swatch,
+                            border: Border { radius: 4.0.into(), ..Default::default() },
+                            shadow: iced::Shadow::default(),
+                            snap: false,
+                        }),
+                );
+            }
+
             container(
                 row![
                     flag_row,
+                    Space::new().width(Length::Fill),
+                    color_row,
                     Space::new().width(Length::Fill),
                     rating_row,
                 ]

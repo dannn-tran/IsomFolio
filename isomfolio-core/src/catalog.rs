@@ -222,6 +222,14 @@ impl Catalog {
         db::set_files_flag(&self.conn, file_ids, flag)
     }
 
+    pub fn set_files_label(&self, file_ids: &[String], label: Option<&str>) -> Result<(), AppError> {
+        db::set_files_label(&self.conn, file_ids, label)
+    }
+
+    pub fn get_file_labels(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, String>, AppError> {
+        db::get_file_labels(&self.conn, file_ids)
+    }
+
     // Albums
 
     pub fn create_album(&self, album: &Album) -> Result<(), AppError> {

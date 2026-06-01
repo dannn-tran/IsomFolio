@@ -167,6 +167,9 @@ pub struct SearchQuery {
     /// Restrict to files whose EXIF camera model matches exactly.
     #[serde(default)]
     pub camera_model: Option<String>,
+    /// Restrict to files with this colour label (XMP `xmp:Label`, e.g. "Red").
+    #[serde(default)]
+    pub color_label: Option<String>,
     /// Include orphaned (missing) files in results. False by default so search/filter/albums
     /// never surface missing files. Set to true only when browsing a folder with no active criteria.
     #[serde(default)]
@@ -192,6 +195,7 @@ impl Default for SearchQuery {
             person_cluster: None,
             added_within_days: None,
             camera_model: None,
+            color_label: None,
             include_orphaned: false,
         }
     }

@@ -40,9 +40,9 @@ pub const SIDEBAR_WIDTH_MIN: f32 = 140.0;
 pub const SIDEBAR_WIDTH_MAX: f32 = 400.0;
 pub const BUFFER_ROWS: usize = 2;
 pub const SEARCH_BAR_HEIGHT: f32 = 40.0;
-/// Always-visible cull strip (flag + rating rows) under the toolbar. Fixed so
-/// grid hit-testing has an exact offset regardless of chip wrapping.
-pub const CULL_STRIP_HEIGHT: f32 = 76.0;
+/// Always-visible cull strip (flag + rating + colour rows) under the toolbar.
+/// Fixed so grid hit-testing has an exact offset regardless of chip wrapping.
+pub const CULL_STRIP_HEIGHT: f32 = 112.0;
 pub const CRITERIA_ROW_HEIGHT: f32 = 32.0;
 pub const CRITERIA_ROW_COUNT: usize = 3;
 pub const CRITERIA_PADDING: f32 = 18.0;
@@ -279,6 +279,11 @@ pub enum Msg {
     SyncDialogDone(Option<String>),
     SetFlag(Flag),
     SetRating(Option<i32>),
+    /// Set (or, when re-applying the same colour, clear) the colour label on the
+    /// current selection / loupe photo.
+    SetColorLabel(Option<String>),
+    SetColorFilter(Option<String>),
+    LabelsLoaded(HashMap<String, String>),
     FlagsApplied,
     RatingsApplied,
     RatingsLoaded(HashMap<String, i32>),
@@ -388,6 +393,7 @@ pub enum UndoOp {
     RemovedTag { file_ids: Vec<String>, tag: String },
     SetRatings { before: Vec<(String, Option<i32>)> },
     SetFlags { before: Vec<(String, Flag)> },
+    SetLabels { before: Vec<(String, Option<String>)> },
 }
 
 /// Comparator for the star-rating filter UI. Combined with a star count chip to
@@ -445,6 +451,8 @@ pub struct FilterState {
     pub added_within_days: Option<i64>,
     /// Selected EXIF camera model, if filtering by camera.
     pub camera: Option<String>,
+    /// Selected colour label, if filtering by colour.
+    pub color: Option<String>,
 }
 
 impl Default for FilterState {
@@ -464,6 +472,7 @@ impl Default for FilterState {
             person: None,
             added_within_days: None,
             camera: None,
+            color: None,
         }
     }
 }

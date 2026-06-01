@@ -237,6 +237,55 @@ impl App {
                 Task::none()
             }
 
+            Msg::LabelsLoaded(map) => {
+                self.file_labels = map;
+                Task::none()
+            }
+
+            Msg::SetColorLabel(color) => {
+                let ids: Vec<String> =
+                    if matches!(self.view_mode, super::super::ViewMode::Loupe) {
+                        self.files.get(self.loupe.idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
+                    } else {
+                        self.grid_selected.iter().cloned().collect()
+                    };
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                // Pressing the same colour again clears it (toggle off).
+                let effective = match &color {
+                    Some(c) if ids.iter().all(|id| self.file_labels.get(id) == Some(c)) => None,
+                    other => other.clone(),
+                };
+                let before: Vec<(String, Option<String>)> = ids
+                    .iter()
+                    .map(|id| (id.clone(), self.file_labels.get(id).cloned()))
+                    .collect();
+                for id in &ids {
+                    match &effective {
+                        Some(c) => { self.file_labels.insert(id.clone(), c.clone()); }
+                        None => { self.file_labels.remove(id); }
+                    }
+                }
+                self.undo_stack.push(UndoOp::SetLabels { before });
+                self.redo_stack.clear();
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                let label_owned = effective.clone();
+                let reload = self.filters.color.is_some();
+                let save = Task::perform(
+                    async move {
+                        let g = conn.lock_unwrap();
+                        g.set_files_label(&ids, label_owned.as_deref()).err().map(|e| e.to_string())
+                    },
+                    |e| match e { Some(err) => Msg::DbError(err), None => Msg::NoOp },
+                );
+                if reload {
+                    Task::batch([save, self.load_files_task()])
+                } else {
+                    save
+                }
+            }
+
             Msg::ToggleHideRejects => {
                 // Convenience for the common cull: toggle between "show picks +
                 // unflagged" and "show all".
@@ -292,7 +341,8 @@ impl App {
                 let t1 = self.load_files_task();
                 let t2 = self.maybe_load_detail();
                 let t3 = self.load_ratings_task();
-                Task::batch([t1, t2, t3])
+                let t4 = self.load_labels_task();
+                Task::batch([t1, t2, t3, t4])
             }
 
             _ => Task::none(),
@@ -404,6 +454,36 @@ impl App {
                         let g = conn.lock_unwrap();
                         for (id, flag) in &before {
                             if let Err(e) = g.set_file_flag(id, *flag) {
+                                return Some(e.to_string());
+                            }
+                        }
+                        None
+                    },
+                    |e| e.map_or(Msg::UndoApplied, Msg::DbError),
+                )
+            }
+            UndoOp::SetLabels { before } => {
+                let after: Vec<(String, Option<String>)> = before
+                    .iter()
+                    .map(|(id, _)| (id.clone(), self.file_labels.get(id).cloned()))
+                    .collect();
+                let inverse = UndoOp::SetLabels { before: after };
+                if is_undo {
+                    self.redo_stack.push(inverse);
+                } else {
+                    self.undo_stack.push(inverse);
+                }
+                for (id, label) in &before {
+                    match label {
+                        Some(l) => { self.file_labels.insert(id.clone(), l.clone()); }
+                        None => { self.file_labels.remove(id); }
+                    }
+                }
+                Task::perform(
+                    async move {
+                        let g = conn.lock_unwrap();
+                        for (id, label) in &before {
+                            if let Err(e) = g.set_files_label(&[id.clone()], label.as_deref()) {
                                 return Some(e.to_string());
                             }
                         }

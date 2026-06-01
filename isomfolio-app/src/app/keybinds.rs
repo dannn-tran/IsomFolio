@@ -32,6 +32,7 @@ pub struct Mods {
 
 impl Mods {
     pub const NONE: Self = Mods { command: false, shift: false };
+    pub const SHIFT: Self = Mods { command: false, shift: true };
     pub const CMD: Self = Mods { command: true, shift: false };
     pub const CMD_SHIFT: Self = Mods { command: true, shift: true };
 
@@ -60,6 +61,12 @@ pub fn default_bindings() -> Vec<KeyBind> {
         KeyBind { key: Named(Named::ArrowRight), mods: Mods::NONE, when_ignored: true,  action: || Msg::Navigate { dx: 1, dy: 0 },   label: "Next",              category: Navigation },
         KeyBind { key: Named(Named::ArrowUp),    mods: Mods::NONE, when_ignored: true,  action: || Msg::Navigate { dx: 0, dy: -1 },  label: "Up",                category: Navigation },
         KeyBind { key: Named(Named::ArrowDown),  mods: Mods::NONE, when_ignored: true,  action: || Msg::Navigate { dx: 0, dy: 1 },   label: "Down",              category: Navigation },
+        KeyBind { key: Named(Named::ArrowLeft),  mods: Mods::SHIFT, when_ignored: true, action: || Msg::NavigateExtend { dx: -1, dy: 0 }, label: "Extend selection left",  category: Navigation },
+        KeyBind { key: Named(Named::ArrowRight), mods: Mods::SHIFT, when_ignored: true, action: || Msg::NavigateExtend { dx: 1, dy: 0 },  label: "Extend selection right", category: Navigation },
+        KeyBind { key: Named(Named::ArrowUp),    mods: Mods::SHIFT, when_ignored: true, action: || Msg::NavigateExtend { dx: 0, dy: -1 }, label: "Extend selection up",    category: Navigation },
+        KeyBind { key: Named(Named::ArrowDown),  mods: Mods::SHIFT, when_ignored: true, action: || Msg::NavigateExtend { dx: 0, dy: 1 },  label: "Extend selection down",  category: Navigation },
+        KeyBind { key: Named(Named::Delete),     mods: Mods::NONE, when_ignored: true,  action: || Msg::DeleteKeyPressed,            label: "Remove from Album", category: Culling },
+        KeyBind { key: Named(Named::Backspace),  mods: Mods::NONE, when_ignored: true,  action: || Msg::DeleteKeyPressed,            label: "Remove from Album", category: Culling },
         KeyBind { key: Named(Named::Escape),     mods: Mods::NONE, when_ignored: false, action: || Msg::EscapePressed,                label: "Cancel / Back",     category: Navigation },
 
         // View
@@ -81,6 +88,10 @@ pub fn default_bindings() -> Vec<KeyBind> {
         KeyBind { key: Char("3"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(3)), label: "3 Stars",      category: Culling },
         KeyBind { key: Char("4"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(4)), label: "4 Stars",      category: Culling },
         KeyBind { key: Char("5"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(5)), label: "5 Stars",      category: Culling },
+        KeyBind { key: Char("6"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetColorLabel(Some("Red".into())),    label: "Label Red",    category: Culling },
+        KeyBind { key: Char("7"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetColorLabel(Some("Yellow".into())), label: "Label Yellow", category: Culling },
+        KeyBind { key: Char("8"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetColorLabel(Some("Green".into())),  label: "Label Green",  category: Culling },
+        KeyBind { key: Char("9"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetColorLabel(Some("Blue".into())),   label: "Label Blue",   category: Culling },
 
         // Selection
         KeyBind { key: Char("a"), mods: Mods::CMD,       when_ignored: true, action: || Msg::SelectAll,   label: "Select All",   category: Navigation },
@@ -118,6 +129,8 @@ pub fn format_key(bind: &KeyBind) -> String {
             keyboard::key::Named::Space => "Space",
             keyboard::key::Named::Escape => "Esc",
             keyboard::key::Named::Enter => "Enter",
+            keyboard::key::Named::Delete => "Del",
+            keyboard::key::Named::Backspace => "Backspace",
             _ => "?",
         }),
         Key::Char(c) => parts.push(match c {

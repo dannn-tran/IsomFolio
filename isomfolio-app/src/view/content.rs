@@ -217,6 +217,7 @@ impl App {
 
         let flag = file.flag;
         let rating = self.file_ratings.get(&file.id).copied().unwrap_or(0);
+        let color = self.file_labels.get(&file.id).cloned();
         let tile_px = self.tile_px;
 
         let mut layers: Vec<Element<Msg>> = vec![
@@ -243,7 +244,7 @@ impl App {
                 .into(),
         ];
 
-        if flag != Flag::Unflagged || rating > 0 {
+        if flag != Flag::Unflagged || rating > 0 || color.is_some() {
             let (flag_label, flag_color) = match flag {
                 Flag::Pick => ("✓", ACCENT),
                 Flag::Reject => ("✕", ERR),
@@ -259,6 +260,14 @@ impl App {
             if flag != Flag::Unflagged {
                 badge_col.push(
                     container(text(flag_label).size(TEXT_SM).color(flag_color))
+                        .padding([2.0, 4.0])
+                        .style(badge_style)
+                        .into(),
+                );
+            }
+            if let Some(ref name) = color {
+                badge_col.push(
+                    container(text("●").size(TEXT_SM).color(super::styles::color_label_swatch(name)))
                         .padding([2.0, 4.0])
                         .style(badge_style)
                         .into(),
@@ -323,7 +332,7 @@ impl App {
             );
         }
 
-        container(column![flag_row, self.rating_filter_row()].spacing(SPACE_1))
+        container(column![flag_row, self.rating_filter_row(), self.color_filter_row()].spacing(SPACE_1))
             .width(Length::Fill)
             .height(Length::Fixed(crate::app::CULL_STRIP_HEIGHT))
             .padding([SPACE_1, SPACE_3])
@@ -332,6 +341,27 @@ impl App {
                 ..Default::default()
             })
             .into()
+    }
+
+    /// Colour-label filter row: Any · five colour-dot chips.
+    fn color_filter_row(&self) -> Element<'_, Msg> {
+        let mut r = row![text("Color").size(TEXT_SM).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        r = r.push(
+            button(text("Any").size(TEXT_SM))
+                .on_press(Msg::SetColorFilter(None))
+                .style(if self.filters.color.is_none() { active_chip_style } else { ghost_btn_style }),
+        );
+        for name in super::styles::COLOR_LABELS {
+            let active = self.filters.color.as_deref() == Some(name);
+            r = r.push(
+                button(text("●").size(TEXT_MD).color(super::styles::color_label_swatch(name)))
+                    .on_press(Msg::SetColorFilter(Some(name.to_string())))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+        r.into()
     }
 
     /// Star-rating filter: Any · Unrated · a comparator (≥ = ≤) · star counts.

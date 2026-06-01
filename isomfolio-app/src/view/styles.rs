@@ -4,6 +4,21 @@ use iced::{Background, Border, Color, Element, Length};
 
 use crate::app::Msg;
 
+/// Standard colour-label names (Lightroom set), in key order (6–9 + Purple).
+pub const COLOR_LABELS: [&str; 5] = ["Red", "Yellow", "Green", "Blue", "Purple"];
+
+/// Swatch colour for a colour-label name. Unknown names fall back to `FG_DIM`.
+pub fn color_label_swatch(name: &str) -> Color {
+    match name {
+        "Red" => Color { r: 0.90, g: 0.30, b: 0.24, a: 1.0 },
+        "Yellow" => Color { r: 0.95, g: 0.77, b: 0.18, a: 1.0 },
+        "Green" => Color { r: 0.40, g: 0.74, b: 0.39, a: 1.0 },
+        "Blue" => Color { r: 0.30, g: 0.55, b: 0.92, a: 1.0 },
+        "Purple" => Color { r: 0.65, g: 0.45, b: 0.86, a: 1.0 },
+        _ => FG_DIM,
+    }
+}
+
 pub const BG_SIDEBAR: Color = Color {
     r: 0.12,
     g: 0.12,

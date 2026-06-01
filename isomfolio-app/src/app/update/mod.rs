@@ -94,6 +94,8 @@ impl App {
             | Msg::SetRating(_)
             | Msg::RatingsApplied
             | Msg::RatingsLoaded(_)
+            | Msg::SetColorLabel(_)
+            | Msg::LabelsLoaded(_)
             | Msg::ToggleHideRejects
             | Msg::ToggleFlagFilter(_)
             | Msg::SetRatingFilter(_)
@@ -283,6 +285,7 @@ impl App {
             | Msg::SetPersonFilter(_)
             | Msg::SetAddedWithinFilter(_)
             | Msg::SetCameraFilter(_)
+            | Msg::SetColorFilter(_)
             | Msg::ToggleFilterFileType(_)
             | Msg::ClearFilters => self.handle_filters(msg),
 
@@ -339,6 +342,7 @@ impl App {
                             self.filters.flags = q.flags;
                             self.filters.person = q.person_cluster.clone();
                             self.filters.camera = q.camera_model.clone();
+                            self.filters.color = q.color_label.clone();
                             self.filters.added_within_days = q.added_within_days;
                             self.filters.show = true;
                         }
@@ -357,6 +361,7 @@ impl App {
                 }
                 self.files.clear();
                 self.file_ratings.clear();
+                self.file_labels.clear();
                 self.scroll_y = 0.0;
                 self.loupe.idx = 0;
                 self.anchor_idx = None;
@@ -392,9 +397,10 @@ impl App {
                 });
                 let t1 = self.maybe_load_detail();
                 let t2 = self.load_ratings_task();
+                let t3 = self.load_labels_task();
                 match restore {
-                    Some(scroll) => Task::batch([scroll, t1, t2]),
-                    None => Task::batch([t1, t2]),
+                    Some(scroll) => Task::batch([scroll, t1, t2, t3]),
+                    None => Task::batch([t1, t2, t3]),
                 }
             }
 

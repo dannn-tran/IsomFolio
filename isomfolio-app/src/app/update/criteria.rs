@@ -107,6 +107,12 @@ impl App {
                 self.load_files_task()
             }
 
+            Msg::SetColorFilter(color) => {
+                self.filters.color = color;
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
             Msg::SetDatePreset(preset) => {
                 let (from, to) = super::super::date_preset_range(preset);
                 self.filters.date_from = from;
@@ -136,6 +142,7 @@ impl App {
                 self.filters.person = None;
                 self.filters.added_within_days = None;
                 self.filters.camera = None;
+                self.filters.color = None;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }

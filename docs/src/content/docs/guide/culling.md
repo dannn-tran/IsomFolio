@@ -43,6 +43,19 @@ Ratings are 0–5 stars (0 = no rating).
 Ratings are stored and filterable but are **not yet displayed as overlays on grid tiles**. You can see a photo's rating in the Info panel. Visual overlays on tiles are planned.
 </Aside>
 
+## Colour labels
+
+A second, independent axis for organising a cull (use stars for quality, colours for status — e.g. "to retouch", "client pick", "social"):
+
+| Key | Colour |
+|---|---|
+| `6` | Red |
+| `7` | Yellow |
+| `8` | Green |
+| `9` | Blue |
+
+Press a colour key again to clear it. Purple (and any colour) can also be set from the swatches in the Loupe overlay. Colour shows as a dot on the grid tile and in Loupe, and is a filter in the cull strip. Labels are stored as the standard XMP `xmp:Label`.
+
 ## Filtering by flag or rating
 
 The **cull strip** sits directly under the toolbar and is always visible — no need to open a panel:

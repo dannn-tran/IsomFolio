@@ -144,6 +144,7 @@ pub struct App {
 
     pub files: Vec<AssetFile>,
     pub file_ratings: HashMap<String, i32>,
+    pub file_labels: HashMap<String, String>,
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
@@ -382,6 +383,7 @@ impl App {
             selected_item: SidebarItem::AllFiles,
             files: Vec::new(),
             file_ratings: HashMap::new(),
+            file_labels: HashMap::new(),
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
@@ -525,6 +527,7 @@ impl App {
             || self.filters.person.is_some()
             || self.filters.added_within_days.is_some()
             || self.filters.camera.is_some()
+            || self.filters.color.is_some()
     }
 
     pub fn bg_push(&mut self, label: impl Into<String>) -> crate::app::types::BgTaskId {
@@ -608,6 +611,7 @@ impl App {
             has_location: self.filters.has_location,
             person_cluster: self.filters.person.clone(),
             camera_model: self.filters.camera.clone(),
+            color_label: self.filters.color.clone(),
             added_within_days: self.filters.added_within_days,
             include_orphaned: self.search_text.is_empty() && !self.has_active_filters(),
             ..Default::default()
@@ -900,6 +904,23 @@ impl App {
                     .collect()
             },
             Msg::RatingsLoaded,
+        )
+    }
+
+    pub(crate) fn load_labels_task(&self) -> Task<Msg> {
+        let Some(catalog) = self.catalog.clone() else {
+            return Task::none();
+        };
+        let file_ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
+        if file_ids.is_empty() {
+            return Task::done(Msg::LabelsLoaded(HashMap::new()));
+        }
+        Task::perform(
+            async move {
+                let cat = catalog.lock_unwrap();
+                cat.get_file_labels(&file_ids).unwrap_or_default()
+            },
+            Msg::LabelsLoaded,
         )
     }
 

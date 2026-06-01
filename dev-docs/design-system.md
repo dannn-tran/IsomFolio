@@ -266,6 +266,7 @@ A fixed-height (`CULL_STRIP_HEIGHT`) strip sits directly under the toolbar and i
 
 - **Flag** — three independent toggle chips (Picks / Unflagged / Rejects). They form an OR set: enabling any subset shows files matching *any* enabled flag. Empty (none) or full (all three) both mean *no filter*. This is the single source of truth for flag filtering; the toolbar "Hide Rejects" chip and the `\` key are a convenience that toggles the strip to the `{Picks, Unflagged}` selection.
 - **Stars** — `Any · Unrated · ≥ · = · ≤ · 1–5`. The comparator (`≥/=/≤`) combines with a star-count chip to form the active filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N".
+- **Colour** — `Any` + five colour-dot chips (Red/Yellow/Green/Blue/Purple). Colour labels are a second cull axis independent of stars, set with keys `6`–`9` (Red/Yellow/Green/Blue; press again to clear) or the Loupe swatches, and stored as XMP `xmp:Label`. Swatch colours come from `styles::color_label_swatch`; shown as a dot on grid tiles and in Loupe.
 
 Because the strip is fixed-height, grid hit-testing adds `CULL_STRIP_HEIGHT` to its vertical offset.
 
