@@ -112,6 +112,7 @@ pub struct App {
     pub expanded_folders: HashSet<String>,
     pub library_roots: Vec<isomfolio_core::storage::db::LibraryRoot>,
     pub cameras: Vec<String>,
+    pub pending_restore: Option<SidebarItem>,
     pub add_folder_prompt: Option<AddFolderPrompt>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
@@ -330,6 +331,7 @@ impl App {
             expanded_folders: HashSet::new(),
             library_roots: Vec::new(),
             cameras: Vec::new(),
+            pending_restore: None,
             add_folder_prompt: None,
             albums: Vec::new(),
             album_counts: HashMap::new(),
@@ -524,6 +526,18 @@ impl App {
     pub fn detail_file(&self) -> Option<&AssetFile> {
         let id = self.detail.file_id.as_deref()?;
         self.files.iter().find(|f| f.id == id)
+    }
+
+    /// Persist the current catalog + selected view so it can be restored next launch.
+    pub fn save_session(&self) {
+        if self.catalog_dir.is_empty() {
+            return;
+        }
+        isomfolio_core::app_paths::save_session(&isomfolio_core::app_paths::Session {
+            catalog_path: self.catalog_dir.clone(),
+            folders: Vec::new(),
+            last_selected: Some(self.selected_item.to_token()),
+        });
     }
 
     pub fn build_search_query(&self) -> SearchQuery {

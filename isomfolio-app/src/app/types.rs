@@ -64,6 +64,33 @@ pub enum SidebarItem {
     FaceCluster(String),
 }
 
+impl SidebarItem {
+    /// Serialize to a stable token for persisting the last-selected view.
+    pub fn to_token(&self) -> String {
+        match self {
+            SidebarItem::AllFiles => "all".to_string(),
+            SidebarItem::Folder(p) => format!("folder:{p}"),
+            SidebarItem::Album(id) => format!("album:{id}"),
+            SidebarItem::FaceCluster(id) => format!("cluster:{id}"),
+        }
+    }
+
+    pub fn from_token(s: &str) -> Option<Self> {
+        match s {
+            "all" => Some(SidebarItem::AllFiles),
+            _ => {
+                let (kind, rest) = s.split_once(':')?;
+                match kind {
+                    "folder" => Some(SidebarItem::Folder(rest.to_string())),
+                    "album" => Some(SidebarItem::Album(rest.to_string())),
+                    "cluster" => Some(SidebarItem::FaceCluster(rest.to_string())),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DragState {
     pub origin_idx: usize,

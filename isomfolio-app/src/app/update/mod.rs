@@ -347,6 +347,7 @@ impl App {
                 self.detail.file_id = None;
                 self.remove_from_album_pending = false;
                 self.smart_album_dirty = false;
+                self.save_session();
                 self.load_files_task()
             }
 
@@ -367,7 +368,17 @@ impl App {
                 self.albums = albums;
                 self.album_counts = album_counts;
                 self.start_watchers_for_folders();
-                if let Some(id) = self.pending_album_select.take() {
+                let restore = self.pending_restore.take().filter(|item| match item {
+                    SidebarItem::AllFiles => true,
+                    SidebarItem::Folder(p) => self.folders.iter().any(|(fp, _, _)| fp == p),
+                    SidebarItem::Album(id) => self.albums.iter().any(|a| &a.id == id),
+                    SidebarItem::FaceCluster(id) => {
+                        self.faces.clusters.iter().any(|c| &c.cluster_id == id)
+                    }
+                });
+                if let Some(item) = restore {
+                    Task::done(Msg::SidebarItemClicked(item))
+                } else if let Some(id) = self.pending_album_select.take() {
                     Task::done(Msg::SidebarItemClicked(SidebarItem::Album(id)))
                 } else if self.selected_item == SidebarItem::AllFiles {
                     if let Some((path, _, _)) = self.folders.first() {

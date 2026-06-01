@@ -134,7 +134,11 @@ pub fn save_settings(settings: &AppSettings) {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Session {
     pub catalog_path: String,
+    #[serde(default)]
     pub folders: Vec<String>,
+    /// Token of the last-selected sidebar item, restored on reopening this catalog.
+    #[serde(default)]
+    pub last_selected: Option<String>,
 }
 
 fn session_file_path() -> PathBuf {

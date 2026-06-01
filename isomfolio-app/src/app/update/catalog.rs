@@ -86,6 +86,10 @@ impl App {
                     String::new()
                 };
                 self.catalog_dir = path;
+                self.pending_restore = isomfolio_core::app_paths::read_last_session()
+                    .filter(|s| s.catalog_path == self.catalog_dir)
+                    .and_then(|s| s.last_selected)
+                    .and_then(|t| crate::app::SidebarItem::from_token(&t));
                 self.welcome.show = false;
                 self.tag_browser = None;
                 self.welcome.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
