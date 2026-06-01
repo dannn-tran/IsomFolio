@@ -260,9 +260,18 @@ container (fill, BG_GRID, padding [20, 24], horizontally centred)
 
 Recents takes available vertical space. Actions are always visible — they do not scroll out of view. No vertical centering of the whole column; content is top-anchored and the recents region absorbs resize.
 
+### Cull strip (always visible)
+
+A fixed-height (`CULL_STRIP_HEIGHT`) strip sits directly under the toolbar and is **always visible** — it holds the two primary cull axes so they're one click away mid-cull, never hidden behind a toggle:
+
+- **Flag** — three independent toggle chips (Picks / Unflagged / Rejects). They form an OR set: enabling any subset shows files matching *any* enabled flag. Empty (none) or full (all three) both mean *no filter*. This is the single source of truth for flag filtering; the toolbar "Hide Rejects" chip and the `\` key are a convenience that toggles the strip to the `{Picks, Unflagged}` selection.
+- **Stars** — `Any · Unrated · ≥ · = · ≤ · 1–5`. The comparator (`≥/=/≤`) combines with a star-count chip to form the active filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N".
+
+Because the strip is fixed-height, grid hit-testing adds `CULL_STRIP_HEIGHT` to its vertical offset.
+
 ### Criteria / filter panel
 
-Inline, below search bar, above grid. Expands the grid area rather than overlaying it. Rows: tags, date range, file type toggles, actions.
+Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button. Holds the *advanced* (non-cull) criteria only: tags, date range + presets, file type, location, person, camera, added-within, and the Clear / Save-as-Smart-Album actions. Expands the grid area rather than overlaying it.
 
 ---
 
@@ -272,14 +281,19 @@ Inline, below search bar, above grid. Expands the grid area rather than overlayi
 |---|---|
 | Single-click on recent catalog | Highlight (select), do not open |
 | Open recent catalog | Requires explicit "Open" button press |
-| Single-click on grid tile | Select (safe, immediate) |
-| Cmd+click on grid tile | Toggle multi-select |
-| Shift+click on grid tile | Range select from anchor |
+| Single-click on grid tile | Select only that tile; it becomes the anchor. (Clicking an already-selected tile keeps the multi-selection so a drag can start.) |
+| Cmd+click on grid tile | Toggle that tile and make it the new anchor. The resulting selection is snapshotted as the range *base*. |
+| Shift+click on grid tile | Select `base ∪ [anchor..=clicked]`, **replacing** the previous range — so clicking back toward the anchor *shrinks* the selection. Anchor stays fixed; the clicked tile is the moving end. Disjoint Cmd-picks (the base) are preserved. |
 | Double-click on grid tile | Open loupe |
 | Enter in tag input | Confirm tag (not bound to loupe) |
 | Cmd+= / Cmd+− | Tile size up / down |
-| Arrow keys in grid | Move selection |
+| Arrow keys in grid | Move selection (focus follows; grid position retained on loupe exit and folder switch) |
+| Shift+Arrow in grid | Extend/shrink the range from the anchor toward the moving end (same `base ∪ [anchor..=lead]` model as Shift+click) |
 | Arrow keys in loupe | Navigate to prev/next photo |
+| Scroll / two-finger trackpad in loupe | Zoom in/out toward the cursor (fit → 8×) |
+| Drag in loupe (when zoomed) | Pan; clamped to the image edges |
+| Loupe zoom buttons (− / % / + / Fit) | Same zoom state as gestures; Fit resets to fit-to-window. Zoom/pan reset on navigate. Custom `LoupeImage` widget (app-owned scale+pan) — the built-in `image::Viewer` keeps zoom internal and can't be button-driven. |
+| Delete / Backspace in a manual album | Remove selected photos from the album (non-destructive; files untouched) |
 | Right-click on sidebar entity | Open context menu |
 | Ctrl+Click on sidebar entity | Open context menu (macOS convention) |
 | Right-click on grid tile | Open context menu |
@@ -292,6 +306,8 @@ Inline, below search bar, above grid. Expands the grid area rather than overlayi
 | `.` key (grid) | Repeat last tag — applies most recent tag to current selection |
 | `?` key | Toggle shortcut help panel |
 | `\` key | Toggle hide rejects |
+| Sort control (grid toolbar) | `pick_list` dropdown of fields (Name / Date Shot / Size / Type) + a `▲`/`▼` direction toggle button. Not a cycle button — the field set is explicit and visible. |
+| Hide Rejects (grid toolbar) | Always-visible toggle chip (`active_chip_style` when on). Mirrors the `\` key and the filter-panel toggle — same `hide_rejects` state. |
 
 ---
 

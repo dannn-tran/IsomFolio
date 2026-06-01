@@ -145,7 +145,7 @@ impl App {
                 .into()
         };
 
-        let mut grid_col = column![filter_toolbar];
+        let mut grid_col = column![filter_toolbar, self.view_cull_strip()];
         if filter_panel_open {
             grid_col = grid_col.push(self.view_filter_panel());
         }
@@ -303,6 +303,37 @@ impl App {
         stack(layers).into()
     }
 
+    /// The two primary cull axes — flags and rating — as an always-visible strip
+    /// under the toolbar, so they're one click away during a cull (the advanced
+    /// filters stay behind the collapsible Filters panel). Fixed height.
+    pub(super) fn view_cull_strip(&self) -> Element<'_, Msg> {
+        let mut flag_row = row![text("Flag").size(TEXT_SM).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for (label, flag) in [
+            ("Picks", Flag::Pick),
+            ("Unflagged", Flag::Unflagged),
+            ("Rejects", Flag::Reject),
+        ] {
+            let active = self.filters.flags.allows(flag);
+            flag_row = flag_row.push(
+                button(text(label).size(TEXT_SM))
+                    .on_press(Msg::ToggleFlagFilter(flag))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+
+        container(column![flag_row, self.rating_filter_row()].spacing(SPACE_1))
+            .width(Length::Fill)
+            .height(Length::Fixed(crate::app::CULL_STRIP_HEIGHT))
+            .padding([SPACE_1, SPACE_3])
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_CRITERIA)),
+                ..Default::default()
+            })
+            .into()
+    }
+
     /// Star-rating filter: Any · Unrated · a comparator (≥ = ≤) · star counts.
     /// The comparator combines with a star chip to form the active filter, so
     /// culls like "unrated only", "exactly 2", or "≤ 1" are all expressible.
@@ -424,27 +455,6 @@ impl App {
             );
         }
         col = col.push(ext_row);
-
-        // Flag chips are an OR-combinable set (multi-select): show any combination
-        // of Picks / Unflagged / Rejects. All-on = no filtering.
-        let mut flag_row = row![text("Flag").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        for (label, flag) in [
-            ("Picks", Flag::Pick),
-            ("Unflagged", Flag::Unflagged),
-            ("Rejects", Flag::Reject),
-        ] {
-            let active = self.filters.flags.allows(flag);
-            flag_row = flag_row.push(
-                button(text(label).size(TEXT_SM))
-                    .on_press(Msg::ToggleFlagFilter(flag))
-                    .style(if active { active_chip_style } else { ghost_btn_style }),
-            );
-        }
-        col = col.push(flag_row);
-
-        col = col.push(self.rating_filter_row());
 
         let mut loc_row = row![text("Location").size(TEXT_SM).color(FG_DIM)]
             .spacing(SPACE_1)

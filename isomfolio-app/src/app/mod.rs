@@ -919,7 +919,11 @@ impl App {
     pub fn tile_index_at(&self, pos: Point) -> Option<usize> {
         let rel_x = pos.x - self.sidebar_width - SIDEBAR_HANDLE_WIDTH - GRID_PADDING;
         let criteria_h = self.filter_panel_height();
-        let rel_y = pos.y + self.scroll_y - SEARCH_BAR_HEIGHT - criteria_h - GRID_PADDING;
+        let rel_y = pos.y + self.scroll_y
+            - SEARCH_BAR_HEIGHT
+            - CULL_STRIP_HEIGHT
+            - criteria_h
+            - GRID_PADDING;
         if rel_x < 0.0 || rel_y < 0.0 {
             return None;
         }

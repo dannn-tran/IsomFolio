@@ -45,12 +45,12 @@ Ratings are stored and filterable but are **not yet displayed as overlays on gri
 
 ## Filtering by flag or rating
 
-Open the **criteria panel** (filter button in the toolbar or the criteria toggle) to filter the current view by:
+The **cull strip** sits directly under the toolbar and is always visible — no need to open a panel:
 
-- Flag: All / Picks / Rejects / Unflagged
-- Minimum rating: show only photos with ≥ N stars
+- **Flag** — toggle any combination of **Picks**, **Unflagged**, and **Rejects**. They combine as "OR", so you can show, for example, *Picks + Unflagged* (everything you haven't rejected). With none (or all three) selected, the flag filter is off. The toolbar **Hide Rejects** chip (and the `\` key) is a one-tap shortcut for the *Picks + Unflagged* combination.
+- **Stars** — pick a comparator (**≥**, **=**, **≤**) and a star count, or choose **Unrated** to find photos you haven't rated yet (your review queue), or **Any** to clear it. So "3 stars or more", "exactly 2", "1 or fewer", and "unrated only" are all one or two clicks.
 
-These filters combine with text search and tag filters.
+Advanced filters (tags, date, type, location, person, camera) live in the **Filters** panel (`F` or the Filters button). All filters combine with text search.
 
 ## Undo
 
