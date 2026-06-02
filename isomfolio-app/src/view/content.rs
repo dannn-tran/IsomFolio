@@ -217,10 +217,22 @@ impl App {
             }
         };
 
+        let flag = file.flag;
+        // Dim rejected photos in place (don't remove them) so the grid keeps its
+        // continuity during a cull and rejects stay one click from un-rejecting.
+        // Exception: when the view is filtered to rejects *only*, show them
+        // normally — you're reviewing them deliberately.
+        let rejects_isolated = self.filters.flags.reject
+            && !self.filters.flags.pick
+            && !self.filters.flags.unflagged;
+        let dimmed = flag == Flag::Reject && !rejects_isolated && !selected && !dragging;
+
         let overlay_color = if dragging {
             Color { r: 0.0, g: 0.0, b: 0.0, a: 0.45 }
         } else if selected {
             Color { a: 0.28, ..ACCENT }
+        } else if dimmed {
+            Color { r: 0.0, g: 0.0, b: 0.0, a: 0.55 }
         } else {
             Color::TRANSPARENT
         };
@@ -231,7 +243,6 @@ impl App {
             (Color::TRANSPARENT, 0.0)
         };
 
-        let flag = file.flag;
         let rating = self.file_ratings.get(&file.id).copied().unwrap_or(0);
         let color = self.file_labels.get(&file.id).cloned();
         let tile_px = self.tile_px;

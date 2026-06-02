@@ -198,6 +198,10 @@ Ellipsis (…) in a menu item label signals the action has a secondary step (ren
 
 Use a translucent `ACCENT` overlay (α ≈ 0.22–0.28) for selected items. Do not change text colour on selection unless contrast demands it. Use a 3 px `ACCENT` ring for grid tiles. Use a rounded background fill for list items (sidebar albums, recent catalogs).
 
+### Reject display (dim, don't remove)
+
+A rejected grid tile is **dimmed in place** (dark scrim, α ≈ 0.55) rather than removed — the grid keeps its continuity during a cull and a reject stays one click from being un-rejected, instead of vanishing and reflowing the layout. Exceptions: a *selected* or *being-dragged* reject is shown normally (you're acting on it), and when the view is filtered to **rejects only** they're shown normally (you're reviewing them deliberately). "Hide Rejects" / the flag filter still *removes* rejects entirely when the user explicitly wants them gone — dimming is the default in-place state, hiding is the opt-in.
+
 ### Confirmation pattern
 
 Two-step for destructive ops: first trigger (context menu item) → inline confirm row appears on the entity (prompt in `ERR`, Cancel + Confirm buttons). `confirm_action_row()` helper in styles.rs.

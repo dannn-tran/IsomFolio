@@ -22,8 +22,8 @@ Flags apply to the **selected photo(s)**. Select multiple photos with Cmd+Click 
 ### Workflow tip
 
 A common culling workflow:
-1. Go through all photos with `→`, pressing `X` on clear rejects and `P` on strong keepers.
-2. Press `\` to hide rejects — the grid now shows only unflagged and picks.
+1. Go through all photos with `→`, pressing `X` on clear rejects and `P` on strong keepers. Rejected photos **dim in place** rather than disappearing, so the grid keeps its order and a reject is one keypress (`U` or `P`) from coming back.
+2. When you want them gone from view entirely, press `\` to hide rejects — the grid then shows only unflagged and picks.
 3. Rate the picks with `1`–`5`.
 
 ## Ratings
@@ -45,7 +45,9 @@ Ratings are stored and filterable but are **not yet displayed as overlays on gri
 
 ## Clearing rejects
 
-When you're done, **Edit → Move Rejects to Trash…** moves every rejected photo in the current view out of your library and into a `Trash` folder inside the catalog, then removes them from the catalog. A confirmation appears in the status bar first. The files are not deleted from disk — they sit in the `Trash` folder so you can recover them, and filenames are disambiguated on collision.
+When you're done, **Edit → Move Rejects to Trash…** moves every rejected photo in the current view out of your library and into a `Trash` folder inside the catalog, then removes them from the catalog. A confirmation appears in the status bar first.
+
+The files are **not deleted from disk** — they're moved into the catalog's `Trash` folder (filenames disambiguated on collision) and disappear from the app. To **recover** a photo, move it out of that `Trash` folder back into one of your library folders and re-sync that folder. (There is not yet an in-app restore; recovery is manual via the file system for now.)
 
 ## Colour labels
 
