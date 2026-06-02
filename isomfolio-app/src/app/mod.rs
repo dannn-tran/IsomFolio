@@ -557,6 +557,7 @@ impl App {
 
     pub fn has_active_filters(&self) -> bool {
         !self.filters.tags.is_empty()
+            || !self.filters.exclude_tags.is_empty()
             || !self.filters.exts.is_empty()
             || !self.filters.date_from.is_empty()
             || !self.filters.date_to.is_empty()
@@ -640,6 +641,8 @@ impl App {
         SearchQuery {
             text: text_opt,
             tags: self.filters.tags.clone(),
+            tag_match: self.filters.tag_match,
+            exclude_tags: self.filters.exclude_tags.clone(),
             extensions: self.filters.exts.iter().cloned().collect(),
             date_from: parse_date_str(&self.filters.date_from),
             date_to: parse_date_str(&self.filters.date_to),

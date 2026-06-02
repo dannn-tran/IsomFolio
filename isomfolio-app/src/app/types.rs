@@ -217,6 +217,10 @@ pub enum Msg {
     FilterTagInputChanged(String),
     AddFilterTag,
     RemoveFilterTag(String),
+    /// Toggle a tag chip between include and exclude (NOT).
+    ToggleFilterTagNegate(String),
+    /// Set how include tags combine (All = AND, Any = OR).
+    SetTagMatch(isomfolio_core::models::TagMatch),
     FilterDateFromChanged(String),
     FilterDateToChanged(String),
     SetDatePreset(DatePreset),
@@ -494,6 +498,10 @@ pub struct FilterState {
     pub show: bool,
     pub tags: Vec<String>,
     pub tag_input: String,
+    /// How include `tags` combine (AND/OR).
+    pub tag_match: isomfolio_core::models::TagMatch,
+    /// Tags that exclude a file (NOT). Rendered in the same chip row, struck-through.
+    pub exclude_tags: Vec<String>,
     pub date_from: String,
     pub date_to: String,
     pub exts: HashSet<String>,
@@ -519,6 +527,8 @@ impl Default for FilterState {
             show: false,
             tags: Vec::new(),
             tag_input: String::new(),
+            tag_match: isomfolio_core::models::TagMatch::All,
+            exclude_tags: Vec::new(),
             date_from: String::new(),
             date_to: String::new(),
             exts: HashSet::new(),

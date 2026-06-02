@@ -28,7 +28,7 @@ Click the filter icon in the toolbar to open the criteria panel. It supports:
 
 | Criterion | Options |
 |---|---|
-| **Tags** | Include photos tagged with **all** specified tags (the label reads "Tags (all)" once you add more than one) |
+| **Tags** | Add tag chips, then choose how they combine with the **All / Any** toggle: **All** = a photo must have every tag (AND), **Any** = at least one (OR). Click a chip to flip it to **exclude** (shown as `−tag` in red) — photos with that tag are dropped (NOT). The `×` removes a chip entirely. A tag also matches its sub-tags (adding `Subject` matches `Subject/Arnold`). |
 | **Date from / to** | Filter by capture date (EXIF) or file date within a range. Quick presets — **Last 7 days**, **Last 30 days**, **This month**, **This year** — fill the range for you |
 | **File types** | Toggle individual extensions (JPEG, PNG, WebP, GIF) |
 | **Rating** | A comparator (**≥ / = / ≤**) with a star count, plus **Unrated** (your review queue) and **Any** — so "≥ 3", "exactly 2", "≤ 1", or "unrated only" |

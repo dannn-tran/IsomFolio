@@ -393,6 +393,8 @@ impl App {
             | Msg::FilterTagInputChanged(_)
             | Msg::AddFilterTag
             | Msg::RemoveFilterTag(_)
+            | Msg::ToggleFilterTagNegate(_)
+            | Msg::SetTagMatch(_)
             | Msg::FilterDateFromChanged(_)
             | Msg::FilterDateToChanged(_)
             | Msg::SetDatePreset(_)
@@ -446,6 +448,8 @@ impl App {
                     if let Some(album) = self.albums.iter().find(|a| &a.id == id) {
                         if let AlbumKind::Smart(ref q) = album.kind {
                             self.filters.tags = q.tags.clone();
+                            self.filters.tag_match = q.tag_match;
+                            self.filters.exclude_tags = q.exclude_tags.clone();
                             self.filters.date_from =
                                 q.date_from.map(unix_to_date_str).unwrap_or_default();
                             self.filters.date_to =

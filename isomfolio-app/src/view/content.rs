@@ -24,9 +24,10 @@ impl std::fmt::Display for SortChoice {
 }
 
 use super::styles::{
-    active_chip_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID, BG_TILE_LOADING, BORDER,
-    ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3,
-    STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER, WARN,
+    active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID,
+    BG_TILE_LOADING, BORDER, ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
+    SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
+    WARN,
 };
 use crate::app::{
     format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, DatePreset, Msg,
@@ -439,16 +440,49 @@ impl App {
     pub(super) fn view_filter_panel(&self) -> Element<'_, Msg> {
         let mut col = column![].spacing(SPACE_1_5).padding([SPACE_1_5, SPACE_3]);
 
-        let tags_label = if self.filters.tags.len() > 1 { "Tags (all)" } else { "Tags" };
-        let mut tags_row = row![text(tags_label).size(TEXT_SM).color(FG_DIM)]
+        use isomfolio_core::models::TagMatch;
+        let mut tags_row = row![text("Tags").size(TEXT_SM).color(FG_DIM)]
             .spacing(SPACE_1_5)
             .align_y(Alignment::Center);
+
+        // All/Any toggle — always shown so OR is as discoverable as AND.
+        let seg = |label: &str, mode: TagMatch, active: bool| {
+            let style: fn(&Theme, iced::widget::button::Status) -> iced::widget::button::Style =
+                if active { active_chip_style } else { ghost_btn_style };
+            button(text(label.to_string()).size(TEXT_XS))
+                .on_press(Msg::SetTagMatch(mode))
+                .padding([1.0, SPACE_1])
+                .style(style)
+        };
+        let is_any = self.filters.tag_match == TagMatch::Any;
+        tags_row = tags_row
+            .push(seg("All", TagMatch::All, !is_any))
+            .push(seg("Any", TagMatch::Any, is_any));
+
+        // Include chips (accent) then exclude chips (danger, "−" prefix). Clicking
+        // the label toggles include⇄exclude; the × removes the tag entirely.
+        let chip = |tag: &str, negated: bool| -> Element<'_, Msg> {
+            let style: fn(&Theme, iced::widget::button::Status) -> iced::widget::button::Style =
+                if negated { danger_btn_style } else { active_chip_style };
+            let label = if negated { format!("−{tag}") } else { tag.to_string() };
+            row![
+                button(text(label).size(TEXT_SM))
+                    .on_press(Msg::ToggleFilterTagNegate(tag.to_string()))
+                    .padding([SPACE_0_5, SPACE_1])
+                    .style(style),
+                button(text("×").size(TEXT_SM))
+                    .on_press(Msg::RemoveFilterTag(tag.to_string()))
+                    .padding([SPACE_0_5, SPACE_1])
+                    .style(style),
+            ]
+            .spacing(1.0)
+            .into()
+        };
         for tag in &self.filters.tags {
-            tags_row = tags_row.push(
-                button(text(format!("{tag} ×")).size(TEXT_SM))
-                    .on_press(Msg::RemoveFilterTag(tag.clone()))
-                    .style(active_chip_style),
-            );
+            tags_row = tags_row.push(chip(tag, false));
+        }
+        for tag in &self.filters.exclude_tags {
+            tags_row = tags_row.push(chip(tag, true));
         }
         tags_row = tags_row.push(
             text_input("+ tag", &self.filters.tag_input)

@@ -78,6 +78,30 @@ impl App {
 
             Msg::RemoveFilterTag(tag) => {
                 self.filters.tags.retain(|t| t != &tag);
+                self.filters.exclude_tags.retain(|t| t != &tag);
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::ToggleFilterTagNegate(tag) => {
+                // Cycle a chip between include (tags) and exclude (exclude_tags).
+                if let Some(pos) = self.filters.tags.iter().position(|t| t == &tag) {
+                    self.filters.tags.remove(pos);
+                    if !self.filters.exclude_tags.contains(&tag) {
+                        self.filters.exclude_tags.push(tag);
+                    }
+                } else if let Some(pos) = self.filters.exclude_tags.iter().position(|t| t == &tag) {
+                    self.filters.exclude_tags.remove(pos);
+                    if !self.filters.tags.contains(&tag) {
+                        self.filters.tags.push(tag);
+                    }
+                }
+                self.mark_smart_dirty();
+                self.load_files_task()
+            }
+
+            Msg::SetTagMatch(mode) => {
+                self.filters.tag_match = mode;
                 self.mark_smart_dirty();
                 self.load_files_task()
             }
@@ -138,6 +162,8 @@ impl App {
 
             Msg::ClearFilters => {
                 self.filters.tags.clear();
+                self.filters.exclude_tags.clear();
+                self.filters.tag_match = isomfolio_core::models::TagMatch::All;
                 self.filters.date_from.clear();
                 self.filters.date_to.clear();
                 self.filters.exts.clear();
