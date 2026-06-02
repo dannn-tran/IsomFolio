@@ -149,6 +149,51 @@ impl App {
                 Task::none()
             }
 
+            Msg::LoupeGeometry { viewport, native } => {
+                self.loupe.viewport = Some(viewport);
+                self.loupe.native = Some(native);
+                Task::none()
+            }
+
+            Msg::LoupeZoomActual => {
+                // Toggle between fit and 1:1 (Lightroom-style). 1:1 = one image
+                // pixel per screen pixel; since zoom is relative to fit, the
+                // factor is native/fitted = max(native_w/vp_w, native_h/vp_h).
+                // Fall back to 2× if geometry hasn't been reported yet.
+                if self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
+                    self.loupe.reset_zoom();
+                    return Task::none();
+                }
+                let target = match (self.loupe.viewport, self.loupe.native) {
+                    (Some(vp), Some(nat)) if vp.width > 0.0 && vp.height > 0.0 => {
+                        (nat.width / vp.width).max(nat.height / vp.height)
+                    }
+                    _ => 2.0,
+                };
+                self.loupe.zoom = target.clamp(
+                    super::super::LOUPE_ZOOM_MIN,
+                    super::super::LOUPE_ZOOM_MAX,
+                );
+                self.loupe.pan = iced::Vector::ZERO;
+                if self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
+                    return self.load_loupe_hires();
+                }
+                Task::none()
+            }
+
+            Msg::ToggleFullscreen => {
+                self.fullscreen = !self.fullscreen;
+                let mode = if self.fullscreen {
+                    iced::window::Mode::Fullscreen
+                } else {
+                    iced::window::Mode::Windowed
+                };
+                iced::window::oldest().then(move |id| match id {
+                    Some(id) => iced::window::set_mode(id, mode),
+                    None => Task::none(),
+                })
+            }
+
             Msg::OpenLoupe => {
                 match self.view_mode {
                     ViewMode::Loupe => {

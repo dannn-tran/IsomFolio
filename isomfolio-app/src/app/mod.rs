@@ -42,6 +42,10 @@ pub struct LoupeState {
     /// current RAW. The fit view shows the fast embedded preview; the full
     /// decode loads on first zoom-in. Reset on navigate.
     pub hires_loaded: bool,
+    /// Last-known loupe image area and native image size, reported by the
+    /// `LoupeImage` widget on hover — used to compute the exact "1:1" zoom.
+    pub viewport: Option<iced::Size>,
+    pub native: Option<iced::Size>,
 }
 
 pub const LOUPE_ZOOM_MIN: f32 = 1.0;
@@ -65,6 +69,8 @@ impl Default for LoupeState {
             zoom: 1.0,
             pan: iced::Vector::ZERO,
             hires_loaded: false,
+            viewport: None,
+            native: None,
         }
     }
 }
@@ -248,6 +254,7 @@ pub struct App {
     pub bg_tasks: Vec<crate::app::types::BgTask>,
     pub next_bg_task_id: crate::app::types::BgTaskId,
     pub task_panel_open: bool,
+    pub fullscreen: bool,
 }
 
 pub struct CompareState {
@@ -470,6 +477,7 @@ impl App {
             bg_tasks: Vec::new(),
             next_bg_task_id: 0,
             task_panel_open: true,
+            fullscreen: false,
         };
 
         (app, task)

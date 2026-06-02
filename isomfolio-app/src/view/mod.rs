@@ -461,6 +461,7 @@ impl App {
                 self.loupe.zoom,
                 self.loupe.pan,
                 |scale, pan| Msg::LoupeZoomChanged { scale, pan },
+                |viewport, native| Msg::LoupeGeometry { viewport, native },
             )
             .into(),
             None => {
@@ -535,18 +536,22 @@ impl App {
             ..Default::default()
         });
 
-        let zoom_pct = (self.loupe.zoom * 100.0).round() as i32;
         let zoomed = self.loupe.zoom > crate::app::LOUPE_ZOOM_MIN;
         let zoom_cluster = row![
             button(text("−").size(TEXT_LG))
                 .on_press(Msg::LoupeZoomBy(0.8))
                 .style(ghost_btn_style),
-            text(format!("{zoom_pct}%")).size(TEXT_MD).color(FG_DIM),
             button(text("+").size(TEXT_LG))
                 .on_press(Msg::LoupeZoomBy(1.25))
                 .style(ghost_btn_style),
+            button(text("1:1").size(TEXT_MD))
+                .on_press(Msg::LoupeZoomActual)
+                .style(ghost_btn_style),
             button(text("Fit").size(TEXT_MD).color(if zoomed { FG } else { FG_DIM }))
                 .on_press(Msg::LoupeZoomReset)
+                .style(ghost_btn_style),
+            button(text(if self.fullscreen { "⤢" } else { "⛶" }).size(TEXT_MD))
+                .on_press(Msg::ToggleFullscreen)
                 .style(ghost_btn_style),
         ]
         .spacing(SPACE_2)

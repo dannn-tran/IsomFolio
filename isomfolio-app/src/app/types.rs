@@ -151,6 +151,12 @@ pub enum Msg {
     LoupeZoomBy(f32),
     /// Reset loupe zoom/pan to fit-to-window.
     LoupeZoomReset,
+    /// Zoom the loupe to 1:1 (actual pixels), computed from reported geometry.
+    LoupeZoomActual,
+    /// Reported by the loupe image widget: (viewport size, native image size).
+    LoupeGeometry { viewport: iced::Size, native: iced::Size },
+    /// Toggle OS fullscreen for the main window.
+    ToggleFullscreen,
 
     Scrolled {
         y: f32,

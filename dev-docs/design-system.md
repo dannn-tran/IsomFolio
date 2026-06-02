@@ -293,7 +293,7 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | Arrow keys in loupe | Navigate to prev/next photo |
 | Scroll / two-finger trackpad in loupe | Zoom in/out toward the cursor (fit → 8×) |
 | Drag in loupe (when zoomed) | Pan; clamped to the image edges |
-| Loupe zoom buttons (− / % / + / Fit) | Same zoom state as gestures; Fit resets to fit-to-window. Zoom/pan reset on navigate. Custom `LoupeImage` widget (app-owned scale+pan) — the built-in `image::Viewer` keeps zoom internal and can't be button-driven. |
+| Loupe zoom buttons (− / + / 1:1 / Fit / ⛶) | Same zoom state as gestures; **1:1** (or `Z`) toggles actual-pixel zoom (computed from widget-reported viewport+native size), Fit resets to fit-to-window, **⛶** toggles fullscreen. Zoom/pan reset on navigate. Custom `LoupeImage` widget (app-owned scale+pan) — the built-in `image::Viewer` keeps zoom internal and can't be button-driven. |
 | Delete / Backspace in a manual album | Remove selected photos from the album (non-destructive; files untouched) |
 | Right-click on sidebar entity | Open context menu |
 | Ctrl+Click on sidebar entity | Open context menu (macOS convention) |
