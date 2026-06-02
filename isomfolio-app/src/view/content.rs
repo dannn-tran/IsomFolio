@@ -225,7 +225,8 @@ impl App {
         let rejects_isolated = self.filters.flags.reject
             && !self.filters.flags.pick
             && !self.filters.flags.unflagged;
-        let dimmed = flag == Flag::Reject && !rejects_isolated && !selected && !dragging;
+        let in_deleted_view = self.selected_item == crate::app::SidebarItem::Deleted;
+        let dimmed = flag == Flag::Reject && !rejects_isolated && !in_deleted_view && !selected && !dragging;
 
         let overlay_color = if dragging {
             Color { r: 0.0, g: 0.0, b: 0.0, a: 0.45 }

@@ -115,6 +115,11 @@ impl App {
             .iter()
             .filter(|f| f.flag == isomfolio_core::models::Flag::Pick)
             .count();
+        let reject_count = self
+            .files
+            .iter()
+            .filter(|f| f.flag == isomfolio_core::models::Flag::Reject)
+            .count();
 
         let mut status_row = row![
             text(status).size(TEXT_MD).color(FG),
@@ -153,6 +158,13 @@ impl App {
                 text(format!("✓ {pick_count}"))
                     .size(TEXT_MD)
                     .color(ACCENT),
+            );
+        }
+        if reject_count > 0 {
+            status_row = status_row.push(
+                text(format!("✕ {reject_count}"))
+                    .size(TEXT_MD)
+                    .color(ERR),
             );
         }
 
