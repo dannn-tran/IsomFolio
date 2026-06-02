@@ -260,6 +260,10 @@ impl Catalog {
         db::count_deleted(&self.conn)
     }
 
+    pub fn get_burst_sizes_for(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, usize>, AppError> {
+        db::get_burst_sizes_for(&self.conn, file_ids)
+    }
+
     pub fn update_smart_album_query(&self, album_id: &str, query: &SearchQuery) -> Result<(), AppError> {
         db::update_smart_album_query(&self.conn, album_id, query)
     }

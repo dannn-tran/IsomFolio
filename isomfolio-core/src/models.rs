@@ -178,6 +178,10 @@ pub struct SearchQuery {
     /// files are excluded from all results.
     #[serde(default)]
     pub only_deleted: bool,
+    /// Collapse bursts: return only one representative per `burst_id` (the
+    /// earliest shot) so a burst occupies a single tile.
+    #[serde(default)]
+    pub collapse_bursts: bool,
 }
 
 impl Default for SearchQuery {
@@ -202,6 +206,7 @@ impl Default for SearchQuery {
             color_label: None,
             include_orphaned: false,
             only_deleted: false,
+            collapse_bursts: false,
         }
     }
 }

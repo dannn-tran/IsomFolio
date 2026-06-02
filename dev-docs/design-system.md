@@ -378,6 +378,7 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | `\` key | Toggle hide rejects |
 | Sort control (grid toolbar) | `pick_list` dropdown of fields (Name / Date Shot / Size / Type) + a `▲`/`▼` direction toggle button. Not a cycle button — the field set is explicit and visible. |
 | Hide Rejects (grid toolbar) / `\` | Convenience toggle between the `{Pick, Unflagged}` flag selection and "show all" — there is no separate hide-rejects state; it's a shortcut into the cull strip's flag set (single source of truth). |
+| ⧉ Stack (grid toolbar) | Collapse bursts (shots detected within ~3 s) to one representative tile (the earliest). A burst tile carries a `⧉ N` badge (N = burst size); the badge also shows on burst members when not collapsed. Toggle off to cull within a burst. |
 
 ---
 

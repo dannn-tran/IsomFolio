@@ -56,6 +56,11 @@ impl App {
                 Task::none()
             }
 
+            Msg::ToggleCollapseBursts => {
+                self.collapse_bursts = !self.collapse_bursts;
+                self.load_files_task()
+            }
+
             Msg::FilterTagInputChanged(s) => {
                 self.filters.tag_input = s;
                 Task::none()

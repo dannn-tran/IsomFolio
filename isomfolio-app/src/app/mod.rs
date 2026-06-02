@@ -164,6 +164,10 @@ pub struct App {
     pub files: Vec<AssetFile>,
     pub file_ratings: HashMap<String, i32>,
     pub file_labels: HashMap<String, String>,
+    /// file_id → burst size, for the ⧉ badge (only files in a burst).
+    pub file_burst_sizes: HashMap<String, usize>,
+    /// When set, a burst shows as one representative tile.
+    pub collapse_bursts: bool,
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
@@ -413,6 +417,8 @@ impl App {
             files: Vec::new(),
             file_ratings: HashMap::new(),
             file_labels: HashMap::new(),
+            file_burst_sizes: HashMap::new(),
+            collapse_bursts: false,
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
@@ -647,6 +653,7 @@ impl App {
             color_label: self.filters.color.clone(),
             added_within_days: self.filters.added_within_days,
             include_orphaned: self.search_text.is_empty() && !self.has_active_filters(),
+            collapse_bursts: self.collapse_bursts,
             ..Default::default()
         }
     }
@@ -948,6 +955,23 @@ impl App {
                     .collect()
             },
             Msg::RatingsLoaded,
+        )
+    }
+
+    pub(crate) fn load_burst_sizes_task(&self) -> Task<Msg> {
+        let Some(catalog) = self.catalog.clone() else {
+            return Task::none();
+        };
+        let file_ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
+        if file_ids.is_empty() {
+            return Task::done(Msg::BurstSizesLoaded(HashMap::new()));
+        }
+        Task::perform(
+            async move {
+                let cat = catalog.lock_unwrap();
+                cat.get_burst_sizes_for(&file_ids).unwrap_or_default()
+            },
+            Msg::BurstSizesLoaded,
         )
     }
 

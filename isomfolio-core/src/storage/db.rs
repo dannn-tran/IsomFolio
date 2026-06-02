@@ -314,6 +314,25 @@ pub fn count_deleted(conn: &Connection) -> Result<usize, AppError> {
     Ok(n as usize)
 }
 
+/// For each of `file_ids` that belongs to a burst, its burst size (count of
+/// non-deleted members). Files not in a burst are absent from the map.
+pub fn get_burst_sizes_for(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, usize>, AppError> {
+    let mut out = std::collections::HashMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT (SELECT COUNT(*) FROM files b WHERE b.burst_id = f.burst_id AND b.is_deleted = 0) \
+         FROM files f WHERE f.id = ?1 AND f.burst_id IS NOT NULL",
+    )?;
+    for id in file_ids {
+        let size: Option<i64> = stmt.query_row([id.as_str()], |r| r.get(0)).optional()?;
+        if let Some(n) = size {
+            if n >= 2 {
+                out.insert(id.clone(), n as usize);
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub fn get_folder_counts(conn: &Connection) -> Result<Vec<(String, usize)>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT folder, COUNT(*) FROM files WHERE is_orphaned = 0 AND is_deleted = 0 GROUP BY folder",

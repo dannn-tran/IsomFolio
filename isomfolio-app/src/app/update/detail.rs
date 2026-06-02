@@ -242,6 +242,11 @@ impl App {
                 Task::none()
             }
 
+            Msg::BurstSizesLoaded(map) => {
+                self.file_burst_sizes = map;
+                Task::none()
+            }
+
             Msg::SetColorLabel(color) => {
                 let ids: Vec<String> =
                     if matches!(self.view_mode, super::super::ViewMode::Loupe) {

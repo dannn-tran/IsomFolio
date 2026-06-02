@@ -15,6 +15,8 @@ Sort options (accessible from the toolbar or sort button):
 - **Rating** — highest first
 - Toggle ascending / descending with the sort direction button
 
+**Bursts.** Shots taken in quick succession (within ~3 seconds) are detected as a burst and marked with a `⧉ N` badge. The **⧉ Stack** toggle in the toolbar collapses each burst to a single representative tile so you can scan a shoot quickly; toggle it off to pick the best frame within a burst.
+
 ## Loupe view
 
 Press `Space` (or double-click a photo) to enter **Loupe** — a full-screen view of the selected photo.

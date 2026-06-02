@@ -62,6 +62,16 @@ impl App {
                 .style(move |t: &Theme, s| {
                     if hide_rejects_on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
                 }),
+            super::styles::tip(
+                button(text("⧉ Stack").size(TEXT_MD))
+                    .on_press(Msg::ToggleCollapseBursts)
+                    .style({
+                        let on = self.collapse_bursts;
+                        move |t: &Theme, s| if on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+                    }),
+                "Collapse bursts to one tile",
+                super::styles::TipPos::Bottom,
+            ),
             button(
                 text(if filters_active { "Filters ●" } else { "Filters" })
                     .size(TEXT_MD)
@@ -246,6 +256,7 @@ impl App {
 
         let rating = self.file_ratings.get(&file.id).copied().unwrap_or(0);
         let color = self.file_labels.get(&file.id).cloned();
+        let burst = self.file_burst_sizes.get(&file.id).copied();
         let tile_px = self.tile_px;
 
         let mut layers: Vec<Element<Msg>> = vec![
@@ -272,7 +283,7 @@ impl App {
                 .into(),
         ];
 
-        if flag != Flag::Unflagged || rating > 0 || color.is_some() {
+        if flag != Flag::Unflagged || rating > 0 || color.is_some() || burst.is_some() {
             let (flag_label, flag_color) = match flag {
                 Flag::Pick => ("✓", ACCENT),
                 Flag::Reject => ("✕", ERR),
@@ -296,6 +307,14 @@ impl App {
             if let Some(ref name) = color {
                 badge_col.push(
                     container(text("●").size(TEXT_SM).color(super::styles::color_label_swatch(name)))
+                        .padding([2.0, 4.0])
+                        .style(badge_style)
+                        .into(),
+                );
+            }
+            if let Some(n) = burst {
+                badge_col.push(
+                    container(text(format!("⧉ {n}")).size(TEXT_SM).color(FG))
                         .padding([2.0, 4.0])
                         .style(badge_style)
                         .into(),

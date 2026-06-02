@@ -107,6 +107,7 @@ impl App {
             | Msg::RatingsLoaded(_)
             | Msg::SetColorLabel(_)
             | Msg::LabelsLoaded(_)
+            | Msg::BurstSizesLoaded(_)
             | Msg::ToggleHideRejects
             | Msg::ToggleFlagFilter(_)
             | Msg::SetRatingFilter(_)
@@ -306,6 +307,7 @@ impl App {
             | Msg::SetCameraFilter(_)
             | Msg::SetColorFilter(_)
             | Msg::ToggleFilterFileType(_)
+            | Msg::ToggleCollapseBursts
             | Msg::ClearFilters => self.handle_filters(msg),
 
             // — settings panel —
@@ -381,6 +383,7 @@ impl App {
                 self.files.clear();
                 self.file_ratings.clear();
                 self.file_labels.clear();
+                self.file_burst_sizes.clear();
                 self.scroll_y = 0.0;
                 self.loupe.idx = 0;
                 self.anchor_idx = None;
@@ -417,9 +420,10 @@ impl App {
                 let t1 = self.maybe_load_detail();
                 let t2 = self.load_ratings_task();
                 let t3 = self.load_labels_task();
+                let t4 = self.load_burst_sizes_task();
                 match restore {
-                    Some(scroll) => Task::batch([scroll, t1, t2, t3]),
-                    None => Task::batch([t1, t2, t3]),
+                    Some(scroll) => Task::batch([scroll, t1, t2, t3, t4]),
+                    None => Task::batch([t1, t2, t3, t4]),
                 }
             }
 

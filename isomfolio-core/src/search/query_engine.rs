@@ -107,6 +107,16 @@ fn execute_query_inner(
         sql.push_str(" AND f.is_deleted = 0");
     }
 
+    // Burst collapse: keep one representative (earliest shot) per burst.
+    if query.collapse_bursts {
+        sql.push_str(
+            " AND (f.burst_id IS NULL OR f.id = (\
+                 SELECT b.id FROM files b \
+                 WHERE b.burst_id = f.burst_id AND b.is_deleted = 0 \
+                 ORDER BY b.exif_date_unix, b.id LIMIT 1))",
+        );
+    }
+
     if let Some(ids) = &fts_ids {
         let placeholders: Vec<String> = ids
             .iter()
@@ -531,6 +541,34 @@ mod tests {
         fn any_returns_all() {
             let (c, _f) = setup();
             assert_eq!(ids(&c, RatingFilter::Any).len(), 4);
+        }
+    }
+
+    mod bursts {
+        use super::*;
+        use crate::storage::db;
+
+        #[test]
+        fn collapse_keeps_one_representative_per_burst() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "b1", "1.jpg", "/p", "jpg", 10);
+            insert(&conn, "b2", "2.jpg", "/p", "jpg", 11);
+            insert(&conn, "b3", "3.jpg", "/p", "jpg", 12);
+            insert(&conn, "solo", "x.jpg", "/p", "jpg", 50);
+            conn.execute("UPDATE files SET burst_id = 'B1' WHERE id IN ('b1','b2','b3')", []).unwrap();
+
+            // Uncollapsed: all four.
+            assert_eq!(execute_search(&conn, &SearchQuery::default()).unwrap().len(), 4);
+
+            // Collapsed: earliest of the burst (b1) + solo.
+            let q = SearchQuery { collapse_bursts: true, sort_by: SortField::Date, ..Default::default() };
+            let ids: Vec<String> = execute_search(&conn, &q).unwrap().into_iter().map(|f| f.id).collect();
+            assert_eq!(ids, vec!["b1", "solo"]);
+
+            // Burst-size lookup reports 3 for members, nothing for the solo.
+            let sizes = db::get_burst_sizes_for(&conn, &["b1".into(), "solo".into()]).unwrap();
+            assert_eq!(sizes.get("b1"), Some(&3));
+            assert_eq!(sizes.get("solo"), None);
         }
     }
 

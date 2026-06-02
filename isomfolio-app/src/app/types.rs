@@ -299,6 +299,8 @@ pub enum Msg {
     SetColorLabel(Option<String>),
     SetColorFilter(Option<String>),
     LabelsLoaded(HashMap<String, String>),
+    BurstSizesLoaded(HashMap<String, usize>),
+    ToggleCollapseBursts,
     FlagsApplied,
     RatingsApplied,
     RatingsLoaded(HashMap<String, i32>),
