@@ -1215,8 +1215,47 @@ impl App {
             }
         }
 
+        // Mouse / trackpad gestures and context-menu actions aren't key bindings,
+        // so the auto-generated list above misses them — spell them out here.
+        let gesture_sections: [(&str, &[(&str, &str)]); 2] = [
+            (
+                "Mouse & trackpad",
+                &[
+                    ("Double-click", "Open photo in Loupe"),
+                    ("Cmd+Click", "Toggle one photo in/out of selection"),
+                    ("Shift+Click", "Select a range"),
+                    ("Drag to album", "Add the selected photos to an album"),
+                    ("Scroll in Loupe", "Zoom toward the pointer"),
+                    ("Drag in Loupe", "Pan when zoomed in"),
+                ],
+            ),
+            (
+                "Right-click (or Ctrl+Click)",
+                &[
+                    ("Folder", "Sync · Remove · Locate missing"),
+                    ("Album", "Rename · Duplicate · Delete · Edit criteria"),
+                    ("Photos", "Add to album · Import XMP · Copy/Move · Reveal"),
+                    ("Person", "Rename · Merge into…"),
+                ],
+            ),
+        ];
+        for (title, rows) in gesture_sections {
+            col = col.push(text(title).size(TEXT_SM).color(FG_DIM));
+            for (key, desc) in rows {
+                col = col.push(
+                    row![
+                        container(text(*key).size(TEXT_SM).color(ACCENT))
+                            .width(Length::Fixed(110.0)),
+                        text(*desc).size(TEXT_SM).color(FG),
+                    ]
+                    .spacing(SPACE_2)
+                    .align_y(Alignment::Center),
+                );
+            }
+        }
+
         let panel = container(col)
-            .width(Length::Fixed(340.0))
+            .width(Length::Fixed(420.0))
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_MODAL)),
                 border: Border {
