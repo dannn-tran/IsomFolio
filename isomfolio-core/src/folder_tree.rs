@@ -82,6 +82,34 @@ fn collapse(mut node: FolderNode) -> Vec<FolderNode> {
     vec![node]
 }
 
+/// Folder paths to expand so `target` and its immediate children are visible:
+/// every ancestor of `target`, `target` itself, and any descendant that has
+/// children. Leaves (nothing to expand) are never returned. Used to reveal a
+/// freshly-synced folder's subtree in the sidebar instead of leaving it collapsed.
+pub fn expand_paths_for(tree: &[FolderNode], target: &str) -> Vec<String> {
+    expand_paths_for_sep(tree, target, MAIN_SEPARATOR)
+}
+
+fn expand_paths_for_sep(tree: &[FolderNode], target: &str, sep: char) -> Vec<String> {
+    let mut out = Vec::new();
+    for node in tree {
+        collect_expand(node, target, sep, &mut out);
+    }
+    out
+}
+
+fn collect_expand(node: &FolderNode, target: &str, sep: char, out: &mut Vec<String>) {
+    let is_target_or_desc =
+        node.path == target || node.path.starts_with(&format!("{target}{sep}"));
+    let is_ancestor = target.starts_with(&format!("{}{sep}", node.path));
+    if !node.children.is_empty() && (is_target_or_desc || is_ancestor) {
+        out.push(node.path.clone());
+    }
+    for c in &node.children {
+        collect_expand(c, target, sep, out);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +206,43 @@ mod tests {
         let tree = build(&[("/photos/2011/", 5)]);
         assert_eq!(tree[0].path, "/photos/2011");
         assert_eq!(tree[0].total_count, 5);
+    }
+
+    mod expand_paths_for {
+        use super::*;
+
+        fn expand(folders: &[(&str, usize)], target: &str) -> Vec<String> {
+            let tree = build(folders);
+            super::super::expand_paths_for_sep(&tree, target, '/')
+        }
+
+        #[test]
+        fn parent_with_children_expands_parent_to_reveal_them() {
+            let got = expand(&[("/lib/child1", 3), ("/lib/child2", 2)], "/lib");
+            assert_eq!(got, vec!["/lib".to_string()]);
+        }
+
+        #[test]
+        fn collapsed_branch_point_below_target_is_expanded() {
+            // sync /a, but the displayed root collapses to /a/b/c
+            let got = expand(&[("/a/b/c/x", 1), ("/a/b/c/y", 2)], "/a");
+            assert_eq!(got, vec!["/a/b/c".to_string()]);
+        }
+
+        #[test]
+        fn ancestors_of_target_are_expanded_so_target_is_visible() {
+            let mut got = expand(
+                &[("/lib/2018/wedding", 30), ("/lib/2018/holiday", 12), ("/lib/2019", 7)],
+                "/lib/2018",
+            );
+            got.sort();
+            assert_eq!(got, vec!["/lib".to_string(), "/lib/2018".to_string()]);
+        }
+
+        #[test]
+        fn leaf_target_yields_no_expansion() {
+            let got = expand(&[("/lib/child1", 3), ("/lib/child2", 2)], "/lib/child1");
+            assert_eq!(got, vec!["/lib".to_string()]);
+        }
     }
 }
