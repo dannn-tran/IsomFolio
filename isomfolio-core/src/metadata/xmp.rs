@@ -301,62 +301,341 @@ fn xml_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Serialize an XMP sidecar packet (rating, label, and the Dublin Core
-/// descriptive fields). Standard Adobe layout — readable by Lightroom, Bridge,
-/// Capture One, exiftool, and IsomFolio's own parser. `subjects` is the keyword
-/// set (written as `dc:subject`). Empty fields are omitted.
-pub fn serialize_sidecar(meta: &XmpMetadata, subjects: &[String]) -> String {
-    let mut desc_attrs = String::new();
-    if let Some(r) = meta.core.rating {
-        desc_attrs.push_str(&format!(" xmp:Rating=\"{r}\""));
-    }
-    if let Some(ref l) = meta.core.label {
-        desc_attrs.push_str(&format!(" xmp:Label=\"{}\"", xml_escape(l)));
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ArrayKind {
+    Bag,
+    Seq,
+}
+
+#[derive(Debug, Clone)]
+enum PropValue {
+    Simple(String),
+    LangAlt(Vec<(String, String)>), // (xml:lang, value); "x-default" first
+    Array(ArrayKind, Vec<String>),
+    Raw(String), // verbatim element XML for shapes we don't model (preserved as-is)
+}
+
+#[derive(Debug, Clone)]
+struct XmpProp {
+    raw_name: String, // qualified name as written, e.g. "dc:title"
+    ns: String,       // resolved namespace URI
+    local: String,    // local name
+    value: PropValue,
+}
+
+/// A round-trippable model of an XMP packet's `rdf:Description` properties. Every
+/// property is preserved (typed where understood, verbatim `Raw` otherwise) so a
+/// write merges edits on top of an existing sidecar without losing unmanaged
+/// fields or namespaces.
+#[derive(Debug, Clone, Default)]
+pub struct XmpDoc {
+    namespaces: Vec<(String, String)>, // (prefix, uri)
+    props: Vec<XmpProp>,
+}
+
+impl XmpDoc {
+    fn with_default_ns() -> Self {
+        XmpDoc {
+            namespaces: vec![
+                ("xmp".to_string(), NS_XMP.to_string()),
+                ("dc".to_string(), NS_DC.to_string()),
+            ],
+            props: Vec::new(),
+        }
     }
 
-    let mut body = String::new();
-    let alt = |tag: &str, v: &str| {
+    fn ensure_ns(&mut self, prefix: &str, uri: &str) {
+        if !self.namespaces.iter().any(|(p, _)| p == prefix) {
+            self.namespaces.push((prefix.to_string(), uri.to_string()));
+        }
+    }
+
+    fn remove(&mut self, ns: &str, local: &str) {
+        self.props.retain(|p| !(p.ns == ns && p.local == local));
+    }
+
+    /// Set a managed property to `value`, or remove it when `None`/empty.
+    fn set(&mut self, raw_name: &str, ns: &str, local: &str, value: Option<PropValue>) {
+        self.remove(ns, local);
+        if let Some(v) = value {
+            self.props.push(XmpProp {
+                raw_name: raw_name.to_string(),
+                ns: ns.to_string(),
+                local: local.to_string(),
+                value: v,
+            });
+        }
+    }
+
+    pub fn serialize(&self) -> String {
+        let mut ns_decl = String::new();
+        for (prefix, uri) in &self.namespaces {
+            if prefix == "rdf" || prefix == "x" {
+                continue;
+            }
+            ns_decl.push_str(&format!("\n    xmlns:{prefix}=\"{}\"", xml_escape(uri)));
+        }
+        let mut body = String::new();
+        for p in &self.props {
+            body.push_str(&serialize_prop(p));
+        }
         format!(
-            "   <dc:{tag}><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></dc:{tag}>\n",
-            xml_escape(v)
-        )
-    };
-    if let Some(ref t) = meta.dublin_core.title {
-        body.push_str(&alt("title", t));
-    }
-    if let Some(ref d) = meta.dublin_core.description {
-        body.push_str(&alt("description", d));
-    }
-    if let Some(ref r) = meta.dublin_core.rights {
-        body.push_str(&alt("rights", r));
-    }
-    if !meta.dublin_core.creator.is_empty() {
-        body.push_str("   <dc:creator><rdf:Seq>\n");
-        for c in &meta.dublin_core.creator {
-            body.push_str(&format!("    <rdf:li>{}</rdf:li>\n", xml_escape(c)));
-        }
-        body.push_str("   </rdf:Seq></dc:creator>\n");
-    }
-    if !subjects.is_empty() {
-        body.push_str("   <dc:subject><rdf:Bag>\n");
-        for s in subjects {
-            body.push_str(&format!("    <rdf:li>{}</rdf:li>\n", xml_escape(s)));
-        }
-        body.push_str("   </rdf:Bag></dc:subject>\n");
-    }
-
-    format!(
-        "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+            "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
 <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
  <rdf:RDF xmlns:rdf=\"{NS_RDF}\">\n\
-  <rdf:Description rdf:about=\"\"\n\
-    xmlns:xmp=\"{NS_XMP}\"\n\
-    xmlns:dc=\"{NS_DC}\"{desc_attrs}>\n\
+  <rdf:Description rdf:about=\"\"{ns_decl}>\n\
 {body}  </rdf:Description>\n\
  </rdf:RDF>\n\
 </x:xmpmeta>\n\
 <?xpacket end=\"w\"?>\n"
-    )
+        )
+    }
+}
+
+fn serialize_prop(p: &XmpProp) -> String {
+    match &p.value {
+        PropValue::Raw(s) => format!("   {}\n", s.trim()),
+        PropValue::Simple(v) => format!("   <{0}>{1}</{0}>\n", p.raw_name, xml_escape(v)),
+        PropValue::LangAlt(items) => {
+            let mut s = format!("   <{}><rdf:Alt>\n", p.raw_name);
+            for (lang, v) in items {
+                s.push_str(&format!(
+                    "    <rdf:li xml:lang=\"{}\">{}</rdf:li>\n",
+                    xml_escape(lang),
+                    xml_escape(v)
+                ));
+            }
+            s.push_str(&format!("   </rdf:Alt></{}>\n", p.raw_name));
+            s
+        }
+        PropValue::Array(kind, items) => {
+            let container = match kind {
+                ArrayKind::Bag => "rdf:Bag",
+                ArrayKind::Seq => "rdf:Seq",
+            };
+            let mut s = format!("   <{}><{container}>\n", p.raw_name);
+            for v in items {
+                s.push_str(&format!("    <rdf:li>{}</rdf:li>\n", xml_escape(v)));
+            }
+            s.push_str(&format!("   </{container}></{}>\n", p.raw_name));
+            s
+        }
+    }
+}
+
+/// Parse a full XMP packet into a round-trippable document (all properties).
+pub fn parse_xmp_doc(xml: &str) -> XmpDoc {
+    let ns_map = build_ns_map(xml);
+    let mut namespaces: Vec<(String, String)> = ns_map.iter().map(|(p, u)| (p.clone(), u.clone())).collect();
+    namespaces.sort();
+    let mut props: Vec<XmpProp> = Vec::new();
+
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+
+    // Advance to the first rdf:Description, capturing its attribute-form props.
+    let mut in_desc = false;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                let name = std::str::from_utf8(e.name().as_ref()).unwrap_or("").to_string();
+                let (ns, local) = resolve_prefix(&name, &ns_map);
+                if ns == NS_RDF && local == "Description" {
+                    in_desc = true;
+                    for attr in e.attributes().flatten() {
+                        let k = std::str::from_utf8(attr.key.as_ref()).unwrap_or("").to_string();
+                        if k == "rdf:about" || k == "xmlns" || k.starts_with("xmlns:") {
+                            continue;
+                        }
+                        let (ans, al) = resolve_prefix(&k, &ns_map);
+                        if ans.is_empty() {
+                            continue;
+                        }
+                        let v = std::str::from_utf8(attr.value.as_ref()).unwrap_or_default().to_string();
+                        props.push(XmpProp {
+                            raw_name: k.clone(),
+                            ns: ans.to_string(),
+                            local: al.to_string(),
+                            value: PropValue::Simple(v),
+                        });
+                    }
+                    break;
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+
+    // Iterate the direct children of rdf:Description.
+    if in_desc {
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(e)) => {
+                    let raw_name = std::str::from_utf8(e.name().as_ref()).unwrap_or("").to_string();
+                    let (ns, local) = {
+                        let (n, l) = resolve_prefix(&raw_name, &ns_map);
+                        (n.to_string(), l.to_string())
+                    };
+                    // Collect the whole subtree (owned) so we can classify it.
+                    let mut events: Vec<Event<'static>> = vec![Event::Start(e.into_owned())];
+                    let mut depth = 1;
+                    while depth > 0 {
+                        match reader.read_event() {
+                            Ok(Event::Start(s)) => { depth += 1; events.push(Event::Start(s.into_owned())); }
+                            Ok(Event::End(en)) => { depth -= 1; events.push(Event::End(en.into_owned())); }
+                            Ok(Event::Eof) | Err(_) => break,
+                            Ok(ev) => events.push(ev.into_owned()),
+                        }
+                    }
+                    let value = classify_prop(&events, &ns_map, &raw_name);
+                    props.push(XmpProp { raw_name, ns, local, value });
+                }
+                Ok(Event::Empty(e)) => {
+                    let raw_name = std::str::from_utf8(e.name().as_ref()).unwrap_or("").to_string();
+                    let (ns, local) = {
+                        let (n, l) = resolve_prefix(&raw_name, &ns_map);
+                        (n.to_string(), l.to_string())
+                    };
+                    props.push(XmpProp { raw_name, ns, local, value: PropValue::Simple(String::new()) });
+                }
+                Ok(Event::End(_)) | Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+        }
+    }
+    XmpDoc { namespaces, props }
+}
+
+fn decode_text(t: &quick_xml::events::BytesText<'_>) -> String {
+    let raw = std::str::from_utf8(t.as_ref()).unwrap_or_default();
+    quick_xml::escape::unescape(raw)
+        .map(|c| c.into_owned())
+        .unwrap_or_else(|_| raw.to_string())
+}
+
+fn classify_prop(events: &[Event<'static>], ns_map: &HashMap<String, String>, raw_name: &str) -> PropValue {
+    // Detect a container (rdf:Alt/Bag/Seq) anywhere inside.
+    let mut container: Option<&'static str> = None;
+    let mut nested_element = false;
+    for ev in &events[1..events.len().saturating_sub(1)] {
+        if let Event::Start(s) | Event::Empty(s) = ev {
+            let n = std::str::from_utf8(s.name().as_ref()).unwrap_or("").to_string();
+            let (ns, local) = resolve_prefix(&n, ns_map);
+            if ns == NS_RDF && local == "Alt" { container = Some("Alt"); }
+            else if ns == NS_RDF && local == "Bag" { container = Some("Bag"); }
+            else if ns == NS_RDF && local == "Seq" { container = Some("Seq"); }
+            else if ns == NS_RDF && local == "li" { /* item */ }
+            else { nested_element = true; }
+        }
+    }
+
+    if let Some(kind) = container {
+        // Collect rdf:li (lang + text).
+        let mut items: Vec<(String, String)> = Vec::new();
+        let mut cur_lang: Option<String> = None;
+        let mut in_li = false;
+        let mut text = String::new();
+        for ev in events {
+            match ev {
+                Event::Start(s) => {
+                    let n = std::str::from_utf8(s.name().as_ref()).unwrap_or("").to_string();
+                    let (ns, local) = resolve_prefix(&n, ns_map);
+                    if ns == NS_RDF && local == "li" {
+                        in_li = true;
+                        text.clear();
+                        cur_lang = s.attributes().flatten().find_map(|a| {
+                            let k = std::str::from_utf8(a.key.as_ref()).unwrap_or("").to_string();
+                            let (ans, al) = resolve_prefix(&k, ns_map);
+                            if ans == NS_XML && al == "lang" {
+                                Some(std::str::from_utf8(a.value.as_ref()).unwrap_or_default().to_string())
+                            } else { None }
+                        });
+                    }
+                }
+                Event::Text(t) if in_li => {
+                    text.push_str(&decode_text(t));
+                }
+                Event::End(en) => {
+                    let n = std::str::from_utf8(en.name().as_ref()).unwrap_or("").to_string();
+                    let (ns, local) = resolve_prefix(&n, ns_map);
+                    if ns == NS_RDF && local == "li" && in_li {
+                        items.push((cur_lang.take().unwrap_or_default(), std::mem::take(&mut text)));
+                        in_li = false;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if kind == "Alt" {
+            return PropValue::LangAlt(items);
+        }
+        let ak = if kind == "Seq" { ArrayKind::Seq } else { ArrayKind::Bag };
+        return PropValue::Array(ak, items.into_iter().map(|(_, v)| v).collect());
+    }
+
+    if !nested_element {
+        // Simple: text between start and end.
+        let mut text = String::new();
+        for ev in events {
+            if let Event::Text(t) = ev {
+                text.push_str(&decode_text(t));
+            }
+        }
+        return PropValue::Simple(text);
+    }
+
+    // Unknown nested structure → preserve verbatim by re-serializing the events.
+    let _ = raw_name;
+    let mut writer = quick_xml::Writer::new(Vec::<u8>::new());
+    for ev in events {
+        let _ = writer.write_event(ev.clone());
+    }
+    let raw = String::from_utf8(writer.into_inner()).unwrap_or_default();
+    PropValue::Raw(raw)
+}
+
+/// Merge IsomFolio-managed metadata into an existing sidecar (if any), preserving
+/// every other property and namespace. A field that is `None`/empty is removed
+/// from the output, so what another app reads matches the catalog exactly.
+pub fn merge_sidecar(existing: Option<&str>, meta: &XmpMetadata, subjects: &[String]) -> String {
+    let mut doc = match existing {
+        Some(x) if !x.trim().is_empty() => parse_xmp_doc(x),
+        _ => XmpDoc::with_default_ns(),
+    };
+    doc.ensure_ns("xmp", NS_XMP);
+    doc.ensure_ns("dc", NS_DC);
+
+    doc.set("xmp:Rating", NS_XMP, "Rating", meta.core.rating.map(|r| PropValue::Simple(r.to_string())));
+    doc.set("xmp:Label", NS_XMP, "Label", meta.core.label.clone().map(PropValue::Simple));
+
+    let langalt = |v: &Option<String>| {
+        v.clone().filter(|s| !s.is_empty()).map(|s| PropValue::LangAlt(vec![("x-default".to_string(), s)]))
+    };
+    doc.set("dc:title", NS_DC, "title", langalt(&meta.dublin_core.title));
+    doc.set("dc:description", NS_DC, "description", langalt(&meta.dublin_core.description));
+    doc.set("dc:rights", NS_DC, "rights", langalt(&meta.dublin_core.rights));
+
+    let creator = if meta.dublin_core.creator.is_empty() {
+        None
+    } else {
+        Some(PropValue::Array(ArrayKind::Seq, meta.dublin_core.creator.clone()))
+    };
+    doc.set("dc:creator", NS_DC, "creator", creator);
+
+    let subj = if subjects.is_empty() {
+        None
+    } else {
+        Some(PropValue::Array(ArrayKind::Bag, subjects.to_vec()))
+    };
+    doc.set("dc:subject", NS_DC, "subject", subj);
+
+    doc.serialize()
+}
+
+/// Serialize an XMP sidecar from scratch (no existing file to merge into).
+pub fn serialize_sidecar(meta: &XmpMetadata, subjects: &[String]) -> String {
+    merge_sidecar(None, meta, subjects)
 }
 
 pub fn parse_sidecar(xmp_path: &str) -> Option<XmpMetadata> {
@@ -402,6 +681,48 @@ mod tests {
         assert_eq!(parsed.dublin_core.creator, vec!["Jane Doe".to_string()]);
         assert_eq!(parsed.dublin_core.subject, vec!["nature".to_string(), "travel".to_string()]);
         assert_eq!(parsed.dublin_core.rights.as_deref(), Some("(c) 2024 Jane Doe"));
+    }
+
+    #[test]
+    fn merge_preserves_unmanaged_fields_and_drops_emptied() {
+        // An existing sidecar from another app: GPS (unmanaged, nested), a custom
+        // namespace property, plus a rating and a caption IsomFolio manages.
+        let existing = r#"<?xpacket begin=""?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:exif="http://ns.adobe.com/exif/1.0/"
+    xmp:Rating="2">
+   <exif:GPSLatitude>51,30.5N</exif:GPSLatitude>
+   <dc:description><rdf:Alt><rdf:li xml:lang="x-default">old caption</rdf:li></rdf:Alt></dc:description>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+
+        // IsomFolio's catalog: rating 5, caption cleared, a creator added, tags.
+        let meta = XmpMetadata {
+            core: XmpCore { rating: Some(5), ..Default::default() },
+            dublin_core: DublinCore {
+                creator: vec!["Jane Doe".into()],
+                ..Default::default()
+            },
+        };
+        let merged = merge_sidecar(Some(existing), &meta, &["nature".to_string()]);
+
+        // Unmanaged GPS survives verbatim.
+        assert!(merged.contains("exif:GPSLatitude"));
+        assert!(merged.contains("51,30.5N"));
+        assert!(merged.contains("xmlns:exif="));
+        // Managed rating updated 2 → 5; old caption dropped (cleared in catalog).
+        let parsed = parse_xmp_doc(&merged);
+        let get = |local: &str| parsed.props.iter().find(|p| p.ns == NS_DC && p.local == local || p.ns == NS_XMP && p.local == local);
+        assert!(matches!(get("Rating").map(|p| &p.value), Some(PropValue::Simple(s)) if s == "5"));
+        assert!(get("description").is_none(), "emptied caption must not be written");
+        assert!(get("creator").is_some());
+        assert!(get("subject").is_some());
     }
 
     #[test]

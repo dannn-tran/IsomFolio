@@ -192,7 +192,10 @@ impl App {
                             let (mut ok, mut failed) = (0usize, 0usize);
                             for (id, path) in &items {
                                 let sidecar = std::path::Path::new(path).with_extension("xmp");
-                                match cat.xmp_sidecar_for(id) {
+                                // Merge onto any existing sidecar so unmanaged
+                                // fields/namespaces are preserved.
+                                let existing = std::fs::read_to_string(&sidecar).ok();
+                                match cat.xmp_sidecar_for(id, existing.as_deref()) {
                                     Ok(xml) if std::fs::write(&sidecar, &xml).is_ok() => ok += 1,
                                     _ => failed += 1,
                                 }

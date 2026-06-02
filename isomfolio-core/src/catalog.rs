@@ -246,8 +246,8 @@ impl Catalog {
         db::set_files_rights(&self.conn, ids, value)
     }
 
-    pub fn xmp_sidecar_for(&self, file_id: &str) -> Result<String, AppError> {
-        db::xmp_sidecar_for(&self.conn, file_id)
+    pub fn xmp_sidecar_for(&self, file_id: &str, existing: Option<&str>) -> Result<String, AppError> {
+        db::xmp_sidecar_for(&self.conn, file_id, existing)
     }
 
     pub fn export_metadata_csv(&self, file_ids: &[String]) -> Result<String, AppError> {

@@ -290,13 +290,14 @@ pub fn delete_file(conn: &Connection, file_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Serialize a file's catalog metadata + tags as an XMP sidecar document.
-pub fn xmp_sidecar_for(conn: &Connection, file_id: &str) -> Result<String, AppError> {
+/// Serialize a file's catalog metadata + tags as an XMP sidecar, merging onto an
+/// existing sidecar (`existing`) so unmanaged properties/namespaces are preserved.
+pub fn xmp_sidecar_for(conn: &Connection, file_id: &str, existing: Option<&str>) -> Result<String, AppError> {
     let xmp = get_metadata(conn, file_id)?
         .and_then(|m| m.xmp)
         .unwrap_or_default();
     let tags = get_tags_for_file(conn, file_id)?;
-    Ok(crate::metadata::xmp::serialize_sidecar(&xmp, &tags))
+    Ok(crate::metadata::xmp::merge_sidecar(existing, &xmp, &tags))
 }
 
 fn csv_escape(s: &str) -> String {
