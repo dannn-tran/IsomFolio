@@ -212,6 +212,8 @@ pub struct App {
     pub pending_album_select: Option<AlbumId>,
     pub last_synced_path: Option<String>,
     pub remove_from_album_pending: bool,
+    /// Confirm state for "Move Rejects to Trash" (acts on the current view).
+    pub reject_trash_pending: bool,
     pub smart_album_dirty: bool,
     pub context_menu: Option<ContextMenuState>,
     pub hovered_sidebar_entity: Option<SidebarItem>,
@@ -444,6 +446,7 @@ impl App {
             pending_album_select: None,
             last_synced_path: None,
             remove_from_album_pending: false,
+            reject_trash_pending: false,
             smart_album_dirty: false,
             context_menu: None,
             hovered_sidebar_entity: None,

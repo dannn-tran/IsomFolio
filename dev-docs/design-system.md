@@ -231,7 +231,7 @@ Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: cont
 | Tab | Contents |
 |---|---|
 | Catalog | New Catalog… · Open Catalog… |
-| Edit | Undo · Redo |
+| Edit | Undo · Redo · — · Move Rejects to Trash… |
 | View | Toggle Info Panel · Preview · Loupe · People · — · Zoom In · Zoom Out · — · Hide Rejects |
 
 ### Main browse layout

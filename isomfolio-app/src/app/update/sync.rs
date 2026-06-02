@@ -43,6 +43,10 @@ impl App {
                             return Task::none();
                         }
                         let subfolder_count = count_subfolders(&path);
+                        if subfolder_count == 0 {
+                            // Nothing to recurse into — skip the prompt entirely.
+                            return Task::done(Msg::SyncStart { path, recursive: false });
+                        }
                         self.add_folder_prompt = Some(super::super::AddFolderPrompt {
                             path,
                             recursive: true,
@@ -101,6 +105,8 @@ impl App {
                     let prefix = format!("{synced}{sep}");
                     self.dirty_folders
                         .retain(|d| d != synced && !d.starts_with(&prefix));
+                    // Reveal the freshly-synced subtree once the sidebar reloads.
+                    self.expand_under_path = Some(synced.clone());
                 }
                 let t1 = self.load_sidebar_task();
                 let t_nav = if let Some(p) = path {
@@ -354,6 +360,64 @@ impl App {
                 Task::none()
             }
 
+            Msg::RequestMoveRejectsToTrash => {
+                self.reject_trash_pending = true;
+                Task::none()
+            }
+
+            Msg::CancelMoveRejectsToTrash => {
+                self.reject_trash_pending = false;
+                Task::none()
+            }
+
+            Msg::ConfirmMoveRejectsToTrash => {
+                self.reject_trash_pending = false;
+                let rejects: Vec<(String, String)> = self
+                    .files
+                    .iter()
+                    .filter(|f| f.flag == isomfolio_core::models::Flag::Reject && !f.is_orphaned)
+                    .map(|f| (f.id.clone(), f.path.clone()))
+                    .collect();
+                if rejects.is_empty() {
+                    return Task::none();
+                }
+                let trash_dir = format!("{}{}Trash", self.catalog_dir, std::path::MAIN_SEPARATOR);
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.status = format!("Moving {} reject(s) to Trash…", rejects.len());
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let _ = std::fs::create_dir_all(&trash_dir);
+                            let mut moved_ids: Vec<String> = Vec::new();
+                            let mut failed = 0usize;
+                            for (id, path) in &rejects {
+                                match move_to_trash(path, &trash_dir) {
+                                    Ok(()) => moved_ids.push(id.clone()),
+                                    Err(_) => failed += 1,
+                                }
+                            }
+                            // Trashed files leave the catalog (their ratings/tags go
+                            // with them); the originals are recoverable in Trash/.
+                            let cat = conn.lock_unwrap();
+                            let _ = cat.delete_files(&moved_ids);
+                            (moved_ids.len(), failed)
+                        })
+                        .await
+                        .unwrap_or((0, 0))
+                    },
+                    |(moved, failed)| Msg::RejectsTrashed { moved, failed },
+                )
+            }
+
+            Msg::RejectsTrashed { moved, failed } => {
+                self.status = if failed > 0 {
+                    format!("Moved {moved} reject(s) to Trash, {failed} failed")
+                } else {
+                    format!("Moved {moved} reject(s) to Trash")
+                };
+                Task::batch([self.load_sidebar_task(), self.load_files_task()])
+            }
+
             Msg::ConfirmRemoveMissing => {
                 let Some(folder) = self.remove_missing_folder.take() else {
                     return Task::none();
@@ -434,6 +498,33 @@ fn parent_folder(path: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Move `src` into `trash_dir`, keeping its filename (disambiguating on
+/// collision). Falls back to copy+delete across filesystems.
+fn move_to_trash(src: &str, trash_dir: &str) -> std::io::Result<()> {
+    let name = Path::new(src)
+        .file_name()
+        .ok_or_else(|| std::io::Error::other(format!("invalid path: {src}")))?;
+    let mut dest = Path::new(trash_dir).join(name);
+    if dest.exists() {
+        let stem = Path::new(src).file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let ext = Path::new(src).extension().and_then(|e| e.to_str());
+        for n in 1.. {
+            let candidate = match ext {
+                Some(e) => format!("{stem} ({n}).{e}"),
+                None => format!("{stem} ({n})"),
+            };
+            dest = Path::new(trash_dir).join(candidate);
+            if !dest.exists() {
+                break;
+            }
+        }
+    }
+    std::fs::rename(src, &dest).or_else(|_| {
+        std::fs::copy(src, &dest).and_then(|_| std::fs::remove_file(src))
+    })?;
+    Ok(())
+}
+
 fn is_under_catalog_dir(path: &str) -> bool {
     std::path::Path::new(path)
         .components()
@@ -456,4 +547,36 @@ fn count_subfolders(path: &str) -> usize {
                 .map_or(true, |n| !n.ends_with(&format!(".{CATALOG_EXT}")))
         })
         .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn move_to_trash_moves_then_disambiguates_collision() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("isom_trash_{nanos}"));
+        let src = base.join("src");
+        let trash = base.join("Trash");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&trash).unwrap();
+
+        let f1 = src.join("a.jpg");
+        std::fs::write(&f1, b"one").unwrap();
+        move_to_trash(f1.to_str().unwrap(), trash.to_str().unwrap()).unwrap();
+        assert!(trash.join("a.jpg").exists());
+        assert!(!f1.exists());
+
+        // A second file with the same name lands as "a (1).jpg".
+        let f2 = src.join("a.jpg");
+        std::fs::write(&f2, b"two").unwrap();
+        move_to_trash(f2.to_str().unwrap(), trash.to_str().unwrap()).unwrap();
+        assert!(trash.join("a (1).jpg").exists());
+
+        std::fs::remove_dir_all(&base).ok();
+    }
 }

@@ -73,6 +73,10 @@ impl App {
             Msg::RequestRemoveMissing(_)
             | Msg::ConfirmRemoveMissing
             | Msg::CancelRemoveMissing
+            | Msg::RequestMoveRejectsToTrash
+            | Msg::ConfirmMoveRejectsToTrash
+            | Msg::CancelMoveRejectsToTrash
+            | Msg::RejectsTrashed { .. }
             | Msg::LocateFile(_)
             | Msg::FileLocated { .. } => self.handle_missing_msg(msg),
 

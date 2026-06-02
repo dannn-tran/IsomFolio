@@ -43,6 +43,10 @@ Ratings are 0–5 stars (0 = no rating).
 Ratings are stored and filterable but are **not yet displayed as overlays on grid tiles**. You can see a photo's rating in the Info panel. Visual overlays on tiles are planned.
 </Aside>
 
+## Clearing rejects
+
+When you're done, **Edit → Move Rejects to Trash…** moves every rejected photo in the current view out of your library and into a `Trash` folder inside the catalog, then removes them from the catalog. A confirmation appears in the status bar first. The files are not deleted from disk — they sit in the `Trash` folder so you can recover them, and filenames are disambiguated on collision.
+
 ## Colour labels
 
 A second, independent axis for organising a cull (use stars for quality, colours for status — e.g. "to retouch", "client pick", "social"):

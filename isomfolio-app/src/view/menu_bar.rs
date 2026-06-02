@@ -195,6 +195,8 @@ impl App {
         vec![
             MenuItem::Action("Undo", "Cmd+Z", Msg::Undo),
             MenuItem::Action("Redo", "Cmd+Shift+Z", Msg::Redo),
+            MenuItem::Separator,
+            MenuItem::Action("Move Rejects to Trash…", "", Msg::RequestMoveRejectsToTrash),
         ]
     }
 }

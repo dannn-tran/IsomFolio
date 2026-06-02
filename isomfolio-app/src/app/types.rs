@@ -372,6 +372,10 @@ pub enum Msg {
     RequestRemoveMissing(String),
     ConfirmRemoveMissing,
     CancelRemoveMissing,
+    RequestMoveRejectsToTrash,
+    ConfirmMoveRejectsToTrash,
+    CancelMoveRejectsToTrash,
+    RejectsTrashed { moved: usize, failed: usize },
     LocateFile(String),
     FileLocated { file_id: String, new_path: std::path::PathBuf },
 

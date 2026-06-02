@@ -275,6 +275,15 @@ pub fn delete_file(conn: &Connection, file_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+pub fn delete_files(conn: &Connection, file_ids: &[String]) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    for id in file_ids {
+        conn.execute("DELETE FROM files WHERE id = ?1", [id.as_str()])?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn get_folder_counts(conn: &Connection) -> Result<Vec<(String, usize)>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT folder, COUNT(*) FROM files WHERE is_orphaned = 0 GROUP BY folder",

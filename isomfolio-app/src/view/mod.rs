@@ -127,6 +127,27 @@ impl App {
             status_row = status_row.push(btn);
         }
 
+        if self.reject_trash_pending {
+            let n = self
+                .files
+                .iter()
+                .filter(|f| f.flag == isomfolio_core::models::Flag::Reject && !f.is_orphaned)
+                .count();
+            status_row = status_row.push(
+                row![
+                    text(format!("Move {n} reject(s) to Trash?")).size(TEXT_MD).color(ERR),
+                    button(text("Cancel").size(TEXT_MD))
+                        .on_press(Msg::CancelMoveRejectsToTrash)
+                        .style(ghost_btn_style),
+                    button(text("Move").size(TEXT_MD))
+                        .on_press(Msg::ConfirmMoveRejectsToTrash)
+                        .style(danger_btn_style),
+                ]
+                .spacing(SPACE_1_5)
+                .align_y(Alignment::Center),
+            );
+        }
+
         if pick_count > 0 {
             status_row = status_row.push(
                 text(format!("✓ {pick_count}"))
