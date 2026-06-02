@@ -539,6 +539,13 @@ impl App {
                 Task::none()
             }
 
+            Msg::ToggleSidebarSection(section) => {
+                if !self.collapsed_sections.remove(&section) {
+                    self.collapsed_sections.insert(section);
+                }
+                Task::none()
+            }
+
             Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches } => {
                 self.folders = folders;
                 self.folder_tree = folder_tree;

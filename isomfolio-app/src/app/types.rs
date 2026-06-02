@@ -57,6 +57,14 @@ pub enum ViewMode {
     Settings,
 }
 
+/// Collapsible sidebar sections that hold a list of rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SidebarSection {
+    Folders,
+    Albums,
+    Imports,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SidebarItem {
     AllFiles,
@@ -134,6 +142,7 @@ pub enum Msg {
     },
     ImportBatchesLoaded(Vec<isomfolio_core::models::ImportBatch>),
     ToggleShowAllImports,
+    ToggleSidebarSection(SidebarSection),
 
     TileSizeUp,
     TileSizeDown,

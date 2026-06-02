@@ -159,6 +159,10 @@ Two row height constants exist to express the hierarchy between containers and i
 
 Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM_HEIGHT`.
 
+### Collapsible sidebar sections
+
+Sidebar sections that hold a *list* of rows — **Folders, Albums, Imports** — are collapsible. The section header carries a leading chevron (`▾` expanded / `▸` collapsed, `icon_btn_style`), the same control as folder rows; clicking it hides/shows that section's rows and nothing else. Like the folder chevron, it is a *separate* control and never changes selection or navigates. Collapse state is per-section, in-memory (not persisted across restart). Header action buttons (`+`, `⚡`, `⟳`) stay to the right of the label regardless of collapse. Single-entry pseudo-sections (the **Deleted** row) and header-only nav entries (**People**, which opens a view and has no sidebar children) are *not* collapsible — there is no row list to hide.
+
 ### Folder tree
 
 Folders render as a navigable **tree**, not a flat list, showing the deepest folders the user actually has photos under (pass-through ancestors are collapsed away — never `/`, `/Users`, etc.). *(How the tree is built/collapsed and where expansion/scan-depth state live → `architecture.md`, UI rendering.)*

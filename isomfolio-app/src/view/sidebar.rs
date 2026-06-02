@@ -13,11 +13,21 @@ use super::styles::{
     TEXT_BASE, TEXT_MD, TEXT_SM,
 };
 use crate::app::{
-    unix_to_date_str, App, Msg, SidebarItem, ViewMode, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT,
+    unix_to_date_str, App, Msg, SidebarItem, SidebarSection, ViewMode, ALBUM_ITEM_HEIGHT,
+    FOLDER_ITEM_HEIGHT,
 };
 
 /// How many recent import batches the sidebar shows before "Show all".
 const IMPORTS_COLLAPSED: usize = 10;
+
+/// A section-collapse chevron (▾ expanded / ▸ collapsed). Separate control, like
+/// the folder-row chevron — toggling collapse never changes selection.
+fn section_chevron<'a>(collapsed: bool, section: SidebarSection) -> Element<'a, Msg> {
+    button(text(if collapsed { "▸" } else { "▾" }).size(TEXT_SM).color(FG_DIM))
+        .on_press(Msg::ToggleSidebarSection(section))
+        .style(icon_btn_style)
+        .into()
+}
 
 impl App {
     pub(super) fn view_sidebar(&self) -> Element<'_, Msg> {
@@ -33,6 +43,10 @@ impl App {
             .into();
 
         let albums_header: Element<Msg> = row![
+            section_chevron(
+                self.collapsed_sections.contains(&SidebarSection::Albums),
+                SidebarSection::Albums
+            ),
             text("Albums").size(TEXT_MD).color(FG_DIM),
             Space::new().width(Length::Fill),
             super::styles::tip(
@@ -54,10 +68,17 @@ impl App {
         .align_y(Alignment::Center)
         .into();
 
+        let folders_collapsed = self.collapsed_sections.contains(&SidebarSection::Folders);
+        let albums_collapsed = self.collapsed_sections.contains(&SidebarSection::Albums);
+        let imports_collapsed = self.collapsed_sections.contains(&SidebarSection::Imports);
+
         let is_sync_active = self.is_syncing || self.sync_pending;
         let mut folders_header_row = row![
+            section_chevron(folders_collapsed, SidebarSection::Folders),
             text("Folders").size(TEXT_MD).color(FG_DIM),
-        ];
+        ]
+        .spacing(SPACE_0_5)
+        .align_y(Alignment::Center);
         if is_sync_active {
             folders_header_row = folders_header_row
                 .push(Space::new().width(SPACE_1))
@@ -90,12 +111,14 @@ impl App {
 
         content = content.push(folders_header);
 
-        let mut folder_rows: Vec<Element<Msg>> = Vec::new();
-        for node in &self.folder_tree {
-            self.collect_folder_rows(node, 0, max_chars, &mut folder_rows);
-        }
-        for r in folder_rows {
-            content = content.push(r);
+        if !folders_collapsed {
+            let mut folder_rows: Vec<Element<Msg>> = Vec::new();
+            for node in &self.folder_tree {
+                self.collect_folder_rows(node, 0, max_chars, &mut folder_rows);
+            }
+            for r in folder_rows {
+                content = content.push(r);
+            }
         }
 
         content = content
@@ -131,6 +154,9 @@ impl App {
         }
 
         for album in &self.albums {
+            if albums_collapsed {
+                break;
+            }
             let sel = self.selected_item == SidebarItem::Album(album.id.clone());
             let hovered = drag_hover.as_deref() == Some(album.id.as_str());
             let count = self.album_counts.get(&album.id).copied().unwrap_or(0);
@@ -235,13 +261,21 @@ impl App {
 
         // Imports — recent sync batches as discrete, stable views.
         if !self.import_batches.is_empty() {
+            let imports_header = row![
+                section_chevron(imports_collapsed, SidebarSection::Imports),
+                text("Imports").size(TEXT_SM).color(FG_DIM),
+            ]
+            .spacing(SPACE_0_5)
+            .align_y(Alignment::Center);
             content = content
                 .push(Space::new().height(SPACE_1))
                 .push(sidebar_divider())
                 .push(Space::new().height(SPACE_1))
-                .push(text("Imports").size(TEXT_SM).color(FG_DIM));
+                .push(imports_header);
 
-            let shown = if self.show_all_imports {
+            let shown = if imports_collapsed {
+                0
+            } else if self.show_all_imports {
                 self.import_batches.len()
             } else {
                 IMPORTS_COLLAPSED.min(self.import_batches.len())
@@ -256,7 +290,7 @@ impl App {
                         .width(Length::Fill),
                 );
             }
-            if self.import_batches.len() > IMPORTS_COLLAPSED {
+            if !imports_collapsed && self.import_batches.len() > IMPORTS_COLLAPSED {
                 let more_label = if self.show_all_imports {
                     "Show less".to_string()
                 } else {

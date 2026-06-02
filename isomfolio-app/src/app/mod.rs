@@ -247,6 +247,8 @@ pub struct App {
     pub import_batches: Vec<isomfolio_core::models::ImportBatch>,
     /// Whether the Imports section is expanded past the recent-10 cutoff.
     pub show_all_imports: bool,
+    /// Sidebar sections the user has collapsed (hidden their row lists).
+    pub collapsed_sections: HashSet<crate::app::types::SidebarSection>,
     /// Pending permanent-purge confirmation: the (id, path) pairs to delete from
     /// disk + catalog. `Some` shows the inline confirm; this is the one delete
     /// path that actually touches files on disk.
@@ -491,6 +493,7 @@ impl App {
             deleted_count: 0,
             import_batches: Vec::new(),
             show_all_imports: false,
+            collapsed_sections: HashSet::new(),
             purge_pending: None,
             smart_album_dirty: false,
             context_menu: None,
