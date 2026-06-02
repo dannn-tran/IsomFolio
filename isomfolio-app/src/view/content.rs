@@ -340,9 +340,11 @@ impl App {
         // tooltip is how their meaning is discovered).
         let chip = |glyph: String, hint: String, active: bool, color: Color, msg: Msg| {
             super::styles::tip(
+                // Vertical padding keeps the hit target near the 24 px floor
+                // (design-system "Density floor") despite the small glyph.
                 button(text(glyph).size(TEXT_SM).color(color))
                     .on_press(msg)
-                    .padding([SPACE_0_5, SPACE_1])
+                    .padding([SPACE_1_5, SPACE_1_5])
                     .style(if active { active_chip_style } else { ghost_btn_style }),
                 hint,
                 super::styles::TipPos::Bottom,

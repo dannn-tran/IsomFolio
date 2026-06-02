@@ -176,10 +176,40 @@ impl App {
     }
 
     fn catalog_menu_items(&self) -> Vec<MenuItem> {
-        vec![
+        use crate::app::SidebarItem;
+        use isomfolio_core::models::AlbumKind;
+
+        let mut items = vec![
             MenuItem::Action("New Catalog…", "", Msg::ShowNewCatalogModal),
             MenuItem::Action("Open Catalog…", "", Msg::PickOpenCatalog),
-        ]
+        ];
+
+        // Off-row path for the selected sidebar entity's actions (the
+        // right-click menu is the fast path; this is the discoverable one).
+        match &self.selected_item {
+            SidebarItem::Folder(path) => {
+                items.push(MenuItem::Separator);
+                items.push(MenuItem::Action("Sync Folder", "⌘R", Msg::SyncFolder(path.clone())));
+                items.push(MenuItem::Action("Remove Folder from Library…", "", Msg::RequestRemoveFolder(path.clone())));
+            }
+            SidebarItem::Album(id) => {
+                let is_smart = self
+                    .albums
+                    .iter()
+                    .find(|a| &a.id == id)
+                    .map(|a| matches!(a.kind, AlbumKind::Smart(_)))
+                    .unwrap_or(false);
+                items.push(MenuItem::Separator);
+                items.push(MenuItem::Action("Rename Album", "", Msg::StartRenameAlbum(id.clone())));
+                items.push(MenuItem::Action("Duplicate Album", "", Msg::DuplicateAlbum(id.clone())));
+                if is_smart {
+                    items.push(MenuItem::Action("Edit Criteria", "", Msg::SidebarItemClicked(SidebarItem::Album(id.clone()))));
+                }
+                items.push(MenuItem::Action("Delete Album…", "", Msg::RequestDeleteAlbum(id.clone())));
+            }
+            _ => {}
+        }
+        items
     }
 
     fn photo_menu_items(&self) -> Vec<MenuItem> {
