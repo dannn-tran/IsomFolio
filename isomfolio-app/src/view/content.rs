@@ -85,9 +85,25 @@ impl App {
             .padding([SPACE_1_5, SPACE_3])
             .width(Length::Fill);
 
-        let empty_msg = "No photos in this view";
         let empty_or_grid: Element<Msg> = if self.files.is_empty() {
-            container(text(empty_msg).size(TEXT_BASE).color(FG_DIM))
+            // No library at all → onboarding call-to-action; otherwise just an
+            // empty view (e.g. a filter or album with no matches).
+            let inner: Element<Msg> = if self.folders.is_empty() {
+                column![
+                    text("No photos yet").size(TEXT_MD).color(FG),
+                    text("Add a folder to start your catalog.").size(TEXT_SM).color(FG_DIM),
+                    Space::new().height(SPACE_2),
+                    button(text("Add Folder…").size(TEXT_BASE))
+                        .on_press(Msg::SyncPickFolder)
+                        .style(active_chip_style),
+                ]
+                .spacing(SPACE_1)
+                .align_x(Alignment::Center)
+                .into()
+            } else {
+                text("No photos in this view").size(TEXT_BASE).color(FG_DIM).into()
+            };
+            container(inner)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_x(Alignment::Center)
