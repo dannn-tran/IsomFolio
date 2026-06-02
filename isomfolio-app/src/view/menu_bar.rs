@@ -22,6 +22,7 @@ struct MenuTab {
 const MENU_TABS: &[MenuTab] = &[
     MenuTab { label: "Catalog", id: "catalog", tab_width: 72.0 },
     MenuTab { label: "Edit",    id: "edit",    tab_width: 52.0 },
+    MenuTab { label: "Photo",   id: "photo",   tab_width: 60.0 },
     MenuTab { label: "View",    id: "view",    tab_width: 56.0 },
 ];
 
@@ -113,6 +114,7 @@ impl App {
         let items = match menu_id {
             "catalog" => self.catalog_menu_items(),
             "edit" => self.edit_menu_items(),
+            "photo" => self.photo_menu_items(),
             "view" => self.view_menu_items(),
             _ => return None,
         };
@@ -177,6 +179,30 @@ impl App {
         vec![
             MenuItem::Action("New Catalog…", "", Msg::ShowNewCatalogModal),
             MenuItem::Action("Open Catalog…", "", Msg::PickOpenCatalog),
+        ]
+    }
+
+    fn photo_menu_items(&self) -> Vec<MenuItem> {
+        use isomfolio_core::models::Flag;
+        vec![
+            MenuItem::Action("Flag as Pick", "P", Msg::SetFlag(Flag::Pick)),
+            MenuItem::Action("Flag as Reject", "X", Msg::SetFlag(Flag::Reject)),
+            MenuItem::Action("Remove Flag", "U", Msg::SetFlag(Flag::Unflagged)),
+            MenuItem::Separator,
+            MenuItem::Action("Label Red", "6", Msg::SetColorLabel(Some("Red".into()))),
+            MenuItem::Action("Label Yellow", "7", Msg::SetColorLabel(Some("Yellow".into()))),
+            MenuItem::Action("Label Green", "8", Msg::SetColorLabel(Some("Green".into()))),
+            MenuItem::Action("Label Blue", "9", Msg::SetColorLabel(Some("Blue".into()))),
+            MenuItem::Action("Label Purple", "", Msg::SetColorLabel(Some("Purple".into()))),
+            MenuItem::Action("Remove Label", "", Msg::SetColorLabel(None)),
+            MenuItem::Separator,
+            MenuItem::Action("Compare", "C", Msg::OpenCompare),
+            MenuItem::Action("Copy to Folder…", "", Msg::ExportSelectionToDialog(crate::app::ExportMode::Copy)),
+            MenuItem::Action("Move to Folder…", "", Msg::ExportSelectionToDialog(crate::app::ExportMode::Move)),
+            MenuItem::Action("Import XMP metadata", "", Msg::SyncXmpForSelection),
+            MenuItem::Separator,
+            MenuItem::Action("Find People", "", Msg::RunFaceClustering { force_full: false }),
+            MenuItem::Action("New Smart Album from Filters…", "", Msg::SaveAsSmartAlbum),
         ]
     }
 

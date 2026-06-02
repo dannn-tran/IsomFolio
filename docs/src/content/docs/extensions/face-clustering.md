@@ -62,14 +62,14 @@ When disabled, trigger it manually:
 <Steps>
 
 1. Make sure your library is scanned and up to date.
-2. Go to **Extensions → Run Face Clustering** (or use the People view header button).
+2. Choose **Photo → Find People** (or click the People section header).
 3. A progress bar appears while photos are embedded, then grouped. Only new/changed photos are embedded.
 4. When complete, the People view populates.
 
 </Steps>
 
 <Aside type="tip">
-If results look wrong (one person split across groups, or two people merged), try **Run Face Clustering (Full)** from the Extensions menu — it re-groups every face from scratch instead of only assigning new faces to known people.
+If results look wrong (one person split across groups, or two people merged), use the **⟳** button in the People section header for a full re-cluster — it re-groups every face from scratch instead of only assigning new faces to known people.
 </Aside>
 
 ## Incremental vs full clustering

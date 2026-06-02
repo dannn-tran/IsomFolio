@@ -225,6 +225,24 @@ impl App {
                 Task::batch([self.load_sidebar_task(), self.load_files_task()])
             }
 
+            Msg::DeleteKeyPressed => {
+                // Non-destructive: only meaningful inside a manual album, where
+                // it unlinks the selected photos (files stay on disk).
+                let SidebarItem::Album(ref id) = self.selected_item else {
+                    return Task::none();
+                };
+                let is_manual = self
+                    .albums
+                    .iter()
+                    .find(|a| &a.id == id)
+                    .map(|a| matches!(a.kind, AlbumKind::Manual))
+                    .unwrap_or(false);
+                if !is_manual || self.grid_selected.is_empty() {
+                    return Task::none();
+                }
+                self.handle_album_msg(Msg::ConfirmRemoveFromAlbum)
+            }
+
             Msg::RemoveFromAlbum => {
                 self.remove_from_album_pending = true;
                 Task::none()
@@ -268,6 +286,9 @@ impl App {
             }
 
             Msg::SaveAsSmartAlbum => {
+                // Open the filter panel so the inline name input is visible
+                // (e.g. when triggered from the Photo menu with the panel shut).
+                self.filters.show = true;
                 self.filters.save_smart_input = Some(String::new());
                 Task::none()
             }

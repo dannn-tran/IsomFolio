@@ -21,13 +21,13 @@ The clustering runs locally on your machine. No face data is sent anywhere.
 ## Running face clustering
 
 1. Install the face-clustering extension (see [Face Clustering](/extensions/face-clustering/)).
-2. Go to **Extensions** menu → **Run Face Clustering**.
+2. Choose **Photo → Find People** (clustering also runs automatically after a sync that finds new photos, unless disabled in Settings).
 3. A progress indicator appears in the People view header. Clustering on a large library can take several minutes.
 4. When complete, the People view shows one card per detected person.
 
 ### Full re-cluster vs incremental
 
-By default, clustering is incremental — it processes only photos that have changed since the last run. If faces seem wrong or people are split across multiple clusters, run a **full re-cluster** from the Extensions menu. Full re-clustering takes longer but produces the most accurate groupings.
+By default, clustering is incremental — it processes only new/changed photos and assigns their faces to existing people (discovering new ones). If faces seem wrong or people are split across multiple clusters, run a **full re-cluster** with the **⟳** button in the People section header. Full re-clustering takes longer but produces the most accurate groupings.
 
 ## People view
 

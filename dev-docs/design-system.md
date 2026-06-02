@@ -232,7 +232,10 @@ Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: cont
 |---|---|
 | Catalog | New Catalog… · Open Catalog… |
 | Edit | Undo · Redo · — · Move Rejects to Trash… |
+| Photo | Flag Pick/Reject/Unflag · — · Label Red/Yellow/Green/Blue/Purple/Remove · — · Compare · Copy/Move to Folder… · Import XMP · — · Find People · New Smart Album from Filters… |
 | View | Toggle Info Panel · Preview · Loupe · People · — · Zoom In · Zoom Out · — · Hide Rejects |
+
+Every major selection action has a **menu path** (with its shortcut shown) so it's discoverable without memorising keys — the menu is the canonical "what can this app do?" surface. Right-click menus and the cull strip are faster paths to the same actions, not the only path.
 
 ### Main browse layout
 
