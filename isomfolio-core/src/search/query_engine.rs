@@ -71,20 +71,6 @@ fn execute_query_inner(
         None => format!("SELECT {FILE_COLS} FROM files f"),
     };
 
-    for (i, tag) in query.tags.iter().enumerate() {
-        let like_param = param_idx + 1;
-        sql.push_str(&format!(
-            " JOIN tags t{i} ON f.id = t{i}.file_id AND (t{i}.tag = ?{param_idx} OR t{i}.tag LIKE ?{like_param} ESCAPE '\\')"
-        ));
-        params.push(Box::new(tag.clone()));
-        let escaped = tag
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        params.push(Box::new(format!("{escaped}/%")));
-        param_idx += 2;
-    }
-
     if needs_meta {
         sql.push_str(" LEFT JOIN metadata m ON f.id = m.file_id");
     }
@@ -105,6 +91,51 @@ fn execute_query_inner(
         sql.push_str(" AND f.is_deleted = 1");
     } else {
         sql.push_str(" AND f.is_deleted = 0");
+    }
+
+    // Tag filters via EXISTS subqueries (not JOINs) so OR and NOT compose without
+    // row fan-out. Each tag matches itself or any descendant (hierarchy prefix).
+    {
+        let mut tag_cond = |tag: &str| -> String {
+            let exact = param_idx;
+            let like = param_idx + 1;
+            params.push(Box::new(tag.to_string()));
+            let escaped = tag
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            params.push(Box::new(format!("{escaped}/%")));
+            param_idx += 2;
+            format!("(tg.tag = ?{exact} OR tg.tag LIKE ?{like} ESCAPE '\\')")
+        };
+
+        if !query.tags.is_empty() {
+            match query.tag_match {
+                crate::models::TagMatch::All => {
+                    for tag in &query.tags {
+                        let cond = tag_cond(tag);
+                        sql.push_str(&format!(
+                            " AND EXISTS (SELECT 1 FROM tags tg WHERE tg.file_id = f.id AND {cond})"
+                        ));
+                    }
+                }
+                crate::models::TagMatch::Any => {
+                    let conds: Vec<String> = query.tags.iter().map(|t| tag_cond(t)).collect();
+                    sql.push_str(&format!(
+                        " AND EXISTS (SELECT 1 FROM tags tg WHERE tg.file_id = f.id AND ({}))",
+                        conds.join(" OR ")
+                    ));
+                }
+            }
+        }
+
+        if !query.exclude_tags.is_empty() {
+            let conds: Vec<String> = query.exclude_tags.iter().map(|t| tag_cond(t)).collect();
+            sql.push_str(&format!(
+                " AND NOT EXISTS (SELECT 1 FROM tags tg WHERE tg.file_id = f.id AND ({}))",
+                conds.join(" OR ")
+            ));
+        }
     }
 
     // Burst collapse: keep one representative (earliest shot) per burst.
@@ -403,6 +434,87 @@ mod tests {
             let q = SearchQuery { tags: vec!["Subject".into()], ..Default::default() };
             let results = execute_search(&conn, &q).unwrap();
             assert_eq!(results.len(), 0, "'Subject Extra' must not match tag filter 'Subject'");
+        }
+    }
+
+    mod tag_boolean {
+        use super::*;
+        use crate::models::TagMatch;
+        use crate::storage::db;
+
+        fn setup() -> (Connection, NamedTempFile) {
+            let (conn, f) = open_temp();
+            insert(&conn, "ab", "ab.jpg", "/p", "jpg", 0);
+            insert(&conn, "a", "a.jpg", "/p", "jpg", 0);
+            insert(&conn, "b", "b.jpg", "/p", "jpg", 0);
+            insert(&conn, "none", "none.jpg", "/p", "jpg", 0);
+            db::upsert_tags(&conn, "ab", &["portrait".into(), "2018".into()]).unwrap();
+            db::upsert_tags(&conn, "a", &["portrait".into()]).unwrap();
+            db::upsert_tags(&conn, "b", &["2018".into()]).unwrap();
+            (conn, f)
+        }
+
+        fn ids(results: &[crate::models::AssetFile]) -> Vec<String> {
+            let mut v: Vec<String> = results.iter().map(|r| r.id.clone()).collect();
+            v.sort();
+            v
+        }
+
+        #[test]
+        fn all_requires_every_tag() {
+            let (conn, _f) = setup();
+            let q = SearchQuery {
+                tags: vec!["portrait".into(), "2018".into()],
+                tag_match: TagMatch::All,
+                ..Default::default()
+            };
+            assert_eq!(ids(&execute_search(&conn, &q).unwrap()), vec!["ab"]);
+        }
+
+        #[test]
+        fn any_matches_either() {
+            let (conn, _f) = setup();
+            let q = SearchQuery {
+                tags: vec!["portrait".into(), "2018".into()],
+                tag_match: TagMatch::Any,
+                ..Default::default()
+            };
+            assert_eq!(ids(&execute_search(&conn, &q).unwrap()), vec!["a", "ab", "b"]);
+        }
+
+        #[test]
+        fn exclude_removes_matching() {
+            let (conn, _f) = setup();
+            let q = SearchQuery {
+                exclude_tags: vec!["portrait".into()],
+                ..Default::default()
+            };
+            // Everything without 'portrait': b (2018) and none (untagged).
+            assert_eq!(ids(&execute_search(&conn, &q).unwrap()), vec!["b", "none"]);
+        }
+
+        #[test]
+        fn include_any_plus_exclude_compose() {
+            let (conn, _f) = setup();
+            // Has portrait OR 2018, but NOT 2018 → only the portrait-only file.
+            let q = SearchQuery {
+                tags: vec!["portrait".into(), "2018".into()],
+                tag_match: TagMatch::Any,
+                exclude_tags: vec!["2018".into()],
+                ..Default::default()
+            };
+            assert_eq!(ids(&execute_search(&conn, &q).unwrap()), vec!["a"]);
+        }
+
+        #[test]
+        fn exclude_respects_hierarchy_prefix() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "x", "x.jpg", "/p", "jpg", 0);
+            insert(&conn, "y", "y.jpg", "/p", "jpg", 0);
+            db::upsert_tags(&conn, "x", &["Subject/Arnold".into()]).unwrap();
+            db::upsert_tags(&conn, "y", &["Photographer/Art".into()]).unwrap();
+            let q = SearchQuery { exclude_tags: vec!["Subject".into()], ..Default::default() };
+            assert_eq!(ids(&execute_search(&conn, &q).unwrap()), vec!["y"]);
         }
     }
 

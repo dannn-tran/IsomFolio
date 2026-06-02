@@ -1447,6 +1447,18 @@ mod tests {
         (conn, f)
     }
 
+    #[test]
+    fn smart_album_query_deserializes_without_tag_boolean_fields() {
+        // A smart album saved before tag OR/NOT existed: no tag_match / exclude_tags.
+        let legacy = r#"{"text":null,"folder_path":null,"folder_recursive":false,
+            "tags":["portrait"],"extensions":[],"date_from":null,"date_to":null,
+            "sort_by":"Name","sort_asc":true}"#;
+        let q = deserialize_query(legacy);
+        assert_eq!(q.tags, vec!["portrait".to_string()]);
+        assert_eq!(q.tag_match, crate::models::TagMatch::All);
+        assert!(q.exclude_tags.is_empty());
+    }
+
     fn make_file(id: &str, path: &str) -> AssetFile {
         AssetFile {
             id: id.to_string(),

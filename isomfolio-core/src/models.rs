@@ -139,12 +139,30 @@ impl RatingFilter {
     }
 }
 
+/// How the include `tags` set combines: `All` = a file must have every tag (AND),
+/// `Any` = at least one (OR). Excluded tags (`exclude_tags`) are always a
+/// NOT-any: a file is dropped if it has any of them.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum TagMatch {
+    #[default]
+    All,
+    Any,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SearchQuery {
     pub text: Option<String>,
     pub folder_path: Option<String>,
     pub folder_recursive: bool,
     pub tags: Vec<String>,
+    /// How `tags` combine (AND/OR). Defaults to `All` for backward compatibility
+    /// with smart albums saved before tag OR/NOT existed.
+    #[serde(default)]
+    pub tag_match: TagMatch,
+    /// Tags whose presence excludes a file (NOT). A file is dropped if it has any
+    /// of these (or a descendant, by hierarchy prefix).
+    #[serde(default)]
+    pub exclude_tags: Vec<String>,
     pub extensions: Vec<String>,
     pub date_from: Option<i64>,
     pub date_to: Option<i64>,
@@ -191,6 +209,8 @@ impl Default for SearchQuery {
             folder_path: None,
             folder_recursive: false,
             tags: Vec::new(),
+            tag_match: TagMatch::default(),
+            exclude_tags: Vec::new(),
             extensions: Vec::new(),
             date_from: None,
             date_to: None,
