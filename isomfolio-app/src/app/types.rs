@@ -65,6 +65,8 @@ pub enum SidebarItem {
     FaceCluster(String),
     /// Virtual view of soft-deleted photos.
     Deleted,
+    /// A discrete import batch (a sync that added files), by batch id.
+    Import(i64),
 }
 
 impl SidebarItem {
@@ -76,6 +78,7 @@ impl SidebarItem {
             SidebarItem::Album(id) => format!("album:{id}"),
             SidebarItem::FaceCluster(id) => format!("cluster:{id}"),
             SidebarItem::Deleted => "deleted".to_string(),
+            SidebarItem::Import(id) => format!("import:{id}"),
         }
     }
 
@@ -89,6 +92,7 @@ impl SidebarItem {
                     "folder" => Some(SidebarItem::Folder(rest.to_string())),
                     "album" => Some(SidebarItem::Album(rest.to_string())),
                     "cluster" => Some(SidebarItem::FaceCluster(rest.to_string())),
+                    "import" => rest.parse().ok().map(SidebarItem::Import),
                     _ => None,
                 }
             }
@@ -126,7 +130,10 @@ pub enum Msg {
         albums: Vec<Album>,
         album_counts: HashMap<String, usize>,
         deleted_count: usize,
+        import_batches: Vec<isomfolio_core::models::ImportBatch>,
     },
+    ImportBatchesLoaded(Vec<isomfolio_core::models::ImportBatch>),
+    ToggleShowAllImports,
 
     TileSizeUp,
     TileSizeDown,

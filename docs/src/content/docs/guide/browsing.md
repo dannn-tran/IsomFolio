@@ -9,6 +9,8 @@ import { Aside } from '@astrojs/starlight/components';
 
 Use the **sidebar** to switch between All Files, a specific folder, an album, or a person. The grid updates immediately.
 
+**Imports.** Each sync that adds new photos is recorded as a dated **import batch**, listed under **Imports** in the sidebar (`Jun 3 (80)` = 80 photos imported that day). Click one to see exactly the photos that came in during that sync — a fixed set that never changes, so "show me what I just brought in" is always one click. The ten most recent are shown; **Show all** expands the full history. This is distinct from the **Added** filter (Searching & Filtering), which is a rolling time window you can combine with other criteria.
+
 Sort options (accessible from the toolbar or sort button):
 - **Name** — alphabetical by filename
 - **Date** — EXIF capture date (`DateTimeOriginal`) when available; falls back to file modification date

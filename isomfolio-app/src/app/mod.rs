@@ -243,6 +243,10 @@ pub struct App {
     pub reject_delete_pending: bool,
     /// Count of soft-deleted photos (drives the sidebar "Deleted" entry).
     pub deleted_count: usize,
+    /// Recent import batches (newest first) for the sidebar Imports section.
+    pub import_batches: Vec<isomfolio_core::models::ImportBatch>,
+    /// Whether the Imports section is expanded past the recent-10 cutoff.
+    pub show_all_imports: bool,
     /// Pending permanent-purge confirmation: the (id, path) pairs to delete from
     /// disk + catalog. `Some` shows the inline confirm; this is the one delete
     /// path that actually touches files on disk.
@@ -485,6 +489,8 @@ impl App {
             remove_from_album_pending: false,
             reject_delete_pending: false,
             deleted_count: 0,
+            import_batches: Vec::new(),
+            show_all_imports: false,
             purge_pending: None,
             smart_album_dirty: false,
             context_menu: None,
@@ -816,6 +822,10 @@ impl App {
                         };
                         cat.search(&q).unwrap_or_default()
                     }
+                    SidebarItem::Import(batch_id) => {
+                        let q = SearchQuery { import_batch: Some(batch_id), ..query };
+                        cat.search(&q).unwrap_or_default()
+                    }
                 }
             },
             Msg::FilesLoaded,
@@ -836,6 +846,7 @@ impl App {
                 let albums = cat.get_all_albums().unwrap_or_default();
                 let album_counts = cat.get_all_album_file_counts().unwrap_or_default();
                 let deleted_count = cat.count_deleted().unwrap_or(0);
+                let import_batches = cat.get_import_batches(None).unwrap_or_default();
                 drop(cat);
                 let folders = raw_folders
                     .into_iter()
@@ -855,9 +866,9 @@ impl App {
                         (path, display, count)
                     })
                     .collect();
-                (folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count)
+                (folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches)
             },
-            |(folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count)| {
+            |(folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches)| {
                 Msg::SidebarLoaded {
                     folders,
                     folder_tree,
@@ -866,6 +877,7 @@ impl App {
                     albums,
                     album_counts,
                     deleted_count,
+                    import_batches,
                 }
             },
         )

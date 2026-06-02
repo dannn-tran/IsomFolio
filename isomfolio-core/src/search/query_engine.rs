@@ -138,6 +138,12 @@ fn execute_query_inner(
         }
     }
 
+    if let Some(batch_id) = query.import_batch {
+        sql.push_str(&format!(" AND f.import_batch_id = ?{param_idx}"));
+        params.push(Box::new(batch_id));
+        param_idx += 1;
+    }
+
     // Burst collapse: keep one representative (earliest shot) per burst.
     if query.collapse_bursts {
         sql.push_str(

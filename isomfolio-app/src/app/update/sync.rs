@@ -108,13 +108,29 @@ impl App {
                     // Reveal the freshly-synced subtree once the sidebar reloads.
                     self.expand_under_path = Some(synced.clone());
                 }
+                let has_new = !new_file_ids.is_empty();
+                // Record this sync's additions as a discrete import batch.
+                let t_batch = match (has_new, self.catalog.clone()) {
+                    (true, Some(conn)) => {
+                        let folder = path.clone();
+                        let ids = new_file_ids.clone();
+                        Task::perform(
+                            async move {
+                                let g = conn.lock_unwrap();
+                                let _ = g.record_import_batch(folder.as_deref(), &ids);
+                                g.get_import_batches(None).unwrap_or_default()
+                            },
+                            Msg::ImportBatchesLoaded,
+                        )
+                    }
+                    _ => Task::none(),
+                };
                 let t1 = self.load_sidebar_task();
                 let t_nav = if let Some(p) = path {
                     Task::done(Msg::SidebarItemClicked(super::super::SidebarItem::Folder(p)))
                 } else {
                     self.load_files_task()
                 };
-                let has_new = !new_file_ids.is_empty();
                 let t_faces = if has_new
                     && self.app_settings.auto_face_cluster
                     && self.inference_manifest.is_some()
@@ -123,7 +139,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([t1, t_nav, t_faces])
+                Task::batch([t_batch, t1, t_nav, t_faces])
             }
 
             Msg::RequestRemoveFolder(path) => {

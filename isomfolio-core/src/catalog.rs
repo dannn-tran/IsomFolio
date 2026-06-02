@@ -74,6 +74,21 @@ impl Catalog {
         db::remove_library_root(&self.conn, path)
     }
 
+    pub fn record_import_batch(
+        &self,
+        source_folder: Option<&str>,
+        file_ids: &[String],
+    ) -> Result<Option<i64>, AppError> {
+        db::record_import_batch(&self.conn, source_folder, file_ids)
+    }
+
+    pub fn get_import_batches(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<crate::models::ImportBatch>, AppError> {
+        db::get_import_batches(&self.conn, limit)
+    }
+
     pub fn list_library_roots(&self) -> Result<Vec<db::LibraryRoot>, AppError> {
         db::list_library_roots(&self.conn)
     }

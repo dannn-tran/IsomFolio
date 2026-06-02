@@ -12,7 +12,12 @@ use super::styles::{
     SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_3,
     TEXT_BASE, TEXT_MD, TEXT_SM,
 };
-use crate::app::{App, Msg, SidebarItem, ViewMode, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT};
+use crate::app::{
+    unix_to_date_str, App, Msg, SidebarItem, ViewMode, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT,
+};
+
+/// How many recent import batches the sidebar shows before "Show all".
+const IMPORTS_COLLAPSED: usize = 10;
 
 impl App {
     pub(super) fn view_sidebar(&self) -> Element<'_, Msg> {
@@ -226,6 +231,44 @@ impl App {
                     .style(ghost_btn_style)
                     .width(Length::Fill),
                 );
+        }
+
+        // Imports — recent sync batches as discrete, stable views.
+        if !self.import_batches.is_empty() {
+            content = content
+                .push(Space::new().height(SPACE_1))
+                .push(sidebar_divider())
+                .push(Space::new().height(SPACE_1))
+                .push(text("Imports").size(TEXT_SM).color(FG_DIM));
+
+            let shown = if self.show_all_imports {
+                self.import_batches.len()
+            } else {
+                IMPORTS_COLLAPSED.min(self.import_batches.len())
+            };
+            for batch in self.import_batches.iter().take(shown) {
+                let sel = self.selected_item == SidebarItem::Import(batch.id);
+                let label = format!("{} ({})", unix_to_date_str(batch.created_at_unix), batch.count);
+                content = content.push(
+                    button(text(label).size(TEXT_MD).color(if sel { FG } else { FG_DIM }))
+                        .on_press(Msg::SidebarItemClicked(SidebarItem::Import(batch.id)))
+                        .style(ghost_btn_style)
+                        .width(Length::Fill),
+                );
+            }
+            if self.import_batches.len() > IMPORTS_COLLAPSED {
+                let more_label = if self.show_all_imports {
+                    "Show less".to_string()
+                } else {
+                    format!("Show all ({})", self.import_batches.len())
+                };
+                content = content.push(
+                    button(text(more_label).size(TEXT_SM).color(FG_MUTED))
+                        .on_press(Msg::ToggleShowAllImports)
+                        .style(ghost_btn_style)
+                        .width(Length::Fill),
+                );
+            }
         }
 
         let sidebar_scroll = scrollable(content.spacing(SPACE_0_5).padding(SPACE_3))

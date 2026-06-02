@@ -529,7 +529,17 @@ impl App {
                 }
             }
 
-            Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count } => {
+            Msg::ImportBatchesLoaded(batches) => {
+                self.import_batches = batches;
+                Task::none()
+            }
+
+            Msg::ToggleShowAllImports => {
+                self.show_all_imports = !self.show_all_imports;
+                Task::none()
+            }
+
+            Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches } => {
                 self.folders = folders;
                 self.folder_tree = folder_tree;
                 self.library_roots = library_roots;
@@ -537,6 +547,7 @@ impl App {
                 self.albums = albums;
                 self.album_counts = album_counts;
                 self.deleted_count = deleted_count;
+                self.import_batches = import_batches;
                 if let Some(target) = self.expand_under_path.take() {
                     for p in isomfolio_core::folder_tree::expand_paths_for(&self.folder_tree, &target) {
                         self.expanded_folders.insert(p);
@@ -550,6 +561,7 @@ impl App {
                     SidebarItem::FaceCluster(id) => {
                         self.faces.clusters.iter().any(|c| &c.cluster_id == id)
                     }
+                    SidebarItem::Import(id) => self.import_batches.iter().any(|b| b.id == *id),
                 });
                 if let Some(item) = restore {
                     Task::done(Msg::SidebarItemClicked(item))

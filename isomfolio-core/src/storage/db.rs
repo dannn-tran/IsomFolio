@@ -407,6 +407,58 @@ pub fn remove_library_root(conn: &Connection, path: &str) -> Result<(), AppError
     Ok(())
 }
 
+/// Record an import batch for the files a sync just added, stamping each with the
+/// new batch id. Returns the batch id, or None if `file_ids` is empty (nothing
+/// imported — no batch).
+pub fn record_import_batch(
+    conn: &Connection,
+    source_folder: Option<&str>,
+    file_ids: &[String],
+) -> Result<Option<i64>, AppError> {
+    if file_ids.is_empty() {
+        return Ok(None);
+    }
+    let tx = conn.unchecked_transaction()?;
+    conn.execute(
+        "INSERT INTO import_batches (created_at_unix, source_folder, count) VALUES (?1, ?2, ?3)",
+        params![now_unix(), source_folder, file_ids.len() as i64],
+    )?;
+    let batch_id = conn.last_insert_rowid();
+    let mut stmt =
+        conn.prepare("UPDATE files SET import_batch_id = ?1 WHERE id = ?2")?;
+    for id in file_ids {
+        stmt.execute(params![batch_id, id])?;
+    }
+    drop(stmt);
+    tx.commit()?;
+    Ok(Some(batch_id))
+}
+
+/// Recent import batches, newest first. `limit` caps the count (None = all).
+pub fn get_import_batches(
+    conn: &Connection,
+    limit: Option<usize>,
+) -> Result<Vec<crate::models::ImportBatch>, AppError> {
+    let sql = format!(
+        "SELECT id, created_at_unix, source_folder, count FROM import_batches \
+         ORDER BY created_at_unix DESC, id DESC{}",
+        match limit {
+            Some(n) => format!(" LIMIT {n}"),
+            None => String::new(),
+        }
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], |row| {
+        Ok(crate::models::ImportBatch {
+            id: row.get(0)?,
+            created_at_unix: row.get(1)?,
+            source_folder: row.get(2)?,
+            count: row.get::<_, i64>(3)? as usize,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn list_library_roots(conn: &Connection) -> Result<Vec<LibraryRoot>, AppError> {
     let mut stmt =
         conn.prepare("SELECT path, recursive FROM library_roots ORDER BY path")?;
@@ -1476,6 +1528,44 @@ mod tests {
             gps_lat: None,
             gps_lon: None,
         }
+    }
+
+    #[test]
+    fn import_batch_records_and_stamps_new_files() {
+        let (conn, _f) = open_temp();
+        for (id, path) in [("a", "/tmp/a.jpg"), ("b", "/tmp/b.jpg"), ("c", "/tmp/c.jpg")] {
+            upsert_files(&conn, &[make_file(id, path)]).unwrap();
+        }
+        // First import: a + b.
+        let b1 = record_import_batch(&conn, Some("/photos/jun1"), &["a".into(), "b".into()])
+            .unwrap()
+            .unwrap();
+        // Second import: c.
+        let b2 = record_import_batch(&conn, Some("/photos/jun3"), &["c".into()])
+            .unwrap()
+            .unwrap();
+        assert_ne!(b1, b2);
+
+        let batches = get_import_batches(&conn, Some(10)).unwrap();
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].id, b2, "newest first");
+        assert_eq!(batches[0].count, 1);
+        assert_eq!(batches[1].count, 2);
+
+        // Files carry their batch id; the query restricts to that exact set.
+        use crate::search::query_engine::execute_search;
+        let q = SearchQuery { import_batch: Some(b1), ..Default::default() };
+        let mut ids: Vec<String> =
+            execute_search(&conn, &q).unwrap().into_iter().map(|f| f.id).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn empty_import_records_no_batch() {
+        let (conn, _f) = open_temp();
+        assert_eq!(record_import_batch(&conn, None, &[]).unwrap(), None);
+        assert!(get_import_batches(&conn, None).unwrap().is_empty());
     }
 
     #[test]

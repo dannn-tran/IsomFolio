@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS files (
     gps_lat         REAL,
     gps_lon         REAL,
     burst_id        TEXT,
-    is_deleted      INTEGER NOT NULL DEFAULT 0
+    is_deleted      INTEGER NOT NULL DEFAULT 0,
+    import_batch_id INTEGER
 );
 ";
 
@@ -170,6 +171,15 @@ CREATE TABLE IF NOT EXISTS library_roots (
 );
 ";
 
+pub const CREATE_IMPORT_BATCHES: &str = "
+CREATE TABLE IF NOT EXISTS import_batches (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at_unix INTEGER NOT NULL,
+    source_folder   TEXT,
+    count           INTEGER NOT NULL
+);
+";
+
 /// Run once per DB open; errors silently ignored (already applied).
 pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE files ADD COLUMN created_at_unix INTEGER NOT NULL DEFAULT 0",
@@ -218,6 +228,15 @@ pub const MIGRATIONS: &[&str] = &[
                    COALESCE(m.creator,'') || ' ' || COALESCE(m.subjects,'') || ' ' || COALESCE(m.apple_tags,'')),
               f.folder
        FROM files f LEFT JOIN metadata m ON m.file_id = f.id;",
+    // Import batches: each sync that adds files records a batch; new files carry
+    // its id so "show me what I just imported" is a discrete, stable set.
+    "ALTER TABLE files ADD COLUMN import_batch_id INTEGER",
+    "CREATE TABLE IF NOT EXISTS import_batches (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at_unix INTEGER NOT NULL,
+        source_folder   TEXT,
+        count           INTEGER NOT NULL
+    )",
 ];
 
 pub const ALL_DDL: &[&str] = &[
@@ -239,4 +258,5 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_FACE_EMBEDDINGS_IDX,
     CREATE_FACE_CENTROIDS,
     CREATE_LIBRARY_ROOTS,
+    CREATE_IMPORT_BATCHES,
 ];

@@ -200,6 +200,20 @@ pub struct SearchQuery {
     /// earliest shot) so a burst occupies a single tile.
     #[serde(default)]
     pub collapse_bursts: bool,
+    /// Restrict to files belonging to a specific import batch (discrete sync that
+    /// added them). The exact set captured at import time — does not drift.
+    #[serde(default)]
+    pub import_batch: Option<i64>,
+}
+
+/// One import event: a sync that added files to the catalog. Listed in the
+/// sidebar so "show me what I just brought in" is a single stable click.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportBatch {
+    pub id: i64,
+    pub created_at_unix: i64,
+    pub source_folder: Option<String>,
+    pub count: usize,
 }
 
 impl Default for SearchQuery {
@@ -227,6 +241,7 @@ impl Default for SearchQuery {
             include_orphaned: false,
             only_deleted: false,
             collapse_bursts: false,
+            import_batch: None,
         }
     }
 }

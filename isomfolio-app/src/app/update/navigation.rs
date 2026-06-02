@@ -354,7 +354,8 @@ impl App {
                             }
                             SidebarItem::AllFiles
                             | SidebarItem::FaceCluster(_)
-                            | SidebarItem::Deleted => None,
+                            | SidebarItem::Deleted
+                            | SidebarItem::Import(_) => None,
                         };
                         if let Some(t) = target {
                             self.context_menu = Some(ContextMenuState {
