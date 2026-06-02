@@ -31,6 +31,36 @@ Keyboard shortcuts are defined declaratively in `src/app/keybinds.rs` and the sh
 
 ---
 
+## UI rendering & interaction
+
+*Visual and interaction rules — what things look like and how they respond — live in `design-system.md`. This section is the* why *behind the non-obvious UI mechanics, as refactor-surviving invariants.*
+
+### Grid layout & hit-testing
+
+The photo grid is **virtualised**: only the rows intersecting the viewport are built, with spacer blocks above/below for scroll extent. Because tiles aren't real widgets at fixed positions, a cursor position is mapped to a tile by **arithmetic**, not widget hit-testing — so every fixed band stacked above the grid (menu bar, search toolbar, the always-visible cull strip, the optional criteria panel) must have a **known height** that is subtracted from the cursor's Y before the row/column math. **Invariant:** any always-visible element added above the grid has a fixed, constant height folded into that offset; a variable-height band above the grid breaks tile hit-testing. (This is why the cull strip is a fixed single row rather than wrapping content.)
+
+### Folder tree
+
+Built from the distinct indexed folder paths, reconstructing intermediate ancestors into a navigable tree. Pure pass-through ancestors (no own photos, exactly one child) are **collapsed** so the displayed roots are the deepest folders the user actually has photos under — never `/`, `/Users`, etc. Counts shown are recursive (folder + all descendants). **Invariants:** expansion state is *ephemeral* (UI-only, not persisted); scan depth (recursive vs flat) is decided once when a root is added and *persisted per root*, and re-sync honours it.
+
+### Grid selection model
+
+Selection is a pure function of (click/key, current selection, a fixed **anchor**, a moving **lead**, and a **base** snapshot). A range selection is `base ∪ [anchor..=lead]`: the anchor stays put, the clicked/arrow'd end moves, and the range is *recomputed each time* (so it grows **and** shrinks), unioned with the base (so disjoint Cmd-picked tiles survive a subsequent range). The base is snapshotted when the anchor is set (plain/Cmd click) and **reset on any view/folder/search switch** — this is what prevents stale file ids from a previous view leaking into a new selection. Keeping it a pure function (not scattered mutations) is what made it testable.
+
+### Loupe image
+
+Zoom/pan state lives in **app state, not inside the image widget**. The custom `LoupeImage` widget is a thin renderer driven by that state and emitting gesture deltas back — done specifically because iced's built-in `image::Viewer` keeps zoom internal and so can't be driven by the on-screen zoom buttons; app-owned state lets buttons, scroll, and drag share one source of truth. Three more invariants:
+
+- **RAW decode is preview-first.** The fit view uses the embedded preview (instant); the full demosaic is decoded only on first zoom-in (pixel-accurate 100% check). Browsing never pays demosaic cost.
+- **Neighbour prefetch.** Adjacent photos are decoded ahead so forward/back navigation is instant.
+- **No redundant re-decode.** A freshly decoded handle gets a *new* texture id (the renderer keys textures by id), so re-decoding an already-displayed image forces a re-upload and a visible flicker — navigation reuses the prefetched handle instead of re-decoding.
+
+### Context menu
+
+Right-click (Ctrl+Click aliased to it) opens a non-blocking cursor-anchored overlay; no scrim. It is the *fast* path to entity actions, never the *only* path — the off-row discoverability requirement and the menu mirrors are specified in `design-system.md`.
+
+---
+
 ## Sync model
 
 ### Core invariant

@@ -148,20 +148,19 @@ Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM
 
 ### Folder tree
 
-Folders render as a navigable **tree**, not a flat list. The tree is built by `folder_tree::build_tree` from the distinct indexed folder paths (`get_folder_counts`); pure pass-through ancestors (no own photos, a single child) are collapsed so the displayed roots are the deepest folders the user actually has photos under — never `/`, `/Users`, etc.
+Folders render as a navigable **tree**, not a flat list, showing the deepest folders the user actually has photos under (pass-through ancestors are collapsed away — never `/`, `/Users`, etc.). *(How the tree is built/collapsed and where expansion/scan-depth state live → `architecture.md`, UI rendering.)*
 
-- **Expand/collapse** → a leading chevron (`▸` collapsed, `▾` expanded), `icon_btn_style`, in a fixed `CHEVRON_W` (16 px) slot. Folders with no children get an equal-width `Space` so all labels align. Toggling fires `ToggleFolderExpanded(path)`; expansion state lives in `App.expanded_folders` (not persisted).
+- **Expand/collapse** → a leading chevron (`▸` collapsed, `▾` expanded), `icon_btn_style`, in a fixed-width slot so all labels align regardless of whether a row has children. The chevron is a separate control and does not change selection.
 - **Indentation** → each depth level adds `SPACE_3` of leading space. The truncation budget shrinks with depth so deep labels still clip cleanly with a tooltip.
-- **Count** → shows `total_count` (photos in the folder *and* all descendants), not just direct children.
-- **Selection** → clicking the label selects the folder (`SidebarItem::Folder`) and loads its photos recursively. The chevron is a separate button and does not change selection.
-- **Scan depth** → whether subfolders are indexed is chosen once when the folder is added (the "Include subfolders" checkbox in the add-folder dialog) and stored per root in the `library_roots` table. Re-sync honours the stored choice; unknown paths default to recursive.
+- **Count** → the photo count includes the folder *and* all descendants, not just direct children.
+- **Selection** → clicking the label selects the folder and loads its photos recursively.
 - **Dirty dot** → an accent `●` after the folder name means the watcher saw structural changes on disk (files added / removed / renamed) that have not been applied. The catalog is never mutated silently — the user applies the changes by syncing the folder (`Cmd+R` or context menu), which clears the dot. (Pure content edits to an already-tracked file are not structural: they just refresh that file's thumbnail, no dot.)
 
 ### Context menu
 
 Implemented as a `stack` overlay anchored to the cursor position. No scrim — context menus are non-blocking.
 
-**Trigger:** right-click or Ctrl+Click anywhere on a sidebar entity or grid tile. There is no overflow button. Ctrl+Click is treated as an alias for right-click in `MousePressed` by delegating to `MouseRightClicked` when `self.modifiers.control()` is set.
+**Trigger:** right-click or Ctrl+Click anywhere on a sidebar entity or grid tile (Ctrl+Click is a right-click alias). There is no overflow button.
 
 **Style:**
 - Background: `BG_MODAL`
@@ -305,7 +304,7 @@ row
 status bar (fill width, fixed height — status text only, no action buttons)
 ```
 
-Sidebar width is stored in `App::sidebar_width` (runtime state). The `SIDEBAR_WIDTH` constant is the default and is also used for the detail panel width (which is not resizable).
+Sidebar width is runtime state (user-resizable). `SIDEBAR_WIDTH` is the default and is also used for the detail panel width (which is not resizable).
 
 ### Welcome screen
 
@@ -327,7 +326,7 @@ A **single dense glyph row** (fixed height `CULL_STRIP_HEIGHT`, ≈ one row) sit
 - **Rating** — a gold `★` marker, the comparator `≥ = ≤`, star counts `1–5`, and `0` = unrated. The comparator combines with a count to form the filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N". Clicking the active count (or `0`) clears back to Any.
 - **Colour** — five colour-dot toggles (Red/Yellow/Green/Blue/Purple); each dot keeps its swatch colour, clicking the active one clears. A second cull axis independent of stars; also set with keys `6`–`9` or the Loupe swatches, stored as XMP `xmp:Label`. Swatch colours from `styles::color_label_swatch`; shown as a dot on grid tiles and in Loupe.
 
-Because the strip is fixed-height and single-row, grid hit-testing adds `CULL_STRIP_HEIGHT` to its vertical offset.
+The strip is a **fixed-height single row** — this is a hard requirement, not just a style choice: a variable-height band above the grid would break tile hit-testing (→ `architecture.md`, Grid layout & hit-testing).
 
 ### Criteria / filter panel
 
@@ -341,18 +340,18 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 |---|---|
 | Single-click on recent catalog | Highlight (select), do not open |
 | Open recent catalog | Requires explicit "Open" button press |
-| Single-click on grid tile | Select only that tile; it becomes the anchor. (Clicking an already-selected tile keeps the multi-selection so a drag can start.) |
-| Cmd+click on grid tile | Toggle that tile and make it the new anchor. The resulting selection is snapshotted as the range *base*. |
-| Shift+click on grid tile | Select `base ∪ [anchor..=clicked]`, **replacing** the previous range — so clicking back toward the anchor *shrinks* the selection. Anchor stays fixed; the clicked tile is the moving end. Disjoint Cmd-picks (the base) are preserved. |
+| Single-click on grid tile | Select only that tile; it becomes the range anchor. (Clicking an already-selected tile keeps the multi-selection so a drag can start.) |
+| Cmd+click on grid tile | Toggle that tile in/out of the selection and make it the new anchor. |
+| Shift+click on grid tile | Select the range from the anchor to the clicked tile, **replacing** the previous range — so clicking back toward the anchor *shrinks* the selection — while preserving any disjoint Cmd-picked tiles. *(Selection-model internals → `architecture.md`, Grid selection model.)* |
 | Double-click on grid tile | Open loupe |
 | Enter in tag input | Confirm tag (not bound to loupe) |
 | Cmd+= / Cmd+− | Tile size up / down |
 | Arrow keys in grid | Move selection (focus follows; grid position retained on loupe exit and folder switch) |
-| Shift+Arrow in grid | Extend/shrink the range from the anchor toward the moving end (same `base ∪ [anchor..=lead]` model as Shift+click) |
+| Shift+Arrow in grid | Extend/shrink the range from the anchor toward the moving end (same model as Shift+click) |
 | Arrow keys in loupe | Navigate to prev/next photo |
 | Scroll / two-finger trackpad in loupe | Zoom in/out toward the cursor (fit → 8×) |
 | Drag in loupe (when zoomed) | Pan; clamped to the image edges |
-| Loupe zoom buttons (− / + / 1:1 / Fit / ⛶) | Same zoom state as gestures; **1:1** (or `Z`) toggles actual-pixel zoom (computed from widget-reported viewport+native size), Fit resets to fit-to-window, **⛶** toggles fullscreen. Zoom/pan reset on navigate. Custom `LoupeImage` widget (app-owned scale+pan) — the built-in `image::Viewer` keeps zoom internal and can't be button-driven. |
+| Loupe zoom buttons (− / + / 1:1 / Fit / ⛶) | Same zoom state as gestures; **1:1** (or `Z`) toggles actual-pixel zoom, Fit resets to fit-to-window, **⛶** toggles fullscreen. Zoom/pan reset on navigate. *(Why buttons and gestures share one zoom state, and the RAW preview-first decode → `architecture.md`, Loupe image.)* |
 | Delete / Backspace in a manual album | Remove selected photos from the album (non-destructive; files untouched) |
 | Right-click on sidebar entity | Open context menu |
 | Ctrl+Click on sidebar entity | Open context menu (macOS convention) |
