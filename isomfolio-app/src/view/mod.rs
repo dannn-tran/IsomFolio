@@ -537,22 +537,30 @@ impl App {
         });
 
         let zoomed = self.loupe.zoom > crate::app::LOUPE_ZOOM_MIN;
+        let tip = |el, label: &'static str| styles::tip(el, label, styles::TipPos::Top);
         let zoom_cluster = row![
-            button(text("−").size(TEXT_LG))
-                .on_press(Msg::LoupeZoomBy(0.8))
-                .style(ghost_btn_style),
-            button(text("+").size(TEXT_LG))
-                .on_press(Msg::LoupeZoomBy(1.25))
-                .style(ghost_btn_style),
-            button(text("1:1").size(TEXT_MD))
-                .on_press(Msg::LoupeZoomActual)
-                .style(ghost_btn_style),
-            button(text("Fit").size(TEXT_MD).color(if zoomed { FG } else { FG_DIM }))
-                .on_press(Msg::LoupeZoomReset)
-                .style(ghost_btn_style),
-            button(text(if self.fullscreen { "⤢" } else { "⛶" }).size(TEXT_MD))
-                .on_press(Msg::ToggleFullscreen)
-                .style(ghost_btn_style),
+            tip(
+                button(text("−").size(TEXT_LG)).on_press(Msg::LoupeZoomBy(0.8)).style(ghost_btn_style),
+                "Zoom out",
+            ),
+            tip(
+                button(text("+").size(TEXT_LG)).on_press(Msg::LoupeZoomBy(1.25)).style(ghost_btn_style),
+                "Zoom in",
+            ),
+            tip(
+                button(text("1:1").size(TEXT_MD)).on_press(Msg::LoupeZoomActual).style(ghost_btn_style),
+                "Actual pixels (Z)",
+            ),
+            tip(
+                button(text("Fit").size(TEXT_MD).color(if zoomed { FG } else { FG_DIM }))
+                    .on_press(Msg::LoupeZoomReset).style(ghost_btn_style),
+                "Fit to window",
+            ),
+            tip(
+                button(text(if self.fullscreen { "⤢" } else { "⛶" }).size(TEXT_MD))
+                    .on_press(Msg::ToggleFullscreen).style(ghost_btn_style),
+                "Toggle fullscreen",
+            ),
         ]
         .spacing(SPACE_2)
         .align_y(Alignment::Center);
@@ -652,7 +660,7 @@ impl App {
             for name in styles::COLOR_LABELS {
                 let active = cur_label.as_deref() == Some(name);
                 let swatch = styles::color_label_swatch(name);
-                color_row = color_row.push(
+                color_row = color_row.push(styles::tip(
                     button(text("●").size(TEXT_LG).color(swatch))
                         .on_press(Msg::SetColorLabel(Some(name.to_string())))
                         .style(move |_: &Theme, _| button::Style {
@@ -662,7 +670,9 @@ impl App {
                             shadow: iced::Shadow::default(),
                             snap: false,
                         }),
-                );
+                    format!("Label {name}"),
+                    styles::TipPos::Top,
+                ));
             }
 
             container(

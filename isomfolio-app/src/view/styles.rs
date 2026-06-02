@@ -1,8 +1,33 @@
-use iced::widget::{button, container, Space};
+use iced::widget::{button, container, text, tooltip, Space};
 use iced::Theme;
 use iced::{Background, Border, Color, Element, Length};
 
 use crate::app::Msg;
+
+pub use iced::widget::tooltip::Position as TipPos;
+
+/// Wrap any control in a hover tooltip. Use on icon-only / glyph buttons so
+/// their meaning is discoverable without a visible text label.
+pub fn tip<'a>(
+    content: impl Into<Element<'a, Msg>>,
+    label: impl Into<String>,
+    position: TipPos,
+) -> Element<'a, Msg> {
+    let label = label.into();
+    tooltip(
+        content,
+        container(text(label).size(TEXT_SM).color(FG))
+            .padding([SPACE_1, SPACE_1_5])
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_MODAL)),
+                border: Border { color: BORDER, width: 1.0, radius: 4.0.into() },
+                ..Default::default()
+            }),
+        position,
+    )
+    .gap(4)
+    .into()
+}
 
 /// Standard colour-label names (Lightroom set), in key order (6–9 + Purple).
 pub const COLOR_LABELS: [&str; 5] = ["Red", "Yellow", "Green", "Blue", "Purple"];

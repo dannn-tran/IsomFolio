@@ -320,45 +320,58 @@ impl App {
         let cur = self.filters.rating;
         let cmp = self.filters.rating_cmp;
 
-        // Compact glyph chip: small padding, glyph keeps its own colour.
-        let chip = |glyph: String, active: bool, color: Color, msg: Msg| {
-            button(text(glyph).size(TEXT_SM).color(color))
-                .on_press(msg)
-                .padding([SPACE_0_5, SPACE_1])
-                .style(if active { active_chip_style } else { ghost_btn_style })
+        // Compact glyph chip with a hover tooltip (the glyphs are bare, so the
+        // tooltip is how their meaning is discovered).
+        let chip = |glyph: String, hint: String, active: bool, color: Color, msg: Msg| {
+            super::styles::tip(
+                button(text(glyph).size(TEXT_SM).color(color))
+                    .on_press(msg)
+                    .padding([SPACE_0_5, SPACE_1])
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+                hint,
+                super::styles::TipPos::Bottom,
+            )
         };
         let divider = || text("│").size(TEXT_SM).color(FG_MUTED);
 
         let mut r = row![].spacing(SPACE_0_5).align_y(Alignment::Center);
 
         // Flags — independent toggles.
-        for (glyph, flag) in [("✓", Flag::Pick), ("○", Flag::Unflagged), ("✕", Flag::Reject)] {
-            r = r.push(chip(glyph.into(), self.filters.flags.allows(flag), FG, Msg::ToggleFlagFilter(flag)));
+        for (glyph, hint, flag) in [
+            ("✓", "Show picks", Flag::Pick),
+            ("○", "Show unflagged", Flag::Unflagged),
+            ("✕", "Show rejects", Flag::Reject),
+        ] {
+            r = r.push(chip(glyph.into(), hint.into(), self.filters.flags.allows(flag), FG, Msg::ToggleFlagFilter(flag)));
         }
         r = r.push(divider());
 
         // Rating — star marker, comparator, star counts, plus 0 = unrated.
         // Clicking the active count/unrated clears back to Any.
         r = r.push(text("★").size(TEXT_SM).color(STAR_GOLD));
-        for c in [RatingCmp::AtLeast, RatingCmp::Exactly, RatingCmp::AtMost] {
-            r = r.push(chip(c.symbol().into(), cmp == c, FG, Msg::SetRatingCmp(c)));
+        for (c, hint) in [
+            (RatingCmp::AtLeast, "Rating: at least"),
+            (RatingCmp::Exactly, "Rating: exactly"),
+            (RatingCmp::AtMost, "Rating: at most"),
+        ] {
+            r = r.push(chip(c.symbol().into(), hint.into(), cmp == c, FG, Msg::SetRatingCmp(c)));
         }
         for n in 1..=5i32 {
             let active = matches!(cur,
                 RatingFilter::AtLeast(v) | RatingFilter::Exactly(v) | RatingFilter::AtMost(v) if v == n);
             let msg = if active { RatingFilter::Any } else { cmp.apply(n) };
-            r = r.push(chip(n.to_string(), active, FG, Msg::SetRatingFilter(msg)));
+            r = r.push(chip(n.to_string(), format!("{} {n} star", cmp.symbol()), active, FG, Msg::SetRatingFilter(msg)));
         }
         let unrated = matches!(cur, RatingFilter::Unrated);
         let unrated_msg = if unrated { RatingFilter::Any } else { RatingFilter::Unrated };
-        r = r.push(chip("0".into(), unrated, FG, Msg::SetRatingFilter(unrated_msg)));
+        r = r.push(chip("0".into(), "Unrated only".into(), unrated, FG, Msg::SetRatingFilter(unrated_msg)));
         r = r.push(divider());
 
         // Colours — dot toggles.
         for name in super::styles::COLOR_LABELS {
             let active = self.filters.color.as_deref() == Some(name);
             let msg = if active { None } else { Some(name.to_string()) };
-            r = r.push(chip("●".into(), active, super::styles::color_label_swatch(name), Msg::SetColorFilter(msg)));
+            r = r.push(chip("●".into(), format!("Colour: {name}"), active, super::styles::color_label_swatch(name), Msg::SetColorFilter(msg)));
         }
 
         container(r)

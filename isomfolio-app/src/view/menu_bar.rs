@@ -72,20 +72,24 @@ impl App {
         }
 
         bar = bar.push(Space::new().width(Length::Fill));
-        bar = bar.push(
+        bar = bar.push(super::styles::tip(
             button(text("?").size(TEXT_MD).color(FG_DIM))
                 .on_press(Msg::ToggleShortcutHelp)
                 .style(icon_btn_style)
                 .padding([SPACE_1, SPACE_1_5])
                 .height(MENU_BAR_HEIGHT),
-        );
-        bar = bar.push(
+            "Keyboard shortcuts (?)",
+            super::styles::TipPos::Bottom,
+        ));
+        bar = bar.push(super::styles::tip(
             button(text("⚙").size(TEXT_MD).color(FG_DIM))
                 .on_press(Msg::OpenSettings)
                 .style(icon_btn_style)
                 .padding([SPACE_1, SPACE_1_5])
                 .height(MENU_BAR_HEIGHT),
-        );
+            "Settings (⌘,)",
+            super::styles::TipPos::Bottom,
+        ));
         bar = bar.push(Space::new().width(SPACE_1));
 
         container(bar)

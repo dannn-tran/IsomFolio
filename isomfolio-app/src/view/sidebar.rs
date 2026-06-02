@@ -30,12 +30,20 @@ impl App {
         let albums_header: Element<Msg> = row![
             text("Albums").size(TEXT_MD).color(FG_DIM),
             Space::new().width(Length::Fill),
-            button(text("⚡").size(TEXT_MD))
-                .on_press(Msg::ToggleFilterPanel)
-                .style(icon_btn_style),
-            button(text("+").size(TEXT_BASE))
-                .on_press(Msg::StartCreateAlbum)
-                .style(icon_btn_style),
+            super::styles::tip(
+                button(text("⚡").size(TEXT_MD))
+                    .on_press(Msg::ToggleFilterPanel)
+                    .style(icon_btn_style),
+                "Filter / save Smart Album",
+                super::styles::TipPos::Bottom,
+            ),
+            super::styles::tip(
+                button(text("+").size(TEXT_BASE))
+                    .on_press(Msg::StartCreateAlbum)
+                    .style(icon_btn_style),
+                "New album",
+                super::styles::TipPos::Bottom,
+            ),
         ]
         .spacing(SPACE_0_5)
         .align_y(Alignment::Center)
@@ -52,11 +60,13 @@ impl App {
         }
         let folders_header: Element<Msg> = folders_header_row
             .push(Space::new().width(Length::Fill))
-            .push(
+            .push(super::styles::tip(
                 button(text("+").size(TEXT_BASE))
                     .on_press(if is_sync_active { Msg::NoOp } else { Msg::SyncPickFolder })
                     .style(icon_btn_style),
-            )
+                "Add folder to library",
+                super::styles::TipPos::Bottom,
+            ))
             .align_y(Alignment::Center)
             .into();
 
@@ -178,9 +188,13 @@ impl App {
                     .on_press(Msg::OpenPeopleView)
                     .style(ghost_btn_style),
                 Space::new().width(Length::Fill),
-                button(text("⟳").size(TEXT_MD))
-                    .on_press(Msg::RunFaceClustering { force_full: true })
-                    .style(icon_btn_style),
+                super::styles::tip(
+                    button(text("⟳").size(TEXT_MD))
+                        .on_press(Msg::RunFaceClustering { force_full: true })
+                        .style(icon_btn_style),
+                    "Re-cluster all faces",
+                    super::styles::TipPos::Bottom,
+                ),
             ]
             .spacing(SPACE_0_5)
             .align_y(Alignment::Center)
