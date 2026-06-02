@@ -312,88 +312,66 @@ impl App {
         stack(layers).into()
     }
 
-    /// The two primary cull axes — flags and rating — as an always-visible strip
-    /// under the toolbar, so they're one click away during a cull (the advanced
-    /// filters stay behind the collapsible Filters panel). Fixed height.
+    /// The three cull axes — flags, rating, colour — as a single dense glyph
+    /// row, always visible under the toolbar so they're one click away mid-cull
+    /// without stealing grid rows (cf. Lightroom's filter bar / Photo Mechanic's
+    /// icon strip). Advanced filters stay behind the collapsible Filters panel.
     pub(super) fn view_cull_strip(&self) -> Element<'_, Msg> {
-        let mut flag_row = row![text("Flag").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        for (label, flag) in [
-            ("Picks", Flag::Pick),
-            ("Unflagged", Flag::Unflagged),
-            ("Rejects", Flag::Reject),
-        ] {
-            let active = self.filters.flags.allows(flag);
-            flag_row = flag_row.push(
-                button(text(label).size(TEXT_SM))
-                    .on_press(Msg::ToggleFlagFilter(flag))
-                    .style(if active { active_chip_style } else { ghost_btn_style }),
-            );
+        let cur = self.filters.rating;
+        let cmp = self.filters.rating_cmp;
+
+        // Compact glyph chip: small padding, glyph keeps its own colour.
+        let chip = |glyph: String, active: bool, color: Color, msg: Msg| {
+            button(text(glyph).size(TEXT_SM).color(color))
+                .on_press(msg)
+                .padding([SPACE_0_5, SPACE_1])
+                .style(if active { active_chip_style } else { ghost_btn_style })
+        };
+        let divider = || text("│").size(TEXT_SM).color(FG_MUTED);
+
+        let mut r = row![].spacing(SPACE_0_5).align_y(Alignment::Center);
+
+        // Flags — independent toggles.
+        for (glyph, flag) in [("✓", Flag::Pick), ("○", Flag::Unflagged), ("✕", Flag::Reject)] {
+            r = r.push(chip(glyph.into(), self.filters.flags.allows(flag), FG, Msg::ToggleFlagFilter(flag)));
+        }
+        r = r.push(divider());
+
+        // Rating — star marker, comparator, star counts, plus 0 = unrated.
+        // Clicking the active count/unrated clears back to Any.
+        r = r.push(text("★").size(TEXT_SM).color(STAR_GOLD));
+        for c in [RatingCmp::AtLeast, RatingCmp::Exactly, RatingCmp::AtMost] {
+            r = r.push(chip(c.symbol().into(), cmp == c, FG, Msg::SetRatingCmp(c)));
+        }
+        for n in 1..=5i32 {
+            let active = matches!(cur,
+                RatingFilter::AtLeast(v) | RatingFilter::Exactly(v) | RatingFilter::AtMost(v) if v == n);
+            let msg = if active { RatingFilter::Any } else { cmp.apply(n) };
+            r = r.push(chip(n.to_string(), active, FG, Msg::SetRatingFilter(msg)));
+        }
+        let unrated = matches!(cur, RatingFilter::Unrated);
+        let unrated_msg = if unrated { RatingFilter::Any } else { RatingFilter::Unrated };
+        r = r.push(chip("0".into(), unrated, FG, Msg::SetRatingFilter(unrated_msg)));
+        r = r.push(divider());
+
+        // Colours — dot toggles.
+        for name in super::styles::COLOR_LABELS {
+            let active = self.filters.color.as_deref() == Some(name);
+            let msg = if active { None } else { Some(name.to_string()) };
+            r = r.push(chip("●".into(), active, super::styles::color_label_swatch(name), Msg::SetColorFilter(msg)));
         }
 
-        container(column![flag_row, self.rating_filter_row(), self.color_filter_row()].spacing(SPACE_1))
+        container(r)
             .width(Length::Fill)
             .height(Length::Fixed(crate::app::CULL_STRIP_HEIGHT))
-            .padding([SPACE_1, SPACE_3])
+            .padding([SPACE_0_5, SPACE_3])
+            .align_y(Alignment::Center)
+            .clip(true)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_CRITERIA)),
                 ..Default::default()
             })
             .into()
-    }
-
-    /// Colour-label filter row: Any · five colour-dot chips.
-    fn color_filter_row(&self) -> Element<'_, Msg> {
-        let mut r = row![text("Color").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        r = r.push(
-            button(text("Any").size(TEXT_SM))
-                .on_press(Msg::SetColorFilter(None))
-                .style(if self.filters.color.is_none() { active_chip_style } else { ghost_btn_style }),
-        );
-        for name in super::styles::COLOR_LABELS {
-            let active = self.filters.color.as_deref() == Some(name);
-            r = r.push(
-                button(text("●").size(TEXT_MD).color(super::styles::color_label_swatch(name)))
-                    .on_press(Msg::SetColorFilter(Some(name.to_string())))
-                    .style(if active { active_chip_style } else { ghost_btn_style }),
-            );
-        }
-        r.into()
-    }
-
-    /// Star-rating filter: Any · Unrated · a comparator (≥ = ≤) · star counts.
-    /// The comparator combines with a star chip to form the active filter, so
-    /// culls like "unrated only", "exactly 2", or "≤ 1" are all expressible.
-    fn rating_filter_row(&self) -> Element<'_, Msg> {
-        let cur = self.filters.rating;
-        let cmp = self.filters.rating_cmp;
-
-        let mut r = row![text("Stars").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-
-        let chip = |label: String, active: bool, msg: Msg| {
-            button(text(label).size(TEXT_SM))
-                .on_press(msg)
-                .style(if active { active_chip_style } else { ghost_btn_style })
-        };
-
-        r = r.push(chip("Any".into(), matches!(cur, RatingFilter::Any), Msg::SetRatingFilter(RatingFilter::Any)));
-        r = r.push(chip("Unrated".into(), matches!(cur, RatingFilter::Unrated), Msg::SetRatingFilter(RatingFilter::Unrated)));
-
-        for c in [RatingCmp::AtLeast, RatingCmp::Exactly, RatingCmp::AtMost] {
-            r = r.push(chip(c.symbol().into(), cmp == c, Msg::SetRatingCmp(c)));
-        }
-
-        for n in 1..=5i32 {
-            let active = matches!(cur,
-                RatingFilter::AtLeast(v) | RatingFilter::Exactly(v) | RatingFilter::AtMost(v) if v == n);
-            r = r.push(chip(n.to_string(), active, Msg::SetRatingFilter(cmp.apply(n))));
-        }
-        r.into()
     }
 
     pub(super) fn view_filter_panel(&self) -> Element<'_, Msg> {

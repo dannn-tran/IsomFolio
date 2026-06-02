@@ -262,13 +262,13 @@ Recents takes available vertical space. Actions are always visible — they do n
 
 ### Cull strip (always visible)
 
-A fixed-height (`CULL_STRIP_HEIGHT`) strip sits directly under the toolbar and is **always visible** — it holds the two primary cull axes so they're one click away mid-cull, never hidden behind a toggle:
+A **single dense glyph row** (fixed height `CULL_STRIP_HEIGHT`, ≈ one row) sits directly under the toolbar, always visible so the three cull axes are one click away mid-cull without stealing grid rows. Deliberately *not* stacked, labelled-chip rows (cf. Lightroom's one-row filter bar / Photo Mechanic's icon strip) — glyphs, not words. Layout, left→right, separated by faint `│` dividers:
 
-- **Flag** — three independent toggle chips (Picks / Unflagged / Rejects). They form an OR set: enabling any subset shows files matching *any* enabled flag. Empty (none) or full (all three) both mean *no filter*. This is the single source of truth for flag filtering; the toolbar "Hide Rejects" chip and the `\` key are a convenience that toggles the strip to the `{Picks, Unflagged}` selection.
-- **Stars** — `Any · Unrated · ≥ · = · ≤ · 1–5`. The comparator (`≥/=/≤`) combines with a star-count chip to form the active filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N".
-- **Colour** — `Any` + five colour-dot chips (Red/Yellow/Green/Blue/Purple). Colour labels are a second cull axis independent of stars, set with keys `6`–`9` (Red/Yellow/Green/Blue; press again to clear) or the Loupe swatches, and stored as XMP `xmp:Label`. Swatch colours come from `styles::color_label_swatch`; shown as a dot on grid tiles and in Loupe.
+- **Flags** — `✓ ○ ✕` (Pick / Unflagged / Reject), independent toggles forming an OR set: enabling any subset shows files matching *any* enabled flag; empty or all-three both mean *no filter*. Single source of truth for flag filtering — the toolbar "Hide Rejects" chip and `\` are a convenience that sets `{Pick, Unflagged}`.
+- **Rating** — a gold `★` marker, the comparator `≥ = ≤`, star counts `1–5`, and `0` = unrated. The comparator combines with a count to form the filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N". Clicking the active count (or `0`) clears back to Any.
+- **Colour** — five colour-dot toggles (Red/Yellow/Green/Blue/Purple); each dot keeps its swatch colour, clicking the active one clears. A second cull axis independent of stars; also set with keys `6`–`9` or the Loupe swatches, stored as XMP `xmp:Label`. Swatch colours from `styles::color_label_swatch`; shown as a dot on grid tiles and in Loupe.
 
-Because the strip is fixed-height, grid hit-testing adds `CULL_STRIP_HEIGHT` to its vertical offset.
+Because the strip is fixed-height and single-row, grid hit-testing adds `CULL_STRIP_HEIGHT` to its vertical offset.
 
 ### Criteria / filter panel
 

@@ -40,9 +40,9 @@ pub const SIDEBAR_WIDTH_MIN: f32 = 140.0;
 pub const SIDEBAR_WIDTH_MAX: f32 = 400.0;
 pub const BUFFER_ROWS: usize = 2;
 pub const SEARCH_BAR_HEIGHT: f32 = 40.0;
-/// Always-visible cull strip (flag + rating + colour rows) under the toolbar.
-/// Fixed so grid hit-testing has an exact offset regardless of chip wrapping.
-pub const CULL_STRIP_HEIGHT: f32 = 112.0;
+/// Always-visible single-row cull strip (flag · rating · colour glyphs) under
+/// the toolbar. Fixed so grid hit-testing has an exact vertical offset.
+pub const CULL_STRIP_HEIGHT: f32 = 32.0;
 pub const CRITERIA_ROW_HEIGHT: f32 = 32.0;
 pub const CRITERIA_ROW_COUNT: usize = 3;
 pub const CRITERIA_PADDING: f32 = 18.0;
