@@ -526,6 +526,7 @@ impl App {
                 self.filters.save_smart_input = None;
                 self.remove_from_album_pending = false;
                 self.reject_delete_pending = false;
+                self.purge_pending = None;
                 Task::none()
             }
 

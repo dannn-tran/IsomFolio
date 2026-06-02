@@ -49,6 +49,8 @@ Pressing **Delete** (or **Backspace**) on the selected photos, or **Edit → Del
 
 To **recover**, open the **Deleted** folder, select the photos, and choose **Restore** (right-click) — they return to their place instantly, with ratings and tags intact. (Inside a manual album, Delete instead just removes the photos from that album.)
 
+To remove them for good, use **Delete Permanently…** (right-click) on a selection, or **Empty Deleted…** in the status bar. This is the *only* action that deletes the actual files from disk, so it asks for confirmation and **cannot be undone**.
+
 ## Colour labels
 
 A second, independent axis for organising a cull (use stars for quality, colours for status — e.g. "to retouch", "client pick", "social"):

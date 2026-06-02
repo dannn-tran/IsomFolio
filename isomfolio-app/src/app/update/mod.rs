@@ -79,6 +79,11 @@ impl App {
             | Msg::ConfirmDeleteRejects
             | Msg::CancelDeleteRejects
             | Msg::SelectionDeleted { .. }
+            | Msg::RequestPurgeSelected
+            | Msg::RequestPurgeAll
+            | Msg::ConfirmPurge
+            | Msg::CancelPurge
+            | Msg::Purged
             | Msg::LocateFile(_)
             | Msg::FileLocated { .. } => self.handle_missing_msg(msg),
 

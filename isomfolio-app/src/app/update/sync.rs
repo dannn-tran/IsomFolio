@@ -408,6 +408,58 @@ impl App {
                 Task::batch([self.load_sidebar_task(), self.load_files_task()])
             }
 
+            Msg::RequestPurgeSelected => {
+                let targets: Vec<(String, String)> = self
+                    .files
+                    .iter()
+                    .filter(|f| self.grid_selected.contains(&f.id))
+                    .map(|f| (f.id.clone(), f.path.clone()))
+                    .collect();
+                if !targets.is_empty() {
+                    self.purge_pending = Some(targets);
+                }
+                Task::none()
+            }
+
+            Msg::RequestPurgeAll => {
+                let targets: Vec<(String, String)> =
+                    self.files.iter().map(|f| (f.id.clone(), f.path.clone())).collect();
+                if !targets.is_empty() {
+                    self.purge_pending = Some(targets);
+                }
+                Task::none()
+            }
+
+            Msg::CancelPurge => {
+                self.purge_pending = None;
+                Task::none()
+            }
+
+            Msg::ConfirmPurge => {
+                let Some(targets) = self.purge_pending.take() else { return Task::none() };
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                let count = targets.len();
+                self.grid_selected.clear();
+                self.status = format!("Permanently deleted {count} file(s)");
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            // This is the one delete path that touches disk.
+                            for (_, path) in &targets {
+                                let _ = std::fs::remove_file(path);
+                            }
+                            let ids: Vec<String> = targets.into_iter().map(|(id, _)| id).collect();
+                            let _ = conn.lock_unwrap().delete_files(&ids);
+                        })
+                        .await
+                        .ok();
+                    },
+                    |()| Msg::Purged,
+                )
+            }
+
+            Msg::Purged => Task::batch([self.load_sidebar_task(), self.load_files_task()]),
+
             Msg::ConfirmRemoveMissing => {
                 let Some(folder) = self.remove_missing_folder.take() else {
                     return Task::none();

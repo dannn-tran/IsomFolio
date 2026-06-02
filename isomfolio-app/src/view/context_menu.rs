@@ -157,9 +157,13 @@ impl App {
                 items
             }
             ContextMenuTarget::GridTiles => {
-                // In the Deleted view the only action is restoring.
+                // In the Deleted view: restore, or permanently delete from disk.
                 if self.selected_item == crate::app::SidebarItem::Deleted {
-                    return vec![Some(("Restore".into(), Msg::RestoreSelection, false))];
+                    return vec![
+                        Some(("Restore".into(), Msg::RestoreSelection, false)),
+                        None,
+                        Some(("Delete Permanently…".into(), Msg::RequestPurgeSelected, true)),
+                    ];
                 }
                 let n = self.grid_selected.len();
                 let mut items: Vec<Option<(String, Msg, bool)>> = Vec::new();

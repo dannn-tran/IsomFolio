@@ -153,6 +153,30 @@ impl App {
             );
         }
 
+        if let Some(targets) = &self.purge_pending {
+            let n = targets.len();
+            status_row = status_row.push(
+                row![
+                    text(format!("Permanently delete {n} file(s) from disk? Cannot be undone."))
+                        .size(TEXT_MD).color(ERR),
+                    button(text("Cancel").size(TEXT_MD))
+                        .on_press(Msg::CancelPurge)
+                        .style(ghost_btn_style),
+                    button(text("Delete").size(TEXT_MD))
+                        .on_press(Msg::ConfirmPurge)
+                        .style(danger_btn_style),
+                ]
+                .spacing(SPACE_1_5)
+                .align_y(Alignment::Center),
+            );
+        } else if self.selected_item == SidebarItem::Deleted && !self.files.is_empty() {
+            status_row = status_row.push(
+                button(text("Empty Deleted…").size(TEXT_MD).color(ERR))
+                    .on_press(Msg::RequestPurgeAll)
+                    .style(ghost_btn_style),
+            );
+        }
+
         if pick_count > 0 {
             status_row = status_row.push(
                 text(format!("✓ {pick_count}"))

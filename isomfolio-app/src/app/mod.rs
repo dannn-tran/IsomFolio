@@ -233,6 +233,10 @@ pub struct App {
     pub reject_delete_pending: bool,
     /// Count of soft-deleted photos (drives the sidebar "Deleted" entry).
     pub deleted_count: usize,
+    /// Pending permanent-purge confirmation: the (id, path) pairs to delete from
+    /// disk + catalog. `Some` shows the inline confirm; this is the one delete
+    /// path that actually touches files on disk.
+    pub purge_pending: Option<Vec<(String, String)>>,
     pub smart_album_dirty: bool,
     pub context_menu: Option<ContextMenuState>,
     pub hovered_sidebar_entity: Option<SidebarItem>,
@@ -468,6 +472,7 @@ impl App {
             remove_from_album_pending: false,
             reject_delete_pending: false,
             deleted_count: 0,
+            purge_pending: None,
             smart_album_dirty: false,
             context_menu: None,
             hovered_sidebar_entity: None,

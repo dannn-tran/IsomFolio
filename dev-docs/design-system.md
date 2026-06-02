@@ -206,6 +206,8 @@ A rejected grid tile is **dimmed in place** (dark scrim, α ≈ 0.55) rather tha
 
 **Delete never touches the file on disk.** "Delete" (the `Del`/`Backspace` key, the Photo menu, or "Delete Rejected Photos") sets a virtual `is_deleted` flag in the catalog: the photo drops out of every normal view and collects in a virtual **Deleted** sidebar entry (shown only when non-empty, with a count). **Restore** (right-click in the Deleted view) clears the flag — instant and lossless, because the row never left the catalog (ratings/tags intact). There is no on-disk trash folder and no file move. (Inside a manual album, `Del` instead unlinks from the album.) Implementation invariant — the flag survives re-sync — is in `architecture.md`.
 
+**Permanent purge** is the one exception that touches disk: "Delete Permanently…" (Deleted-view context menu, on a selection) or "Empty Deleted…" (status bar) deletes the actual files and removes the rows. It is irreversible, so it uses the inline `ERR` confirm (Cancel + Delete) before acting.
+
 ### Confirmation pattern
 
 Two-step for destructive ops: first trigger (context menu item) → inline confirm row appears on the entity (prompt in `ERR`, Cancel + Confirm buttons). `confirm_action_row()` helper in styles.rs.

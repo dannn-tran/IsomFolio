@@ -396,6 +396,12 @@ pub enum Msg {
     ConfirmDeleteRejects,
     CancelDeleteRejects,
     SelectionDeleted { count: usize },
+    /// Permanently delete (from disk + catalog): the current selection / all in Deleted.
+    RequestPurgeSelected,
+    RequestPurgeAll,
+    ConfirmPurge,
+    CancelPurge,
+    Purged,
     LocateFile(String),
     FileLocated { file_id: String, new_path: std::path::PathBuf },
 
