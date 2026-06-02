@@ -1479,6 +1479,34 @@ mod tests {
     }
 
     #[test]
+    fn merge_face_clusters_combines_members_and_keeps_target_name() {
+        let (conn, _f) = open_temp();
+        for (id, path) in [("f1", "/tmp/1.jpg"), ("f2", "/tmp/2.jpg"), ("f3", "/tmp/3.jpg")] {
+            upsert_files(&conn, &[make_file(id, path)]).unwrap();
+        }
+        // Two clusters that are really the same person (over-split): A has f1,f2; B has f3.
+        save_face_clusters(
+            &conn,
+            &[
+                ("cA".into(), "f1".into(), 0.0, 0.0, 1.0, 1.0),
+                ("cA".into(), "f2".into(), 0.0, 0.0, 1.0, 1.0),
+                ("cB".into(), "f3".into(), 0.0, 0.0, 1.0, 1.0),
+            ],
+        )
+        .unwrap();
+        rename_face_cluster(&conn, "cA", "Maya").unwrap();
+
+        merge_face_clusters(&conn, "cA", "cB").unwrap();
+
+        let summaries = get_face_cluster_summaries(&conn).unwrap();
+        assert_eq!(summaries.len(), 1, "source cluster should be gone");
+        let s = &summaries[0];
+        assert_eq!(s.cluster_id, "cA");
+        assert_eq!(s.name.as_deref(), Some("Maya"), "target name preserved");
+        assert_eq!(s.file_count, 3, "all members combined under target");
+    }
+
+    #[test]
     fn upsert_and_get_file() {
         let (conn, _f) = open_temp();
         let file = make_file("abc123", "/tmp/test.jpg");

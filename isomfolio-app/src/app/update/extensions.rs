@@ -8,7 +8,7 @@ use isomfolio_core::clustering;
 
 use crate::inference::{EmbedFile, InferenceClient, ManagedInferenceProcess};
 use super::LockUnwrap;
-use super::super::{App, Msg, ViewMode};
+use super::super::{App, Msg, SidebarItem, ViewMode};
 
 impl App {
     pub(super) fn handle_extension_msg(&mut self, msg: Msg) -> Task<Msg> {
@@ -139,6 +139,10 @@ impl App {
 
             Msg::FaceClustersLoaded(summaries) => {
                 self.faces.clusters = summaries;
+                // Drop any selected ids that no longer exist (e.g. merged away).
+                let live: std::collections::HashSet<&str> =
+                    self.faces.clusters.iter().map(|c| c.cluster_id.as_str()).collect();
+                self.faces.selected.retain(|id| live.contains(id.as_str()));
                 self.load_face_crops_task()
             }
 
@@ -199,17 +203,99 @@ impl App {
 
             Msg::MergeFaceClusters(target_id, source_id) => {
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
+                let source_count = self
+                    .faces
+                    .clusters
+                    .iter()
+                    .find(|c| c.cluster_id == source_id)
+                    .map(|c| c.file_count)
+                    .unwrap_or(0);
                 self.faces.clusters.retain(|c| c.cluster_id != source_id);
                 if let Some(target) =
                     self.faces.clusters.iter_mut().find(|c| c.cluster_id == target_id)
                 {
-                    target.file_count += 1;
+                    target.file_count += source_count;
                 }
                 Task::perform(
                     async move {
                         let g = conn.lock_unwrap();
                         if let Err(e) = g.merge_face_clusters(&target_id, &source_id) {
                             eprintln!("[db] merge_face_clusters failed: {e}");
+                        }
+                        g.get_face_cluster_summaries().unwrap_or_default()
+                    },
+                    Msg::FaceClustersLoaded,
+                )
+            }
+
+            Msg::FaceClusterCardClicked(cluster_id) => {
+                // Cmd/Ctrl-click toggles batch selection; plain click navigates to
+                // that person and clears any selection.
+                if self.modifiers.command() || self.modifiers.control() {
+                    if !self.faces.selected.remove(&cluster_id) {
+                        self.faces.selected.insert(cluster_id);
+                    }
+                    Task::none()
+                } else {
+                    self.faces.selected.clear();
+                    self.faces.batch_name_input.clear();
+                    Task::done(Msg::SidebarItemClicked(SidebarItem::FaceCluster(cluster_id)))
+                }
+            }
+
+            Msg::ClearFaceSelection => {
+                self.faces.selected.clear();
+                self.faces.batch_name_input.clear();
+                Task::none()
+            }
+
+            Msg::BatchFaceNameInputChanged(s) => {
+                self.faces.batch_name_input = s;
+                Task::none()
+            }
+
+            Msg::ConfirmBatchFaceNameMerge => {
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                // Order selected clusters by their display order; the first becomes
+                // the merge target (preferring an already-named one so its id/name
+                // is kept). Optional name renames the surviving cluster.
+                let mut chosen: Vec<String> = self
+                    .faces
+                    .clusters
+                    .iter()
+                    .filter(|c| self.faces.selected.contains(&c.cluster_id))
+                    .map(|c| c.cluster_id.clone())
+                    .collect();
+                if chosen.is_empty() {
+                    return Task::none();
+                }
+                if let Some(named_pos) = chosen.iter().position(|id| {
+                    self.faces
+                        .clusters
+                        .iter()
+                        .any(|c| &c.cluster_id == id && c.name.is_some())
+                }) {
+                    chosen.swap(0, named_pos);
+                }
+                let target_id = chosen[0].clone();
+                let sources: Vec<String> = chosen[1..].to_vec();
+                let name = self.faces.batch_name_input.trim().to_string();
+
+                self.faces.selected.clear();
+                self.faces.batch_name_input.clear();
+
+                Task::perform(
+                    async move {
+                        let g = conn.lock_unwrap();
+                        for src in &sources {
+                            if let Err(e) = g.merge_face_clusters(&target_id, src) {
+                                eprintln!("[db] batch merge failed: {e}");
+                            }
+                        }
+                        if !name.is_empty() {
+                            if let Err(e) = g.rename_face_cluster(&target_id, &name) {
+                                eprintln!("[db] batch rename failed: {e}");
+                            }
                         }
                         g.get_face_cluster_summaries().unwrap_or_default()
                     },

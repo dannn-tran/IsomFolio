@@ -48,7 +48,10 @@ impl App {
                         for cluster in &others {
                             let target = cluster.cluster_id.clone();
                             let src = source_id.clone();
-                            let label = cluster.name.as_deref().unwrap_or("?").to_string();
+                            let label = cluster
+                                .name
+                                .clone()
+                                .unwrap_or_else(|| format!("Unnamed ({})", cluster.file_count));
                             col = col.push(
                                 button(text(label).size(TEXT_MD).color(FG))
                                     .on_press(Msg::MergeFaceClusters(target, src))

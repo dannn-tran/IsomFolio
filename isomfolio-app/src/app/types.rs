@@ -360,6 +360,13 @@ pub enum Msg {
     RenameFaceClusterInputChanged(String),
     ConfirmRenameFaceCluster,
     MergeFaceClusters(String, String),
+    /// A person card was clicked. Plain click navigates; Cmd/Ctrl-click toggles
+    /// the card into the batch selection.
+    FaceClusterCardClicked(String),
+    ClearFaceSelection,
+    BatchFaceNameInputChanged(String),
+    /// Name the selected clusters as one person and merge them together.
+    ConfirmBatchFaceNameMerge,
     RemoveFileFromFaceCluster(String, String),
     FaceCropsReady(Vec<(String, iced::widget::image::Handle)>),
     OpenPeopleView,

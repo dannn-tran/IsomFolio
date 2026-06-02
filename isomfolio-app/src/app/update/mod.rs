@@ -48,6 +48,10 @@ impl App {
             | Msg::RenameFaceClusterInputChanged(_)
             | Msg::ConfirmRenameFaceCluster
             | Msg::MergeFaceClusters(_, _)
+            | Msg::FaceClusterCardClicked(_)
+            | Msg::ClearFaceSelection
+            | Msg::BatchFaceNameInputChanged(_)
+            | Msg::ConfirmBatchFaceNameMerge
             | Msg::RemoveFileFromFaceCluster(_, _) => self.handle_extension_msg(msg),
 
             // — scanning & file watching —

@@ -118,6 +118,10 @@ pub struct FaceState {
     pub crop_handles: HashMap<String, iced::widget::image::Handle>,
     pub rename_cluster_id: Option<String>,
     pub rename_input: String,
+    /// Cluster ids selected for a batch name-and-merge (Cmd/Ctrl-click).
+    pub selected: HashSet<String>,
+    /// Name typed into the batch bar when a multi-selection is active.
+    pub batch_name_input: String,
     pub status: Option<String>,
     pub is_clustering: bool,
     /// Embedding progress 0.0–1.0 while clustering; `None` = indeterminate
@@ -127,7 +131,7 @@ pub struct FaceState {
 
 impl Default for FaceState {
     fn default() -> Self {
-        Self { clusters: Vec::new(), crop_handles: HashMap::new(), rename_cluster_id: None, rename_input: String::new(), status: None, is_clustering: false, progress: None }
+        Self { clusters: Vec::new(), crop_handles: HashMap::new(), rename_cluster_id: None, rename_input: String::new(), selected: HashSet::new(), batch_name_input: String::new(), status: None, is_clustering: false, progress: None }
     }
 }
 

@@ -39,16 +39,25 @@ Click **People** in the sidebar to see all clusters. Each card shows:
 
 ## Naming a person
 
-Click the `…` on a cluster card (or right-click) and choose **Rename**. Type a name and press `Enter`. Named clusters appear with the name as their label.
+Right-click (or Ctrl+Click) a cluster card and choose **Rename**. Type a name and press `Enter`. Named clusters appear with the name as their label.
 
-## Merging clusters
+## Batch naming &amp; merging
 
-If the same person appears in two clusters:
+Clustering often splits one person across several cards. Instead of naming each one and merging them pair by pair, select them together:
 
-1. Right-click one cluster and choose **Merge into…**
-2. Select the target cluster.
+1. **Cmd/Ctrl+click** each card that's the same person — selected cards get an accent outline.
+2. A batch bar appears at the top: type the person's name and press **Enter** (or click **Name &amp; merge**).
 
-The source cluster's photos move into the target. This cannot be undone.
+All selected clusters merge into one person and take the name. If any selected cluster was already named, that one is kept as the surviving cluster. Click **Clear** to drop the selection without changing anything. A plain click on any card cancels the selection and opens that person.
+
+## Merging clusters (one at a time)
+
+To fold one cluster into another without multi-select:
+
+1. Right-click a cluster and choose **Merge into…**
+2. Pick the target. Unnamed targets are listed as "Unnamed (N)" by photo count.
+
+The source cluster's photos move into the target. Merging cannot be undone.
 
 ## Removing a photo from a cluster
 

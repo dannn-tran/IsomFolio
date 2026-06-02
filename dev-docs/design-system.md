@@ -146,6 +146,8 @@ The rule differs by kind:
 
 Do not add action buttons to **navigation** rows. Do not make a navigation-row action reachable *only* by right-click. Inline actions on a dedicated **management** surface are correct.
 
+**Bulk actions on navigation entities** use a *transient batch bar*, not per-row buttons. Cmd/Ctrl-click toggles entities into a selection (accent outline); a plain click cancels the selection and navigates. While a selection is active, a batch bar appears above the grid with the bulk action (e.g. the People view's "Name & merge" for face clusters). This keeps rows quiet at rest while still surfacing bulk operations discoverably — the bar only exists when it applies. Mirrors the photo grid's multi-select model.
+
 ### Row heights
 
 Two row height constants exist to express the hierarchy between containers and items:

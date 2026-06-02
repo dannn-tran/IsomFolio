@@ -6,10 +6,10 @@ use iced::{
 use isomfolio_core::models::FaceClusterSummary;
 
 use super::styles::{
-    ghost_btn_style, BG_GRID, BG_TILE_LOADING, FG, FG_DIM, FG_MUTED,
+    active_chip_style, ghost_btn_style, ACCENT, BG_GRID, BG_TILE_LOADING, FG, FG_DIM, FG_MUTED,
     SPACE_1, SPACE_1_5, SPACE_2, SPACE_3, SPACE_4, TEXT_BASE, TEXT_SM,
 };
-use crate::app::{App, Msg, SidebarItem, TILE_GAP};
+use crate::app::{App, Msg, TILE_GAP};
 
 const PERSON_CARD_SIZE: f32 = 96.0;
 const CARD_TOTAL: f32 = PERSON_CARD_SIZE + 28.0;
@@ -33,6 +33,31 @@ impl App {
 
         if let Some(ref status) = self.faces.status {
             content = content.push(text(status.as_str()).size(TEXT_SM).color(FG_DIM));
+        }
+
+        // Batch bar: appears when one or more cards are Cmd/Ctrl-selected. Naming
+        // applies to all and merges them into a single person.
+        let n = self.faces.selected.len();
+        if n > 0 {
+            let action = if n > 1 { "Name & merge" } else { "Name" };
+            let bar = row![
+                text(format!("{n} selected")).size(TEXT_SM).color(FG),
+                text_input("Name as one person…", &self.faces.batch_name_input)
+                    .on_input(Msg::BatchFaceNameInputChanged)
+                    .on_submit(Msg::ConfirmBatchFaceNameMerge)
+                    .padding([SPACE_1, SPACE_1_5])
+                    .size(TEXT_SM)
+                    .width(200),
+                button(text(action).size(TEXT_SM))
+                    .on_press(Msg::ConfirmBatchFaceNameMerge)
+                    .style(active_chip_style),
+                button(text("Clear").size(TEXT_SM))
+                    .on_press(Msg::ClearFaceSelection)
+                    .style(ghost_btn_style),
+            ]
+            .spacing(SPACE_2)
+            .align_y(Alignment::Center);
+            content = content.push(bar);
         }
 
         if !named.is_empty() {
@@ -139,12 +164,17 @@ impl App {
                 .into(),
         };
 
+        let is_selected = self.faces.selected.contains(cluster_id);
         let img_btn = button(face_img)
-            .on_press(Msg::SidebarItemClicked(SidebarItem::FaceCluster(cluster_id.clone())))
-            .style(|_: &Theme, _| button::Style {
+            .on_press(Msg::FaceClusterCardClicked(cluster_id.clone()))
+            .style(move |_: &Theme, _| button::Style {
                 background: None,
                 text_color: FG,
-                border: Border::default(),
+                border: if is_selected {
+                    Border { color: ACCENT, width: 2.0, radius: 5.0.into() }
+                } else {
+                    Border::default()
+                },
                 shadow: iced::Shadow::default(),
                 snap: false,
             });
