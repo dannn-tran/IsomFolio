@@ -655,11 +655,20 @@ pub fn upsert_metadata(
     let flash_i: Option<i32> = tech.and_then(|t| t.flash).map(|b| b as i32);
 
     let tx = conn.unchecked_transaction()?;
+    // First detection imports the descriptive metadata from XMP/IPTC; on
+    // re-detection we PRESERVE it (and any in-app edits) and only refresh the
+    // file-derived EXIF tech — matching the "imported once, never overwritten
+    // on re-sync" invariant. (A wholesale replace would wipe ratings/captions.)
     conn.execute(
-        "INSERT OR REPLACE INTO metadata \
+        "INSERT INTO metadata \
          (file_id, rating, label, title, description, creator, subjects, apple_tags, \
           camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16) \
+         ON CONFLICT(file_id) DO UPDATE SET \
+           camera_make = excluded.camera_make, camera_model = excluded.camera_model, \
+           lens_model = excluded.lens_model, focal_length_mm = excluded.focal_length_mm, \
+           aperture = excluded.aperture, shutter_speed = excluded.shutter_speed, \
+           iso = excluded.iso, flash = excluded.flash",
         params![
             file_id, rating, label, title, description, creator_json, subjects_json, apple_json,
             tech.and_then(|t| t.camera_make.as_deref()),
@@ -1550,6 +1559,23 @@ mod tests {
             // Explicit import overwrites — user asked for it.
             let m = get_metadata(&conn, "f1").unwrap().unwrap();
             assert_eq!(m.xmp.unwrap().core.rating, Some(3));
+        }
+
+        #[test]
+        fn resync_upsert_metadata_preserves_user_fields() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            // First detection imports rating 4 + a title.
+            upsert_metadata(&conn, "f1", &xmp_with(Some(4), Some("Heading"), vec!["nature"])).unwrap();
+            // User edits the rating in-app.
+            set_file_rating(&conn, "f1", Some(5)).unwrap();
+            // Re-sync re-reads the file with no sidecar (empty metadata).
+            upsert_metadata(&conn, "f1", &EmbeddedMetadata::default()).unwrap();
+            // The user rating and the imported title must survive, not be wiped.
+            let m = get_metadata(&conn, "f1").unwrap().unwrap();
+            let xmp = m.xmp.unwrap();
+            assert_eq!(xmp.core.rating, Some(5));
+            assert_eq!(xmp.dublin_core.title.as_deref(), Some("Heading"));
         }
 
         #[test]
