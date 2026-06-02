@@ -38,6 +38,10 @@ pub struct LoupeState {
     /// Shared by the trackpad gestures and the zoom buttons.
     pub zoom: f32,
     pub pan: iced::Vector,
+    /// Whether the full-demosaic (hi-res) decode has been swapped in for the
+    /// current RAW. The fit view shows the fast embedded preview; the full
+    /// decode loads on first zoom-in. Reset on navigate.
+    pub hires_loaded: bool,
 }
 
 pub const LOUPE_ZOOM_MIN: f32 = 1.0;
@@ -48,6 +52,7 @@ impl LoupeState {
     pub fn reset_zoom(&mut self) {
         self.zoom = 1.0;
         self.pan = iced::Vector::ZERO;
+        self.hires_loaded = false;
     }
 }
 
@@ -59,6 +64,7 @@ impl Default for LoupeState {
             prefetch: HashMap::new(),
             zoom: 1.0,
             pan: iced::Vector::ZERO,
+            hires_loaded: false,
         }
     }
 }

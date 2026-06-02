@@ -118,6 +118,9 @@ impl App {
                 } else {
                     pan
                 };
+                if self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
+                    return self.load_loupe_hires();
+                }
                 Task::none()
             }
 
@@ -135,6 +138,9 @@ impl App {
                 } else {
                     self.loupe.pan * (next / prev)
                 };
+                if next > super::super::LOUPE_ZOOM_MIN {
+                    return self.load_loupe_hires();
+                }
                 Task::none()
             }
 
@@ -525,6 +531,14 @@ impl App {
                 Task::none()
             }
 
+            Msg::LoupeHiresLoaded { idx, handle } => {
+                if self.loupe.idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
+                    self.loupe.full_res = Some((idx, handle));
+                    self.loupe.hires_loaded = true;
+                }
+                Task::none()
+            }
+
             Msg::LoupePrefetchLoaded { idx, handle } => {
                 if matches!(self.view_mode, ViewMode::Loupe) {
                     let dist = (idx as i32 - self.loupe.idx as i32).unsigned_abs() as usize;
@@ -595,7 +609,7 @@ impl App {
         let path = file.path.clone();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || decode_image_for_display(&path))
+                tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
                     .await
                     .ok()
                     .flatten()
@@ -607,12 +621,39 @@ impl App {
         )
     }
 
+    /// Full-demosaic decode for the current RAW, swapped in when the user zooms
+    /// to 100% so the focus check is pixel-accurate. No-op for non-RAW (already
+    /// full quality) or once already loaded for this photo.
+    pub(crate) fn load_loupe_hires(&self) -> Task<Msg> {
+        if self.loupe.hires_loaded {
+            return Task::none();
+        }
+        let idx = self.loupe.idx;
+        let Some(file) = self.files.get(idx) else { return Task::none() };
+        if !is_raw_path(&file.path) {
+            return Task::none();
+        }
+        let path = file.path.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || decode_image_for_display(&path, true))
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            move |handle_opt| match handle_opt {
+                Some(handle) => Msg::LoupeHiresLoaded { idx, handle },
+                None => Msg::NoOp,
+            },
+        )
+    }
+
     pub(crate) fn load_compare_slot(&self, slot: usize) -> Task<Msg> {
         let Some(file) = self.compare.files[slot].as_ref() else { return Task::none() };
         let path = file.path.clone();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || decode_image_for_display(&path))
+                tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
                     .await
                     .ok()
                     .flatten()
@@ -643,7 +684,7 @@ impl App {
                 let path = file.path.clone();
                 tasks.push(Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || decode_image_for_display(&path))
+                        tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
                             .await
                             .ok()
                             .flatten()
@@ -765,30 +806,42 @@ fn apply_grid_click(
     }
 }
 
-fn decode_image_for_display(path: &str) -> Option<iced::widget::image::Handle> {
-    let img = open_image(path)?;
+pub(crate) fn is_raw_path(path: &str) -> bool {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    isomfolio_core::indexing::thumbnail::is_raw_extension(ext)
+}
+
+fn decode_image_for_display(path: &str, prefer_full: bool) -> Option<iced::widget::image::Handle> {
+    let img = open_image(path, prefer_full)?;
     let rgba = img.into_rgba8();
     let (w, h) = (rgba.width(), rgba.height());
     Some(iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
 }
 
-fn open_image(path: &str) -> Option<image::DynamicImage> {
-    use isomfolio_core::indexing::thumbnail::is_raw_extension;
+/// Decode an image for on-screen display. For RAW, `prefer_full = false` returns
+/// the embedded preview first (fast — used for fit-to-window browsing and
+/// prefetch), and only falls back to a full demosaic if no preview exists.
+/// `prefer_full = true` does the full demosaic (used when zoomed to 100% for a
+/// pixel-accurate focus check). Non-RAW formats ignore the flag.
+fn open_image(path: &str, prefer_full: bool) -> Option<image::DynamicImage> {
     use rawler::decoders::RawDecodeParams;
     use rawler::rawsource::RawSource;
     use std::path::Path;
 
-    let ext = Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-
-    if is_raw_extension(ext) {
+    if is_raw_path(path) {
         let source = RawSource::new(Path::new(path)).ok()?;
         let decoder = rawler::get_decoder(&source).ok()?;
         let params = RawDecodeParams::default();
-        return decoder.full_image(&source, &params).ok().flatten()
-            .or_else(|| decoder.preview_image(&source, &params).ok().flatten());
+        let full = || decoder.full_image(&source, &params).ok().flatten();
+        let preview = || decoder.preview_image(&source, &params).ok().flatten();
+        return if prefer_full {
+            full().or_else(preview)
+        } else {
+            preview().or_else(full)
+        };
     }
 
     image::open(path).ok()

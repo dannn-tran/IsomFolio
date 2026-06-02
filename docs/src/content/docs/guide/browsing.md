@@ -21,10 +21,14 @@ Press `Space` (or double-click a photo) to enter **Loupe** — a full-screen vie
 
 In Loupe:
 - `←` / `→` — navigate to the previous / next photo
-- `Space` or `Esc` — return to the grid
+- `Space` or `Esc` — return to the grid (lands on the same photo in the grid)
 - `P` / `X` / `U` — set flag (Pick / Reject / Unflagged)
 - `1`–`5` — set rating
 - The Info panel (`I`) remains available on the right
+
+**Zoom in to inspect detail:** scroll or use a two-finger trackpad gesture over the photo to zoom toward the pointer, or use the **− / + / Fit** buttons at the bottom. When zoomed in, drag the photo to pan. Zoom resets to fit each time you move to another photo.
+
+For RAW files, the fit view uses the camera's fast embedded preview so browsing stays instant; the slower full decode is done only when you zoom in, so a 100% focus check is still pixel-accurate.
 
 <Aside type="tip">
 Loupe pre-fetches adjacent photos in the background so navigation is instant even for large files.

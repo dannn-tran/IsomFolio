@@ -139,6 +139,7 @@ impl App {
             | Msg::HoverMenuTab(_)
             | Msg::CloseMenuDropdown
             | Msg::LoupeFullResLoaded { .. }
+            | Msg::LoupeHiresLoaded { .. }
             | Msg::LoupePrefetchLoaded { .. }
             | Msg::SelectAll
             | Msg::DeselectAll
