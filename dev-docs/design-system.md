@@ -342,6 +342,10 @@ A **single dense glyph row** (fixed height `CULL_STRIP_HEIGHT`, ≈ one row) sit
 
 The strip is a **fixed-height single row** — this is a hard requirement, not just a style choice: a variable-height band above the grid would break tile hit-testing (→ `architecture.md`, Grid layout & hit-testing).
 
+### Search box
+
+The toolbar search box runs a full-text query over **filename, folder, tags, and descriptive metadata** (title, caption, creator, subjects — folded into the FTS index). A single bareword does **prefix** matching (type-ahead). A query with spaces/quotes is a full **FTS5 expression**: implicit AND between terms, plus `OR` / `NOT`, `"exact phrases"`, and `col:term` column filters (`filename:`, `tags:`, `folder:`). Malformed expressions degrade to a prefix search rather than erroring. Combines with all structured filters.
+
 ### Criteria / filter panel
 
 Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button. Holds the *advanced* (non-cull) criteria only: tags, date range + presets, file type, location, person, camera, added-within, and the Clear / Save-as-Smart-Album actions. Expands the grid area rather than overlaying it.

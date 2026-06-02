@@ -9,11 +9,16 @@ IsomFolio offers two ways to narrow down your library: the **search bar** for qu
 
 The search bar runs along the top of the grid. Type any text to instantly filter to matching photos. Search matches against:
 
-- File names
+- File names and folder paths
 - Tags
-- Folder paths
+- **Descriptive metadata** — title, caption, creator, and subjects
 
-Results update as you type (with a brief debounce to avoid unnecessary database queries).
+Results update as you type (with a brief debounce). A single word does prefix matching ("harb" finds "harbour"). Type more than one word and the search becomes a full expression:
+
+- Multiple words require **all** of them (`fishing boats`)
+- `OR` and `NOT` — `boats OR nets`, `fishing NOT nets`
+- `"exact phrases"` in quotes
+- field filters — `tags:portrait`, `filename:DSC`, `folder:2024`
 
 Clear the search field to return to all photos.
 
@@ -26,8 +31,8 @@ Click the filter icon in the toolbar to open the criteria panel. It supports:
 | **Tags** | Include photos tagged with **all** specified tags (the label reads "Tags (all)" once you add more than one) |
 | **Date from / to** | Filter by capture date (EXIF) or file date within a range. Quick presets — **Last 7 days**, **Last 30 days**, **This month**, **This year** — fill the range for you |
 | **File types** | Toggle individual extensions (JPEG, PNG, WebP, GIF) |
-| **Rating** | Minimum star rating (≥ 1 through ≥ 5) |
-| **Flag** | All / Picks only / Rejects only / Unflagged only |
+| **Rating** | A comparator (**≥ / = / ≤**) with a star count, plus **Unrated** (your review queue) and **Any** — so "≥ 3", "exactly 2", "≤ 1", or "unrated only" |
+| **Flag** | Toggle any combination of **Picks / Unflagged / Rejects** (OR) — e.g. Picks + Unflagged = everything not rejected |
 | **Location** | Any / With GPS / Without GPS |
 | **Person** | Restrict to a named face cluster — appears once you have named people. Combine with tags/dates for "photos of Maya tagged portrait in 2023" |
 | **Added** | Any / last 7 days / last 30 days, by when the photo entered the catalog ("what's new") |
@@ -43,8 +48,8 @@ The text search bar and criteria panel work together. You can search for "paris"
 
 Sort controls appear in the toolbar:
 
-- **Sort field** — cycle through Name, Date Shot, Size, Type
-- **Sort direction** — ascending or descending
+- **Sort field** — a dropdown: Name, Date Shot, Size, Type
+- **Sort direction** — ascending or descending toggle
 
 Sorting and filtering are independent — you can sort any filtered result set.
 

@@ -203,6 +203,21 @@ pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE files ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0",
     // Editable descriptive metadata: copyright / rights statement.
     "ALTER TABLE metadata ADD COLUMN rights TEXT",
+    // Descriptive metadata (title/caption/creator/subjects) is folded into the
+    // FTS `tags` column by rebuild_fts_for_file, but earlier syncs imported it
+    // before that was wired into the import path. Rebuild the index once so
+    // existing captions/titles become searchable. (On a fresh DB the source
+    // tables don't exist yet, so the INSERT no-ops and ALL_DDL recreates the
+    // empty index; the triggers reference the table by name and survive.)
+    "DROP TABLE IF EXISTS file_index;
+     CREATE VIRTUAL TABLE file_index USING fts5(filename, tags, folder, tokenize='unicode61');
+     INSERT INTO file_index(rowid, filename, tags, folder)
+       SELECT f.rowid, f.filename,
+              TRIM(COALESCE((SELECT GROUP_CONCAT(t.tag, ' ') FROM tags t WHERE t.file_id = f.id), '') || ' ' ||
+                   COALESCE(m.title,'') || ' ' || COALESCE(m.description,'') || ' ' ||
+                   COALESCE(m.creator,'') || ' ' || COALESCE(m.subjects,'') || ' ' || COALESCE(m.apple_tags,'')),
+              f.folder
+       FROM files f LEFT JOIN metadata m ON m.file_id = f.id;",
 ];
 
 pub const ALL_DDL: &[&str] = &[

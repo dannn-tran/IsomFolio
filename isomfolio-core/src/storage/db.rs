@@ -683,6 +683,9 @@ pub fn upsert_metadata(
         ],
     )?;
     tx.commit()?;
+    // Index imported descriptive metadata (title/caption/creator/subjects) for
+    // full-text search — the sync import path previously skipped this.
+    rebuild_fts_for_file(conn, file_id)?;
     Ok(())
 }
 
@@ -1014,6 +1017,9 @@ fn set_files_text_meta(conn: &Connection, file_ids: &[String], col: &str, value:
         conn.execute(&sql, params![id.as_str(), value])?;
     }
     tx.commit()?;
+    for id in file_ids {
+        rebuild_fts_for_file(conn, id)?;
+    }
     Ok(())
 }
 
@@ -1045,6 +1051,9 @@ pub fn set_files_creator(conn: &Connection, file_ids: &[String], value: Option<&
         )?;
     }
     tx.commit()?;
+    for id in file_ids {
+        rebuild_fts_for_file(conn, id)?;
+    }
     Ok(())
 }
 

@@ -19,19 +19,43 @@ pub fn sanitize_fts_query(raw: &str) -> String {
     }
 }
 
-pub fn search_fts5(conn: &Connection, raw_query: &str) -> Result<Vec<String>, AppError> {
-    let q = sanitize_fts_query(raw_query);
-    if q.is_empty() {
-        return Ok(Vec::new());
-    }
+fn run_match(conn: &Connection, q: &str) -> Result<Vec<String>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT files.id FROM file_index \
          JOIN files ON file_index.rowid = files.rowid \
          WHERE file_index MATCH ?1 AND files.is_orphaned = 0 \
          ORDER BY rank",
     )?;
-    let rows = stmt.query_map([&q], |r| r.get::<_, String>(0))?;
+    let rows = stmt.query_map([q], |r| r.get::<_, String>(0))?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn search_fts5(conn: &Connection, raw_query: &str) -> Result<Vec<String>, AppError> {
+    let trimmed = raw_query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // A query with whitespace, quotes, a column filter, or parentheses is treated
+    // as a full FTS5 expression — enabling boolean (AND/OR/NOT), phrases, and
+    // `col:term` filters (filename/tags/folder/meta). Single barewords keep
+    // type-ahead prefix matching. Malformed expressions fall back to the
+    // sanitised prefix so casual input never errors.
+    let looks_like_expr =
+        trimmed.contains(char::is_whitespace) || trimmed.contains(['"', ':', '(', ')']);
+    if looks_like_expr {
+        if let Ok(ids) = run_match(conn, trimmed) {
+            return Ok(ids);
+        }
+    }
+
+    let q = sanitize_fts_query(raw_query);
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Even the sanitised form can be a degenerate FTS expression (e.g. a trailing
+    // operator); never surface a query-syntax error to the user — just no matches.
+    Ok(run_match(conn, &q).unwrap_or_default())
 }
 
 pub fn update_file_index_tags(
@@ -101,6 +125,38 @@ mod tests {
         insert_file(&conn, "id1", "vacation.jpg", "/photos");
         let ids = search_fts5(&conn, "vacation").unwrap();
         assert!(ids.contains(&"id1".to_string()));
+    }
+
+    #[test]
+    fn fts_search_finds_by_caption_and_creator() {
+        let (conn, _f) = open_temp();
+        insert_file(&conn, "id1", "DSC001.jpg", "/photos");
+        db::set_files_description(&conn, &["id1".into()], Some("Fishing boats leaving the harbour")).unwrap();
+        db::set_files_creator(&conn, &["id1".into()], Some("Jane Doe")).unwrap();
+
+        assert!(search_fts5(&conn, "harbour").unwrap().contains(&"id1".to_string()));
+        assert!(search_fts5(&conn, "Jane").unwrap().contains(&"id1".to_string()));
+    }
+
+    #[test]
+    fn fts_search_supports_boolean_and_phrase() {
+        let (conn, _f) = open_temp();
+        insert_file(&conn, "a", "a.jpg", "/p");
+        db::set_files_description(&conn, &["a".into()], Some("fishing boats")).unwrap();
+        insert_file(&conn, "b", "b.jpg", "/p");
+        db::set_files_description(&conn, &["b".into()], Some("fishing nets")).unwrap();
+
+        // Implicit AND across terms.
+        let r = search_fts5(&conn, "fishing boats").unwrap();
+        assert!(r.contains(&"a".to_string()) && !r.contains(&"b".to_string()));
+        // OR.
+        let r = search_fts5(&conn, "boats OR nets").unwrap();
+        assert!(r.contains(&"a".to_string()) && r.contains(&"b".to_string()));
+        // NOT.
+        let r = search_fts5(&conn, "fishing NOT nets").unwrap();
+        assert!(r.contains(&"a".to_string()) && !r.contains(&"b".to_string()));
+        // Malformed expression falls back to a prefix search instead of erroring.
+        assert!(search_fts5(&conn, "fishing AND").is_ok());
     }
 
     #[test]
