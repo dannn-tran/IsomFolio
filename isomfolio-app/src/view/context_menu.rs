@@ -128,12 +128,20 @@ impl App {
                 }
                 items
             }
-            ContextMenuTarget::ManualAlbum(id) => vec![
-                Some(("Rename".into(), Msg::StartRenameAlbum(id.clone()), false)),
-                Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),
-                None,
-                Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
-            ],
+            ContextMenuTarget::ManualAlbum(id) => {
+                let target_label = if self.target_album.as_deref() == Some(id.as_str()) {
+                    "Clear Target Album"
+                } else {
+                    "Set as Target Album"
+                };
+                vec![
+                    Some(("Rename".into(), Msg::StartRenameAlbum(id.clone()), false)),
+                    Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),
+                    Some((target_label.into(), Msg::SetTargetAlbum(id.clone()), false)),
+                    None,
+                    Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
+                ]
+            }
             ContextMenuTarget::SmartAlbum(id) => vec![
                 Some(("Rename".into(), Msg::StartRenameAlbum(id.clone()), false)),
                 Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),

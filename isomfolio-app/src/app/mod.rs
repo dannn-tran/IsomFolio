@@ -157,6 +157,8 @@ pub struct App {
     pub add_folder_prompt: Option<AddFolderPrompt>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
+    /// Album that the `B` quick-add key drops the selection into, if set.
+    pub target_album: Option<AlbumId>,
     pub selected_item: SidebarItem,
 
     pub files: Vec<AssetFile>,
@@ -406,6 +408,7 @@ impl App {
             add_folder_prompt: None,
             albums: Vec::new(),
             album_counts: HashMap::new(),
+            target_album: None,
             selected_item: SidebarItem::AllFiles,
             files: Vec::new(),
             file_ratings: HashMap::new(),

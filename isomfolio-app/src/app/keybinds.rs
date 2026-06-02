@@ -107,6 +107,7 @@ pub fn default_bindings() -> Vec<KeyBind> {
 
         // Tagging
         KeyBind { key: Char("."), mods: Mods::NONE, when_ignored: true, action: || Msg::RepeatLastTag, label: "Repeat Last Tag", category: Tagging },
+        KeyBind { key: Char("b"), mods: Mods::NONE, when_ignored: true, action: || Msg::AddSelectionToTargetAlbum, label: "Add to Target Album", category: Tagging },
 
         // Sync
         KeyBind { key: Char("r"), mods: Mods::CMD, when_ignored: true, action: || Msg::SyncSelectedFolder, label: "Sync Selected Folder", category: Navigation },

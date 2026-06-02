@@ -48,6 +48,36 @@ impl App {
 
             Msg::DropCompleted => self.load_sidebar_task(),
 
+            Msg::SetTargetAlbum(album_id) => {
+                self.context_menu = None;
+                if self.target_album.as_deref() == Some(album_id.as_str()) {
+                    self.target_album = None;
+                    self.status = "Cleared target album".to_string();
+                } else {
+                    let name = self
+                        .albums
+                        .iter()
+                        .find(|a| a.id == album_id)
+                        .map(|a| a.name.clone())
+                        .unwrap_or_default();
+                    self.target_album = Some(album_id);
+                    self.status = format!("Target album: \"{name}\" — press B to add the selection");
+                }
+                Task::none()
+            }
+
+            Msg::AddSelectionToTargetAlbum => {
+                let Some(target) = self.target_album.clone() else {
+                    self.status =
+                        "No target album — right-click an album → Set as Target Album".to_string();
+                    return Task::none();
+                };
+                if self.grid_selected.is_empty() {
+                    return Task::none();
+                }
+                Task::done(Msg::AddSelectionToAlbum(target))
+            }
+
             Msg::AddSelectionToAlbum(album_id) => {
                 self.context_menu = None;
                 let ids: Vec<String> = self.grid_selected.iter().cloned().collect();

@@ -179,7 +179,7 @@ Implemented as a `stack` overlay anchored to the cursor position. No scrim — c
 | Entity | Menu items |
 |---|---|
 | Folder | Sync Folder · (Remove Missing Files…, when orphans present) · — · Remove from Library… |
-| Manual album | Rename · Duplicate · — · Delete… |
+| Manual album | Rename · Duplicate · Set/Clear Target Album · — · Delete… |
 | Smart album | Rename · Duplicate · Edit Criteria · — · Delete… |
 | Grid tile (single) | Open in Loupe · Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder / Locate… · Copy to Folder… · Move to Folder… |
 | Grid tile (multi-select) | Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder · Copy to Folder… · Move to Folder… |
@@ -373,6 +373,7 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | Smart album save | Name input appears inline in criteria panel, confirmed with Save |
 | Smart album "Edit Criteria" | Selects album, opens criteria panel |
 | `.` key (grid) | Repeat last tag — applies most recent tag to current selection |
+| `B` key | Add selection to the **target album** (set one via an album's context menu → "Set as Target Album"; marked `◎` in the sidebar). Mirrors Lightroom's quick-collection add for fast keeper-gathering. |
 | `?` key | Toggle shortcut help panel |
 | `\` key | Toggle hide rejects |
 | Sort control (grid toolbar) | `pick_list` dropdown of fields (Name / Date Shot / Size / Type) + a `▲`/`▼` direction toggle button. Not a cycle button — the field set is explicit and visible. |

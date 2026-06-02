@@ -73,6 +73,10 @@ The **cull strip** sits directly under the toolbar and is always visible — no 
 
 Advanced filters (tags, date, type, location, person, camera) live in the **Filters** panel (`F` or the Filters button). All filters combine with text search.
 
+## Gathering keepers with a target album
+
+To collect picks into an album as you go, right-click a manual album → **Set as Target Album** (it's marked `◎` in the sidebar). Then press **`B`** on any selection to add it to that album — no dragging. Press the menu item again to clear the target.
+
 ## Undo
 
 All rating and flag changes are undoable.

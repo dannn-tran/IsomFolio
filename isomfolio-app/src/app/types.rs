@@ -372,6 +372,10 @@ pub enum Msg {
     DuplicateAlbum(AlbumId),
     ShowInFinder(Vec<String>),
     AddSelectionToAlbum(AlbumId),
+    /// Set (or clear) the album the `B` key quick-adds the selection to.
+    SetTargetAlbum(AlbumId),
+    /// Add the current selection to the target album (`B`).
+    AddSelectionToTargetAlbum,
     HoverSidebarEntityStart(SidebarItem),
     HoverSidebarEntityEnd(SidebarItem),
     ToggleAddToAlbumSubmenu,

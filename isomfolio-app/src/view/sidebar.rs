@@ -163,6 +163,7 @@ impl App {
                 );
             } else {
                 let dirty = sel && is_smart && self.smart_album_dirty;
+                let is_target = self.target_album.as_deref() == Some(album.id.as_str());
                 content = content.push(album_sidebar_row(
                     album.name.clone(),
                     album.id.clone(),
@@ -171,6 +172,7 @@ impl App {
                     hovered,
                     is_smart,
                     dirty,
+                    is_target,
                     max_chars,
                 ));
             }
@@ -436,6 +438,7 @@ fn album_sidebar_row<'a>(
     drop_hover: bool,
     is_smart: bool,
     dirty: bool,
+    is_target: bool,
     max_chars: usize,
 ) -> Element<'a, Msg> {
     let text_color = if selected || drop_hover {
@@ -462,13 +465,14 @@ fn album_sidebar_row<'a>(
     };
 
     let smart_indicator = if is_smart { "⚡ " } else { "" };
+    let target_indicator = if is_target { "◎ " } else { "" };
     let (display_label, was_truncated) = truncate_label(&label, max_chars);
     let dirty_dot = if dirty { " ●" } else { "" };
     let count_str = if count > 0 { format!("{dirty_dot} {count}") } else { dirty_dot.to_string() };
     let name_btn = button(
         row![
             container(
-                text(format!("{smart_indicator}{display_label}"))
+                text(format!("{target_indicator}{smart_indicator}{display_label}"))
                     .size(TEXT_BASE)
                     .color(text_color)
                     .wrapping(iced::widget::text::Wrapping::None),

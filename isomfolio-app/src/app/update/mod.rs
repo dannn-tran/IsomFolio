@@ -261,6 +261,8 @@ impl App {
             Msg::DroppedToAlbum(_, _)
             | Msg::DropCompleted
             | Msg::AddSelectionToAlbum(_)
+            | Msg::SetTargetAlbum(_)
+            | Msg::AddSelectionToTargetAlbum
             | Msg::DuplicateAlbum(_)
             | Msg::StartCreateAlbum
             | Msg::CreateAlbumInputChanged(_)
