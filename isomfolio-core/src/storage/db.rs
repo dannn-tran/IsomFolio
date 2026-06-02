@@ -299,9 +299,24 @@ pub fn delete_files(conn: &Connection, file_ids: &[String]) -> Result<(), AppErr
     Ok(())
 }
 
+pub fn set_files_deleted(conn: &Connection, file_ids: &[String], deleted: bool) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    let val = if deleted { 1i32 } else { 0i32 };
+    for id in file_ids {
+        conn.execute("UPDATE files SET is_deleted = ?1 WHERE id = ?2", params![val, id.as_str()])?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn count_deleted(conn: &Connection) -> Result<usize, AppError> {
+    let n: i64 = conn.query_row("SELECT COUNT(*) FROM files WHERE is_deleted = 1", [], |r| r.get(0))?;
+    Ok(n as usize)
+}
+
 pub fn get_folder_counts(conn: &Connection) -> Result<Vec<(String, usize)>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT folder, COUNT(*) FROM files WHERE is_orphaned = 0 GROUP BY folder",
+        "SELECT folder, COUNT(*) FROM files WHERE is_orphaned = 0 AND is_deleted = 0 GROUP BY folder",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
@@ -887,7 +902,9 @@ pub fn remove_file_from_album(
 
 pub fn get_all_album_file_counts(conn: &Connection) -> Result<HashMap<String, usize>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT album_id, COUNT(*) FROM album_files GROUP BY album_id",
+        "SELECT af.album_id, COUNT(*) FROM album_files af \
+         JOIN files f ON f.id = af.file_id \
+         WHERE f.is_deleted = 0 GROUP BY af.album_id",
     )?;
     let rows = stmt.query_map([], |row| {
         let id: String = row.get(0)?;

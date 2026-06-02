@@ -126,6 +126,14 @@ AI-origin tags enter as *pending* and surface in the Suggestions sidebar item. A
 
 ---
 
+## Virtual delete
+
+Deleting a photo sets an `is_deleted` flag on the `files` row — **the file on disk is never moved or removed.** Deleted rows are excluded from every normal query/count (`is_deleted = 0`, threaded like `is_orphaned`); the Deleted view inverts it (`only_deleted`). Restore just clears the flag, so it's instant and lossless (the row, with its rating/tags, never left the catalog).
+
+**Critical invariant — the flag survives re-sync.** `upsert_files` therefore does *not* wholesale-replace rows: it `INSERT … ON CONFLICT(id) DO UPDATE` refreshing only the identity columns read from disk, while **preserving** `flag`, `is_deleted`, and `created_at_unix` (catalog add-time). A freshly scanned `AssetFile` carries none of that user/catalog state, so a wholesale replace would silently wipe flags and resurrect deleted photos on every sync. (Fixing this also fixed a pre-existing bug where re-sync wiped culling flags.) Permanent purge is the only operation that may touch the file on disk, and only as an explicit, separate action.
+
+---
+
 ## Extension system
 
 ### Design intent

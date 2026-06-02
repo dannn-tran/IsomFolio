@@ -174,6 +174,10 @@ pub struct SearchQuery {
     /// never surface missing files. Set to true only when browsing a folder with no active criteria.
     #[serde(default)]
     pub include_orphaned: bool,
+    /// Show *only* virtually-deleted files (the Deleted view). When false, deleted
+    /// files are excluded from all results.
+    #[serde(default)]
+    pub only_deleted: bool,
 }
 
 impl Default for SearchQuery {
@@ -197,6 +201,7 @@ impl Default for SearchQuery {
             camera_model: None,
             color_label: None,
             include_orphaned: false,
+            only_deleted: false,
         }
     }
 }

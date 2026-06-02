@@ -65,8 +65,8 @@ pub fn default_bindings() -> Vec<KeyBind> {
         KeyBind { key: Named(Named::ArrowRight), mods: Mods::SHIFT, when_ignored: true, action: || Msg::NavigateExtend { dx: 1, dy: 0 },  label: "Extend selection right", category: Navigation },
         KeyBind { key: Named(Named::ArrowUp),    mods: Mods::SHIFT, when_ignored: true, action: || Msg::NavigateExtend { dx: 0, dy: -1 }, label: "Extend selection up",    category: Navigation },
         KeyBind { key: Named(Named::ArrowDown),  mods: Mods::SHIFT, when_ignored: true, action: || Msg::NavigateExtend { dx: 0, dy: 1 },  label: "Extend selection down",  category: Navigation },
-        KeyBind { key: Named(Named::Delete),     mods: Mods::NONE, when_ignored: true,  action: || Msg::DeleteKeyPressed,            label: "Remove from Album", category: Culling },
-        KeyBind { key: Named(Named::Backspace),  mods: Mods::NONE, when_ignored: true,  action: || Msg::DeleteKeyPressed,            label: "Remove from Album", category: Culling },
+        KeyBind { key: Named(Named::Delete),     mods: Mods::NONE, when_ignored: true,  action: || Msg::DeleteKeyPressed,            label: "Delete (or remove from album)", category: Culling },
+        KeyBind { key: Named(Named::Backspace),  mods: Mods::NONE, when_ignored: true,  action: || Msg::DeleteKeyPressed,            label: "Delete (or remove from album)", category: Culling },
         KeyBind { key: Named(Named::Escape),     mods: Mods::NONE, when_ignored: false, action: || Msg::EscapePressed,                label: "Cancel / Back",     category: Navigation },
 
         // View

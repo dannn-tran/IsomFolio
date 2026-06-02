@@ -226,21 +226,26 @@ impl App {
             }
 
             Msg::DeleteKeyPressed => {
-                // Non-destructive: only meaningful inside a manual album, where
-                // it unlinks the selected photos (files stay on disk).
-                let SidebarItem::Album(ref id) = self.selected_item else {
-                    return Task::none();
-                };
-                let is_manual = self
-                    .albums
-                    .iter()
-                    .find(|a| &a.id == id)
-                    .map(|a| matches!(a.kind, AlbumKind::Manual))
-                    .unwrap_or(false);
-                if !is_manual || self.grid_selected.is_empty() {
+                if self.grid_selected.is_empty() {
                     return Task::none();
                 }
-                self.handle_album_msg(Msg::ConfirmRemoveFromAlbum)
+                match &self.selected_item {
+                    // Inside a manual album, Delete unlinks from the album.
+                    SidebarItem::Album(id)
+                        if self
+                            .albums
+                            .iter()
+                            .find(|a| &a.id == id)
+                            .map(|a| matches!(a.kind, AlbumKind::Manual))
+                            .unwrap_or(false) =>
+                    {
+                        self.handle_album_msg(Msg::ConfirmRemoveFromAlbum)
+                    }
+                    // Already in the Deleted view — nothing to delete further.
+                    SidebarItem::Deleted => Task::none(),
+                    // Everywhere else, Delete soft-deletes to the Deleted folder.
+                    _ => Task::done(Msg::DeleteSelection),
+                }
             }
 
             Msg::RemoveFromAlbum => {

@@ -207,6 +207,25 @@ impl App {
                 .push(people_header);
         }
 
+        // Virtual "Deleted" folder — appears only when something is soft-deleted.
+        if self.deleted_count > 0 {
+            let sel = self.selected_item == SidebarItem::Deleted;
+            content = content
+                .push(Space::new().height(SPACE_1))
+                .push(sidebar_divider())
+                .push(Space::new().height(SPACE_1))
+                .push(
+                    button(
+                        text(format!("Deleted ({})", self.deleted_count))
+                            .size(TEXT_MD)
+                            .color(if sel { FG } else { FG_DIM }),
+                    )
+                    .on_press(Msg::SidebarItemClicked(SidebarItem::Deleted))
+                    .style(ghost_btn_style)
+                    .width(Length::Fill),
+                );
+        }
+
         let sidebar_scroll = scrollable(content.spacing(SPACE_0_5).padding(SPACE_3))
             .direction(scrollable::Direction::Vertical(
                 scrollable::Scrollbar::new().width(4).scroller_width(4),

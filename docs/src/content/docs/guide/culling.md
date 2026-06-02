@@ -45,9 +45,9 @@ Ratings are stored and filterable but are **not yet displayed as overlays on gri
 
 ## Clearing rejects
 
-When you're done, **Edit → Move Rejects to Trash…** moves every rejected photo in the current view out of your library and into a `Trash` folder inside the catalog, then removes them from the catalog. A confirmation appears in the status bar first.
+Pressing **Delete** (or **Backspace**) on the selected photos, or **Edit → Delete Rejected Photos…**, moves them to the **Deleted** folder. This is a *virtual* delete: **your files on disk are never moved or touched** — the photos just drop out of all normal views and collect in a "Deleted" entry that appears in the sidebar.
 
-The files are **not deleted from disk** — they're moved into the catalog's `Trash` folder (filenames disambiguated on collision) and disappear from the app. To **recover** a photo, move it out of that `Trash` folder back into one of your library folders and re-sync that folder. (There is not yet an in-app restore; recovery is manual via the file system for now.)
+To **recover**, open the **Deleted** folder, select the photos, and choose **Restore** (right-click) — they return to their place instantly, with ratings and tags intact. (Inside a manual album, Delete instead just removes the photos from that album.)
 
 ## Colour labels
 

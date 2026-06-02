@@ -336,7 +336,9 @@ impl App {
                                     Some(ContextMenuTarget::ManualAlbum(id.clone()))
                                 }
                             }
-                            SidebarItem::AllFiles | SidebarItem::FaceCluster(_) => None,
+                            SidebarItem::AllFiles
+                            | SidebarItem::FaceCluster(_)
+                            | SidebarItem::Deleted => None,
                         };
                         if let Some(t) = target {
                             self.context_menu = Some(ContextMenuState {
@@ -507,7 +509,7 @@ impl App {
                 self.faces.rename_cluster_id = None;
                 self.filters.save_smart_input = None;
                 self.remove_from_album_pending = false;
-                self.reject_trash_pending = false;
+                self.reject_delete_pending = false;
                 Task::none()
             }
 

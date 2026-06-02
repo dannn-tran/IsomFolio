@@ -252,6 +252,14 @@ impl Catalog {
         db::delete_files(&self.conn, file_ids)
     }
 
+    pub fn set_files_deleted(&self, file_ids: &[String], deleted: bool) -> Result<(), AppError> {
+        db::set_files_deleted(&self.conn, file_ids, deleted)
+    }
+
+    pub fn count_deleted(&self) -> Result<usize, AppError> {
+        db::count_deleted(&self.conn)
+    }
+
     pub fn update_smart_album_query(&self, album_id: &str, query: &SearchQuery) -> Result<(), AppError> {
         db::update_smart_album_query(&self.conn, album_id, query)
     }

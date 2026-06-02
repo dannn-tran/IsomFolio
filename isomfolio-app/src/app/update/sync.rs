@@ -360,61 +360,51 @@ impl App {
                 Task::none()
             }
 
-            Msg::RequestMoveRejectsToTrash => {
-                self.reject_trash_pending = true;
-                Task::none()
-            }
-
-            Msg::CancelMoveRejectsToTrash => {
-                self.reject_trash_pending = false;
-                Task::none()
-            }
-
-            Msg::ConfirmMoveRejectsToTrash => {
-                self.reject_trash_pending = false;
-                let rejects: Vec<(String, String)> = self
-                    .files
-                    .iter()
-                    .filter(|f| f.flag == isomfolio_core::models::Flag::Reject && !f.is_orphaned)
-                    .map(|f| (f.id.clone(), f.path.clone()))
-                    .collect();
-                if rejects.is_empty() {
+            Msg::DeleteSelection => {
+                // Soft-delete (virtual): mark selected photos deleted. The files
+                // on disk are never touched; they move to the Deleted view.
+                let ids: Vec<String> = self.grid_selected.iter().cloned().collect();
+                if ids.is_empty() {
                     return Task::none();
                 }
-                let trash_dir = format!("{}{}Trash", self.catalog_dir, std::path::MAIN_SEPARATOR);
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                self.status = format!("Moving {} reject(s) to Trash…", rejects.len());
-                Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            let _ = std::fs::create_dir_all(&trash_dir);
-                            let mut moved_ids: Vec<String> = Vec::new();
-                            let mut failed = 0usize;
-                            for (id, path) in &rejects {
-                                match move_to_trash(path, &trash_dir) {
-                                    Ok(()) => moved_ids.push(id.clone()),
-                                    Err(_) => failed += 1,
-                                }
-                            }
-                            // Trashed files leave the catalog (their ratings/tags go
-                            // with them); the originals are recoverable in Trash/.
-                            let cat = conn.lock_unwrap();
-                            let _ = cat.delete_files(&moved_ids);
-                            (moved_ids.len(), failed)
-                        })
-                        .await
-                        .unwrap_or((0, 0))
-                    },
-                    |(moved, failed)| Msg::RejectsTrashed { moved, failed },
-                )
+                self.soft_set_deleted(ids, true)
             }
 
-            Msg::RejectsTrashed { moved, failed } => {
-                self.status = if failed > 0 {
-                    format!("Moved {moved} reject(s) to Trash, {failed} failed")
-                } else {
-                    format!("Moved {moved} reject(s) to Trash")
-                };
+            Msg::RestoreSelection => {
+                let ids: Vec<String> = self.grid_selected.iter().cloned().collect();
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                self.soft_set_deleted(ids, false)
+            }
+
+            Msg::RequestDeleteRejects => {
+                self.reject_delete_pending = true;
+                Task::none()
+            }
+
+            Msg::CancelDeleteRejects => {
+                self.reject_delete_pending = false;
+                Task::none()
+            }
+
+            Msg::ConfirmDeleteRejects => {
+                self.reject_delete_pending = false;
+                let ids: Vec<String> = self
+                    .files
+                    .iter()
+                    .filter(|f| f.flag == isomfolio_core::models::Flag::Reject)
+                    .map(|f| f.id.clone())
+                    .collect();
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                self.soft_set_deleted(ids, true)
+            }
+
+            Msg::SelectionDeleted { .. } => {
+                // Status was set synchronously in `soft_set_deleted`; just refresh
+                // the sidebar (Deleted count) and the current view.
                 Task::batch([self.load_sidebar_task(), self.load_files_task()])
             }
 
@@ -486,6 +476,29 @@ impl App {
             _ => Task::none(),
         }
     }
+
+    /// Flip the virtual `is_deleted` flag on `ids` (no disk I/O), set a status,
+    /// and reload. `deleted = true` moves to the Deleted view; `false` restores.
+    fn soft_set_deleted(&mut self, ids: Vec<String>, deleted: bool) -> Task<Msg> {
+        let count = ids.len();
+        self.grid_selected.clear();
+        self.status = if deleted {
+            format!("Moved {count} photo(s) to Deleted")
+        } else {
+            format!("Restored {count} photo(s)")
+        };
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let _ = conn.lock_unwrap().set_files_deleted(&ids, deleted);
+                })
+                .await
+                .ok();
+            },
+            move |()| Msg::SelectionDeleted { count },
+        )
+    }
 }
 
 /// Normalised parent folder of a path — matches the `folder` column stored on
@@ -496,33 +509,6 @@ fn parent_folder(path: &str) -> Option<String> {
         .parent()
         .and_then(|p| p.to_str())
         .map(|s| s.to_string())
-}
-
-/// Move `src` into `trash_dir`, keeping its filename (disambiguating on
-/// collision). Falls back to copy+delete across filesystems.
-fn move_to_trash(src: &str, trash_dir: &str) -> std::io::Result<()> {
-    let name = Path::new(src)
-        .file_name()
-        .ok_or_else(|| std::io::Error::other(format!("invalid path: {src}")))?;
-    let mut dest = Path::new(trash_dir).join(name);
-    if dest.exists() {
-        let stem = Path::new(src).file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-        let ext = Path::new(src).extension().and_then(|e| e.to_str());
-        for n in 1.. {
-            let candidate = match ext {
-                Some(e) => format!("{stem} ({n}).{e}"),
-                None => format!("{stem} ({n})"),
-            };
-            dest = Path::new(trash_dir).join(candidate);
-            if !dest.exists() {
-                break;
-            }
-        }
-    }
-    std::fs::rename(src, &dest).or_else(|_| {
-        std::fs::copy(src, &dest).and_then(|_| std::fs::remove_file(src))
-    })?;
-    Ok(())
 }
 
 fn is_under_catalog_dir(path: &str) -> bool {
@@ -549,34 +535,3 @@ fn count_subfolders(path: &str) -> usize {
         .count()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn move_to_trash_moves_then_disambiguates_collision() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let base = std::env::temp_dir().join(format!("isom_trash_{nanos}"));
-        let src = base.join("src");
-        let trash = base.join("Trash");
-        std::fs::create_dir_all(&src).unwrap();
-        std::fs::create_dir_all(&trash).unwrap();
-
-        let f1 = src.join("a.jpg");
-        std::fs::write(&f1, b"one").unwrap();
-        move_to_trash(f1.to_str().unwrap(), trash.to_str().unwrap()).unwrap();
-        assert!(trash.join("a.jpg").exists());
-        assert!(!f1.exists());
-
-        // A second file with the same name lands as "a (1).jpg".
-        let f2 = src.join("a.jpg");
-        std::fs::write(&f2, b"two").unwrap();
-        move_to_trash(f2.to_str().unwrap(), trash.to_str().unwrap()).unwrap();
-        assert!(trash.join("a (1).jpg").exists());
-
-        std::fs::remove_dir_all(&base).ok();
-    }
-}

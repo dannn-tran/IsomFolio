@@ -202,6 +202,10 @@ Use a translucent `ACCENT` overlay (α ≈ 0.22–0.28) for selected items. Do n
 
 A rejected grid tile is **dimmed in place** (dark scrim, α ≈ 0.55) rather than removed — the grid keeps its continuity during a cull and a reject stays one click from being un-rejected, instead of vanishing and reflowing the layout. Exceptions: a *selected* or *being-dragged* reject is shown normally (you're acting on it), and when the view is filtered to **rejects only** they're shown normally (you're reviewing them deliberately). "Hide Rejects" / the flag filter still *removes* rejects entirely when the user explicitly wants them gone — dimming is the default in-place state, hiding is the opt-in.
 
+### Delete is virtual (Deleted folder)
+
+**Delete never touches the file on disk.** "Delete" (the `Del`/`Backspace` key, the Photo menu, or "Delete Rejected Photos") sets a virtual `is_deleted` flag in the catalog: the photo drops out of every normal view and collects in a virtual **Deleted** sidebar entry (shown only when non-empty, with a count). **Restore** (right-click in the Deleted view) clears the flag — instant and lossless, because the row never left the catalog (ratings/tags intact). There is no on-disk trash folder and no file move. (Inside a manual album, `Del` instead unlinks from the album.) Implementation invariant — the flag survives re-sync — is in `architecture.md`.
+
 ### Confirmation pattern
 
 Two-step for destructive ops: first trigger (context menu item) → inline confirm row appears on the entity (prompt in `ERR`, Cancel + Confirm buttons). `confirm_action_row()` helper in styles.rs.
@@ -290,8 +294,8 @@ Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: cont
 | Tab | Contents |
 |---|---|
 | Catalog | New Catalog… · Open Catalog… |
-| Edit | Undo · Redo · — · Move Rejects to Trash… |
-| Photo | Flag Pick/Reject/Unflag · — · Label Red/Yellow/Green/Blue/Purple/Remove · — · Compare · Copy/Move to Folder… · Import XMP · — · Find People · New Smart Album from Filters… |
+| Edit | Undo · Redo · — · Delete Rejected Photos… |
+| Photo | Flag Pick/Reject/Unflag · — · Label Red/Yellow/Green/Blue/Purple/Remove · — · Compare · Copy/Move to Folder… · Import XMP · — · Delete · — · Find People · New Smart Album from Filters… |
 | View | Toggle Info Panel · Preview · Loupe · People · — · Zoom In · Zoom Out · — · Hide Rejects |
 
 Every major selection action has a **menu path** (with its shortcut shown) so it's discoverable without memorising keys — the menu is the canonical "what can this app do?" surface. Right-click menus and the cull strip are faster paths to the same actions, not the only path.

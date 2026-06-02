@@ -157,12 +157,17 @@ impl App {
                 items
             }
             ContextMenuTarget::GridTiles => {
+                // In the Deleted view the only action is restoring.
+                if self.selected_item == crate::app::SidebarItem::Deleted {
+                    return vec![Some(("Restore".into(), Msg::RestoreSelection, false))];
+                }
                 let n = self.grid_selected.len();
                 let mut items: Vec<Option<(String, Msg, bool)>> = Vec::new();
                 if n == 1 {
                     items.push(Some(("Open in Loupe".into(), Msg::OpenLoupe, false)));
                 }
                 items.push(Some(("Add to Album ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)));
+                items.push(Some(("Delete".into(), Msg::DeleteSelection, true)));
 
                 items.push(None);
                 items.push(Some(("Import XMP metadata".into(), Msg::SyncXmpForSelection, false)));

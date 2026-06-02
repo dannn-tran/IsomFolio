@@ -99,6 +99,14 @@ fn execute_query_inner(
         sql.push_str(" WHERE f.is_orphaned = 0");
     }
 
+    // Virtual delete: the Deleted view shows only deleted files; every other
+    // view excludes them entirely.
+    if query.only_deleted {
+        sql.push_str(" AND f.is_deleted = 1");
+    } else {
+        sql.push_str(" AND f.is_deleted = 0");
+    }
+
     if let Some(ids) = &fts_ids {
         let placeholders: Vec<String> = ids
             .iter()
@@ -523,6 +531,35 @@ mod tests {
         fn any_returns_all() {
             let (c, _f) = setup();
             assert_eq!(ids(&c, RatingFilter::Any).len(), 4);
+        }
+    }
+
+    mod virtual_delete {
+        use super::*;
+        use crate::storage::db;
+
+        #[test]
+        fn deleted_files_hidden_normally_shown_only_in_deleted_view() {
+            let (conn, _f) = open_temp();
+            insert(&conn, "keep", "a.jpg", "/p", "jpg", 1);
+            insert(&conn, "gone", "b.jpg", "/p", "jpg", 2);
+            db::set_files_deleted(&conn, &["gone".into()], true).unwrap();
+
+            // Normal view excludes the deleted one.
+            let normal = execute_search(&conn, &SearchQuery::default()).unwrap();
+            let ids: Vec<&str> = normal.iter().map(|f| f.id.as_str()).collect();
+            assert_eq!(ids, vec!["keep"]);
+
+            // Deleted view shows only it.
+            let q = SearchQuery { only_deleted: true, ..Default::default() };
+            let del = execute_search(&conn, &q).unwrap();
+            assert_eq!(del.len(), 1);
+            assert_eq!(del[0].id, "gone");
+
+            // Restoring brings it back to normal views.
+            db::set_files_deleted(&conn, &["gone".into()], false).unwrap();
+            assert_eq!(execute_search(&conn, &SearchQuery::default()).unwrap().len(), 2);
+            assert_eq!(db::count_deleted(&conn).unwrap(), 0);
         }
     }
 

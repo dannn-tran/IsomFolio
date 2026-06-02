@@ -224,8 +224,10 @@ pub struct App {
     pub pending_album_select: Option<AlbumId>,
     pub last_synced_path: Option<String>,
     pub remove_from_album_pending: bool,
-    /// Confirm state for "Move Rejects to Trash" (acts on the current view).
-    pub reject_trash_pending: bool,
+    /// Confirm state for "Delete Rejected Photos" (acts on the current view).
+    pub reject_delete_pending: bool,
+    /// Count of soft-deleted photos (drives the sidebar "Deleted" entry).
+    pub deleted_count: usize,
     pub smart_album_dirty: bool,
     pub context_menu: Option<ContextMenuState>,
     pub hovered_sidebar_entity: Option<SidebarItem>,
@@ -459,7 +461,8 @@ impl App {
             pending_album_select: None,
             last_synced_path: None,
             remove_from_album_pending: false,
-            reject_trash_pending: false,
+            reject_delete_pending: false,
+            deleted_count: 0,
             smart_album_dirty: false,
             context_menu: None,
             hovered_sidebar_entity: None,
@@ -777,6 +780,15 @@ impl App {
                     SidebarItem::FaceCluster(cluster_id) => {
                         cat.get_files_in_face_cluster(&cluster_id).unwrap_or_default()
                     }
+                    SidebarItem::Deleted => {
+                        let q = SearchQuery {
+                            only_deleted: true,
+                            sort_by: query.sort_by,
+                            sort_asc: query.sort_asc,
+                            ..Default::default()
+                        };
+                        cat.search(&q).unwrap_or_default()
+                    }
                 }
             },
             Msg::FilesLoaded,
@@ -796,6 +808,7 @@ impl App {
                 let cameras = cat.distinct_camera_models().unwrap_or_default();
                 let albums = cat.get_all_albums().unwrap_or_default();
                 let album_counts = cat.get_all_album_file_counts().unwrap_or_default();
+                let deleted_count = cat.count_deleted().unwrap_or(0);
                 drop(cat);
                 let folders = raw_folders
                     .into_iter()
@@ -815,9 +828,9 @@ impl App {
                         (path, display, count)
                     })
                     .collect();
-                (folders, folder_tree, library_roots, cameras, albums, album_counts)
+                (folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count)
             },
-            |(folders, folder_tree, library_roots, cameras, albums, album_counts)| {
+            |(folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count)| {
                 Msg::SidebarLoaded {
                     folders,
                     folder_tree,
@@ -825,6 +838,7 @@ impl App {
                     cameras,
                     albums,
                     album_counts,
+                    deleted_count,
                 }
             },
         )

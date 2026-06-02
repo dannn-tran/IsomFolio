@@ -73,10 +73,12 @@ impl App {
             Msg::RequestRemoveMissing(_)
             | Msg::ConfirmRemoveMissing
             | Msg::CancelRemoveMissing
-            | Msg::RequestMoveRejectsToTrash
-            | Msg::ConfirmMoveRejectsToTrash
-            | Msg::CancelMoveRejectsToTrash
-            | Msg::RejectsTrashed { .. }
+            | Msg::DeleteSelection
+            | Msg::RestoreSelection
+            | Msg::RequestDeleteRejects
+            | Msg::ConfirmDeleteRejects
+            | Msg::CancelDeleteRejects
+            | Msg::SelectionDeleted { .. }
             | Msg::LocateFile(_)
             | Msg::FileLocated { .. } => self.handle_missing_msg(msg),
 
@@ -413,13 +415,14 @@ impl App {
                 }
             }
 
-            Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts } => {
+            Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count } => {
                 self.folders = folders;
                 self.folder_tree = folder_tree;
                 self.library_roots = library_roots;
                 self.cameras = cameras;
                 self.albums = albums;
                 self.album_counts = album_counts;
+                self.deleted_count = deleted_count;
                 if let Some(target) = self.expand_under_path.take() {
                     for p in isomfolio_core::folder_tree::expand_paths_for(&self.folder_tree, &target) {
                         self.expanded_folders.insert(p);
@@ -427,7 +430,7 @@ impl App {
                 }
                 self.start_watchers_for_folders();
                 let restore = self.pending_restore.take().filter(|item| match item {
-                    SidebarItem::AllFiles => true,
+                    SidebarItem::AllFiles | SidebarItem::Deleted => true,
                     SidebarItem::Folder(p) => self.folders.iter().any(|(fp, _, _)| fp == p),
                     SidebarItem::Album(id) => self.albums.iter().any(|a| &a.id == id),
                     SidebarItem::FaceCluster(id) => {

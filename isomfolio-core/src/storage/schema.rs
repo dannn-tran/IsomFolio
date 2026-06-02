@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS files (
     exif_date_unix  INTEGER,
     gps_lat         REAL,
     gps_lon         REAL,
-    burst_id        TEXT
+    burst_id        TEXT,
+    is_deleted      INTEGER NOT NULL DEFAULT 0
 );
 ";
 
@@ -196,6 +197,9 @@ pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE tags DROP COLUMN sources",
     // AI auto-tagging removed — drop its suggestion-staging table.
     "DROP TABLE IF EXISTS pending_tags",
+    // Virtual delete: files flagged deleted are hidden from normal views and
+    // shown in a virtual Deleted folder; the file on disk is never touched.
+    "ALTER TABLE files ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0",
 ];
 
 pub const ALL_DDL: &[&str] = &[

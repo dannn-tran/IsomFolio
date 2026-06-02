@@ -231,6 +231,8 @@ impl App {
             MenuItem::Action("Move to Folder…", "", Msg::ExportSelectionToDialog(crate::app::ExportMode::Move)),
             MenuItem::Action("Import XMP metadata", "", Msg::SyncXmpForSelection),
             MenuItem::Separator,
+            MenuItem::Action("Delete", "Del", Msg::DeleteSelection),
+            MenuItem::Separator,
             MenuItem::Action("Find People", "", Msg::RunFaceClustering { force_full: false }),
             MenuItem::Action("New Smart Album from Filters…", "", Msg::SaveAsSmartAlbum),
         ]
@@ -256,7 +258,7 @@ impl App {
             MenuItem::Action("Undo", "Cmd+Z", Msg::Undo),
             MenuItem::Action("Redo", "Cmd+Shift+Z", Msg::Redo),
             MenuItem::Separator,
-            MenuItem::Action("Move Rejects to Trash…", "", Msg::RequestMoveRejectsToTrash),
+            MenuItem::Action("Delete Rejected Photos…", "", Msg::RequestDeleteRejects),
         ]
     }
 }

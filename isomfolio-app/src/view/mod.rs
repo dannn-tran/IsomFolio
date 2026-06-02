@@ -127,20 +127,20 @@ impl App {
             status_row = status_row.push(btn);
         }
 
-        if self.reject_trash_pending {
+        if self.reject_delete_pending {
             let n = self
                 .files
                 .iter()
-                .filter(|f| f.flag == isomfolio_core::models::Flag::Reject && !f.is_orphaned)
+                .filter(|f| f.flag == isomfolio_core::models::Flag::Reject)
                 .count();
             status_row = status_row.push(
                 row![
-                    text(format!("Move {n} reject(s) to Trash?")).size(TEXT_MD).color(ERR),
+                    text(format!("Move {n} rejected photo(s) to Deleted?")).size(TEXT_MD).color(ERR),
                     button(text("Cancel").size(TEXT_MD))
-                        .on_press(Msg::CancelMoveRejectsToTrash)
+                        .on_press(Msg::CancelDeleteRejects)
                         .style(ghost_btn_style),
-                    button(text("Move").size(TEXT_MD))
-                        .on_press(Msg::ConfirmMoveRejectsToTrash)
+                    button(text("Delete").size(TEXT_MD))
+                        .on_press(Msg::ConfirmDeleteRejects)
                         .style(danger_btn_style),
                 ]
                 .spacing(SPACE_1_5)

@@ -63,6 +63,8 @@ pub enum SidebarItem {
     Folder(String),
     Album(AlbumId),
     FaceCluster(String),
+    /// Virtual view of soft-deleted photos.
+    Deleted,
 }
 
 impl SidebarItem {
@@ -73,12 +75,14 @@ impl SidebarItem {
             SidebarItem::Folder(p) => format!("folder:{p}"),
             SidebarItem::Album(id) => format!("album:{id}"),
             SidebarItem::FaceCluster(id) => format!("cluster:{id}"),
+            SidebarItem::Deleted => "deleted".to_string(),
         }
     }
 
     pub fn from_token(s: &str) -> Option<Self> {
         match s {
             "all" => Some(SidebarItem::AllFiles),
+            "deleted" => Some(SidebarItem::Deleted),
             _ => {
                 let (kind, rest) = s.split_once(':')?;
                 match kind {
@@ -121,6 +125,7 @@ pub enum Msg {
         cameras: Vec<String>,
         albums: Vec<Album>,
         album_counts: HashMap<String, usize>,
+        deleted_count: usize,
     },
 
     TileSizeUp,
@@ -381,10 +386,14 @@ pub enum Msg {
     RequestRemoveMissing(String),
     ConfirmRemoveMissing,
     CancelRemoveMissing,
-    RequestMoveRejectsToTrash,
-    ConfirmMoveRejectsToTrash,
-    CancelMoveRejectsToTrash,
-    RejectsTrashed { moved: usize, failed: usize },
+    /// Soft-delete the current grid selection (move to the virtual Deleted folder).
+    DeleteSelection,
+    /// Restore the current selection from the Deleted view.
+    RestoreSelection,
+    RequestDeleteRejects,
+    ConfirmDeleteRejects,
+    CancelDeleteRejects,
+    SelectionDeleted { count: usize },
     LocateFile(String),
     FileLocated { file_id: String, new_path: std::path::PathBuf },
 
