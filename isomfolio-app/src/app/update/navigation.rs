@@ -31,7 +31,13 @@ impl App {
                     let new_idx =
                         (self.loupe.idx as i32 + delta).rem_euclid(total as i32) as usize;
                     self.loupe.idx = new_idx;
-                    self.loupe.reset_zoom();
+                    if self.loupe.lock_zoom {
+                        // Keep zoom+pan; the new photo still needs its own hi-res
+                        // decode if we're zoomed in.
+                        self.loupe.hires_loaded = false;
+                    } else {
+                        self.loupe.reset_zoom();
+                    }
                     self.loupe.prefetch.retain(|&k, _| {
                         (k as i32 - new_idx as i32).unsigned_abs() as usize <= 2
                     });
@@ -54,6 +60,11 @@ impl App {
                         tasks.push(self.load_loupe_full_res());
                     }
                     tasks.push(self.load_loupe_prefetch());
+                    // Held zoom into a new photo: load its full-res so the kept
+                    // zoom level is pixel-accurate, not a blown-up preview.
+                    if self.loupe.lock_zoom && self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
+                        tasks.push(self.load_loupe_hires());
+                    }
                     if matches!(self.view_mode, ViewMode::Preview) {
                         tasks.push(self.scroll_to_index(new_idx));
                         tasks.push(self.maybe_load_detail());
@@ -146,6 +157,11 @@ impl App {
 
             Msg::LoupeZoomReset => {
                 self.loupe.reset_zoom();
+                Task::none()
+            }
+
+            Msg::ToggleLoupeZoomLock => {
+                self.loupe.lock_zoom = !self.loupe.lock_zoom;
                 Task::none()
             }
 

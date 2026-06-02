@@ -162,6 +162,8 @@ pub enum Msg {
     LoupeGeometry { viewport: iced::Size, native: iced::Size },
     /// Toggle OS fullscreen for the main window.
     ToggleFullscreen,
+    /// Toggle whether loupe zoom/pan is kept when navigating between photos.
+    ToggleLoupeZoomLock,
     /// Jump the loupe directly to a photo (filmstrip click).
     LoupeJumpTo(usize),
 

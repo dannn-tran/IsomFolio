@@ -569,6 +569,12 @@ impl App {
                 "Fit to window",
             ),
             tip(
+                button(text(if self.loupe.lock_zoom { "🔒" } else { "🔓" }).size(TEXT_MD)
+                    .color(if self.loupe.lock_zoom { ACCENT } else { FG_DIM }))
+                    .on_press(Msg::ToggleLoupeZoomLock).style(ghost_btn_style),
+                "Lock zoom across photos",
+            ),
+            tip(
                 button(text(if self.fullscreen { "⤢" } else { "⛶" }).size(TEXT_MD))
                     .on_press(Msg::ToggleFullscreen).style(ghost_btn_style),
                 "Toggle fullscreen",

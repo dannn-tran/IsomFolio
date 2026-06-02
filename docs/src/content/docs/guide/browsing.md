@@ -26,7 +26,7 @@ In Loupe:
 - `1`–`5` — set rating
 - The Info panel (`I`) remains available on the right
 
-**Zoom in to inspect detail:** scroll or use a two-finger trackpad gesture over the photo to zoom toward the pointer, or use the **− / + / 1:1 / Fit** buttons at the bottom. **`Z`** toggles between Fit and **1:1** (actual pixels) for a precise focus check. When zoomed in, drag the photo to pan. Zoom resets to fit each time you move to another photo. The **⛶** button toggles fullscreen.
+**Zoom in to inspect detail:** scroll or use a two-finger trackpad gesture over the photo to zoom toward the pointer, or use the **− / + / 1:1 / Fit** buttons at the bottom. **`Z`** toggles between Fit and **1:1** (actual pixels) for a precise focus check. When zoomed in, drag the photo to pan. Zoom resets to fit each time you move to another photo — unless you enable the **🔒 lock** button, which keeps the zoom and pan position as you move through photos (ideal for checking focus on the same spot across a burst). The **⛶** button toggles fullscreen.
 
 For RAW files, the fit view uses the camera's fast embedded preview so browsing stays instant; the slower full decode is done only when you zoom in, so a 100% focus check is still pixel-accurate.
 

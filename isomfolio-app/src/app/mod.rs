@@ -46,6 +46,10 @@ pub struct LoupeState {
     /// `LoupeImage` widget on hover — used to compute the exact "1:1" zoom.
     pub viewport: Option<iced::Size>,
     pub native: Option<iced::Size>,
+    /// When set, navigating to another photo keeps the current zoom + pan
+    /// (focus-checking the same spot across a burst). A *mode*, so `reset_zoom`
+    /// (which fires on navigate) leaves it alone.
+    pub lock_zoom: bool,
 }
 
 pub const LOUPE_ZOOM_MIN: f32 = 1.0;
@@ -71,6 +75,7 @@ impl Default for LoupeState {
             hires_loaded: false,
             viewport: None,
             native: None,
+            lock_zoom: false,
         }
     }
 }
