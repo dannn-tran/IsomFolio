@@ -30,7 +30,7 @@ use super::styles::{
 };
 use crate::app::{
     format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, DatePreset, Msg,
-    RatingCmp, BUFFER_ROWS, GRID_PADDING, TILE_GAP,
+    DetailField, RatingCmp, BUFFER_ROWS, GRID_PADDING, TILE_GAP,
 };
 
 impl App {
@@ -717,6 +717,31 @@ impl App {
             col = col.push(
                 text(format!("{n} photos selected")).size(TEXT_BASE),
             );
+        }
+
+        // Editable descriptive metadata (caption/creator/rights) — the core of
+        // cataloging for research/archival. Enter saves; in batch it applies to
+        // all selected.
+        if has_tags {
+            col = col.push(Space::new().height(SPACE_1));
+            col = col.push(text("Description").size(TEXT_SM).color(FG_DIM));
+            let field = |label: &'static str, value: &str, f: DetailField| -> Element<'_, Msg> {
+                column![
+                    text(label).size(TEXT_XS).color(FG_MUTED),
+                    text_input("", value)
+                        .on_input(move |s| Msg::DetailFieldChanged(f, s))
+                        .on_submit(Msg::SaveDetailField(f))
+                        .padding([SPACE_1, SPACE_1_5])
+                        .size(TEXT_SM),
+                ]
+                .spacing(2.0)
+                .into()
+            };
+            col = col
+                .push(field("Title", &self.detail.title_input, DetailField::Title))
+                .push(field("Caption", &self.detail.caption_input, DetailField::Caption))
+                .push(field("Creator", &self.detail.creator_input, DetailField::Creator))
+                .push(field("Copyright", &self.detail.rights_input, DetailField::Rights));
         }
 
         if has_tags {

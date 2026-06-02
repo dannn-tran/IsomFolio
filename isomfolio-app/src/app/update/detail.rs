@@ -22,6 +22,9 @@ impl App {
                 rating,
                 label,
                 title,
+                description,
+                creator,
+                rights,
                 exif_tech,
             } => {
                 self.detail.file_id = Some(file_id);
@@ -29,8 +32,12 @@ impl App {
                 self.detail.tags = tags;
                 self.detail.rating = rating;
                 self.detail.label = label;
-                self.detail.title = title;
+                self.detail.title = title.clone();
                 self.detail.exif_tech = exif_tech;
+                self.detail.title_input = title.unwrap_or_default();
+                self.detail.caption_input = description.unwrap_or_default();
+                self.detail.creator_input = creator.unwrap_or_default();
+                self.detail.rights_input = rights.unwrap_or_default();
                 self.load_all_tags_task()
             }
 
@@ -42,7 +49,59 @@ impl App {
                 self.detail.label = None;
                 self.detail.title = None;
                 self.detail.exif_tech = None;
+                // Batch: leave descriptive fields blank; typing applies to all.
+                self.detail.title_input.clear();
+                self.detail.caption_input.clear();
+                self.detail.creator_input.clear();
+                self.detail.rights_input.clear();
                 self.load_all_tags_task()
+            }
+
+            Msg::DetailFieldChanged(field, value) => {
+                use crate::app::DetailField;
+                match field {
+                    DetailField::Title => self.detail.title_input = value,
+                    DetailField::Caption => self.detail.caption_input = value,
+                    DetailField::Creator => self.detail.creator_input = value,
+                    DetailField::Rights => self.detail.rights_input = value,
+                }
+                Task::none()
+            }
+
+            Msg::SaveDetailField(field) => {
+                use crate::app::DetailField;
+                // Apply to the single file or the whole batch selection.
+                let ids: Vec<String> = if self.detail.batch_file_ids.is_empty() {
+                    self.detail.file_id.iter().cloned().collect()
+                } else {
+                    self.detail.batch_file_ids.clone()
+                };
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                let raw = match field {
+                    DetailField::Title => self.detail.title_input.clone(),
+                    DetailField::Caption => self.detail.caption_input.clone(),
+                    DetailField::Creator => self.detail.creator_input.clone(),
+                    DetailField::Rights => self.detail.rights_input.clone(),
+                };
+                let value = raw.trim().to_string();
+                let opt = if value.is_empty() { None } else { Some(value) };
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                Task::perform(
+                    async move {
+                        let g = conn.lock_unwrap();
+                        let v = opt.as_deref();
+                        let r = match field {
+                            DetailField::Title => g.set_files_title(&ids, v),
+                            DetailField::Caption => g.set_files_description(&ids, v),
+                            DetailField::Creator => g.set_files_creator(&ids, v),
+                            DetailField::Rights => g.set_files_rights(&ids, v),
+                        };
+                        r.err().map(|e| e.to_string())
+                    },
+                    |e| match e { Some(err) => Msg::DbError(err), None => Msg::NoOp },
+                )
             }
 
             Msg::BatchTagsChanged => self.load_all_tags_task(),

@@ -235,8 +235,13 @@ pub enum Msg {
         rating: Option<i32>,
         label: Option<String>,
         title: Option<String>,
+        description: Option<String>,
+        creator: Option<String>,
+        rights: Option<String>,
         exif_tech: Option<isomfolio_core::models::ExifTechMeta>,
     },
+    DetailFieldChanged(DetailField, String),
+    SaveDetailField(DetailField),
     DetailTagInputChanged(String),
     AddDetailTag,
     RemoveDetailTag(String),
@@ -460,6 +465,15 @@ impl RatingCmp {
     }
 }
 
+/// Editable descriptive metadata field in the detail panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailField {
+    Title,
+    Caption,
+    Creator,
+    Rights,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DatePreset {
     Last7,
@@ -525,6 +539,11 @@ pub struct DetailState {
     pub label: Option<String>,
     pub title: Option<String>,
     pub exif_tech: Option<isomfolio_core::models::ExifTechMeta>,
+    /// Editable descriptive-metadata buffers (title/caption/creator/rights).
+    pub title_input: String,
+    pub caption_input: String,
+    pub creator_input: String,
+    pub rights_input: String,
 }
 
 const MAX_RECENT_TAGS: usize = 8;
@@ -551,6 +570,10 @@ impl Default for DetailState {
             label: None,
             title: None,
             exif_tech: None,
+            title_input: String::new(),
+            caption_input: String::new(),
+            creator_input: String::new(),
+            rights_input: String::new(),
         }
     }
 }

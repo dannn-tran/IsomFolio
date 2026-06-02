@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS metadata (
     creator         TEXT,
     subjects        TEXT,
     apple_tags      TEXT,
+    rights          TEXT,
     camera_make     TEXT,
     camera_model    TEXT,
     lens_model      TEXT,
@@ -200,6 +201,8 @@ pub const MIGRATIONS: &[&str] = &[
     // Virtual delete: files flagged deleted are hidden from normal views and
     // shown in a virtual Deleted folder; the file on disk is never touched.
     "ALTER TABLE files ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0",
+    // Editable descriptive metadata: copyright / rights statement.
+    "ALTER TABLE metadata ADD COLUMN rights TEXT",
 ];
 
 pub const ALL_DDL: &[&str] = &[

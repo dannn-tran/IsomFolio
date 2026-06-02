@@ -90,6 +90,8 @@ impl App {
             // — detail panel, tags, ratings, flags, undo —
             Msg::ToggleDetail
             | Msg::DetailLoaded { .. }
+            | Msg::DetailFieldChanged(_, _)
+            | Msg::SaveDetailField(_)
             | Msg::BatchDetailLoaded { .. }
             | Msg::BatchTagsChanged
             | Msg::DetailTagInputChanged(_)

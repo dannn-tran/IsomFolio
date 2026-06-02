@@ -641,6 +641,7 @@ pub fn upsert_metadata(
     let description: Option<&str> = xmp_dc.and_then(|d| d.description.as_deref());
     let creator = xmp_dc.map(|d| d.creator.clone()).unwrap_or_default();
     let subjects = xmp_dc.map(|d| d.subject.clone()).unwrap_or_default();
+    let rights: Option<&str> = xmp_dc.and_then(|d| d.rights.as_deref());
     let apple_tags: Vec<String> = meta
         .apple
         .as_ref()
@@ -661,16 +662,16 @@ pub fn upsert_metadata(
     // on re-sync" invariant. (A wholesale replace would wipe ratings/captions.)
     conn.execute(
         "INSERT INTO metadata \
-         (file_id, rating, label, title, description, creator, subjects, apple_tags, \
+         (file_id, rating, label, title, description, creator, subjects, apple_tags, rights, \
           camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17) \
          ON CONFLICT(file_id) DO UPDATE SET \
            camera_make = excluded.camera_make, camera_model = excluded.camera_model, \
            lens_model = excluded.lens_model, focal_length_mm = excluded.focal_length_mm, \
            aperture = excluded.aperture, shutter_speed = excluded.shutter_speed, \
            iso = excluded.iso, flash = excluded.flash",
         params![
-            file_id, rating, label, title, description, creator_json, subjects_json, apple_json,
+            file_id, rating, label, title, description, creator_json, subjects_json, apple_json, rights,
             tech.and_then(|t| t.camera_make.as_deref()),
             tech.and_then(|t| t.camera_model.as_deref()),
             tech.and_then(|t| t.lens_model.as_deref()),
@@ -688,7 +689,7 @@ pub fn upsert_metadata(
 pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedMetadata>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT rating, label, title, description, creator, subjects, apple_tags, \
-                camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash \
+                camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash, rights \
          FROM metadata WHERE file_id = ?1",
     )?;
     let mut rows = stmt.query_map([file_id], |row| {
@@ -708,6 +709,7 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
             row.get::<_, Option<String>>(12)?,
             row.get::<_, Option<i32>>(13)?,
             row.get::<_, Option<i32>>(14)?,
+            row.get::<_, Option<String>>(15)?,
         ))
     })?;
 
@@ -721,7 +723,7 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
     };
 
     let (rating, label, title, description, creator_json, subjects_json, apple_json,
-         camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash_i) = row;
+         camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash_i, rights) = row;
     let creator = parse_list(creator_json);
     let subjects = parse_list(subjects_json);
     let apple_tag_strings = parse_list(apple_json);
@@ -730,6 +732,7 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
         || label.is_some()
         || title.is_some()
         || description.is_some()
+        || rights.is_some()
         || !creator.is_empty()
         || !subjects.is_empty();
 
@@ -745,7 +748,7 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
                 description,
                 creator,
                 subject: subjects,
-                ..Default::default()
+                rights,
             },
         })
     } else {
@@ -998,6 +1001,53 @@ pub fn set_files_label(conn: &Connection, file_ids: &[String], label: Option<&st
 }
 
 /// Colour labels for the given files (file_id → label), skipping files with no label.
+/// Set a plain-text descriptive metadata column (title / description / rights)
+/// on the given files. `col` must be one of the trusted literals passed by the
+/// dedicated wrappers below — never user input.
+fn set_files_text_meta(conn: &Connection, file_ids: &[String], col: &str, value: Option<&str>) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    let sql = format!(
+        "INSERT INTO metadata (file_id, {col}) VALUES (?1, ?2) \
+         ON CONFLICT(file_id) DO UPDATE SET {col} = excluded.{col}"
+    );
+    for id in file_ids {
+        conn.execute(&sql, params![id.as_str(), value])?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn set_files_title(conn: &Connection, file_ids: &[String], value: Option<&str>) -> Result<(), AppError> {
+    set_files_text_meta(conn, file_ids, "title", value)
+}
+
+pub fn set_files_description(conn: &Connection, file_ids: &[String], value: Option<&str>) -> Result<(), AppError> {
+    set_files_text_meta(conn, file_ids, "description", value)
+}
+
+pub fn set_files_rights(conn: &Connection, file_ids: &[String], value: Option<&str>) -> Result<(), AppError> {
+    set_files_text_meta(conn, file_ids, "rights", value)
+}
+
+/// Creator is stored as a JSON array (it can have multiple authors). The UI edits
+/// a single string; an empty string clears it.
+pub fn set_files_creator(conn: &Connection, file_ids: &[String], value: Option<&str>) -> Result<(), AppError> {
+    let json = match value.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(v) => serde_json::to_string(&vec![v]).unwrap_or_else(|_| "[]".into()),
+        None => "[]".to_string(),
+    };
+    let tx = conn.unchecked_transaction()?;
+    for id in file_ids {
+        conn.execute(
+            "INSERT INTO metadata (file_id, creator) VALUES (?1, ?2) \
+             ON CONFLICT(file_id) DO UPDATE SET creator = excluded.creator",
+            params![id.as_str(), json],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn get_file_labels(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, String>, AppError> {
     let mut out = std::collections::HashMap::new();
     let mut stmt = conn.prepare("SELECT label FROM metadata WHERE file_id = ?1")?;
@@ -1559,6 +1609,28 @@ mod tests {
             // Explicit import overwrites — user asked for it.
             let m = get_metadata(&conn, "f1").unwrap().unwrap();
             assert_eq!(m.xmp.unwrap().core.rating, Some(3));
+        }
+
+        #[test]
+        fn descriptive_setters_round_trip() {
+            let (conn, _f) = open_temp();
+            setup(&conn);
+            set_files_title(&conn, &["f1".into()], Some("Harbour at dawn")).unwrap();
+            set_files_description(&conn, &["f1".into()], Some("Fishing boats leaving port")).unwrap();
+            set_files_creator(&conn, &["f1".into()], Some("Jane Doe")).unwrap();
+            set_files_rights(&conn, &["f1".into()], Some("© 2024 Jane Doe")).unwrap();
+
+            let dc = get_metadata(&conn, "f1").unwrap().unwrap().xmp.unwrap().dublin_core;
+            assert_eq!(dc.title.as_deref(), Some("Harbour at dawn"));
+            assert_eq!(dc.description.as_deref(), Some("Fishing boats leaving port"));
+            assert_eq!(dc.creator, vec!["Jane Doe".to_string()]);
+            assert_eq!(dc.rights.as_deref(), Some("© 2024 Jane Doe"));
+
+            // Clearing a field empties it without disturbing the others.
+            set_files_creator(&conn, &["f1".into()], None).unwrap();
+            let dc = get_metadata(&conn, "f1").unwrap().unwrap().xmp.unwrap().dublin_core;
+            assert!(dc.creator.is_empty());
+            assert_eq!(dc.title.as_deref(), Some("Harbour at dawn"));
         }
 
         #[test]

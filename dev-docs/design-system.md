@@ -220,6 +220,10 @@ The trigger for a destructive op is always the context menu item, never a persis
 
 Show the button at reduced opacity (`FG_MUTED` text, α 0.04 background) without `on_press`. Never hide a primary button — always show its position so the user understands what is needed to unlock it.
 
+### Descriptive metadata (detail panel)
+
+Above the tag section, the detail panel has editable **Title · Caption · Creator · Copyright** text fields (Dublin Core / IPTC). Each is a labelled `text_input`; **Enter saves** (`SaveDetailField`). In batch selection the fields start blank and saving applies to **all** selected files (apply-a-rights-block-to-a-selection). These are stored in the `metadata` table and preserved across re-sync (imported-once invariant). Creator is stored as a JSON array (multi-author capable) though the field edits a single value for now. *(Full-text indexing of these + write-back to XMP are separate items.)*
+
 ### Tag section (detail panel)
 
 The detail panel's tag section has four parts, in order:

@@ -230,6 +230,22 @@ impl Catalog {
         db::get_file_labels(&self.conn, file_ids)
     }
 
+    pub fn set_files_title(&self, ids: &[String], value: Option<&str>) -> Result<(), AppError> {
+        db::set_files_title(&self.conn, ids, value)
+    }
+
+    pub fn set_files_description(&self, ids: &[String], value: Option<&str>) -> Result<(), AppError> {
+        db::set_files_description(&self.conn, ids, value)
+    }
+
+    pub fn set_files_creator(&self, ids: &[String], value: Option<&str>) -> Result<(), AppError> {
+        db::set_files_creator(&self.conn, ids, value)
+    }
+
+    pub fn set_files_rights(&self, ids: &[String], value: Option<&str>) -> Result<(), AppError> {
+        db::set_files_rights(&self.conn, ids, value)
+    }
+
     // Albums
 
     pub fn create_album(&self, album: &Album) -> Result<(), AppError> {

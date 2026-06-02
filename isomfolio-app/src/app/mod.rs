@@ -885,23 +885,32 @@ impl App {
                     let cat = catalog.lock_unwrap();
                     let tags = cat.get_tags_for_file(&file_id).unwrap_or_default();
                     let meta_opt = cat.get_metadata(&file_id).ok().flatten();
-                    let (rating, label, title, exif_tech) = match meta_opt {
-                        Some(m) => (
-                            m.xmp.as_ref().and_then(|x| x.core.rating),
-                            m.xmp.as_ref().and_then(|x| x.core.label.clone()),
-                            m.xmp.as_ref().and_then(|x| x.dublin_core.title.clone()),
-                            m.exif_tech,
-                        ),
-                        None => (None, None, None, None),
+                    let (rating, label, title, description, creator, rights, exif_tech) = match meta_opt {
+                        Some(m) => {
+                            let dc = m.xmp.as_ref().map(|x| &x.dublin_core);
+                            (
+                                m.xmp.as_ref().and_then(|x| x.core.rating),
+                                m.xmp.as_ref().and_then(|x| x.core.label.clone()),
+                                dc.and_then(|d| d.title.clone()),
+                                dc.and_then(|d| d.description.clone()),
+                                dc.map(|d| d.creator.join("; ")).filter(|s| !s.is_empty()),
+                                dc.and_then(|d| d.rights.clone()),
+                                m.exif_tech,
+                            )
+                        }
+                        None => (None, None, None, None, None, None, None),
                     };
-                    (file_id, tags, rating, label, title, exif_tech)
+                    (file_id, tags, rating, label, title, description, creator, rights, exif_tech)
                 },
-                |(file_id, tags, rating, label, title, exif_tech)| Msg::DetailLoaded {
+                |(file_id, tags, rating, label, title, description, creator, rights, exif_tech)| Msg::DetailLoaded {
                     file_id,
                     tags,
                     rating,
                     label,
                     title,
+                    description,
+                    creator,
+                    rights,
                     exif_tech,
                 },
             );
