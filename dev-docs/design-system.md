@@ -293,6 +293,14 @@ Every content area must define what it shows when it isn't full of content. Name
 
 The distinction matters: an *empty library* is a dead end the app must help the user out of (CTA); an *empty filter result* is an expected, user-created state (quiet line, no nag).
 
+### Background task panel
+
+One panel renders **every** long-running process through a single uniform `TaskView` shape — no per-process special-casing (sync, thumbnails, face clustering, album copy/move, extension install). Bottom-right; collapsible to a "N tasks" pill.
+
+- **In progress** → title + a 2px bar: determinate fills proportionally, indeterminate floats a centred segment ("working, amount unknown"). Optional detail line (`FG_MUTED`) carries counts/ETA.
+- **Completed** → the row does **not** silently vanish. It lingers as `✓ <title>` (`ACCENT`) with its final detail for `COMPLETED_TTL` (4s), then auto-expires via a 1s tick that only runs while completions are present. This is the app-wide completion signal — visible even when the user has navigated away from the originating view. *Ambient, high-frequency work (thumbnails) is exempt — it would spam toasts on every folder switch; only discrete or long operations report completion.*
+- **Failed** → row stays in `ERR` with the message and a manual ✕ dismiss (no auto-expire — errors must be read).
+
 ### Modal dialogs
 
 Use `stack` overlay: base layer + semi-opaque scrim (`Color { r:0, g:0, b:0, a:0.55 }`) + centred modal card. Modal card: `BG_MODAL` background, 10 px radius, 24 px padding, fixed width (≈ 420 px). Reserve modals for focused multi-field task flows (e.g. New Catalog). Do not use modals for simple toggles or confirmations.

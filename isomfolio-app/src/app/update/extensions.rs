@@ -133,7 +133,8 @@ impl App {
                     format!("{count} people found")
                 };
                 self.faces.status = Some(msg.clone());
-                self.status = msg;
+                self.status = msg.clone();
+                self.bg_mark_done("Finding people", msg);
                 self.load_face_crops_task()
             }
 

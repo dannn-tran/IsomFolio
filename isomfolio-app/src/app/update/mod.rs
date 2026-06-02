@@ -546,6 +546,12 @@ impl App {
                 Task::none()
             }
 
+            Msg::PruneCompletedTasks => {
+                self.completed_tasks
+                    .retain(|t| t.at.elapsed() < super::COMPLETED_TTL);
+                Task::none()
+            }
+
             Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches } => {
                 self.folders = folders;
                 self.folder_tree = folder_tree;

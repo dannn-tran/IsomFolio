@@ -279,10 +279,15 @@ pub struct App {
     pub compare: CompareState,
 
     pub bg_tasks: Vec<crate::app::types::BgTask>,
+    /// Recently-finished tasks, shown with a ✓ until they expire (`COMPLETED_TTL`).
+    pub completed_tasks: Vec<crate::app::types::CompletedTask>,
     pub next_bg_task_id: crate::app::types::BgTaskId,
     pub task_panel_open: bool,
     pub fullscreen: bool,
 }
+
+/// How long a finished task lingers in the panel before expiring.
+pub const COMPLETED_TTL: std::time::Duration = std::time::Duration::from_secs(4);
 
 pub struct CompareState {
     pub files: [Option<isomfolio_core::models::AssetFile>; 2],
@@ -510,6 +515,7 @@ impl App {
             redo_stack: Vec::new(),
             compare: CompareState::default(),
             bg_tasks: Vec::new(),
+            completed_tasks: Vec::new(),
             next_bg_task_id: 0,
             task_panel_open: true,
             fullscreen: false,
@@ -597,7 +603,26 @@ impl App {
     }
 
     pub fn bg_complete(&mut self, id: crate::app::types::BgTaskId) {
+        if let Some(t) = self.bg_tasks.iter().find(|t| t.id == id) {
+            let label = t.label.clone();
+            self.bg_mark_done(label, String::new());
+        }
         self.bg_tasks.retain(|t| t.id != id);
+    }
+
+    /// Record a finished task so it lingers with a ✓ instead of vanishing. Newest
+    /// first, capped so a long session doesn't accumulate stale toasts.
+    pub fn bg_mark_done(&mut self, title: impl Into<String>, detail: impl Into<String>) {
+        self.completed_tasks.insert(
+            0,
+            crate::app::types::CompletedTask {
+                title: title.into(),
+                detail: detail.into(),
+                at: std::time::Instant::now(),
+            },
+        );
+        self.completed_tasks.truncate(5);
+        self.task_panel_open = true;
     }
 
     pub fn bg_fail(&mut self, id: crate::app::types::BgTaskId, msg: String) {
@@ -608,6 +633,7 @@ impl App {
 
     pub fn has_any_bg_activity(&self) -> bool {
         !self.bg_tasks.is_empty()
+            || !self.completed_tasks.is_empty()
             || self.thumb_ctx.total > 0
             || self.is_syncing
             || self.faces.is_clustering
@@ -1098,7 +1124,15 @@ impl App {
             rx: Arc::clone(&self.watcher_rx),
         });
 
-        Subscription::batch([event_sub, thumb_sub, watcher_sub])
+        let mut subs = vec![event_sub, thumb_sub, watcher_sub];
+        // Tick only while completed toasts are lingering, so they auto-expire.
+        if !self.completed_tasks.is_empty() {
+            subs.push(
+                iced::time::every(std::time::Duration::from_secs(1))
+                    .map(|_| Msg::PruneCompletedTasks),
+            );
+        }
+        Subscription::batch(subs)
     }
 }
 

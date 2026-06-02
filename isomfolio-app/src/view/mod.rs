@@ -280,6 +280,7 @@ impl App {
                     None => TaskProgress::Indeterminate,
                 },
                 failed: false,
+                done: false,
                 dismiss: None,
             });
         }
@@ -295,6 +296,7 @@ impl App {
                 detail,
                 progress: TaskProgress::Indeterminate,
                 failed: false,
+                done: false,
                 dismiss: None,
             });
         }
@@ -325,6 +327,7 @@ impl App {
                 detail: format!("{done} / {total}{eta}"),
                 progress: TaskProgress::Determinate(ratio),
                 failed: false,
+                done: false,
                 dismiss: None,
             });
         }
@@ -339,7 +342,20 @@ impl App {
                     None => TaskProgress::Indeterminate,
                 },
                 failed,
+                done: false,
                 dismiss: failed.then_some(task.id),
+            });
+        }
+
+        // Recently-finished tasks linger with a ✓ until they expire.
+        for done in &self.completed_tasks {
+            tasks.push(TaskView {
+                title: done.title.clone(),
+                detail: done.detail.clone(),
+                progress: TaskProgress::Determinate(1.0),
+                failed: false,
+                done: true,
+                dismiss: None,
             });
         }
 
@@ -1356,6 +1372,8 @@ struct TaskView {
     detail: String,
     progress: TaskProgress,
     failed: bool,
+    /// Finished: render a ✓ and no progress bar.
+    done: bool,
     dismiss: Option<crate::app::BgTaskId>,
 }
 
@@ -1375,12 +1393,28 @@ fn bar_segment(portion: u16, color: Color) -> Element<'static, Msg> {
 fn task_row(task: TaskView) -> Element<'static, Msg> {
     let label_color = if task.failed { ERR } else { FG };
 
+    let title_text = if task.done {
+        format!("✓ {}", task.title)
+    } else {
+        task.title.clone()
+    };
+    let title_color = if task.done { ACCENT } else { label_color };
+
     let mut header = row![
-        text(task.title).size(TEXT_SM).color(label_color),
+        text(title_text).size(TEXT_SM).color(title_color),
         Space::new().width(Length::Fill),
     ]
     .align_y(Alignment::Center)
     .spacing(SPACE_1);
+
+    // Finished: just the ✓ title + optional detail, no progress bar.
+    if task.done {
+        let mut col = column![header].spacing(SPACE_0_5);
+        if !task.detail.is_empty() {
+            col = col.push(text(task.detail).size(TEXT_SM).color(FG_MUTED));
+        }
+        return col.into();
+    }
 
     if let Some(id) = task.dismiss {
         header = header.push(

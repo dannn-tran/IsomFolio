@@ -143,6 +143,8 @@ pub enum Msg {
     ImportBatchesLoaded(Vec<isomfolio_core::models::ImportBatch>),
     ToggleShowAllImports,
     ToggleSidebarSection(SidebarSection),
+    /// Periodic tick that expires lingering completed-task entries.
+    PruneCompletedTasks,
 
     TileSizeUp,
     TileSizeDown,
@@ -654,6 +656,15 @@ pub struct BgTask {
     pub label: String,
     pub progress: Option<f32>,
     pub failed: Option<String>,
+}
+
+/// A finished task that lingers briefly in the panel with a ✓ before expiring,
+/// so completion is visible app-wide instead of the row silently vanishing.
+#[derive(Debug, Clone)]
+pub struct CompletedTask {
+    pub title: String,
+    pub detail: String,
+    pub at: std::time::Instant,
 }
 
 pub struct TagBrowserState {

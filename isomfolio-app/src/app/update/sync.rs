@@ -99,6 +99,7 @@ impl App {
             Msg::SyncComplete { count, new_file_ids } => {
                 self.is_syncing = false;
                 self.status = format!("Synced {count} photo(s)");
+                self.bg_mark_done("Sync", format!("Synced {count} photo(s)"));
                 let path = self.last_synced_path.take();
                 if let Some(ref synced) = path {
                     let sep = std::path::MAIN_SEPARATOR;
