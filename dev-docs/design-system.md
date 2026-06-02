@@ -2,14 +2,38 @@
 
 This document is the single source of truth for visual and interaction decisions across the app. Absorbs the welcome-ui-spec. Apply these rules consistently when building new screens or modifying existing ones.
 
+**Normative.** This doc and the code are kept in lockstep: any change that diverges from a rule here updates *both* — either the code conforms, or the rule is revised in the same change set. A rule that no longer matches shipped behaviour is a bug in this doc.
+
+**Who it's for.** A photographer culling and organising large shoots. The app optimises for **speed of cull** (flag/rate/label/compare without friction) and **findability** (the user can locate any capability without prior knowledge). Resolve design questions in that light.
+
 ---
 
 ## Philosophy
 
-- **Compact and information-dense.** Minimise chrome. Every pixel should carry content or breathing room, not decoration.
-- **Quiet by default.** Use spacing, typography weight, and opacity to express hierarchy. Reserve borders, backgrounds, and colour for meaning (selection, error, active state), not layout structure.
-- **Progressive disclosure.** Show the simplest view first. Expand only when the user asks (criteria panel, detail panel, modals).
-- **Reversible and confirmed.** Destructive or irreversible actions require explicit confirmation. Single-click navigation and selection are safe and immediate.
+Principles, in **priority order** — when two conflict, the higher one wins:
+
+1. **Clarity & discoverability.** Every feature has a path a first-time user finds *without prior knowledge* — a visible control, a menu entry, a hover tooltip, or a one-time hint. "It's a keyboard shortcut" or "you have to right-click" is not, by itself, discoverability. **Quiet ≠ hidden.**
+2. **Legible & reachable.** Text and hit-targets stay above the floors in *Density floor* below, regardless of how dense a layout wants to be. Never rely on opacity or colour *alone* to convey meaning.
+3. **Compact and information-dense.** Minimise chrome. Every pixel should carry content or breathing room, not decoration — but not at the cost of (1) or (2).
+4. **Quiet by default.** Use spacing, typography weight, and opacity to express hierarchy. Reserve borders, backgrounds, and colour for meaning (selection, error, active state), not layout structure.
+5. **Progressive disclosure.** Show the simplest view first. Expand only when the user asks (criteria panel, detail panel, modals).
+6. **Reversible and confirmed.** Destructive or irreversible actions require explicit confirmation. Single-click navigation and selection are safe and immediate.
+
+The historical failure mode of this app is (3)/(4) silently overriding (1)/(2): minimal collapsing into hidden, dense collapsing into illegible. The ordering exists to stop that.
+
+### Density floor
+
+Density may not breach these, even when "compact" argues otherwise:
+
+- **Body / interactive text** ≥ `TEXT_SM` (11 px). `TEXT_XS` (10 px) is for non-interactive micro-labels only.
+- **Interactive hit-target** ≥ 24 px in its smaller dimension (pad small glyph controls to reach it).
+- **Meaning is never opacity-only.** A dimmed/greyed state must also differ by another channel (icon, label, position) so it survives low-contrast displays and colour-blindness.
+
+### Discoverability rules
+
+- **Every icon-only / glyph control MUST have a hover tooltip** (`styles::tip`). A bare glyph with no label and no tooltip is a defect.
+- **Every action has an off-row, discoverable path.** Right-click / gestures are the *fast* path, never the *only* path: each must also be reachable via a menu entry and/or be documented in the `?` help panel (which lists gestures and right-click menus, not just key bindings).
+- **New capability checklist:** before a feature ships, name the path a first-time user finds it through. If the only answer is "they already knew the key" or "they happened to right-click," add a visible/menu/tooltip path first.
 
 ---
 
@@ -100,15 +124,16 @@ Buttons without `on_press` are visually disabled. Do not use `ghost_btn_style` f
 
 ### Entity row anatomy
 
-An **entity** is any named, managed object: sidebar folder, sidebar album, grid tile, recent catalog item. The rule:
+An **entity** is any named, managed object: sidebar folder, sidebar album, grid tile, recent catalog item, **person (face-cluster card)**. The rules:
 
-- The row shows: name, optional read-only status badges (photo count, ⚡ smart indicator, scan spinner).
+- The row shows: name, optional read-only status badges (photo count, ⚡ smart indicator, scan spinner, dirty dot).
 - The row does **not** embed action buttons at rest, on hover, or on selection. No inline ×, ✎, •••, or similar.
-- All actions are accessed exclusively via context menu (right-click or Ctrl+Click).
+- Context menu (right-click / Ctrl+Click) is the **fast** path to row actions.
+- But the context menu is **not the only** path: every row action must *also* be reachable off-row — via a menu entry (e.g. the Photo menu mirrors tile actions; the Catalog menu mirrors folder/album actions for the selected entity) and/or be enumerated in the `?` help panel's "Right-click menus" section. (See *Discoverability rules* in Philosophy.)
 
-**Why:** embedding buttons conflates display with action. Context menus scale to any number of actions without adding visual weight, and provide a single consistent interaction surface across all entity types. Hover-revealed overflow buttons add clutter and require the user to target a small hit area.
+**Why no row buttons:** embedding buttons conflates display with action; context menus scale to any number of actions without visual weight; hover-revealed overflow buttons add clutter and a small hit area. **Why also off-row:** a right-click-only action with no cue is undiscoverable — the row gives no hint the menu exists. Quiet rows are kept; the action's *existence* is surfaced elsewhere.
 
-Do not add action buttons to entity rows. The context menu is always the right place.
+Do not add action buttons to entity rows. Do not make an action reachable *only* by right-click.
 
 ### Row heights
 
@@ -154,12 +179,15 @@ Implemented as a `stack` overlay anchored to the cursor position. No scrim — c
 
 | Entity | Menu items |
 |---|---|
-| Folder | Rescan · — · Remove from Library… |
+| Folder | Sync Folder · (Remove Missing Files…, when orphans present) · — · Remove from Library… |
 | Manual album | Rename · Duplicate · — · Delete… |
 | Smart album | Rename · Duplicate · Edit Criteria · — · Delete… |
 | Grid tile (single) | Open in Loupe · Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder / Locate… · Copy to Folder… · Move to Folder… |
 | Grid tile (multi-select) | Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder · Copy to Folder… · Move to Folder… |
+| Person (face card) | Rename · Merge into ▶ |
 | Recent catalog item | Open · Remove from Recents |
+
+Each of these also has an off-row path (Photo / Catalog menus) or is listed in the help panel — see *Entity row anatomy*.
 
 Ellipsis (…) in a menu item label signals the action has a secondary step (rename → inline input; delete → inline confirm; add to album → submenu). Items without ellipsis execute immediately.
 
@@ -185,13 +213,14 @@ Show the button at reduced opacity (`FG_MUTED` text, α 0.04 background) without
 
 ### Tag section (detail panel)
 
-The detail panel's tag section has three parts, in order:
+The detail panel's tag section has four parts, in order:
 
-1. **Confirmed tags** — each as a chip with `render_tag_name` (hierarchy dimming) + remove button. AI-origin tags show a muted badge: "AI 87%" (confidence percentage when available, "AI" alone when not).
+1. **Confirmed tags** — each as a chip with `render_tag_name` (hierarchy dimming) + remove button.
 2. **Autocomplete suggestions** — appear when the tag input has text. Ranked: prefix match first, then substring, with leaf-segment-aware matching. Max 5 chips.
 3. **Recent tags row** — last 8 tags used this session, filtered to exclude tags already on the file. One-click apply. Label "Recent" in `FG_DIM`.
 4. **Tag input** — `text_input` with `on_submit` → `AddDetailTag`.
-5. **Pending tags (suggested)** — only shown when `pending_tags` is non-empty. Header row: "Suggested" label + "Accept All" / "Reject All" buttons. Each pending tag shows: tag name in `FG_DIM`, confidence percentage in `FG_MUTED`, ✓ (accept, `ACCENT`) and ✕ (reject, `ERR`) buttons. Background: subtle border + α 0.03 white fill to distinguish from confirmed tags.
+
+(AI auto-tagging and its "pending/suggested" tag staging were removed; there is no AI confidence badge.)
 
 **Batch mode**: When multiple files are selected, the detail panel shows "{n} photos selected" and the intersection of shared tags. Adding/removing tags applies to all selected files.
 
@@ -214,9 +243,36 @@ Bindings defined declaratively in `keybinds.rs` — the help panel iterates the 
 
 Inline, near the cause. Use `ERR` colour. Short copy. No modal for validation errors.
 
+### Non-happy states
+
+Every content area must define what it shows when it isn't full of content. Named patterns:
+
+| State | Pattern |
+|---|---|
+| **Empty — no library** | Onboarding call-to-action centred in the grid: heading (`TEXT_MD`/`FG`) + one line of guidance (`TEXT_SM`/`FG_DIM`) + a primary button (`active_chip_style`). Never a bare "nothing here". e.g. "No photos yet — Add a folder to start your catalog" + **Add Folder…**. |
+| **Empty — filtered/album** | Quiet single line: "No photos in this view" (`TEXT_BASE`/`FG_DIM`). The user created this state, so no CTA. |
+| **Loading — thumbnails** | Tile placeholder (`BG_TILE_LOADING`) per tile until ready; aggregate progress in the task panel. Never block the grid. |
+| **Capability absent** | When a feature needs an uninstalled extension (e.g. People with no engine), the view explains it and links to where to enable it (Settings → Extensions) rather than showing an empty or broken control. |
+
+The distinction matters: an *empty library* is a dead end the app must help the user out of (CTA); an *empty filter result* is an expected, user-created state (quiet line, no nag).
+
 ### Modal dialogs
 
 Use `stack` overlay: base layer + semi-opaque scrim (`Color { r:0, g:0, b:0, a:0.55 }`) + centred modal card. Modal card: `BG_MODAL` background, 10 px radius, 24 px padding, fixed width (≈ 420 px). Reserve modals for focused multi-field task flows (e.g. New Catalog). Do not use modals for simple toggles or confirmations.
+
+---
+
+## Accessibility
+
+The app is `Theme::Dark` only; these still apply.
+
+- **Contrast.** Body/interactive text must clear a perceptible contrast margin against its background — don't pick an `FG_*` token purely for aesthetic dimming if the result is hard to read. `FG_MUTED` is for genuinely de-emphasised, non-essential text only, never for anything the user must read or click.
+- **Never opacity-alone for meaning.** A disabled, dimmed, or active state must differ on a second channel too (a glyph, a label, a position, a ring) — not just alpha. (See *Density floor*.)
+- **Keyboard focus must be visible.** Any focusable control shows a clear focus indicator; keyboard navigation must never leave the user unable to see what's focused.
+- **Hit targets** follow the *Density floor* (≥ 24 px). Pad small glyph controls rather than shrinking the target.
+- **Motion.** Keep transitions short and functional; avoid motion that conveys required information (it should be a nicety, not the message).
+
+These are aspirational where the framework limits us (iced's focus-ring support is partial); treat them as the target, and don't *remove* an existing affordance that serves them.
 
 ---
 
@@ -224,9 +280,9 @@ Use `stack` overlay: base layer + semi-opaque scrim (`Color { r:0, g:0, b:0, a:0
 
 ### Menu bar
 
-Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: content-operation menus (`Catalog`, `Edit`, `View`). Right side: persistent icon-only buttons (`?` → shortcut help, `⚙` → Settings).
+Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: content-operation menus (`Catalog`, `Edit`, `Photo`, `View`). Right side: persistent icon-only buttons (`?` → shortcut help, `⚙` → Settings), each with a tooltip.
 
-**Rule:** Menu tabs are for catalog/content operations. App-level config (Settings) lives on the gear icon button, not in a menu tab. There is no Help tab — keyboard shortcuts are accessed via `?` icon or the `?` key.
+**Rule:** Menu tabs are for catalog/content/photo operations. App-level config (Settings) lives on the gear icon button, not in a menu tab. There is no Help tab — keyboard shortcuts are accessed via `?` icon or the `?` key. The menus collectively are the **off-row discoverable path** required by *Entity row anatomy* — folder/album actions for the selected sidebar entity live in the Catalog menu; photo/selection actions live in the Photo menu.
 
 | Tab | Contents |
 |---|---|
@@ -311,7 +367,7 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | `?` key | Toggle shortcut help panel |
 | `\` key | Toggle hide rejects |
 | Sort control (grid toolbar) | `pick_list` dropdown of fields (Name / Date Shot / Size / Type) + a `▲`/`▼` direction toggle button. Not a cycle button — the field set is explicit and visible. |
-| Hide Rejects (grid toolbar) | Always-visible toggle chip (`active_chip_style` when on). Mirrors the `\` key and the filter-panel toggle — same `hide_rejects` state. |
+| Hide Rejects (grid toolbar) / `\` | Convenience toggle between the `{Pick, Unflagged}` flag selection and "show all" — there is no separate hide-rejects state; it's a shortcut into the cull strip's flag set (single source of truth). |
 
 ---
 
