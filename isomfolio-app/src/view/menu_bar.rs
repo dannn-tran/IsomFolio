@@ -247,6 +247,7 @@ impl App {
             MenuItem::Action("Preview", "E", Msg::TogglePreview),
             MenuItem::Action("Loupe", "Space", Msg::OpenLoupe),
             MenuItem::Action("People", "", Msg::OpenPeopleView),
+            MenuItem::Action("Tag Browser", "", Msg::OpenTagBrowser),
             MenuItem::Separator,
             MenuItem::Action("Zoom In", "Cmd+=", Msg::TileSizeUp),
             MenuItem::Action("Zoom Out", "Cmd+−", Msg::TileSizeDown),

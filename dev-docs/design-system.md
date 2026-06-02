@@ -124,16 +124,27 @@ Buttons without `on_press` are visually disabled. Do not use `ghost_btn_style` f
 
 ### Entity row anatomy
 
-An **entity** is any named, managed object: sidebar folder, sidebar album, grid tile, recent catalog item, **person (face-cluster card)**. The rules:
+The governing question for any row is: **what is the row's primary verb?** That determines whether actions belong inline.
 
-- The row shows: name, optional read-only status badges (photo count, ⚡ smart indicator, scan spinner, dirty dot).
-- The row does **not** embed action buttons at rest, on hover, or on selection. No inline ×, ✎, •••, or similar.
+- **Navigation rows** — the primary verb is *select / navigate to*. Sidebar folders, sidebar albums, recent-catalog items, person (face-cluster) cards. The user clicks the row to go somewhere; rename/delete/etc. are occasional secondary actions.
+- **Management rows** — the row has *no* navigation verb; its reason to exist is to be acted upon. The Tag Browser table is the canonical case: a tag row exists so you can rename, apply, or delete that tag. The actions *are* the content.
+
+The rule differs by kind:
+
+**Navigation rows:**
+- Show: name + optional read-only status badges (photo count, ⚡ smart indicator, scan spinner, dirty dot).
+- Do **not** embed action buttons — at rest, on hover, or on selection. No inline ×, ✎, •••, `+`.
 - Context menu (right-click / Ctrl+Click) is the **fast** path to row actions.
-- But the context menu is **not the only** path: every row action must *also* be reachable off-row — via a menu entry (e.g. the Photo menu mirrors tile actions; the Catalog menu mirrors folder/album actions for the selected entity) and/or be enumerated in the `?` help panel's "Right-click menus" section. (See *Discoverability rules* in Philosophy.)
+- The context menu is **not the only** path: every action must *also* be reachable off-row — a menu entry (Photo menu mirrors tile actions; Catalog menu mirrors folder/album actions for the selected entity) and/or the `?` help panel's "Right-click menus" section. (See *Discoverability rules* in Philosophy.)
 
-**Why no row buttons:** embedding buttons conflates display with action; context menus scale to any number of actions without visual weight; hover-revealed overflow buttons add clutter and a small hit area. **Why also off-row:** a right-click-only action with no cue is undiscoverable — the row gives no hint the menu exists. Quiet rows are kept; the action's *existence* is surfaced elsewhere.
+**Management rows:**
+- Inline action controls are expected, not forbidden — they are the row's primary verbs. Hiding the only actions of a management surface behind invisible right-click is an anti-pattern (no affordance, no discoverability).
+- Keep them lightweight (text/`ghost_btn_style`, not heavy buttons) and stable (no hover-reveal — the action is always present because it is always the point).
+- A management surface is a *dedicated* view opened deliberately (modal/panel), never the always-on sidebar. If you find yourself wanting inline buttons on a sidebar row, it's a navigation row — use the context menu.
 
-Do not add action buttons to entity rows. Do not make an action reachable *only* by right-click.
+**Why navigation rows stay quiet:** embedding buttons conflates display with action on a high-frequency scan surface, competes with the primary click target, and hover-reveal adds clutter + a small hit area while still being hidden. **Why management rows don't:** the action is the content; an off-row-only path on a surface built for those actions is hostile. **Why also off-row (nav):** a right-click-only action with no cue is undiscoverable — surface the action's *existence* elsewhere.
+
+Do not add action buttons to **navigation** rows. Do not make a navigation-row action reachable *only* by right-click. Inline actions on a dedicated **management** surface are correct.
 
 ### Row heights
 
@@ -251,7 +262,7 @@ Modal overlay (440 px wide, 420 px scrollable list). Two display modes:
 - **No filter**: tree view. Tags sorted alphabetically via `BTreeMap`. Child tags indented (`INDENT_PX = 16` per level), showing only the leaf segment. Virtual group headers shown in `FG_DIM` for parent prefixes that aren't tags themselves.
 - **With filter**: flat list. All matching tags shown with full path, indented by depth.
 
-Each tag row has: leaf name, file count, "+" (apply to current file), "Rename", "Delete" (`ERR`). Rename and delete have inline confirm states.
+The Tag Browser is the canonical **management surface** (see *Entity row anatomy*): tag rows carry inline actions by design, because acting on the tag *is* the row's purpose. Each tag row has: leaf name, file count, "+" (apply to current file), "Rename", "Delete" (`ERR`), all `ghost_btn_style`. Rename and delete have inline confirm states.
 
 ### Shortcut help panel
 
