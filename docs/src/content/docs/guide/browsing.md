@@ -30,6 +30,8 @@ In Loupe:
 
 For RAW files, the fit view uses the camera's fast embedded preview so browsing stays instant; the slower full decode is done only when you zoom in, so a 100% focus check is still pixel-accurate.
 
+A **filmstrip** of neighbouring photos runs under the image — the current photo is ringed; click any thumbnail to jump to it.
+
 <Aside type="tip">
 Loupe pre-fetches adjacent photos in the background so navigation is instant even for large files.
 </Aside>

@@ -157,6 +157,8 @@ pub enum Msg {
     LoupeGeometry { viewport: iced::Size, native: iced::Size },
     /// Toggle OS fullscreen for the main window.
     ToggleFullscreen,
+    /// Jump the loupe directly to a photo (filmstrip click).
+    LoupeJumpTo(usize),
 
     Scrolled {
         y: f32,

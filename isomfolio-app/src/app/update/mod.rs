@@ -121,6 +121,7 @@ impl App {
             | Msg::LoupeZoomActual
             | Msg::LoupeGeometry { .. }
             | Msg::ToggleFullscreen
+            | Msg::LoupeJumpTo(_)
             | Msg::TogglePreview
             | Msg::SidebarResizeStart
             | Msg::MouseMoved(_)

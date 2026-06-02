@@ -684,7 +684,8 @@ impl App {
             })
         };
 
-        let main_col: Element<Msg> = column![top_bar, img_element, bottom_bar].into();
+        let main_col: Element<Msg> =
+            column![top_bar, img_element, self.view_loupe_filmstrip(idx), bottom_bar].into();
         let hud_overlay: Element<Msg> = container(
             column![Space::new().height(Length::Fill), hud_bar],
         )
@@ -702,6 +703,65 @@ impl App {
                     b: 0.03,
                     a: 1.0,
                 })),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// Horizontal thumbnail strip under the loupe image: a window of neighbours
+    /// centred on the current photo, current one ringed, click to jump. Windowed
+    /// (not the whole library) to keep the widget count bounded.
+    fn view_loupe_filmstrip(&self, current: usize) -> Element<'_, Msg> {
+        const THUMB: f32 = 56.0;
+        const WINDOW: usize = 14;
+        let total = self.files.len();
+        let lo = current.saturating_sub(WINDOW);
+        let hi = (current + WINDOW + 1).min(total);
+
+        let mut strip = row![].spacing(SPACE_1).align_y(Alignment::Center);
+        for i in lo..hi {
+            let file = &self.files[i];
+            let is_cur = i == current;
+            let thumb: Element<Msg> = match self.thumbnails.get(&file.id) {
+                Some(isomfolio_core::models::ThumbnailState::Ready(p)) => {
+                    image(image::Handle::from_path(p))
+                        .width(THUMB)
+                        .height(THUMB)
+                        .content_fit(iced::ContentFit::Cover)
+                        .into()
+                }
+                _ => Space::new().width(THUMB).height(THUMB).into(),
+            };
+            let ring = if is_cur { ACCENT } else { Color::TRANSPARENT };
+            strip = strip.push(
+                button(
+                    container(thumb)
+                        .style(move |_: &Theme| container::Style {
+                            border: Border { color: ring, width: 2.0, radius: 3.0.into() },
+                            ..Default::default()
+                        })
+                        .clip(true),
+                )
+                .padding(0)
+                .on_press(Msg::LoupeJumpTo(i))
+                .style(|_: &Theme, _| button::Style {
+                    background: None,
+                    text_color: FG,
+                    border: Border::default(),
+                    shadow: iced::Shadow::default(),
+                    snap: false,
+                }),
+            );
+        }
+
+        container(strip)
+            .width(Length::Fill)
+            .height(Length::Fixed(THUMB + SPACE_2 * 2.0))
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .clip(true)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(OVERLAY_HEAVY)),
                 ..Default::default()
             })
             .into()

@@ -149,6 +149,26 @@ impl App {
                 Task::none()
             }
 
+            Msg::LoupeJumpTo(idx) => {
+                if idx >= self.files.len() || !matches!(self.view_mode, ViewMode::Loupe) {
+                    return Task::none();
+                }
+                self.loupe.idx = idx;
+                self.loupe.reset_zoom();
+                self.loupe.prefetch.retain(|&k, _| {
+                    (k as i32 - idx as i32).unsigned_abs() as usize <= 2
+                });
+                let mut tasks: Vec<Task<Msg>> = Vec::new();
+                if let Some(handle) = self.loupe.prefetch.remove(&idx) {
+                    self.loupe.full_res = Some((idx, handle));
+                } else {
+                    self.loupe.full_res = None;
+                    tasks.push(self.load_loupe_full_res());
+                }
+                tasks.push(self.load_loupe_prefetch());
+                Task::batch(tasks)
+            }
+
             Msg::LoupeGeometry { viewport, native } => {
                 self.loupe.viewport = Some(viewport);
                 self.loupe.native = Some(native);
