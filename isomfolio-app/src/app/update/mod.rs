@@ -173,6 +173,95 @@ impl App {
                 Task::none()
             }
 
+            Msg::WriteXmpSidecars => {
+                let items: Vec<(String, String)> = self
+                    .grid_selected
+                    .iter()
+                    .filter_map(|id| self.files.iter().find(|f| &f.id == id))
+                    .map(|f| (f.id.clone(), f.path.clone()))
+                    .collect();
+                if items.is_empty() {
+                    return Task::none();
+                }
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                self.status = format!("Writing {} XMP sidecar(s)…", items.len());
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let cat = conn.lock_unwrap();
+                            let (mut ok, mut failed) = (0usize, 0usize);
+                            for (id, path) in &items {
+                                let sidecar = std::path::Path::new(path).with_extension("xmp");
+                                match cat.xmp_sidecar_for(id) {
+                                    Ok(xml) if std::fs::write(&sidecar, &xml).is_ok() => ok += 1,
+                                    _ => failed += 1,
+                                }
+                            }
+                            (ok, failed)
+                        })
+                        .await
+                        .unwrap_or((0, 0))
+                    },
+                    |(count, failed)| Msg::SidecarsWritten { count, failed },
+                )
+            }
+
+            Msg::SidecarsWritten { count, failed } => {
+                self.status = if failed > 0 {
+                    format!("Wrote {count} XMP sidecar(s), {failed} failed")
+                } else {
+                    format!("Wrote {count} XMP sidecar(s)")
+                };
+                Task::none()
+            }
+
+            Msg::ExportMetadata => {
+                let ids: Vec<String> = if self.grid_selected.is_empty() {
+                    self.files.iter().map(|f| f.id.clone()).collect()
+                } else {
+                    self.grid_selected.iter().cloned().collect()
+                };
+                if ids.is_empty() {
+                    return Task::none();
+                }
+                Task::perform(
+                    async move {
+                        let dest = rfd::AsyncFileDialog::new()
+                            .set_title("Export metadata as CSV")
+                            .set_file_name("metadata.csv")
+                            .save_file()
+                            .await
+                            .map(|h| h.path().to_string_lossy().to_string());
+                        (ids, dest)
+                    },
+                    |(ids, dest)| Msg::ExportMetadataDest { ids, dest },
+                )
+            }
+
+            Msg::ExportMetadataDest { dest: None, .. } => Task::none(),
+
+            Msg::ExportMetadataDest { ids, dest: Some(dest) } => {
+                let Some(conn) = self.catalog.clone() else { return Task::none() };
+                let count = ids.len();
+                self.status = format!("Exported {count} row(s) to CSV");
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let cat = conn.lock_unwrap();
+                            if let Ok(csv) = cat.export_metadata_csv(&ids) {
+                                let _ = std::fs::write(&dest, csv);
+                            }
+                        })
+                        .await
+                        .ok();
+                        count
+                    },
+                    |count| Msg::MetadataExported { count },
+                )
+            }
+
+            Msg::MetadataExported { .. } => Task::none(),
+
             Msg::ExportSelectionToDialog(mode) => {
                 let paths: Vec<String> = self
                     .grid_selected

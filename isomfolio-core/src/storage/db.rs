@@ -290,6 +290,48 @@ pub fn delete_file(conn: &Connection, file_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Serialize a file's catalog metadata + tags as an XMP sidecar document.
+pub fn xmp_sidecar_for(conn: &Connection, file_id: &str) -> Result<String, AppError> {
+    let xmp = get_metadata(conn, file_id)?
+        .and_then(|m| m.xmp)
+        .unwrap_or_default();
+    let tags = get_tags_for_file(conn, file_id)?;
+    Ok(crate::metadata::xmp::serialize_sidecar(&xmp, &tags))
+}
+
+fn csv_escape(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// Build a CSV export of the catalog metadata for the given files.
+pub fn export_metadata_csv(conn: &Connection, file_ids: &[String]) -> Result<String, AppError> {
+    let mut out = String::from("Path,Filename,Rating,Label,Title,Caption,Creator,Rights,Tags\n");
+    for id in file_ids {
+        let Some(file) = get_file_by_id(conn, id)? else { continue };
+        let meta = get_metadata(conn, id)?;
+        let dc = meta.as_ref().and_then(|m| m.xmp.as_ref()).map(|x| &x.dublin_core);
+        let core = meta.as_ref().and_then(|m| m.xmp.as_ref()).map(|x| &x.core);
+        let tags = get_tags_for_file(conn, id)?;
+        let rating = core.and_then(|c| c.rating).map(|r| r.to_string()).unwrap_or_default();
+        let label = core.and_then(|c| c.label.clone()).unwrap_or_default();
+        let title = dc.and_then(|d| d.title.clone()).unwrap_or_default();
+        let caption = dc.and_then(|d| d.description.clone()).unwrap_or_default();
+        let creator = dc.map(|d| d.creator.join("; ")).unwrap_or_default();
+        let rights = dc.and_then(|d| d.rights.clone()).unwrap_or_default();
+        let cols = [
+            file.path, file.name, rating, label, title, caption, creator, rights, tags.join("; "),
+        ];
+        let row: Vec<String> = cols.iter().map(|c| csv_escape(c)).collect();
+        out.push_str(&row.join(","));
+        out.push('\n');
+    }
+    Ok(out)
+}
+
 pub fn delete_files(conn: &Connection, file_ids: &[String]) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
     for id in file_ids {

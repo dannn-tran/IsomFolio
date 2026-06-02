@@ -54,3 +54,14 @@ Open the Tag Browser from the View menu to:
 - Search and filter tags
 - Rename a tag (updates all photos)
 - Delete a tag (removes it from all photos)
+
+## Descriptive metadata
+
+Below the tags in the Info panel are editable **Title**, **Caption**, **Creator**, and **Copyright** fields (Dublin Core / IPTC). Type a value and press **Enter** to save. With multiple photos selected, the fields start blank and saving applies to **all** of them — handy for stamping a rights or creator statement across a selection. These fields are full-text searchable.
+
+## Saving metadata to files & exporting
+
+Your catalog is the working store, but you can make metadata portable:
+
+- **Photo → Write XMP Sidecars** writes a standard `.xmp` sidecar next to each selected photo containing its rating, label, title, caption, creator, copyright, and keywords. It's readable by Lightroom, Bridge, Capture One, and exiftool, and **never modifies the original image file**.
+- **Photo → Export Metadata (CSV)…** writes a spreadsheet of the selected photos' (or the whole current view's) metadata — an app-independent record for archival or research handoff.

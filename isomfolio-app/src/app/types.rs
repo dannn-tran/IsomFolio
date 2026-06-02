@@ -416,6 +416,14 @@ pub enum Msg {
     LocateFile(String),
     FileLocated { file_id: String, new_path: std::path::PathBuf },
 
+    /// Write XMP sidecars for the current selection (catalog → file, never
+    /// touching the original image).
+    WriteXmpSidecars,
+    SidecarsWritten { count: usize, failed: usize },
+    /// Export catalog metadata (selection or current view) to a CSV file.
+    ExportMetadata,
+    ExportMetadataDest { ids: Vec<String>, dest: Option<String> },
+    MetadataExported { count: usize },
     ExportSelectionToDialog(ExportMode),
     ExportDestPicked { paths: Vec<String>, dest: Option<String>, mode: ExportMode },
     ExportDone { task_id: BgTaskId, result: Result<(), String> },

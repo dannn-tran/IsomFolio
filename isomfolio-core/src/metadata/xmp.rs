@@ -294,6 +294,71 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|w| w == needle)
 }
 
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Serialize an XMP sidecar packet (rating, label, and the Dublin Core
+/// descriptive fields). Standard Adobe layout — readable by Lightroom, Bridge,
+/// Capture One, exiftool, and IsomFolio's own parser. `subjects` is the keyword
+/// set (written as `dc:subject`). Empty fields are omitted.
+pub fn serialize_sidecar(meta: &XmpMetadata, subjects: &[String]) -> String {
+    let mut desc_attrs = String::new();
+    if let Some(r) = meta.core.rating {
+        desc_attrs.push_str(&format!(" xmp:Rating=\"{r}\""));
+    }
+    if let Some(ref l) = meta.core.label {
+        desc_attrs.push_str(&format!(" xmp:Label=\"{}\"", xml_escape(l)));
+    }
+
+    let mut body = String::new();
+    let alt = |tag: &str, v: &str| {
+        format!(
+            "   <dc:{tag}><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></dc:{tag}>\n",
+            xml_escape(v)
+        )
+    };
+    if let Some(ref t) = meta.dublin_core.title {
+        body.push_str(&alt("title", t));
+    }
+    if let Some(ref d) = meta.dublin_core.description {
+        body.push_str(&alt("description", d));
+    }
+    if let Some(ref r) = meta.dublin_core.rights {
+        body.push_str(&alt("rights", r));
+    }
+    if !meta.dublin_core.creator.is_empty() {
+        body.push_str("   <dc:creator><rdf:Seq>\n");
+        for c in &meta.dublin_core.creator {
+            body.push_str(&format!("    <rdf:li>{}</rdf:li>\n", xml_escape(c)));
+        }
+        body.push_str("   </rdf:Seq></dc:creator>\n");
+    }
+    if !subjects.is_empty() {
+        body.push_str("   <dc:subject><rdf:Bag>\n");
+        for s in subjects {
+            body.push_str(&format!("    <rdf:li>{}</rdf:li>\n", xml_escape(s)));
+        }
+        body.push_str("   </rdf:Bag></dc:subject>\n");
+    }
+
+    format!(
+        "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+ <rdf:RDF xmlns:rdf=\"{NS_RDF}\">\n\
+  <rdf:Description rdf:about=\"\"\n\
+    xmlns:xmp=\"{NS_XMP}\"\n\
+    xmlns:dc=\"{NS_DC}\"{desc_attrs}>\n\
+{body}  </rdf:Description>\n\
+ </rdf:RDF>\n\
+</x:xmpmeta>\n\
+<?xpacket end=\"w\"?>\n"
+    )
+}
+
 pub fn parse_sidecar(xmp_path: &str) -> Option<XmpMetadata> {
     let content = std::fs::read_to_string(xmp_path).ok()?;
     let meta = parse_xmp_xml(&content);
@@ -315,6 +380,39 @@ pub fn parse_embedded(image_path: &str) -> Option<XmpMetadata> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serialize_sidecar_round_trips_through_parser() {
+        let meta = XmpMetadata {
+            core: XmpCore { rating: Some(4), label: Some("Red".into()), ..Default::default() },
+            dublin_core: DublinCore {
+                title: Some("Harbour at dawn".into()),
+                description: Some("Fishing boats leaving port".into()),
+                creator: vec!["Jane Doe".into()],
+                subject: vec![],
+                rights: Some("(c) 2024 Jane Doe".into()),
+            },
+        };
+        let xml = serialize_sidecar(&meta, &["nature".to_string(), "travel".to_string()]);
+        let parsed = parse_xmp_xml(&xml);
+        assert_eq!(parsed.core.rating, Some(4));
+        assert_eq!(parsed.core.label.as_deref(), Some("Red"));
+        assert_eq!(parsed.dublin_core.title.as_deref(), Some("Harbour at dawn"));
+        assert_eq!(parsed.dublin_core.description.as_deref(), Some("Fishing boats leaving port"));
+        assert_eq!(parsed.dublin_core.creator, vec!["Jane Doe".to_string()]);
+        assert_eq!(parsed.dublin_core.subject, vec!["nature".to_string(), "travel".to_string()]);
+        assert_eq!(parsed.dublin_core.rights.as_deref(), Some("(c) 2024 Jane Doe"));
+    }
+
+    #[test]
+    fn serialize_sidecar_xml_escapes_specials() {
+        let meta = XmpMetadata {
+            core: XmpCore::default(),
+            dublin_core: DublinCore { title: Some("A & B <c>".into()), ..Default::default() },
+        };
+        let xml = serialize_sidecar(&meta, &[]);
+        assert!(xml.contains("A &amp; B &lt;c&gt;"));
+    }
 
     #[test]
     fn parse_rating_and_label_as_attributes() {

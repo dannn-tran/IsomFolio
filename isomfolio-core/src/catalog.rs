@@ -246,6 +246,14 @@ impl Catalog {
         db::set_files_rights(&self.conn, ids, value)
     }
 
+    pub fn xmp_sidecar_for(&self, file_id: &str) -> Result<String, AppError> {
+        db::xmp_sidecar_for(&self.conn, file_id)
+    }
+
+    pub fn export_metadata_csv(&self, file_ids: &[String]) -> Result<String, AppError> {
+        db::export_metadata_csv(&self.conn, file_ids)
+    }
+
     // Albums
 
     pub fn create_album(&self, album: &Album) -> Result<(), AppError> {

@@ -230,6 +230,8 @@ impl App {
             MenuItem::Action("Copy to Folder…", "", Msg::ExportSelectionToDialog(crate::app::ExportMode::Copy)),
             MenuItem::Action("Move to Folder…", "", Msg::ExportSelectionToDialog(crate::app::ExportMode::Move)),
             MenuItem::Action("Import XMP metadata", "", Msg::SyncXmpForSelection),
+            MenuItem::Action("Write XMP Sidecars", "", Msg::WriteXmpSidecars),
+            MenuItem::Action("Export Metadata (CSV)…", "", Msg::ExportMetadata),
             MenuItem::Separator,
             MenuItem::Action("Delete", "Del", Msg::DeleteSelection),
             MenuItem::Separator,

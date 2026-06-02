@@ -220,6 +220,13 @@ The trigger for a destructive op is always the context menu item, never a persis
 
 Show the button at reduced opacity (`FG_MUTED` text, α 0.04 background) without `on_press`. Never hide a primary button — always show its position so the user understands what is needed to unlock it.
 
+### Metadata portability (write-back & export)
+
+The catalog is the working store, but metadata can be made portable for preservation/interop:
+
+- **Write XMP Sidecars** (Photo menu) writes a standard XMP sidecar (`<file>.xmp`) carrying rating, label, and Dublin Core title/caption/creator/subjects(=tags)/rights — readable by Lightroom, Bridge, Capture One, and exiftool. It **never modifies the original image**; the sidecar sits beside it (matching the read path's `with_extension("xmp")`).
+- **Export Metadata (CSV)** dumps the catalog metadata for the selection (or the whole current view) to a CSV file via a save dialog — a portable, app-independent record.
+
 ### Descriptive metadata (detail panel)
 
 Above the tag section, the detail panel has editable **Title · Caption · Creator · Copyright** text fields (Dublin Core / IPTC). Each is a labelled `text_input`; **Enter saves** (`SaveDetailField`). In batch selection the fields start blank and saving applies to **all** selected files (apply-a-rights-block-to-a-selection). These are stored in the `metadata` table and preserved across re-sync (imported-once invariant). Creator is stored as a JSON array (multi-author capable) though the field edits a single value for now. *(Full-text indexing of these + write-back to XMP are separate items.)*
@@ -301,7 +308,7 @@ Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: cont
 |---|---|
 | Catalog | New Catalog… · Open Catalog… |
 | Edit | Undo · Redo · — · Delete Rejected Photos… |
-| Photo | Flag Pick/Reject/Unflag · — · Label Red/Yellow/Green/Blue/Purple/Remove · — · Compare · Copy/Move to Folder… · Import XMP · — · Delete · — · Find People · New Smart Album from Filters… |
+| Photo | Flag Pick/Reject/Unflag · — · Label … · — · Compare · Copy/Move to Folder… · Import XMP · Write XMP Sidecars · Export Metadata (CSV)… · — · Delete · — · Find People · New Smart Album from Filters… |
 | View | Toggle Info Panel · Preview · Loupe · People · — · Zoom In · Zoom Out · — · Hide Rejects |
 
 Every major selection action has a **menu path** (with its shortcut shown) so it's discoverable without memorising keys — the menu is the canonical "what can this app do?" surface. Right-click menus and the cull strip are faster paths to the same actions, not the only path.
