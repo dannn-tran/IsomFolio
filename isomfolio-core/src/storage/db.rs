@@ -110,8 +110,23 @@ pub fn upsert_files(conn: &Connection, files: &[AssetFile]) -> Result<usize, App
     for chunk in files.chunks(500) {
         let tx = conn.unchecked_transaction()?;
         for f in chunk {
+            // On re-sync, refresh only the identity columns read from disk.
+            // User/catalog state — `flag`, `created_at_unix` (catalog add time),
+            // and `is_deleted` — is PRESERVED on conflict; a freshly-scanned
+            // AssetFile has none of that, so a wholesale replace would wipe
+            // flags and the soft-delete state on every sync.
             conn.execute(
-                &format!("INSERT OR REPLACE INTO files ({FILE_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)"),
+                &format!(
+                    "INSERT INTO files ({FILE_COLS}) \
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) \
+                     ON CONFLICT(id) DO UPDATE SET \
+                       path = excluded.path, filename = excluded.filename, \
+                       folder = excluded.folder, extension = excluded.extension, \
+                       size = excluded.size, modified_time = excluded.modified_time, \
+                       is_orphaned = excluded.is_orphaned, orphaned_at = excluded.orphaned_at, \
+                       exif_date_unix = excluded.exif_date_unix, \
+                       gps_lat = excluded.gps_lat, gps_lon = excluded.gps_lon"
+                ),
                 params![
                     f.id, f.path, f.name, f.folder, f.ext,
                     f.size_bytes, f.mtime_unix,
@@ -1416,6 +1431,26 @@ mod tests {
         set_file_flag(&conn, "f1", crate::models::Flag::Reject).unwrap();
         let result2 = get_file_by_id(&conn, "f1").unwrap().unwrap();
         assert_eq!(result2.flag, crate::models::Flag::Reject);
+    }
+
+    #[test]
+    fn resync_preserves_flag_and_added_time() {
+        let (conn, _f) = open_temp();
+        upsert_files(&conn, &[make_file("f1", "/tmp/f1.jpg")]).unwrap();
+        set_file_flag(&conn, "f1", crate::models::Flag::Pick).unwrap();
+
+        // Re-sync: a freshly scanned asset (flag Unflagged, new created_at) with
+        // the same id and updated identity fields must NOT wipe the flag/add time.
+        let mut rescanned = make_file("f1", "/tmp/f1.jpg");
+        rescanned.flag = crate::models::Flag::Unflagged;
+        rescanned.created_at_unix = 99999;
+        rescanned.size_bytes = 2048; // identity changed on disk
+        upsert_files(&conn, &[rescanned]).unwrap();
+
+        let got = get_file_by_id(&conn, "f1").unwrap().unwrap();
+        assert_eq!(got.flag, crate::models::Flag::Pick, "flag must survive re-sync");
+        assert_eq!(got.created_at_unix, 900, "catalog add-time must survive re-sync");
+        assert_eq!(got.size_bytes, 2048, "identity fields still refresh");
     }
 
     #[test]
