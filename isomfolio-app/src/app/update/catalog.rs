@@ -136,8 +136,7 @@ impl App {
 
             Msg::ShowNewCatalogModal => {
                 self.open_menu = None;
-                if !self.welcome.show {
-                    self.welcome.show = true;
+                if self.welcome.show {
                     self.welcome.recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
                 }
                 self.welcome.show_new_catalog_modal = true;

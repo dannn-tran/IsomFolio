@@ -138,6 +138,20 @@ mod tests {
     }
 
     #[test]
+    fn zero_count_root_still_appears_as_leaf() {
+        // A freshly-added library root with no indexed files yet (count 0)
+        // must still surface as a navigable leaf, not be collapsed away.
+        let tree = build(&[("/users/me/photos", 0)]);
+        assert_eq!(tree.len(), 1);
+        let root = &tree[0];
+        assert_eq!(root.path, "/users/me/photos");
+        assert_eq!(root.name, "photos");
+        assert_eq!(root.direct_count, 0);
+        assert_eq!(root.total_count, 0);
+        assert!(root.children.is_empty());
+    }
+
+    #[test]
     fn nested_subfolders_become_children() {
         let tree = build(&[
             ("/photos/2011", 10),

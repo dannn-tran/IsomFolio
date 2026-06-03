@@ -251,6 +251,9 @@ impl App {
         if self.add_folder_prompt.is_some() {
             layers.push(self.view_add_folder_prompt());
         }
+        if self.welcome.show_new_catalog_modal {
+            layers.push(self.new_catalog_modal_overlay());
+        }
         let root: Element<Msg> = if layers.len() == 1 {
             layers.remove(0)
         } else {

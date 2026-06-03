@@ -93,7 +93,10 @@ impl App {
                     let guard = conn.lock_unwrap();
                     let _ = guard.upsert_library_root(&p, recursive);
                 }
-                self.sync_folder_task(path, recursive)
+                // Reveal the new root in the sidebar now (empty) instead of
+                // waiting for the scan to finish indexing files.
+                self.expand_under_path = Some(path.clone());
+                Task::batch([self.load_sidebar_task(), self.sync_folder_task(path, recursive)])
             }
 
             Msg::SyncComplete { count, new_file_ids } => {

@@ -13,7 +13,6 @@ use crate::app::{App, Msg};
 impl App {
     pub(super) fn view_welcome(&self) -> Element<'_, Msg> {
         let can_open_selected = self.welcome.selected_recent_catalog.is_some();
-        let can_create = self.welcome.new_catalog_dir.is_some() && !self.welcome.new_catalog_name.trim().is_empty();
 
         let mut recent_list = column![].spacing(SPACE_2).align_x(Alignment::Start);
         if self.welcome.recent_catalogs.is_empty() {
@@ -126,6 +125,15 @@ impl App {
         if !self.welcome.show_new_catalog_modal {
             return base_layer;
         }
+        stack(vec![base_layer, self.new_catalog_modal_overlay()]).into()
+    }
+
+    /// The New Catalog modal as a self-contained overlay (backdrop + centered
+    /// panel). Layered over whatever view is active — the welcome screen on
+    /// first launch, or the current catalogue when invoked from the menu.
+    pub(super) fn new_catalog_modal_overlay(&self) -> Element<'_, Msg> {
+        let can_create = self.welcome.new_catalog_dir.is_some()
+            && !self.welcome.new_catalog_name.trim().is_empty();
 
         let location_display = self
             .welcome.new_catalog_dir
@@ -229,7 +237,7 @@ impl App {
             .align_x(Alignment::Center)
             .align_y(Alignment::Center);
 
-        stack(vec![base_layer, backdrop.into(), centered.into()]).into()
+        stack(vec![backdrop.into(), centered.into()]).into()
     }
 }
 

@@ -61,9 +61,17 @@ impl Catalog {
         db::get_folder_counts(&self.conn)
     }
 
-    /// Build the navigable folder tree for the sidebar from the indexed folders.
+    /// Build the navigable folder tree for the sidebar.
+    ///
+    /// Seeded from indexed folders (`get_folder_counts`) and unioned with the
+    /// library roots at count 0, so a freshly-added root appears in the tree
+    /// immediately — before its scan has indexed any files.
     pub fn folder_tree(&self) -> Result<Vec<crate::folder_tree::FolderNode>, AppError> {
-        Ok(crate::folder_tree::build_tree(&db::get_folder_counts(&self.conn)?))
+        let mut folders = db::get_folder_counts(&self.conn)?;
+        for root in db::list_library_roots(&self.conn)? {
+            folders.push((root.path, 0));
+        }
+        Ok(crate::folder_tree::build_tree(&folders))
     }
 
     pub fn upsert_library_root(&self, path: &str, recursive: bool) -> Result<(), AppError> {
@@ -400,5 +408,30 @@ impl Catalog {
         import_apple: bool,
     ) -> Result<(), AppError> {
         scanner::import_external_metadata(&self.conn, paths, import_xmp, import_apple)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    fn open_temp() -> (Catalog, NamedTempFile) {
+        let f = NamedTempFile::new().unwrap();
+        let cat = Catalog::open(f.path().to_str().unwrap()).unwrap();
+        (cat, f)
+    }
+
+    #[test]
+    fn folder_tree_includes_just_added_root_with_no_files() {
+        let (cat, _f) = open_temp();
+        let sep = std::path::MAIN_SEPARATOR;
+        let root = format!("{sep}tmp{sep}newshoot");
+        cat.upsert_library_root(&root, true).unwrap();
+
+        let tree = cat.folder_tree().unwrap();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].path, root);
+        assert_eq!(tree[0].total_count, 0);
     }
 }
