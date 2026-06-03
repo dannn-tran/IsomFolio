@@ -21,12 +21,39 @@ use crate::app::{
 /// How many recent import batches the sidebar shows before "Show all".
 const IMPORTS_COLLAPSED: usize = 10;
 
-/// A section-collapse chevron (▾ expanded / ▸ collapsed). Separate control, like
-/// the folder-row chevron — toggling collapse never changes selection.
+/// A section-collapse chevron, shown at the *trailing* (right) edge of a section
+/// header — the disclosure convention (▾ expanded / ▸ collapsed). Kept off the
+/// leading edge so every section's icon shares one column with the nav-row icons.
+/// Separate control: toggling collapse never changes selection.
 fn section_chevron<'a>(collapsed: bool, section: SidebarSection) -> Element<'a, Msg> {
     button(text(if collapsed { "▸" } else { "▾" }).size(TEXT_SM).color(FG_DIM))
         .on_press(Msg::ToggleSidebarSection(section))
         .style(icon_btn_style)
+        .into()
+}
+
+/// Build a section header that aligns with the nav rows: `[icon] Title …
+/// [actions] [collapse-chevron]`, wrapped in the same horizontal padding the nav
+/// rows use so all leading icons share one column.
+fn section_header<'a>(
+    icon: Icon,
+    title: &'a str,
+    collapsed: bool,
+    section: SidebarSection,
+    trailing: Vec<Element<'a, Msg>>,
+) -> Element<'a, Msg> {
+    let mut r = row![
+        super::icons::icon(icon, FG_DIM),
+        text(title).size(TEXT_MD).color(FG_DIM),
+        Space::new().width(Length::Fill),
+    ]
+    .spacing(SPACE_1_5)
+    .align_y(Alignment::Center);
+    for el in trailing {
+        r = r.push(el);
+    }
+    container(r.push(section_chevron(collapsed, section)))
+        .padding([0.0, SPACE_1])
         .into()
 }
 
@@ -43,61 +70,52 @@ impl App {
             .align_y(Alignment::Center)
             .into();
 
-        let albums_header: Element<Msg> = row![
-            section_chevron(
-                self.collapsed_sections.contains(&SidebarSection::Albums),
-                SidebarSection::Albums
-            ),
-            super::icons::icon(Icon::Albums, FG_DIM),
-            text("Albums").size(TEXT_MD).color(FG_DIM),
-            Space::new().width(Length::Fill),
-            super::styles::tip(
-                button(text("⚡").size(TEXT_MD))
-                    .on_press(Msg::ToggleFilterPanel)
-                    .style(icon_btn_style),
-                "Filter / save Smart Album",
-                super::styles::TipPos::Bottom,
-            ),
-            super::styles::tip(
-                button(text("+").size(TEXT_BASE))
-                    .on_press(Msg::StartCreateAlbum)
-                    .style(icon_btn_style),
-                "New album",
-                super::styles::TipPos::Bottom,
-            ),
-        ]
-        .spacing(SPACE_0_5)
-        .align_y(Alignment::Center)
-        .into();
-
         let folders_collapsed = self.collapsed_sections.contains(&SidebarSection::Folders);
         let albums_collapsed = self.collapsed_sections.contains(&SidebarSection::Albums);
         let imports_collapsed = self.collapsed_sections.contains(&SidebarSection::Imports);
 
+        let albums_header: Element<Msg> = section_header(
+            Icon::Albums,
+            "Albums",
+            albums_collapsed,
+            SidebarSection::Albums,
+            vec![
+                super::styles::tip(
+                    button(text("⚡").size(TEXT_MD))
+                        .on_press(Msg::ToggleFilterPanel)
+                        .style(icon_btn_style),
+                    "Filter / save Smart Album",
+                    super::styles::TipPos::Bottom,
+                ),
+                super::styles::tip(
+                    button(text("+").size(TEXT_BASE))
+                        .on_press(Msg::StartCreateAlbum)
+                        .style(icon_btn_style),
+                    "New album",
+                    super::styles::TipPos::Bottom,
+                ),
+            ],
+        );
+
         let is_sync_active = self.is_syncing || self.sync_pending;
-        let mut folders_header_row = row![
-            section_chevron(folders_collapsed, SidebarSection::Folders),
-            super::icons::icon(Icon::Folders, FG_DIM),
-            text("Folders").size(TEXT_MD).color(FG_DIM),
-        ]
-        .spacing(SPACE_0_5)
-        .align_y(Alignment::Center);
+        let mut folders_trailing: Vec<Element<Msg>> = Vec::new();
         if is_sync_active {
-            folders_header_row = folders_header_row
-                .push(Space::new().width(SPACE_1))
-                .push(text("Syncing…").size(TEXT_MD).color(FG_DIM));
+            folders_trailing.push(text("Syncing…").size(TEXT_SM).color(FG_DIM).into());
         }
-        let folders_header: Element<Msg> = folders_header_row
-            .push(Space::new().width(Length::Fill))
-            .push(super::styles::tip(
-                button(text("+").size(TEXT_BASE))
-                    .on_press(if is_sync_active { Msg::NoOp } else { Msg::SyncPickFolder })
-                    .style(icon_btn_style),
-                "Add folder to library",
-                super::styles::TipPos::Bottom,
-            ))
-            .align_y(Alignment::Center)
-            .into();
+        folders_trailing.push(super::styles::tip(
+            button(text("+").size(TEXT_BASE))
+                .on_press(if is_sync_active { Msg::NoOp } else { Msg::SyncPickFolder })
+                .style(icon_btn_style),
+            "Add folder to library",
+            super::styles::TipPos::Bottom,
+        ));
+        let folders_header: Element<Msg> = section_header(
+            Icon::Folders,
+            "Folders",
+            folders_collapsed,
+            SidebarSection::Folders,
+            folders_trailing,
+        );
 
         // Estimate max label chars that fit the current sidebar width.
         // Accounts for scroll padding (SPACE_3 × 2) + container padding (SPACE_1 × 2),
@@ -257,13 +275,13 @@ impl App {
 
         // Imports — recent sync batches as discrete, stable views.
         if has_imports {
-            let imports_header = row![
-                section_chevron(imports_collapsed, SidebarSection::Imports),
-                super::icons::icon(Icon::Imports, FG_DIM),
-                text("Imports").size(TEXT_MD).color(FG_DIM),
-            ]
-            .spacing(SPACE_0_5)
-            .align_y(Alignment::Center);
+            let imports_header = section_header(
+                Icon::Imports,
+                "Imports",
+                imports_collapsed,
+                SidebarSection::Imports,
+                Vec::new(),
+            );
             content = content.push(imports_header);
 
             let shown = if imports_collapsed {

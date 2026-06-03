@@ -555,9 +555,27 @@ impl App {
     }
 
     pub(crate) fn resize_to_main() -> Task<Msg> {
-        iced::window::oldest().then(|opt_id| match opt_id {
-            Some(id) => iced::window::resize(id, Size::new(1280.0, 800.0)),
-            None => Task::none(),
+        let new_size = Size::new(1280.0, 800.0);
+        iced::window::oldest().then(move |opt_id| {
+            let Some(id) = opt_id else {
+                return Task::none();
+            };
+            // Grow from the centre, not the top-left corner: shift the origin up
+            // and left by half the size increase so the window's centre is fixed.
+            iced::window::size(id).then(move |old_size| {
+                iced::window::position(id).then(move |old_pos| {
+                    let resize = iced::window::resize(id, new_size);
+                    match old_pos {
+                        Some(p) => {
+                            let dx = (new_size.width - old_size.width) / 2.0;
+                            let dy = (new_size.height - old_size.height) / 2.0;
+                            let centred = iced::Point::new(p.x - dx, p.y - dy);
+                            Task::batch([resize, iced::window::move_to(id, centred)])
+                        }
+                        None => resize,
+                    }
+                })
+            })
         })
     }
 

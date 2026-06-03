@@ -77,11 +77,7 @@ impl App {
                     return Task::none();
                 }
                 let current = self.anchor_idx.unwrap_or(0) as i32;
-                let row = current / cols;
-                let col = current % cols;
-                let new_col = (col + dx).clamp(0, cols - 1);
-                let new_row = (row + dy).clamp(0, (total - 1) / cols);
-                let new_idx = (new_row * cols + new_col).min(total - 1) as usize;
+                let new_idx = grid_step(current, dx, dy, cols, total) as usize;
                 self.anchor_idx = Some(new_idx);
                 self.select_lead = Some(new_idx);
                 self.grid_selected.clear();
@@ -106,11 +102,7 @@ impl App {
                 let anchor = self.anchor_idx.unwrap_or(0);
                 self.anchor_idx = Some(anchor);
                 let lead = self.select_lead.unwrap_or(anchor) as i32;
-                let row = lead / cols;
-                let col = lead % cols;
-                let new_col = (col + dx).clamp(0, cols - 1);
-                let new_row = (row + dy).clamp(0, (total - 1) / cols);
-                let new_lead = (new_row * cols + new_col).min(total - 1) as usize;
+                let new_lead = grid_step(lead, dx, dy, cols, total) as usize;
                 self.select_lead = Some(new_lead);
                 let ids: Vec<&str> = self.files.iter().map(|f| f.id.as_str()).collect();
                 self.grid_selected = range_select(&ids, anchor, new_lead, &self.selection_base);
@@ -852,6 +844,21 @@ pub(crate) struct SelOutcome {
 
 /// File ids selected by a contiguous range `[anchor, lead]` unioned with the
 /// `base` snapshot (disjoint tiles selected before the range began).
+/// Move a grid cursor by one keypress. Horizontal moves (`dx`) are *linear* so
+/// stepping right off the end of a row lands on the first tile of the next row
+/// (and left off the start lands on the previous row's last tile) — Finder /
+/// Lightroom behaviour. Vertical moves (`dy`) stay columnar, keeping the column
+/// and clamping at the top/bottom rows. `total` is assumed > 0.
+fn grid_step(current: i32, dx: i32, dy: i32, cols: i32, total: i32) -> i32 {
+    if dx != 0 {
+        (current + dx).clamp(0, total - 1)
+    } else {
+        let (row, col) = (current / cols, current % cols);
+        let new_row = (row + dy).clamp(0, (total - 1) / cols);
+        (new_row * cols + col).min(total - 1)
+    }
+}
+
 fn range_select(ids: &[&str], anchor: usize, lead: usize, base: &HashSet<String>) -> HashSet<String> {
     let mut sel = base.clone();
     let (lo, hi) = (anchor.min(lead), anchor.max(lead));
@@ -1010,6 +1017,47 @@ fn reveal_in_file_manager(paths: &[String]) {
 mod tests {
     use super::*;
     use isomfolio_core::models::{Album, AlbumKind, SearchQuery};
+
+    mod grid_step_nav {
+        use super::*;
+
+        // 6 items, 3 columns:  [0 1 2 / 3 4 5]
+        const COLS: i32 = 3;
+        const TOTAL: i32 = 6;
+
+        #[test]
+        fn right_at_row_end_wraps_to_next_row_start() {
+            assert_eq!(grid_step(2, 1, 0, COLS, TOTAL), 3);
+        }
+
+        #[test]
+        fn left_at_row_start_wraps_to_prev_row_end() {
+            assert_eq!(grid_step(3, -1, 0, COLS, TOTAL), 2);
+        }
+
+        #[test]
+        fn right_at_last_tile_stays_clamped() {
+            assert_eq!(grid_step(5, 1, 0, COLS, TOTAL), 5);
+        }
+
+        #[test]
+        fn down_keeps_column_and_clamps_at_bottom() {
+            assert_eq!(grid_step(1, 0, 1, COLS, TOTAL), 4);
+            assert_eq!(grid_step(4, 0, 1, COLS, TOTAL), 4);
+        }
+
+        #[test]
+        fn up_keeps_column_and_clamps_at_top() {
+            assert_eq!(grid_step(4, 0, -1, COLS, TOTAL), 1);
+            assert_eq!(grid_step(1, 0, -1, COLS, TOTAL), 1);
+        }
+
+        #[test]
+        fn down_into_short_last_row_clamps_to_last_tile() {
+            // 5 items, 3 cols: [0 1 2 / 3 4]; down from col 2 has no tile, clamp.
+            assert_eq!(grid_step(2, 0, 1, 3, 5), 4);
+        }
+    }
 
     mod grid_selection {
         use super::*;
