@@ -27,7 +27,7 @@ The clustering runs locally on your machine. No face data is sent anywhere.
 
 ### Full re-cluster vs incremental
 
-By default, clustering is incremental — it processes only new/changed photos and assigns their faces to existing people (discovering new ones). If faces seem wrong or people are split across multiple clusters, run a **full re-cluster** with the **⟳** button in the People section header. Full re-clustering takes longer but produces the most accurate groupings.
+By default, clustering is incremental — it processes only new/changed photos and assigns their faces to existing people (discovering new ones). If faces seem wrong or people are split across multiple clusters, run a **full re-cluster** with **Photo → Re-cluster All Faces**. Full re-clustering takes longer but produces the most accurate groupings.
 
 ## People view
 

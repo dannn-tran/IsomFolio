@@ -7,7 +7,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 ## Navigating the grid
 
-Use the **sidebar** to switch between All Files, a specific folder, an album, or a person. The grid updates immediately.
+Use the **sidebar** to switch between **All Photos**, a specific folder, an album, or a person. The grid updates immediately. **All Photos** sits at the top of the sidebar and is your home view — click it any time to return to the whole catalog.
 
 **Imports.** Each sync that adds new photos is recorded as a dated **import batch**, listed under **Imports** in the sidebar (`Jun 3 (80)` = 80 photos imported that day). Click one to see exactly the photos that came in during that sync — a fixed set that never changes, so "show me what I just brought in" is always one click. The ten most recent are shown; **Show all** expands the full history. This is distinct from the **Added** filter (Searching & Filtering), which is a rolling time window you can combine with other criteria.
 
@@ -18,6 +18,15 @@ Sort options (accessible from the toolbar or sort button):
 - Toggle ascending / descending with the sort direction button
 
 **Bursts.** Shots taken in quick succession (within ~3 seconds) are detected as a burst and marked with a `⧉ N` badge. The **⧉ Stack** toggle in the toolbar collapses each burst to a single representative tile so you can scan a shoot quickly; toggle it off to pick the best frame within a burst.
+
+## Grid and List views
+
+Two toolbar buttons switch how the content area lays out photos:
+
+- **▦ Grid** (default) — a thumbnail grid. Use `Cmd++` / `Cmd+−` to change thumbnail size.
+- **≡ List** — a compact line per photo with columns: thumbnail, **Name**, flag, rating, colour label, **Date**, **Size**, and **Type**. Best for scanning filenames and metadata at a glance, like the list view in Finder or Capture One.
+
+In List view, **click a column header** (Name / Date / Size / Type) to sort by it; click the active column again to flip the direction (`▲` / `▼`). **Drag a column's right edge** to resize it (Name, Rating, Date, Size, Type) — widths are remembered for the session. Everything else — selection, filtering, the cull strip, the Info panel, drag-to-album, and right-click menus — works exactly the same in both views.
 
 ## Loupe view
 

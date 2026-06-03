@@ -11,11 +11,12 @@ The left panel lists everything in your library:
 
 | Section | What it shows |
 |---|---|
-| **All Files** | Every photo across all folders |
+| **All Photos** | Every photo across all folders — the home view, at the top of the sidebar |
 | **Folders** | A tree of your watched folders. Subfolders nest under their parent; click the chevron to expand/collapse and click a folder to see its photos (and everything beneath it). |
 | **Albums** | Manual collections you've created by dragging photos |
 | **Smart Albums** | Criteria-based albums that update automatically |
 | **People** | Face clusters (if the face-clustering extension is installed) |
+| **Deleted** | Soft-deleted photos (shown only when non-empty) — restore or purge from here |
 
 Right-click any sidebar item to access actions: rename, delete, remove folder, etc.
 
@@ -51,7 +52,8 @@ The toolbar runs along the top:
 | Control | Function |
 |---|---|
 | **Add Folder** | Watch a new folder for photos |
-| **Sort** | Cycle through sort fields (name, date, rating) and toggle ascending/descending |
+| **▦ / ≡ layout** | Switch the content area between thumbnail **Grid** and compact **List** (columns: name, flag, rating, date, size, type) |
+| **Sort** | Choose a sort field (name, date, size, type) and toggle ascending/descending. In List view, click a column header to sort by it. |
 | **Filter** | Open the criteria panel for advanced filtering |
 | **View toggle** | Switch between Browse, Preview, and Loupe views |
 | **Extension menu** | Run installed engine actions (e.g. Find People) |

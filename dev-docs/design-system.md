@@ -82,6 +82,17 @@ Do not create new size tiers. Pick the closest existing token.
 
 ---
 
+## Iconography
+
+Two distinct icon mechanisms, by origin:
+
+- **Unicode glyphs** — the bulk of in-UI symbols (chevrons `▾ ▸`, flags `✓ ✕ ○`, `⚡ ⟳ ★ ● ◎ ⧉`, layout toggles `▦ ≡`). Rendered as text in the system font; no asset needed. Keep using these for compact inline controls.
+- **SVG line icons** — for *navigation destinations* that benefit from a recognisable pictogram (sidebar rows/headers). [Lucide](https://lucide.dev) (ISC), embedded under `assets/icons/`, rendered via `view/icons.rs` (`icon(Icon, Color)`) at `ICON_SIZE` (15 px) and **tinted single-colour** through `svg::Style.color`, so a glyph adopts its row's state colour (`FG_DIM` at rest, brighter/`Color::WHITE` when selected). Never multi-colour; never emoji (colour emoji clash with the quiet dark UI).
+
+An icon resource is **not** a "decorative font" — the *Typography* rule ("default system font only") governs text, not iconography. Adding a new icon: drop the Lucide SVG in `assets/icons/`, add an `Icon` variant. Use sparingly — icons aid recognition on a *few* high-level destinations; do not sprinkle them on every row (e.g. folder-tree leaves and import batches stay text-only).
+
+---
+
 ## Spacing
 
 All spacing uses a 4 px base unit (`UNIT = 4.0` in `styles.rs`). Each token name is its Tailwind-style multiplier — `SPACE_2` = 2 × 4 = 8 px. Fractional tokens follow Tailwind convention (`SPACE_1_5` = 1.5 × 4 = 6 px).
@@ -159,9 +170,15 @@ Two row height constants exist to express the hierarchy between containers and i
 
 Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM_HEIGHT`.
 
-### Collapsible sidebar sections
+### Sidebar row classes
 
-Sidebar sections that hold a *list* of rows — **Folders, Albums, Imports** — are collapsible. The section header carries a leading chevron (`▾` expanded / `▸` collapsed, `icon_btn_style`), the same control as folder rows; clicking it hides/shows that section's rows and nothing else. Like the folder chevron, it is a *separate* control and never changes selection or navigates. Collapse state is per-section, in-memory (not persisted across restart). Header action buttons (`+`, `⚡`, `⟳`) stay to the right of the label regardless of collapse. Single-entry pseudo-sections (the **Deleted** row) and header-only nav entries (**People**, which opens a view and has no sidebar children) are *not* collapsible — there is no row list to hide.
+The sidebar has exactly **two** row kinds; the split is *"does this hold a child list or not?"* Each class is internally uniform — section identity comes from the label, never from per-row styling.
+
+**Class A — section header (holds a collapsible list):** **Folders, Albums, Imports**. Anatomy: leading chevron (`▾` expanded / `▸` collapsed, `icon_btn_style`, the same control as folder rows) · **section icon** (Lucide SVG, `FG_DIM`, see *Iconography*) · label (`TEXT_MD`/`FG_DIM`) · flexible spacer · right-aligned action glyphs (`+`, `⚡`) · optional inline status ("Syncing…"). Clicking the chevron hides/shows that section's rows and nothing else — it is a *separate* control and never changes selection or navigates. Collapse state is per-section, in-memory (not persisted across restart). Action buttons stay to the right of the label regardless of collapse.
+
+**Class B — nav row (a single destination, no child list):** **All Photos**, **People**, **Deleted**, and each **import batch** under the Imports header. Built by the `nav_row` helper. Anatomy: **leading icon** (Lucide SVG, `FG_DIM` at rest / `Color::WHITE` when selected) · label (`TEXT_BASE`/`FG`) · right-aligned count (`TEXT_SM`/`FG_MUTED`, omitted when 0) · full-row click; **accent background fill when selected** (the same fill folders/albums use — selection is never colour-only, per *Density floor*). No chevron, no inline action buttons (per *Entity row anatomy*: nav rows carry no embedded actions — e.g. re-clustering lives in the Photo menu, not on the People row). Height `ALBUM_ITEM_HEIGHT`. Class-B rows are not collapsible — there is no list to hide. Import batches are nav rows *without* an icon (`icon: None` reserves the icon column so labels still align) — keeping leaf rows quiet, like folder-tree leaves.
+
+**Ordering & grouping.** Top→bottom: catalog-name title · **All Photos** · Folders · Albums · People · `──` · Imports · Deleted. The first block is user/library content; the second is **system collections** (app-generated). Content sections are separated by **spacing alone** (the iconned header already marks a new group). Exactly **one** `sidebar_divider()` exists — fencing the system block from the content above — because a rule between *every* section is decorative chrome (*Quiet by default*); the single divider carries meaning (content vs system boundary). **All Photos** is the catalog-level home (default `SidebarItem::AllFiles`, always-present way back to the whole catalog). **Deleted** shows only when something is soft-deleted; **People** only when a face cluster or inference engine is present; **Imports** only when batches exist.
 
 ### Folder tree
 
@@ -333,7 +350,7 @@ Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: cont
 |---|---|
 | Catalog | New Catalog… · Open Catalog… |
 | Edit | Undo · Redo · — · Delete Rejected Photos… |
-| Photo | Flag Pick/Reject/Unflag · — · Label … · — · Compare · Copy/Move to Folder… · Import XMP · Write XMP Sidecars · Export Metadata (CSV)… · — · Delete · — · Find People · New Smart Album from Filters… |
+| Photo | Flag Pick/Reject/Unflag · — · Label … · — · Compare · Copy/Move to Folder… · Import XMP · Write XMP Sidecars · Export Metadata (CSV)… · — · Delete · — · Find People · Re-cluster All Faces · New Smart Album from Filters… |
 | View | Toggle Info Panel · Preview · Loupe · People · — · Zoom In · Zoom Out · — · Hide Rejects |
 
 Every major selection action has a **menu path** (with its shortcut shown) so it's discoverable without memorising keys — the menu is the canonical "what can this app do?" surface. Right-click menus and the cull strip are faster paths to the same actions, not the only path.
@@ -351,6 +368,17 @@ status bar (fill width, fixed height — status text only, no action buttons)
 ```
 
 Sidebar width is runtime state (user-resizable). `SIDEBAR_WIDTH` is the default and is also used for the detail panel width (which is not resizable).
+
+### Content layout — Grid vs List
+
+The Browse content area renders files in one of two layouts, toggled by a pair of icon buttons (`▦` Grid / `≡` List) at the right of the toolbar, before the Sort control. **List is a sub-mode of Browse, not a separate `ViewMode`** — the cull strip, filter panel, search, sort, selection model, detail panel, drag-to-album, and context menus all stay live and identical in both. State lives in `App::grid_layout` (`GridLayout::{Grid, List}`), in-memory, default Grid.
+
+- **Grid** (default) — the thumbnail grid (`view_tile`), `cols` per row computed from tile size and width.
+- **List** — one file per line (`view_list_row`), like Capture One's Browser list / Finder list view. Columns, left→right: small thumbnail · **Name** · flag glyph · rating stars · colour dot · Date · Size · Type, then trailing slack (a `Fill` spacer). Row height `LIST_ROW_HEIGHT` (32 px). The hovered row gets a faint fill (derived from the tracked cursor via `tile_index_at`, since the global mouse model has no per-widget hover); a filename clipped by its column width gets a hover tooltip with the full name (same affordance as sidebar labels).
+  - A clickable **column-header strip** (`view_list_header`, height `LIST_HEADER_HEIGHT`) sits above the rows. The four real `SortField`s — Name/Date/Size/Type — sort on click; clicking the **active** column toggles direction (`▲`/`▼` shown on it). Flag/Rating/Colour columns are display-only (no matching sort field). This is the same sort state as the toolbar Sort control — one source of truth.
+  - **Resizable columns.** Name/Stars/Date/Size/Type are user-resizable; their widths live in `App::list_col` (`ListColWidths`, in-memory, clamped `LIST_COL_MIN..LIST_COL_MAX`). Each carries a right-edge drag handle (thin `BORDER` separator, horizontal-resize cursor). Resize follows the **sidebar-resize pattern**: handle press → `ListColResizeStart` records the start cursor x + width; `MouseMoved` sets the width to `start_w + (cursor.x − start_x)`; `MouseReleased` ends. Trailing slack absorbs the remainder, so a column's right edge tracks the cursor. Thumbnail/flag/colour are fixed glyph columns. A press in the header strip is excluded from grid selection by `in_list_header_band` (so resizing/sorting never clears the photo selection).
+
+**Geometry invariant:** both layouts share the same virtualised scroller and the same hit-test (`tile_index_at`) — clicks, drag-select, right-click, and double-click-to-loupe are *not* re-implemented per layout. The layout only changes three geometry inputs: `cols()` (1 in List), `row_step()` (`LIST_ROW_HEIGHT` in List), and the `LIST_HEADER_HEIGHT` offset added to `tile_index_at` when List is active (the header strip shifts rows down). Keep those three in lockstep with the view, exactly as the cull strip's fixed height is (→ `architecture.md`, Grid layout & hit-testing).
 
 ### Welcome screen
 
@@ -417,6 +445,9 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | `?` key | Toggle shortcut help panel |
 | `\` key | Toggle hide rejects |
 | Sort control (grid toolbar) | `pick_list` dropdown of fields (Name / Date Shot / Size / Type) + a `▲`/`▼` direction toggle button. Not a cycle button — the field set is explicit and visible. |
+| Grid / List toggle (toolbar) | `▦` / `≡` icon buttons switch the Browse content layout (thumbnail grid ⇄ compact columnar list). Active layout shown with `active_chip_style`. Pure presentation — no reload; the anchor stays scrolled into view. |
+| Click a List column header | Sort by that field (Name / Date / Size / Type); clicking the already-active column toggles direction. Shares the toolbar Sort state. Flag/Rating/Colour headers are display-only. |
+| Drag a List column's right edge | Resize that column (Name / Rating / Date / Size / Type). Width is clamped and held in memory for the session; does not clear the photo selection. |
 | Hide Rejects (grid toolbar) / `\` | Convenience toggle between the `{Pick, Unflagged}` flag selection and "show all" — there is no separate hide-rejects state; it's a shortcut into the cull strip's flag set (single source of truth). |
 | ⧉ Stack (grid toolbar) | Collapse bursts (shots detected within ~3 s) to one representative tile (the earliest). A burst tile carries a `⧉ N` badge (N = burst size); the badge also shows on burst members when not collapsed. Toggle off to cull within a burst. |
 
