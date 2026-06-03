@@ -192,6 +192,7 @@ Folders render as a navigable **tree**, not a flat list, and as a **forest** whe
 - **Selection** → clicking a segment selects that folder and loads its photos recursively; the whole row highlights when any of its segments is selected, with the selected segment in `WHITE`.
 - **Context menu** (right-click / Ctrl+Click) → **Sync Folder**, **Add Folder…** (opens the folder picker anchored at the clicked folder — Capture One style), and **Remove from Library…** (plus **Remove Missing Files…** when the folder has orphans).
 - **Dirty dot** → an accent `●` after the folder name means the watcher saw structural changes on disk (files added / removed / renamed) that have not been applied. The catalog is never mutated silently — the user applies the changes by syncing the folder (`Cmd+R` or context menu), which clears the dot. (Pure content edits to an already-tracked file are not structural: they just refresh that file's thumbnail, no dot.)
+- **Offline** → a library root on an unplugged drive shows an eject glyph `⏏` and its rows dim to `FG_MUTED`. Auto-clears on reconnect (polled). Offline is a recoverable state, never confused with deleted; its photos still appear (cached thumbnails) carrying an `Offline` tile banner (`WARN`), the same slot the `Missing` banner uses for a file gone while its drive is present.
 
 ### Context menu
 
