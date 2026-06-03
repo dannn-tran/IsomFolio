@@ -177,6 +177,9 @@ pub struct App {
     pub folder_tree: Vec<isomfolio_core::folder_tree::FolderNode>,
     pub expanded_folders: HashSet<String>,
     pub library_roots: Vec<isomfolio_core::storage::db::LibraryRoot>,
+    /// Normalised paths of library roots currently unreachable on disk (unplugged
+    /// drive). Recomputed on each sidebar load; files under them render offline.
+    pub offline_roots: HashSet<String>,
     pub cameras: Vec<String>,
     pub pending_restore: Option<SidebarItem>,
     /// Folder subtree to auto-expand once the sidebar tree reloads (set after a
@@ -447,6 +450,7 @@ impl App {
             folder_tree: Vec::new(),
             expanded_folders: HashSet::new(),
             library_roots: Vec::new(),
+            offline_roots: HashSet::new(),
             cameras: Vec::new(),
             pending_restore: None,
             expand_under_path: None,
@@ -764,6 +768,15 @@ impl App {
         self.files.iter().filter(|f| f.is_orphaned).count()
     }
 
+    /// Whether `path` sits under a library root that's currently offline
+    /// (unplugged drive). Cheap: `offline_roots` is empty in the common case, so
+    /// the scan short-circuits.
+    pub fn is_offline_path(&self, path: &str) -> bool {
+        self.offline_roots.iter().any(|r| {
+            path == r || path.starts_with(&format!("{r}{}", std::path::MAIN_SEPARATOR))
+        })
+    }
+
     pub(crate) fn start_thumbnail_pool(&mut self) {
         if self.thumb_ctx.pool.is_some() {
             return;
@@ -959,13 +972,22 @@ impl App {
                         (path, name, count)
                     })
                     .collect();
-                (folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches)
+                // A library root whose path isn't a directory right now is offline
+                // (unplugged drive). Cheap — roots are few; the key path resolves
+                // on case-insensitive filesystems.
+                let offline_roots: HashSet<String> = library_roots
+                    .iter()
+                    .filter(|r| !std::path::Path::new(&r.path).is_dir())
+                    .map(|r| r.path.clone())
+                    .collect();
+                (folders, folder_tree, library_roots, offline_roots, cameras, albums, album_counts, deleted_count, import_batches)
             },
-            |(folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches)| {
+            |(folders, folder_tree, library_roots, offline_roots, cameras, albums, album_counts, deleted_count, import_batches)| {
                 Msg::SidebarLoaded {
                     folders,
                     folder_tree,
                     library_roots,
+                    offline_roots,
                     cameras,
                     albums,
                     album_counts,
@@ -1221,6 +1243,15 @@ impl App {
             subs.push(
                 iced::time::every(std::time::Duration::from_secs(1))
                     .map(|_| Msg::PruneCompletedTasks),
+            );
+        }
+        // Poll removable-drive reachability so an unplug/remount is reflected
+        // without the user having to trigger a reload. Coarse (5 s) and only when
+        // there are roots to watch; the check itself runs off-thread.
+        if !self.library_roots.is_empty() {
+            subs.push(
+                iced::time::every(std::time::Duration::from_secs(5))
+                    .map(|_| Msg::RecheckOfflineRoots),
             );
         }
         Subscription::batch(subs)

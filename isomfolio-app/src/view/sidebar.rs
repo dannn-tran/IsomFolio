@@ -394,7 +394,8 @@ impl App {
             };
             let expanded = self.expanded_folders.contains(&node.path);
             let dirty = self.folder_is_dirty(path);
-            out.push(folder_tree_row(node, depth, selected_path, expanded, dirty, max_chars));
+            let offline = self.is_offline_path(&node.path);
+            out.push(folder_tree_row(node, depth, selected_path, expanded, dirty, offline, max_chars));
         }
 
         if !node.children.is_empty() && self.expanded_folders.contains(&node.path) {
@@ -516,6 +517,7 @@ fn folder_tree_row<'a>(
     selected_path: Option<&str>,
     expanded: bool,
     dirty: bool,
+    offline: bool,
     max_chars: usize,
 ) -> Element<'a, Msg> {
     let path = node.path.clone();
@@ -568,7 +570,13 @@ fn folder_tree_row<'a>(
             crumbs = crumbs.push(text("/").size(TEXT_BASE).color(FG_MUTED));
         }
         let seg_selected = Some(seg.path.as_str()) == selected_path;
-        let seg_color = if seg_selected || row_selected { Color::WHITE } else { FG };
+        let seg_color = if seg_selected || row_selected {
+            Color::WHITE
+        } else if offline {
+            FG_MUTED
+        } else {
+            FG
+        };
         crumbs = crumbs.push(
             button(
                 text(seg.name.clone())
@@ -590,6 +598,12 @@ fn folder_tree_row<'a>(
 
     let label = row![
         container(crumbs).width(Length::Fill).clip(true),
+        // Eject glyph marks a root whose drive is unplugged.
+        if offline {
+            text("⏏").size(TEXT_SM).color(FG_MUTED)
+        } else {
+            text("").size(TEXT_SM).color(FG_MUTED)
+        },
         if dirty {
             text("●").size(TEXT_SM).color(ACCENT)
         } else {

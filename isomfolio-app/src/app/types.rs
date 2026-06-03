@@ -210,6 +210,9 @@ pub enum Msg {
         folders: Vec<(String, String, usize)>,
         folder_tree: Vec<FolderNode>,
         library_roots: Vec<LibraryRoot>,
+        /// Normalised paths of library roots currently unreachable on disk
+        /// (e.g. an unplugged removable drive). Files under them render as offline.
+        offline_roots: std::collections::HashSet<String>,
         cameras: Vec<String>,
         albums: Vec<Album>,
         album_counts: HashMap<String, usize>,
@@ -221,6 +224,11 @@ pub enum Msg {
     ToggleSidebarSection(SidebarSection),
     /// Periodic tick that expires lingering completed-task entries.
     PruneCompletedTasks,
+    /// Periodic tick (while library roots exist) to detect a removable drive
+    /// going offline / coming back, off-thread.
+    RecheckOfflineRoots,
+    /// Result of the off-thread reachability check: the roots currently offline.
+    OfflineRootsChecked(std::collections::HashSet<String>),
 
     TileSizeUp,
     TileSizeDown,

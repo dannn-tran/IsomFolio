@@ -555,10 +555,45 @@ impl App {
                 Task::none()
             }
 
-            Msg::SidebarLoaded { folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches } => {
+            Msg::RecheckOfflineRoots => {
+                // Stat the roots off-thread (a dead mount can block) and report
+                // which are offline; the UI thread only diffs the result.
+                let paths: Vec<String> =
+                    self.library_roots.iter().map(|r| r.path.clone()).collect();
+                if paths.is_empty() {
+                    return Task::none();
+                }
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            paths
+                                .into_iter()
+                                .filter(|p| !std::path::Path::new(p).is_dir())
+                                .collect::<std::collections::HashSet<String>>()
+                        })
+                        .await
+                        .unwrap_or_default()
+                    },
+                    Msg::OfflineRootsChecked,
+                )
+            }
+
+            Msg::OfflineRootsChecked(offline) => {
+                if offline == self.offline_roots {
+                    return Task::none();
+                }
+                // A drive came back or dropped — reload the sidebar (recomputes
+                // offline state, re-establishes watchers for now-reachable roots).
+                // Grid/sidebar "Offline" markers derive from `offline_roots`, so
+                // they refresh on the reload's view pass.
+                self.load_sidebar_task()
+            }
+
+            Msg::SidebarLoaded { folders, folder_tree, library_roots, offline_roots, cameras, albums, album_counts, deleted_count, import_batches } => {
                 self.folders = folders;
                 self.folder_tree = folder_tree;
                 self.library_roots = library_roots;
+                self.offline_roots = offline_roots;
                 self.cameras = cameras;
                 self.albums = albums;
                 self.album_counts = album_counts;

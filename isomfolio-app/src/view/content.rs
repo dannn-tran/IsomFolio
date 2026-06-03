@@ -379,10 +379,15 @@ impl App {
             layers.push(badge_layer);
         }
 
-        if file.is_orphaned {
+        // "Missing" = file gone but its drive is present; "Offline" = the whole
+        // library root (drive) is currently unplugged. Offline is recoverable by
+        // reconnecting, so it reads as a state, not a loss.
+        let offline = self.is_offline_path(&file.folder);
+        if file.is_orphaned || offline {
+            let label = if offline { "Offline" } else { "Missing" };
             let scrim = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.65 };
             let banner: Element<Msg> = container(
-                container(text("Missing").size(TEXT_XS).color(WARN))
+                container(text(label).size(TEXT_XS).color(WARN))
                     .padding([2.0, 6.0])
                     .style(move |_: &Theme| container::Style {
                         background: Some(Background::Color(scrim)),
