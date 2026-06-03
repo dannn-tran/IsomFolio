@@ -68,13 +68,17 @@ impl Catalog {
     /// immediately — before its scan has indexed any files.
     pub fn folder_tree(&self) -> Result<Vec<crate::folder_tree::FolderNode>, AppError> {
         let mut folders = db::get_folder_counts(&self.conn)?;
+        let mut root_keys = Vec::new();
         for root in db::list_library_roots(&self.conn)? {
             // Empty roots (no files indexed yet) aren't in get_folder_counts, so
             // add them here. Keyed on the normalised path; the stored display path
             // carries real case. Folders with files already supply their display.
-            folders.push((root.path, root.path_display, 0));
+            folders.push((root.path.clone(), root.path_display, 0));
+            root_keys.push(root.path);
         }
-        Ok(crate::folder_tree::build_tree(&folders))
+        // The forest is anchored at the library roots so breadcrumbs start at the
+        // user's added folders, not the filesystem root.
+        Ok(crate::folder_tree::build_tree(&folders, &root_keys))
     }
 
     /// Library roots are stored case-folded (so they collate with each file's

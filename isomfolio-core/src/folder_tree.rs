@@ -1,15 +1,29 @@
 use std::collections::BTreeMap;
 use std::path::MAIN_SEPARATOR;
 
+/// One folder segment within a row's breadcrumb: its display name and the
+/// normalised path it navigates to when clicked.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FolderSeg {
+    pub name: String,
+    pub path: String,
+}
+
 /// A folder in the sidebar tree. Built from the flat list of leaf folders that
 /// contain photos (`get_folder_counts`), reconstructing the intermediate
 /// ancestors so the sidebar can render a navigable hierarchy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FolderNode {
-    /// Full normalised path of this folder.
+    /// Full normalised path of this folder (the deepest segment of `chain`).
     pub path: String,
-    /// Display name (basename).
+    /// Display name (basename) of the deepest segment.
     pub name: String,
+    /// Breadcrumb shown on this row: a run of single-child pass-through
+    /// ancestors compacted together (VS Code-style "compact folders"), ending
+    /// at this node. Length 1 for an ordinary folder; >1 when the chain has no
+    /// branching and no photos until the last segment. Each segment is
+    /// separately clickable.
+    pub chain: Vec<FolderSeg>,
     /// Photos directly in this folder (excludes descendants).
     pub direct_count: usize,
     /// Photos in this folder plus all descendants.
@@ -26,17 +40,25 @@ struct Trie {
 }
 
 /// Build the sidebar folder forest from `(folder_key, folder_display, direct_count)`
-/// triples. The key is the case-folded path (trie structure + node `path`); the
+/// triples plus the set of **library root** key-paths (the folders the user
+/// added). The key is the case-folded path (trie structure + node `path`); the
 /// display path carries real-case segment names for each `FolderNode.name`.
 ///
-/// Pure pass-through ancestors (a single child, no files of their own) are
-/// collapsed so the displayed roots are the deepest common folders the user
-/// actually has photos under — never `/`, `/Users`, etc.
-pub fn build_tree(folders: &[(String, String, usize)]) -> Vec<FolderNode> {
-    build_tree_sep(folders, MAIN_SEPARATOR)
+/// The forest is rooted at the library anchors — the common ancestor of the
+/// added folders on each drive (see [`library_anchors`]) — so the breadcrumb
+/// starts at the user's content, not the filesystem root: the noisy `/Users/me`
+/// prefix above it is hidden. Below an anchor, single-child pass-through runs are
+/// compacted into one breadcrumb row. When `roots` is empty (e.g. unit tests),
+/// it falls back to filesystem-top roots.
+pub fn build_tree(folders: &[(String, String, usize)], roots: &[String]) -> Vec<FolderNode> {
+    build_tree_sep(folders, roots, MAIN_SEPARATOR)
 }
 
-fn build_tree_sep(folders: &[(String, String, usize)], sep: char) -> Vec<FolderNode> {
+fn build_tree_sep(
+    folders: &[(String, String, usize)],
+    roots: &[String],
+    sep: char,
+) -> Vec<FolderNode> {
     // An absolute path's leading separator yields an empty first segment
     // (`/photos` → `["", "photos"]`). Drop empty segments entirely — the root
     // "/" is not a real folder — and re-attach the leading separator once when
@@ -64,13 +86,84 @@ fn build_tree_sep(folders: &[(String, String, usize)], sep: char) -> Vec<FolderN
         }
     }
 
-    let prefix = if absolute { sep.to_string() } else { String::new() };
-    root.children
-        .iter()
-        .flat_map(|(comp, child)| {
-            let path = format!("{prefix}{comp}");
-            collapse(to_node(&path, &child.display, comp, child, sep))
-        })
+    let anchors = library_anchors(roots, sep);
+    let mut nodes: Vec<FolderNode> = if anchors.is_empty() {
+        // Fallback: roots unknown — display from the filesystem-top dirs.
+        let prefix = if absolute { sep.to_string() } else { String::new() };
+        root.children
+            .iter()
+            .map(|(comp, child)| {
+                let path = format!("{prefix}{comp}");
+                compact(to_node(&path, &child.display, comp, child, sep))
+            })
+            .collect()
+    } else {
+        anchors
+            .iter()
+            .filter_map(|anchor| {
+                let node = node_at(&root, anchor, sep)?;
+                let last = anchor.rsplit(sep).find(|s| !s.is_empty()).unwrap_or(anchor);
+                Some(compact(to_node(anchor, &node.display, last, node, sep)))
+            })
+            .collect()
+    };
+    nodes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    nodes
+}
+
+/// Walk the trie to the node at `path` (segments are case-folded keys).
+fn node_at<'a>(root: &'a Trie, path: &str, sep: char) -> Option<&'a Trie> {
+    let mut node = root;
+    for comp in path.split(sep).filter(|s| !s.is_empty()) {
+        node = node.children.get(comp)?;
+    }
+    Some(node)
+}
+
+/// Deepest common ancestor of `paths`, segment-wise, as an absolute path
+/// (empty when they share no leading segment). A single path is its own ancestor.
+fn common_ancestor(paths: &[&str], sep: char) -> String {
+    let segs = |p: &str| -> Vec<String> {
+        p.split(sep).filter(|s| !s.is_empty()).map(str::to_string).collect()
+    };
+    let mut common = match paths.first() {
+        Some(p) => segs(p),
+        None => return String::new(),
+    };
+    for p in &paths[1..] {
+        let other = segs(p);
+        let n = common.iter().zip(&other).take_while(|(a, b)| a == b).count();
+        common.truncate(n);
+    }
+    if common.is_empty() {
+        String::new()
+    } else {
+        format!("{sep}{}", common.join(&sep.to_string()))
+    }
+}
+
+/// The forest anchors: the library root(s) the breadcrumb should start at. All
+/// added folders normally share a common ancestor (one anchor); when they span
+/// drives with no shared prefix, they're grouped by their top-level segment so
+/// each drive gets its own anchor instead of collapsing to a bare `/`.
+fn library_anchors(roots: &[String], sep: char) -> Vec<String> {
+    if roots.is_empty() {
+        return Vec::new();
+    }
+    let refs: Vec<&str> = roots.iter().map(String::as_str).collect();
+    let ca = common_ancestor(&refs, sep);
+    if !ca.is_empty() {
+        return vec![ca];
+    }
+    let mut groups: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for r in &refs {
+        let top = r.split(sep).find(|s| !s.is_empty()).unwrap_or("");
+        groups.entry(top).or_default().push(r);
+    }
+    groups
+        .values()
+        .map(|g| common_ancestor(g, sep))
+        .filter(|a| !a.is_empty())
         .collect()
 }
 
@@ -90,19 +183,30 @@ fn to_node(path: &str, display: &str, key_comp: &str, t: &Trie, sep: char) -> Fo
     FolderNode {
         path: path.to_string(),
         name: name.to_string(),
+        chain: vec![FolderSeg { name: name.to_string(), path: path.to_string() }],
         direct_count: t.count,
         total_count: total,
         children,
     }
 }
 
-/// Descend through pass-through ancestors (no own files, exactly one child)
-/// so the returned root is the first folder that branches or holds photos.
-fn collapse(mut node: FolderNode) -> Vec<FolderNode> {
+/// Compact a chain of pass-through folders (no own photos, exactly one child)
+/// into a single breadcrumb row, then recurse into the branch's children — the
+/// VS Code "compact folders" model. Names stay visible (each segment in `chain`
+/// is separately clickable) instead of being collapsed away.
+fn compact(mut node: FolderNode) -> FolderNode {
     while node.direct_count == 0 && node.children.len() == 1 {
-        node = node.children.into_iter().next().unwrap();
+        let mut child = node.children.remove(0);
+        node.chain.append(&mut child.chain);
+        node.path = child.path;
+        node.name = child.name;
+        node.direct_count = child.direct_count;
+        node.children = child.children;
+        // total_count is unchanged: this node had no photos of its own, so its
+        // total already equalled the absorbed child's total.
     }
-    vec![node]
+    node.children = node.children.into_iter().map(compact).collect();
+    node
 }
 
 /// Folder paths to expand so `target` and its immediate children are visible:
@@ -141,7 +245,15 @@ mod tests {
         // Display path == key path here, so node names equal the key segments.
         let owned: Vec<(String, String, usize)> =
             folders.iter().map(|(p, c)| (p.to_string(), p.to_string(), *c)).collect();
-        build_tree_sep(&owned, '/')
+        // No roots → filesystem-top fallback (exercises the trie/compaction).
+        build_tree_sep(&owned, &[], '/')
+    }
+
+    fn build_anchored(folders: &[(&str, usize)], roots: &[&str]) -> Vec<FolderNode> {
+        let owned: Vec<(String, String, usize)> =
+            folders.iter().map(|(p, c)| (p.to_string(), p.to_string(), *c)).collect();
+        let roots: Vec<String> = roots.iter().map(|s| s.to_string()).collect();
+        build_tree_sep(&owned, &roots, '/')
     }
 
     #[test]
@@ -152,6 +264,7 @@ mod tests {
                 ("/lib/2018/wedding".into(), "/Lib/2018/Wedding".into(), 3),
                 ("/lib/2018/holiday".into(), "/Lib/2018/Holiday".into(), 2),
             ],
+            &[],
             '/',
         );
         // path stays the case-folded key; name comes from the display path.
@@ -164,8 +277,71 @@ mod tests {
 
     #[test]
     fn empty_display_falls_back_to_key_segment() {
-        let tree = build_tree_sep(&[("/photos/2011".into(), String::new(), 5)], '/');
+        let tree = build_tree_sep(&[("/photos/2011".into(), String::new(), 5)], &[], '/');
         assert_eq!(tree[0].name, "2011");
+    }
+
+    #[test]
+    fn single_child_chain_compacts_into_one_breadcrumb_row() {
+        let tree = build(&[("/a/b/c", 3)]);
+        assert_eq!(tree.len(), 1);
+        let row = &tree[0];
+        // One row, but the breadcrumb keeps every pass-through segment, each
+        // with its own navigable path.
+        let chain: Vec<(&str, &str)> =
+            row.chain.iter().map(|s| (s.name.as_str(), s.path.as_str())).collect();
+        assert_eq!(chain, vec![("a", "/a"), ("b", "/a/b"), ("c", "/a/b/c")]);
+        assert_eq!(row.path, "/a/b/c");
+        assert_eq!(row.name, "c");
+    }
+
+    #[test]
+    fn branching_stops_compaction() {
+        // /a has two children, so it is its own row (chain == [a]); the children
+        // are separate single-segment rows.
+        let tree = build(&[("/a/b", 1), ("/a/c", 1)]);
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].chain.len(), 1);
+        assert_eq!(tree[0].name, "a");
+        assert_eq!(tree[0].children.len(), 2);
+        assert!(tree[0].children.iter().all(|c| c.chain.len() == 1));
+    }
+
+    #[test]
+    fn anchor_starts_breadcrumb_at_the_library_root() {
+        // Added /users/me/photos; its filesystem prefix is hidden, so the root
+        // row begins at "photos" rather than "users / me / photos".
+        let tree = build_anchored(
+            &[("/users/me/photos/2024", 3)],
+            &["/users/me/photos"],
+        );
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].chain.first().unwrap().name, "photos");
+        assert_eq!(tree[0].chain.first().unwrap().path, "/users/me/photos");
+    }
+
+    #[test]
+    fn two_roots_on_same_drive_anchor_at_common_ancestor() {
+        let tree = build_anchored(
+            &[("/users/me/photos", 3), ("/users/me/pics", 2)],
+            &["/users/me/photos", "/users/me/pics"],
+        );
+        // Common ancestor /users/me becomes the single (virtual) root.
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].path, "/users/me");
+        let names: Vec<&str> = tree[0].children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["photos", "pics"]);
+    }
+
+    #[test]
+    fn roots_across_drives_anchor_separately() {
+        let tree = build_anchored(
+            &[("/users/me/photos", 3), ("/volumes/sd/dcim", 2)],
+            &["/users/me/photos", "/volumes/sd/dcim"],
+        );
+        assert_eq!(tree.len(), 2);
+        let paths: Vec<&str> = tree.iter().map(|n| n.path.as_str()).collect();
+        assert!(paths.contains(&"/users/me/photos") && paths.contains(&"/volumes/sd/dcim"));
     }
 
     #[test]
