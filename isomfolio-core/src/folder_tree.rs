@@ -37,29 +37,40 @@ pub fn build_tree(folders: &[(String, String, usize)]) -> Vec<FolderNode> {
 }
 
 fn build_tree_sep(folders: &[(String, String, usize)], sep: char) -> Vec<FolderNode> {
+    // An absolute path's leading separator yields an empty first segment
+    // (`/photos` → `["", "photos"]`). Drop empty segments entirely — the root
+    // "/" is not a real folder — and re-attach the leading separator once when
+    // building top-level paths. Divergent top-level dirs (e.g. `/Users/...` and
+    // `/Volumes/...`) then naturally form sibling roots, a forest, with no
+    // nameless "ghost" parent.
+    let absolute = folders.iter().any(|(p, _, _)| p.starts_with(sep));
     let mut root = Trie::default();
     for (path, display, count) in folders {
-        let trimmed = path.trim_end_matches(sep);
-        if trimmed.is_empty() {
-            continue;
-        }
-        let mut disp_segs = display.trim_end_matches(sep).split(sep);
+        let mut disp_segs = display.split(sep).filter(|s| !s.is_empty());
         let mut node = &mut root;
-        for comp in trimmed.split(sep) {
+        let mut any = false;
+        for comp in path.split(sep).filter(|s| !s.is_empty()) {
+            any = true;
             // Pair each key segment with its display counterpart; the two paths
             // share structure (both canonicalised) so they align 1:1.
-            let disp = disp_segs.next().filter(|s| !s.is_empty());
+            let disp = disp_segs.next();
             node = node.children.entry(comp.to_string()).or_default();
             if node.display.is_empty() {
                 node.display = disp.unwrap_or(comp).to_string();
             }
         }
-        node.count += *count;
+        if any {
+            node.count += *count;
+        }
     }
 
+    let prefix = if absolute { sep.to_string() } else { String::new() };
     root.children
         .iter()
-        .flat_map(|(comp, child)| collapse(to_node(comp, &child.display, comp, child, sep)))
+        .flat_map(|(comp, child)| {
+            let path = format!("{prefix}{comp}");
+            collapse(to_node(&path, &child.display, comp, child, sep))
+        })
         .collect()
 }
 
@@ -155,6 +166,18 @@ mod tests {
     fn empty_display_falls_back_to_key_segment() {
         let tree = build_tree_sep(&[("/photos/2011".into(), String::new(), 5)], '/');
         assert_eq!(tree[0].name, "2011");
+    }
+
+    #[test]
+    fn divergent_top_level_roots_have_no_ghost_parent() {
+        // Different first-level dirs (e.g. internal vs external volume) share only
+        // the leading "/" — the empty leading segment must not surface as a root.
+        let tree = build(&[("/users/me/photos", 3), ("/mnt/sd/dcim", 2)]);
+        assert_eq!(tree.len(), 2);
+        assert!(tree.iter().all(|n| !n.name.is_empty() && !n.path.is_empty()));
+        let names: Vec<&str> = tree.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"photos") && names.contains(&"dcim"));
+        assert_eq!(tree.iter().find(|n| n.name == "photos").unwrap().path, "/users/me/photos");
     }
 
     #[test]

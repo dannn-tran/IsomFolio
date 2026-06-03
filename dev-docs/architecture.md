@@ -41,7 +41,7 @@ The photo grid is **virtualised**: only the rows intersecting the viewport are b
 
 ### Folder tree
 
-Built from the distinct indexed folder paths, reconstructing intermediate ancestors into a navigable tree. Pure pass-through ancestors (no own photos, exactly one child) are **collapsed** so the displayed roots are the deepest folders the user actually has photos under — never `/`, `/Users`, etc. Counts shown are recursive (folder + all descendants). **Invariants:** expansion state is *ephemeral* (UI-only, not persisted); scan depth (recursive vs flat) is decided once when a root is added and *persisted per root*, and re-sync honours it.
+Built from the distinct indexed folder paths, reconstructing intermediate ancestors into a navigable tree. Pure pass-through ancestors (no own photos, exactly one child) are **collapsed** so the displayed roots are the deepest folders the user actually has photos under — never `/`, `/Users`, etc. It is a **forest**: divergent top-level directories (e.g. an internal volume and `/Volumes/...`) are separate sibling roots. The leading separator of an absolute path is *not* a node — empty path segments are dropped at build time, so there is no nameless "ghost" root parenting the real ones (the absolute prefix is re-attached when building top-level paths). Counts shown are recursive (folder + all descendants). **Invariants:** expansion state is *ephemeral* (UI-only, not persisted); scan depth (recursive vs flat) is decided once when a root is added and *persisted per root*, and re-sync honours it.
 
 #### Path key vs display path
 
