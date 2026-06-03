@@ -69,17 +69,23 @@ impl Catalog {
     pub fn folder_tree(&self) -> Result<Vec<crate::folder_tree::FolderNode>, AppError> {
         let mut folders = db::get_folder_counts(&self.conn)?;
         for root in db::list_library_roots(&self.conn)? {
-            folders.push((root.path, 0));
+            // Normalise on read too: heals catalogs that stored a root before
+            // roots were normalised, so it merges with the (normalised) per-file
+            // folders instead of spawning a duplicate original-case tree.
+            folders.push((crate::path_utils::normalize_path(&root.path), 0));
         }
         Ok(crate::folder_tree::build_tree(&folders))
     }
 
+    /// Library roots must be stored normalised so they collate with the
+    /// normalised `folder` of each indexed file (case-folded on macOS/Windows);
+    /// otherwise the sidebar shows the root as a second, original-case tree.
     pub fn upsert_library_root(&self, path: &str, recursive: bool) -> Result<(), AppError> {
-        db::upsert_library_root(&self.conn, path, recursive)
+        db::upsert_library_root(&self.conn, &crate::path_utils::normalize_path(path), recursive)
     }
 
     pub fn remove_library_root(&self, path: &str) -> Result<(), AppError> {
-        db::remove_library_root(&self.conn, path)
+        db::remove_library_root(&self.conn, &crate::path_utils::normalize_path(path))
     }
 
     pub fn record_import_batch(
