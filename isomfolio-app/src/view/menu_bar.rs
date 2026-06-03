@@ -236,6 +236,7 @@ impl App {
             MenuItem::Action("Delete", "Del", Msg::DeleteSelection),
             MenuItem::Separator,
             MenuItem::Action("Find People", "", Msg::RunFaceClustering { force_full: false }),
+            MenuItem::Action("Re-cluster All Faces", "", Msg::RunFaceClustering { force_full: true }),
             MenuItem::Action("New Smart Album from Filters…", "", Msg::SaveAsSmartAlbum),
         ]
     }
