@@ -1,6 +1,7 @@
 mod compare;
 mod content;
 mod context_menu;
+mod icons;
 mod loupe_image;
 mod menu_bar;
 mod people;
