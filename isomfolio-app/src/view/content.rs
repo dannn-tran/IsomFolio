@@ -1,6 +1,6 @@
 use iced::widget::scrollable::Direction;
 use iced::{
-    widget::{button, column, container, image, pick_list, row, scrollable, stack, text, text_input, Space},
+    widget::{button, column, container, image, mouse_area, pick_list, row, scrollable, stack, text, text_input, tooltip, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
@@ -30,15 +30,44 @@ use super::styles::{
     WARN,
 };
 use crate::app::{
-    format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, DatePreset, Msg,
-    DetailField, RatingCmp, BUFFER_ROWS, GRID_PADDING, TILE_GAP,
+    format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, DatePreset,
+    GridLayout, ListCol, Msg, DetailField, RatingCmp, BUFFER_ROWS, GRID_PADDING,
+    LIST_HEADER_HEIGHT, LIST_ROW_HEIGHT, TILE_GAP,
 };
+
+// Fixed (non-resizable) glyph columns for the List layout. The resizable
+// columns (Name/Stars/Date/Size/Type) live in `App::list_col`. Header and rows
+// read the same widths so they stay aligned; trailing slack absorbs the rest.
+const LIST_THUMB_W: f32 = 32.0;
+const LIST_COL_FLAG: f32 = 20.0;
+const LIST_COL_COLOR: f32 = 16.0;
+/// Width of a column-resize grab handle at the right edge of a header cell.
+const LIST_HANDLE_W: f32 = 6.0;
 
 impl App {
     pub(super) fn view_grid(&self) -> Element<'_, Msg> {
         let filter_panel_open = self.filters.show;
         let filters_active = self.has_active_filters();
         let hide_rejects_on = self.filters.flags == HIDE_REJECTS;
+        let is_list = matches!(self.grid_layout, GridLayout::List);
+
+        let layout_toggle = row![
+            super::styles::tip(
+                button(text("▦").size(TEXT_MD))
+                    .on_press(Msg::SetGridLayout(GridLayout::Grid))
+                    .style(move |t: &Theme, s| if is_list { ghost_btn_style(t, s) } else { active_chip_style(t, s) }),
+                "Grid view",
+                super::styles::TipPos::Bottom,
+            ),
+            super::styles::tip(
+                button(text("≡").size(TEXT_MD))
+                    .on_press(Msg::SetGridLayout(GridLayout::List))
+                    .style(move |t: &Theme, s| if is_list { active_chip_style(t, s) } else { ghost_btn_style(t, s) }),
+                "List view",
+                super::styles::TipPos::Bottom,
+            ),
+        ]
+        .spacing(SPACE_0_5);
 
         let sort_choices: Vec<SortChoice> = SORT_FIELDS.iter().copied().map(SortChoice).collect();
         let sort_picker = pick_list(
@@ -85,6 +114,7 @@ impl App {
                     ghost_btn_style(t, s)
                 }
             }),
+            layout_toggle,
             text("Sort").size(TEXT_MD).color(FG_DIM),
             sort_picker,
             sort_dir,
@@ -123,7 +153,7 @@ impl App {
         } else {
             let cols = self.cols().max(1);
             let tile_px = self.tile_px;
-            let step = tile_px + TILE_GAP;
+            let step = self.row_step();
             let total = self.files.len();
             let total_rows = (total + cols - 1) / cols;
 
@@ -139,20 +169,27 @@ impl App {
 
             let row_elements: Vec<Element<Msg>> = (first_row..last_row)
                 .map(|r| {
-                    let start = r * cols;
-                    let end = (start + cols).min(total);
-                    let tiles = (start..end).map(|i| self.view_tile(i));
-                    let padding = cols - (end - start);
-                    let pad_iter = std::iter::repeat_with(|| Space::new().width(tile_px).into())
-                        .take(padding);
-                    let all_tiles: Vec<Element<Msg>> = tiles.chain(pad_iter).collect();
-                    row(all_tiles).spacing(TILE_GAP).into()
+                    if is_list {
+                        // cols == 1 in List, so the row index *is* the file index.
+                        self.view_list_row(r)
+                    } else {
+                        let start = r * cols;
+                        let end = (start + cols).min(total);
+                        let tiles = (start..end).map(|i| self.view_tile(i));
+                        let padding = cols - (end - start);
+                        let pad_iter =
+                            std::iter::repeat_with(|| Space::new().width(tile_px).into())
+                                .take(padding);
+                        let all_tiles: Vec<Element<Msg>> = tiles.chain(pad_iter).collect();
+                        row(all_tiles).spacing(TILE_GAP).into()
+                    }
                 })
                 .collect();
 
+            let row_spacing = if is_list { 0.0 } else { TILE_GAP };
             let grid_content = column![
                 Space::new().height(top_space + GRID_PADDING),
-                column(row_elements).spacing(TILE_GAP),
+                column(row_elements).spacing(row_spacing),
                 Space::new().height(bottom_space + GRID_PADDING),
             ]
             .padding([0, GRID_PADDING as u16]);
@@ -175,6 +212,9 @@ impl App {
         let mut grid_col = column![filter_toolbar, self.view_cull_strip()];
         if filter_panel_open {
             grid_col = grid_col.push(self.view_filter_panel());
+        }
+        if is_list && !self.files.is_empty() {
+            grid_col = grid_col.push(self.view_list_header());
         }
         grid_col = grid_col.push(empty_or_grid);
 
@@ -358,6 +398,259 @@ impl App {
 
 
         stack(layers).into()
+    }
+
+    /// Clickable, resizable column-header strip for the List layout. The four
+    /// real `SortField`s (Name/Date/Size/Type) sort on click — clicking the
+    /// active column toggles direction. Each resizable column ends in a drag
+    /// handle that sets its width (`App::list_col`); Rating is resizable but not
+    /// sortable; flag/colour are fixed glyph columns. Widths mirror
+    /// `view_list_row`, with trailing slack absorbing the remainder.
+    pub(super) fn view_list_header(&self) -> Element<'_, Msg> {
+        let w = &self.list_col;
+
+        // The grab handle: a thin zone at a column's right edge with a 1px
+        // separator line. Discovered via the horizontal-resize cursor on hover.
+        let handle = |col: ListCol| -> Element<Msg> {
+            mouse_area(
+                container(
+                    container(Space::new())
+                        .width(1.0)
+                        .height(Length::Fill)
+                        .style(|_: &Theme| container::Style {
+                            background: Some(Background::Color(BORDER)),
+                            ..Default::default()
+                        }),
+                )
+                .width(LIST_HANDLE_W)
+                .height(Length::Fill)
+                .align_x(Alignment::Center),
+            )
+            .interaction(iced::mouse::Interaction::ResizingHorizontally)
+            .on_press(Msg::ListColResizeStart(col))
+            .into()
+        };
+        let sortable_col = |label: &str, field: SortField, col: ListCol, width: f32| -> Element<Msg> {
+            let active = self.sort_by == field;
+            let arrow = if active {
+                if self.sort_asc { " ▲" } else { " ▼" }
+            } else {
+                ""
+            };
+            let msg = if active { Msg::SortDirToggle } else { Msg::SetSortField(field) };
+            container(
+                row![
+                    button(
+                        text(format!("{label}{arrow}"))
+                            .size(TEXT_SM)
+                            .color(if active { FG } else { FG_DIM }),
+                    )
+                    .on_press(msg)
+                    .padding([0.0, SPACE_1])
+                    .width(Length::Fill)
+                    .style(ghost_btn_style),
+                    handle(col),
+                ]
+                .align_y(Alignment::Center),
+            )
+            .width(width)
+            .into()
+        };
+        let plain_col = |label: &str, col: ListCol, width: f32| -> Element<Msg> {
+            container(
+                row![
+                    container(text(label.to_string()).size(TEXT_SM).color(FG_DIM))
+                        .padding([0.0, SPACE_1])
+                        .width(Length::Fill),
+                    handle(col),
+                ]
+                .align_y(Alignment::Center),
+            )
+            .width(width)
+            .into()
+        };
+        let fixed = |label: &str, width: f32| -> Element<Msg> {
+            container(text(label.to_string()).size(TEXT_SM).color(FG_DIM))
+                .padding([0.0, SPACE_1])
+                .width(width)
+                .into()
+        };
+
+        let header = row![
+            Space::new().width(LIST_THUMB_W),
+            sortable_col("Name", SortField::Name, ListCol::Name, w.name),
+            fixed("Flag", LIST_COL_FLAG),
+            plain_col("Rating", ListCol::Stars, w.stars),
+            fixed("Col", LIST_COL_COLOR),
+            sortable_col("Date", SortField::Date, ListCol::Date, w.date),
+            sortable_col("Size", SortField::Size, ListCol::Size, w.size),
+            sortable_col("Type", SortField::Ext, ListCol::Type, w.type_),
+            Space::new().width(Length::Fill),
+        ]
+        .spacing(SPACE_2)
+        .align_y(Alignment::Center);
+
+        container(header)
+            .width(Length::Fill)
+            .height(Length::Fixed(LIST_HEADER_HEIGHT))
+            .padding([0, GRID_PADDING as u16])
+            .align_y(Alignment::Center)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_CRITERIA)),
+                border: Border { color: BORDER, width: 0.0, radius: 0.0.into() },
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// One file rendered as a compact line (List layout). Pure presentation —
+    /// clicks/drag/right-click flow through the global mouse handler + `tile_index_at`
+    /// exactly like grid tiles, so the selection model is shared.
+    pub(super) fn view_list_row(&self, idx: usize) -> Element<'_, Msg> {
+        let file = &self.files[idx];
+        let selected = self.grid_selected.contains(&file.id);
+        let dragging = self.drag.ids.contains(&file.id);
+        let rejected = file.flag == Flag::Reject;
+
+        let thumb_px = LIST_ROW_HEIGHT - 8.0;
+        let placeholder = || {
+            container(Space::new())
+                .width(thumb_px)
+                .height(thumb_px)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(BG_TILE_LOADING)),
+                    border: Border { radius: 2.0.into(), ..Default::default() },
+                    ..Default::default()
+                })
+        };
+        let thumb: Element<Msg> = match self.thumbnails.get(&file.id) {
+            Some(ThumbnailState::Ready(_)) => {
+                if let Some(handle) = self.thumb_ctx.handles.get(&file.id).cloned() {
+                    image(handle)
+                        .width(thumb_px)
+                        .height(thumb_px)
+                        .content_fit(iced::ContentFit::Cover)
+                        .into()
+                } else {
+                    placeholder().into()
+                }
+            }
+            _ => placeholder().into(),
+        };
+
+        let name_color = if selected {
+            Color::WHITE
+        } else if rejected {
+            FG_MUTED
+        } else {
+            FG
+        };
+        let flag_cell: Element<Msg> = match file.flag {
+            Flag::Pick => text("✓").size(TEXT_SM).color(ACCENT).into(),
+            Flag::Reject => text("✕").size(TEXT_SM).color(ERR).into(),
+            Flag::Unflagged => text("").size(TEXT_SM).into(),
+        };
+        let rating = self.file_ratings.get(&file.id).copied().unwrap_or(0);
+        let stars = if rating > 0 { "★".repeat(rating as usize) } else { String::new() };
+        let color_cell: Element<Msg> = match self.file_labels.get(&file.id) {
+            Some(name) => text("●")
+                .size(TEXT_SM)
+                .color(super::styles::color_label_swatch(name))
+                .into(),
+            None => text("").size(TEXT_SM).into(),
+        };
+        let date_unix = file.exif_date_unix.unwrap_or(file.mtime_unix);
+        let w = &self.list_col;
+
+        // Name is a fixed (resizable) width; estimate its char budget to decide
+        // whether the clipped filename needs a hover tooltip to stay readable
+        // (same trick the sidebar uses for folder/album labels).
+        let name_budget = ((w.name / 7.5).floor() as usize).max(4);
+        let name_clipped = file.name.chars().count() > name_budget;
+
+        let name_cell = container(
+            text(&file.name)
+                .size(TEXT_BASE)
+                .color(name_color)
+                .wrapping(iced::widget::text::Wrapping::None),
+        )
+        .width(w.name)
+        .padding([0.0, SPACE_1])
+        .clip(true);
+        let name_el: Element<Msg> = if name_clipped {
+            tooltip(
+                name_cell,
+                container(text(&file.name).size(TEXT_SM).color(FG))
+                    .padding([SPACE_1, SPACE_1_5])
+                    .style(|_: &Theme| container::Style {
+                        background: Some(Background::Color(Color {
+                            r: 0.12,
+                            g: 0.12,
+                            b: 0.15,
+                            a: 0.97,
+                        })),
+                        border: Border { color: BORDER, width: 1.0, radius: 4.0.into() },
+                        ..Default::default()
+                    }),
+                tooltip::Position::Bottom,
+            )
+            .into()
+        } else {
+            name_cell.into()
+        };
+
+        let line = row![
+            container(thumb).width(LIST_THUMB_W).align_x(Alignment::Center),
+            name_el,
+            container(flag_cell).width(LIST_COL_FLAG).padding([0.0, SPACE_1]),
+            container(text(stars).size(TEXT_SM).color(STAR_GOLD))
+                .width(w.stars)
+                .padding([0.0, SPACE_1])
+                .clip(true),
+            container(color_cell).width(LIST_COL_COLOR).padding([0.0, SPACE_1]),
+            container(text(unix_to_date_str(date_unix)).size(TEXT_SM).color(FG_DIM))
+                .width(w.date)
+                .padding([0.0, SPACE_1]),
+            container(text(format_file_size(file.size_bytes)).size(TEXT_SM).color(FG_DIM))
+                .width(w.size)
+                .padding([0.0, SPACE_1]),
+            container(
+                text(format!(".{}", file.ext.to_uppercase()))
+                    .size(TEXT_SM)
+                    .color(FG_DIM),
+            )
+            .width(w.type_)
+            .padding([0.0, SPACE_1]),
+            // Trailing slack so the fixed columns stay left-packed and the row's
+            // right edge tracks a column-resize handle (matches the header).
+            Space::new().width(Length::Fill),
+        ]
+        .spacing(SPACE_2)
+        .align_y(Alignment::Center);
+
+        // Hover feedback: the global mouse model has no per-widget hover, so
+        // derive it from the tracked cursor via the shared hit-test.
+        let hovered = !selected && !dragging && self.tile_index_at(self.cursor) == Some(idx);
+        let bg = if selected || dragging {
+            Color { a: 0.28, ..ACCENT }
+        } else if hovered {
+            Color { r: 1.0, g: 1.0, b: 1.0, a: 0.06 }
+        } else {
+            Color::TRANSPARENT
+        };
+
+        // No horizontal padding here: the enclosing grid_content column already
+        // insets by GRID_PADDING (matching the header strip), so adding it again
+        // would misalign rows against the header.
+        container(line)
+            .width(Length::Fill)
+            .height(Length::Fixed(LIST_ROW_HEIGHT))
+            .align_y(Alignment::Center)
+            .style(move |_: &Theme| container::Style {
+                background: Some(Background::Color(bg)),
+                ..Default::default()
+            })
+            .into()
     }
 
     /// The three cull axes — flags, rating, colour — as a single dense glyph

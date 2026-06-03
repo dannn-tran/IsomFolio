@@ -299,10 +299,24 @@ impl App {
                 Task::none()
             }
 
+            Msg::ListColResizeStart(col) => {
+                self.list_resize = Some(crate::app::ListResize {
+                    col,
+                    start_x: self.cursor.x,
+                    start_w: self.list_col.get(col),
+                });
+                Task::none()
+            }
+
             Msg::MouseMoved(pos) => {
                 self.cursor = pos;
                 if self.sidebar_resizing {
                     self.sidebar_width = pos.x.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+                    return Task::none();
+                }
+                if let Some(r) = self.list_resize {
+                    // Right-edge handle: width tracks the cursor's x delta.
+                    self.list_col.set(r.col, r.start_w + (pos.x - r.start_x));
                     return Task::none();
                 }
                 if let Some(ref mut d) = self.drag.state {
@@ -383,6 +397,11 @@ impl App {
                 }
                 self.context_menu = None;
                 let pos = self.cursor;
+                // A press in the List column-header strip (sort button or resize
+                // handle) is handled by its own widget; don't clear the selection.
+                if self.in_list_header_band(pos) {
+                    return Task::none();
+                }
                 if matches!(self.view_mode, ViewMode::Browse) {
                     if let Some(idx) = self.tile_index_at(pos) {
                         let mods = self.modifiers;
@@ -438,6 +457,9 @@ impl App {
             Msg::MouseReleased => {
                 if self.sidebar_resizing {
                     self.sidebar_resizing = false;
+                    return Task::none();
+                }
+                if self.list_resize.take().is_some() {
                     return Task::none();
                 }
                 let was_drag_active = self.drag.state.as_ref().map_or(false, |d| d.active);

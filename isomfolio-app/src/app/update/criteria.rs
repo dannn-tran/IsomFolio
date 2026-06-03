@@ -24,6 +24,16 @@ impl App {
                 self.load_files_task()
             }
 
+            Msg::SetGridLayout(layout) => {
+                // Pure presentation change — no reload. Keep the anchor visible
+                // since row geometry changes underneath it.
+                self.grid_layout = layout;
+                if let Some(idx) = self.anchor_idx {
+                    return self.scroll_to_index(idx);
+                }
+                Task::none()
+            }
+
             Msg::SortCycleAll => {
                 if self.sort_asc {
                     self.sort_asc = false;

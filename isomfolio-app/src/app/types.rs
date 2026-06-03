@@ -46,6 +46,73 @@ pub const CULL_STRIP_HEIGHT: f32 = 32.0;
 pub const CRITERIA_ROW_HEIGHT: f32 = 32.0;
 pub const CRITERIA_ROW_COUNT: usize = 3;
 pub const CRITERIA_PADDING: f32 = 18.0;
+/// One row in the compact List layout (thumbnail + columns).
+pub const LIST_ROW_HEIGHT: f32 = 32.0;
+/// Clickable column-header strip shown above the grid in List layout only.
+/// Counted in `tile_index_at` so list-row hit-testing stays exact.
+pub const LIST_HEADER_HEIGHT: f32 = 24.0;
+/// Clamp range for a user-dragged List column width.
+pub const LIST_COL_MIN: f32 = 44.0;
+pub const LIST_COL_MAX: f32 = 360.0;
+
+/// The user-resizable columns in the List layout (thumbnail/flag/colour are
+/// fixed glyph columns and not resizable).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListCol {
+    Name,
+    Stars,
+    Date,
+    Size,
+    Type,
+}
+
+/// Current widths (px) of the resizable List columns. Runtime state, in-memory.
+#[derive(Debug, Clone, Copy)]
+pub struct ListColWidths {
+    pub name: f32,
+    pub stars: f32,
+    pub date: f32,
+    pub size: f32,
+    pub type_: f32,
+}
+
+impl Default for ListColWidths {
+    fn default() -> Self {
+        Self { name: 260.0, stars: 76.0, date: 116.0, size: 84.0, type_: 60.0 }
+    }
+}
+
+impl ListColWidths {
+    pub fn get(&self, col: ListCol) -> f32 {
+        match col {
+            ListCol::Name => self.name,
+            ListCol::Stars => self.stars,
+            ListCol::Date => self.date,
+            ListCol::Size => self.size,
+            ListCol::Type => self.type_,
+        }
+    }
+
+    pub fn set(&mut self, col: ListCol, w: f32) {
+        let w = w.clamp(LIST_COL_MIN, LIST_COL_MAX);
+        match col {
+            ListCol::Name => self.name = w,
+            ListCol::Stars => self.stars = w,
+            ListCol::Date => self.date = w,
+            ListCol::Size => self.size = w,
+            ListCol::Type => self.type_ = w,
+        }
+    }
+}
+
+/// In-flight column drag: which column, plus the cursor x and column width at
+/// drag start so width tracks the cursor delta.
+#[derive(Debug, Clone, Copy)]
+pub struct ListResize {
+    pub col: ListCol,
+    pub start_x: f32,
+    pub start_w: f32,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ViewMode {
@@ -55,6 +122,15 @@ pub enum ViewMode {
     People,
     Compare,
     Settings,
+}
+
+/// How the Browse content area lays out files: a thumbnail grid or a compact
+/// columnar list (filename · flag · rating · date · size · type). A sub-mode of
+/// Browse — filters, cull strip, and detail panel stay live in both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridLayout {
+    Grid,
+    List,
 }
 
 /// Collapsible sidebar sections that hold a list of rows.
@@ -228,6 +304,9 @@ pub enum Msg {
     SortFieldCycle,
     SortDirToggle,
     SetSortField(SortField),
+    SetGridLayout(GridLayout),
+    /// Begin dragging a List column's right-edge resize handle.
+    ListColResizeStart(ListCol),
 
     SearchChanged(String),
 
