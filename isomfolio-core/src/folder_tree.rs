@@ -142,29 +142,45 @@ fn common_ancestor(paths: &[&str], sep: char) -> String {
     }
 }
 
-/// The forest anchors: the library root(s) the breadcrumb should start at. All
-/// added folders normally share a common ancestor (one anchor); when they span
-/// drives with no shared prefix, they're grouped by their top-level segment so
-/// each drive gets its own anchor instead of collapsing to a bare `/`.
+/// The forest anchors: the library root(s) the breadcrumb should start at.
+/// Roots are grouped by **drive** (so two distinct removable volumes don't merge
+/// under a shared `/Volumes` prefix); each group anchors at the common ancestor
+/// of its roots — or, if they share none, at each root individually.
 fn library_anchors(roots: &[String], sep: char) -> Vec<String> {
     if roots.is_empty() {
         return Vec::new();
     }
-    let refs: Vec<&str> = roots.iter().map(String::as_str).collect();
-    let ca = common_ancestor(&refs, sep);
-    if !ca.is_empty() {
-        return vec![ca];
+    let mut groups: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for r in roots {
+        groups.entry(drive_key(r, sep)).or_default().push(r);
     }
-    let mut groups: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for r in &refs {
-        let top = r.split(sep).find(|s| !s.is_empty()).unwrap_or("");
-        groups.entry(top).or_default().push(r);
+    let mut anchors = Vec::new();
+    for group in groups.values() {
+        let ca = common_ancestor(group, sep);
+        if ca.is_empty() {
+            // No shared prefix within the drive — anchor each root on its own.
+            anchors.extend(group.iter().map(|r| common_ancestor(&[r], sep)));
+        } else {
+            anchors.push(ca);
+        }
     }
-    groups
-        .values()
-        .map(|g| common_ancestor(g, sep))
-        .filter(|a| !a.is_empty())
-        .collect()
+    anchors.retain(|a| !a.is_empty());
+    anchors
+}
+
+/// Bucket a path by the volume it lives on. A macOS removable/external volume is
+/// `/Volumes/<name>` (its own bucket); everything else is the boot volume (one
+/// shared bucket). Keeps distinct external drives from collapsing together while
+/// still letting boot-volume roots share a common-ancestor anchor.
+fn drive_key(path: &str, sep: char) -> String {
+    let mut segs = path.split(sep).filter(|s| !s.is_empty());
+    match segs.next() {
+        Some(first) if first.eq_ignore_ascii_case("volumes") => match segs.next() {
+            Some(vol) => format!("{sep}volumes{sep}{vol}"),
+            None => format!("{sep}volumes"),
+        },
+        _ => String::new(),
+    }
 }
 
 fn join(prefix: &str, comp: &str, sep: char) -> String {
@@ -331,6 +347,20 @@ mod tests {
         assert_eq!(tree[0].path, "/users/me");
         let names: Vec<&str> = tree[0].children.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["photos", "pics"]);
+    }
+
+    #[test]
+    fn distinct_external_volumes_do_not_merge() {
+        // Two real removable drives under /volumes must stay separate roots,
+        // not collapse under a shared "/volumes" anchor.
+        let tree = build_anchored(
+            &[("/volumes/sdcard/dcim", 3), ("/volumes/backup/photos", 2)],
+            &["/volumes/sdcard/dcim", "/volumes/backup/photos"],
+        );
+        assert_eq!(tree.len(), 2);
+        let paths: Vec<&str> = tree.iter().map(|n| n.path.as_str()).collect();
+        assert!(paths.contains(&"/volumes/sdcard/dcim"));
+        assert!(paths.contains(&"/volumes/backup/photos"));
     }
 
     #[test]

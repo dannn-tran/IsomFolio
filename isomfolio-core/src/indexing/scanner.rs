@@ -195,6 +195,13 @@ pub fn reconcile_folder(
     conn: &Connection,
     root_path: &str,
 ) -> Result<ReconcileResult, AppError> {
+    // Guard: an unreachable root (e.g. an unmounted removable drive) must be
+    // treated as *offline*, never reconciled. Enumerating it would read zero
+    // files and orphan the entire folder — exactly the wrong outcome for a
+    // drive that's merely unplugged. Offline state is handled at the app layer.
+    if !Path::new(root_path).is_dir() {
+        return Ok(ReconcileResult::default());
+    }
     let indexed: HashMap<String, AssetFile> = db::get_indexed_paths_in_folder(conn, root_path)?;
 
     let mut fs_files: HashMap<String, fs::Metadata> = HashMap::new();

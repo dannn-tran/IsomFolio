@@ -9,7 +9,7 @@ pub enum FileEvent {
     SyncProgress(SyncProgress),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ReconcileResult {
     pub new_or_modified: Vec<String>,
     pub orphaned: Vec<FileId>,
