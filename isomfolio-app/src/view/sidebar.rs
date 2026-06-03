@@ -10,7 +10,7 @@ use super::styles::{
     confirm_action_row, ghost_btn_style, icon_btn_style, sidebar_divider, ACCENT, ALBUM_HOVER,
     BG_SIDEBAR, BG_STATUSBAR, FG, FG_DIM, FG_MUTED,
     SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_3,
-    TEXT_BASE, TEXT_MD, TEXT_SM,
+    TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
 };
 use super::icons::{Icon, ICON_SIZE};
 use crate::app::{
@@ -26,7 +26,7 @@ const IMPORTS_COLLAPSED: usize = 10;
 /// leading edge so every section's icon shares one column with the nav-row icons.
 /// Separate control: toggling collapse never changes selection.
 fn section_chevron<'a>(collapsed: bool, section: SidebarSection) -> Element<'a, Msg> {
-    button(text(if collapsed { "▸" } else { "▾" }).size(TEXT_SM).color(FG_DIM))
+    button(text(if collapsed { "▸" } else { "▾" }).size(TEXT_LG).color(FG_DIM))
         .on_press(Msg::ToggleSidebarSection(section))
         .style(icon_btn_style)
         .into()
@@ -534,12 +534,13 @@ fn folder_tree_row<'a>(
     let text_color = if selected { Color::WHITE } else { FG };
 
     // Indent deepens with tree depth; truncation budget shrinks to match.
-    let indent = depth as f32 * SPACE_3;
+    // Kept tight (SPACE_2/level) for sidebar compactness.
+    let indent = depth as f32 * SPACE_2;
     let effective_max = max_chars.saturating_sub(depth * 2 + 2).max(4);
     let (display_name, was_truncated) = truncate_label(&name, effective_max);
 
     let chevron: Element<Msg> = if has_children {
-        button(text(if expanded { "▾" } else { "▸" }).size(TEXT_SM).color(FG_DIM))
+        button(text(if expanded { "▾" } else { "▸" }).size(TEXT_LG).color(FG_DIM))
             .on_press(Msg::ToggleFolderExpanded(path.clone()))
             .width(Length::Fixed(CHEVRON_W))
             .style(icon_btn_style)

@@ -945,22 +945,18 @@ impl App {
                 let deleted_count = cat.count_deleted().unwrap_or(0);
                 let import_batches = cat.get_import_batches(None).unwrap_or_default();
                 drop(cat);
+                // Display basename comes from the stored case-preserved path —
+                // no disk read. Falls back to the key path when display is unset.
                 let folders = raw_folders
                     .into_iter()
-                    .map(|(path, count)| {
-                        let display = std::fs::canonicalize(&path)
-                            .ok()
-                            .and_then(|p| {
-                                p.file_name().map(|n| n.to_string_lossy().into_owned())
-                            })
-                            .unwrap_or_else(|| {
-                                std::path::Path::new(&path)
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or(&path)
-                                    .to_string()
-                            });
-                        (path, display, count)
+                    .map(|(path, display, count)| {
+                        let src = if display.is_empty() { &path } else { &display };
+                        let name = std::path::Path::new(src)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(src)
+                            .to_string();
+                        (path, name, count)
                     })
                     .collect();
                 (folders, folder_tree, library_roots, cameras, albums, album_counts, deleted_count, import_batches)
