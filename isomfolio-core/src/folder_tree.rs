@@ -20,35 +20,46 @@ pub struct FolderNode {
 #[derive(Default)]
 struct Trie {
     count: usize,
+    /// Real-case segment name for this node (display). Empty until a path sets it.
+    display: String,
     children: BTreeMap<String, Trie>,
 }
 
-/// Build the sidebar folder forest from `(folder_path, direct_count)` pairs.
+/// Build the sidebar folder forest from `(folder_key, folder_display, direct_count)`
+/// triples. The key is the case-folded path (trie structure + node `path`); the
+/// display path carries real-case segment names for each `FolderNode.name`.
 ///
 /// Pure pass-through ancestors (a single child, no files of their own) are
 /// collapsed so the displayed roots are the deepest common folders the user
 /// actually has photos under — never `/`, `/Users`, etc.
-pub fn build_tree(folders: &[(String, usize)]) -> Vec<FolderNode> {
+pub fn build_tree(folders: &[(String, String, usize)]) -> Vec<FolderNode> {
     build_tree_sep(folders, MAIN_SEPARATOR)
 }
 
-fn build_tree_sep(folders: &[(String, usize)], sep: char) -> Vec<FolderNode> {
+fn build_tree_sep(folders: &[(String, String, usize)], sep: char) -> Vec<FolderNode> {
     let mut root = Trie::default();
-    for (path, count) in folders {
+    for (path, display, count) in folders {
         let trimmed = path.trim_end_matches(sep);
         if trimmed.is_empty() {
             continue;
         }
+        let mut disp_segs = display.trim_end_matches(sep).split(sep);
         let mut node = &mut root;
         for comp in trimmed.split(sep) {
+            // Pair each key segment with its display counterpart; the two paths
+            // share structure (both canonicalised) so they align 1:1.
+            let disp = disp_segs.next().filter(|s| !s.is_empty());
             node = node.children.entry(comp.to_string()).or_default();
+            if node.display.is_empty() {
+                node.display = disp.unwrap_or(comp).to_string();
+            }
         }
         node.count += *count;
     }
 
     root.children
         .iter()
-        .flat_map(|(comp, child)| collapse(to_node(comp, comp, child, sep)))
+        .flat_map(|(comp, child)| collapse(to_node(comp, &child.display, comp, child, sep)))
         .collect()
 }
 
@@ -56,13 +67,14 @@ fn join(prefix: &str, comp: &str, sep: char) -> String {
     format!("{prefix}{sep}{comp}")
 }
 
-fn to_node(path: &str, name: &str, t: &Trie, sep: char) -> FolderNode {
+fn to_node(path: &str, display: &str, key_comp: &str, t: &Trie, sep: char) -> FolderNode {
+    let name = if display.is_empty() { key_comp } else { display };
     let mut children: Vec<FolderNode> = t
         .children
         .iter()
-        .map(|(comp, child)| to_node(&join(path, comp, sep), comp, child, sep))
+        .map(|(comp, child)| to_node(&join(path, comp, sep), &child.display, comp, child, sep))
         .collect();
-    children.sort_by(|a, b| a.name.cmp(&b.name));
+    children.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     let total = t.count + children.iter().map(|c| c.total_count).sum::<usize>();
     FolderNode {
         path: path.to_string(),
@@ -115,9 +127,34 @@ mod tests {
     use super::*;
 
     fn build(folders: &[(&str, usize)]) -> Vec<FolderNode> {
-        let owned: Vec<(String, usize)> =
-            folders.iter().map(|(p, c)| (p.to_string(), *c)).collect();
+        // Display path == key path here, so node names equal the key segments.
+        let owned: Vec<(String, String, usize)> =
+            folders.iter().map(|(p, c)| (p.to_string(), p.to_string(), *c)).collect();
         build_tree_sep(&owned, '/')
+    }
+
+    #[test]
+    fn display_path_supplies_real_case_names() {
+        // Two leaves share /Lib/2018, so it survives as a branch-point ancestor.
+        let tree = build_tree_sep(
+            &[
+                ("/lib/2018/wedding".into(), "/Lib/2018/Wedding".into(), 3),
+                ("/lib/2018/holiday".into(), "/Lib/2018/Holiday".into(), 2),
+            ],
+            '/',
+        );
+        // path stays the case-folded key; name comes from the display path.
+        assert_eq!(tree[0].path, "/lib/2018");
+        assert_eq!(tree[0].name, "2018");
+        assert_eq!(tree[0].children[0].path, "/lib/2018/holiday");
+        assert_eq!(tree[0].children[0].name, "Holiday");
+        assert_eq!(tree[0].children[1].name, "Wedding");
+    }
+
+    #[test]
+    fn empty_display_falls_back_to_key_segment() {
+        let tree = build_tree_sep(&[("/photos/2011".into(), String::new(), 5)], '/');
+        assert_eq!(tree[0].name, "2011");
     }
 
     #[test]

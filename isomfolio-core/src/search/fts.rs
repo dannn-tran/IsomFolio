@@ -90,6 +90,7 @@ mod tests {
             path: format!("{folder}/{name}"),
             name: name.to_string(),
             folder: folder.to_string(),
+            folder_display: folder.to_string(),
             ext: "jpg".to_string(),
             size_bytes: 1,
             mtime_unix: 0,

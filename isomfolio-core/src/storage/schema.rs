@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS files (
     path            TEXT NOT NULL UNIQUE,
     filename        TEXT NOT NULL,
     folder          TEXT NOT NULL,
+    folder_display  TEXT NOT NULL DEFAULT '',
     extension       TEXT NOT NULL,
     size            INTEGER NOT NULL,
     modified_time   INTEGER NOT NULL,
@@ -165,9 +166,10 @@ CREATE TABLE IF NOT EXISTS face_centroids (
 
 pub const CREATE_LIBRARY_ROOTS: &str = "
 CREATE TABLE IF NOT EXISTS library_roots (
-    path        TEXT PRIMARY KEY,
-    recursive   INTEGER NOT NULL DEFAULT 1,
-    added_at    INTEGER NOT NULL
+    path         TEXT PRIMARY KEY,
+    recursive    INTEGER NOT NULL DEFAULT 1,
+    added_at     INTEGER NOT NULL,
+    path_display TEXT NOT NULL DEFAULT ''
 );
 ";
 

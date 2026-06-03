@@ -87,17 +87,18 @@ pub fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
         exif_date_unix: row.get(11)?,
         gps_lat: row.get(12)?,
         gps_lon: row.get(13)?,
+        folder_display: row.get(14)?,
     })
 }
 
 pub const FILE_COLS_BARE: &str =
     "id, path, filename, folder, extension, size, modified_time, is_orphaned, orphaned_at, \
-     created_at_unix, flag, exif_date_unix, gps_lat, gps_lon";
+     created_at_unix, flag, exif_date_unix, gps_lat, gps_lon, folder_display";
 
 pub const FILE_COLS_PREFIXED: &str =
     "f.id, f.path, f.filename, f.folder, f.extension, f.size, f.modified_time, \
      f.is_orphaned, f.orphaned_at, f.created_at_unix, f.flag, \
-     f.exif_date_unix, f.gps_lat, f.gps_lon";
+     f.exif_date_unix, f.gps_lat, f.gps_lon, f.folder_display";
 
 const FILE_COLS: &str = FILE_COLS_BARE;
 
@@ -118,14 +119,15 @@ pub fn upsert_files(conn: &Connection, files: &[AssetFile]) -> Result<usize, App
             conn.execute(
                 &format!(
                     "INSERT INTO files ({FILE_COLS}) \
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) \
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) \
                      ON CONFLICT(id) DO UPDATE SET \
                        path = excluded.path, filename = excluded.filename, \
                        folder = excluded.folder, extension = excluded.extension, \
                        size = excluded.size, modified_time = excluded.modified_time, \
                        is_orphaned = excluded.is_orphaned, orphaned_at = excluded.orphaned_at, \
                        exif_date_unix = excluded.exif_date_unix, \
-                       gps_lat = excluded.gps_lat, gps_lon = excluded.gps_lon"
+                       gps_lat = excluded.gps_lat, gps_lon = excluded.gps_lon, \
+                       folder_display = excluded.folder_display"
                 ),
                 params![
                     f.id, f.path, f.name, f.folder, f.ext,
@@ -134,6 +136,7 @@ pub fn upsert_files(conn: &Connection, files: &[AssetFile]) -> Result<usize, App
                     f.orphaned_at, f.created_at_unix,
                     f.flag as i64,
                     f.exif_date_unix, f.gps_lat, f.gps_lon,
+                    f.folder_display,
                 ],
             )?;
             total += 1;
@@ -376,12 +379,20 @@ pub fn get_burst_sizes_for(conn: &Connection, file_ids: &[String]) -> Result<std
     Ok(out)
 }
 
-pub fn get_folder_counts(conn: &Connection) -> Result<Vec<(String, usize)>, AppError> {
+/// Returns `(folder_key, folder_display, direct_count)` per folder. The key is
+/// case-folded (db identity); the display is the real-case path (identical for
+/// every row in a folder, so a bare column under `GROUP BY` is fine).
+pub fn get_folder_counts(conn: &Connection) -> Result<Vec<(String, String, usize)>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT folder, COUNT(*) FROM files WHERE is_orphaned = 0 AND is_deleted = 0 GROUP BY folder",
+        "SELECT folder, folder_display, COUNT(*) FROM files \
+         WHERE is_orphaned = 0 AND is_deleted = 0 GROUP BY folder",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)? as usize,
+        ))
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
@@ -390,14 +401,22 @@ pub fn get_folder_counts(conn: &Connection) -> Result<Vec<(String, usize)>, AppE
 #[derive(Debug, Clone, PartialEq)]
 pub struct LibraryRoot {
     pub path: String,
+    /// Real-case path for display; falls back to `path` when unset.
+    pub path_display: String,
     pub recursive: bool,
 }
 
-pub fn upsert_library_root(conn: &Connection, path: &str, recursive: bool) -> Result<(), AppError> {
+pub fn upsert_library_root(
+    conn: &Connection,
+    path: &str,
+    path_display: &str,
+    recursive: bool,
+) -> Result<(), AppError> {
     conn.execute(
-        "INSERT INTO library_roots (path, recursive, added_at) VALUES (?1, ?2, ?3)
-         ON CONFLICT(path) DO UPDATE SET recursive = excluded.recursive",
-        params![path, recursive as i64, now_unix()],
+        "INSERT INTO library_roots (path, recursive, added_at, path_display) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(path) DO UPDATE SET recursive = excluded.recursive, \
+           path_display = excluded.path_display",
+        params![path, recursive as i64, now_unix(), path_display],
     )?;
     Ok(())
 }
@@ -461,11 +480,12 @@ pub fn get_import_batches(
 
 pub fn list_library_roots(conn: &Connection) -> Result<Vec<LibraryRoot>, AppError> {
     let mut stmt =
-        conn.prepare("SELECT path, recursive FROM library_roots ORDER BY path")?;
+        conn.prepare("SELECT path, recursive, path_display FROM library_roots ORDER BY path")?;
     let rows = stmt.query_map([], |row| {
         Ok(LibraryRoot {
             path: row.get::<_, String>(0)?,
             recursive: row.get::<_, i64>(1)? != 0,
+            path_display: row.get::<_, String>(2)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -1517,6 +1537,7 @@ mod tests {
             path: path.to_string(),
             name: "test.jpg".to_string(),
             folder: "/tmp".to_string(),
+            folder_display: "/tmp".to_string(),
             ext: "jpg".to_string(),
             size_bytes: 1024,
             mtime_unix: 1000,
@@ -1902,16 +1923,23 @@ mod tests {
         #[test]
         fn upsert_then_list_returns_root() {
             let (conn, _f) = open_temp();
-            upsert_library_root(&conn, "/photos", true).unwrap();
+            upsert_library_root(&conn, "/photos", "/Photos", true).unwrap();
             let roots = list_library_roots(&conn).unwrap();
-            assert_eq!(roots, vec![LibraryRoot { path: "/photos".into(), recursive: true }]);
+            assert_eq!(
+                roots,
+                vec![LibraryRoot {
+                    path: "/photos".into(),
+                    path_display: "/Photos".into(),
+                    recursive: true
+                }]
+            );
         }
 
         #[test]
         fn upsert_is_idempotent_and_updates_recursive() {
             let (conn, _f) = open_temp();
-            upsert_library_root(&conn, "/photos", true).unwrap();
-            upsert_library_root(&conn, "/photos", false).unwrap();
+            upsert_library_root(&conn, "/photos", "/Photos", true).unwrap();
+            upsert_library_root(&conn, "/photos", "/Photos", false).unwrap();
             let roots = list_library_roots(&conn).unwrap();
             assert_eq!(roots.len(), 1);
             assert!(!roots[0].recursive);
@@ -1920,11 +1948,14 @@ mod tests {
         #[test]
         fn remove_deletes_the_root() {
             let (conn, _f) = open_temp();
-            upsert_library_root(&conn, "/a", true).unwrap();
-            upsert_library_root(&conn, "/b", false).unwrap();
+            upsert_library_root(&conn, "/a", "/a", true).unwrap();
+            upsert_library_root(&conn, "/b", "/b", false).unwrap();
             remove_library_root(&conn, "/a").unwrap();
             let roots = list_library_roots(&conn).unwrap();
-            assert_eq!(roots, vec![LibraryRoot { path: "/b".into(), recursive: false }]);
+            assert_eq!(
+                roots,
+                vec![LibraryRoot { path: "/b".into(), path_display: "/b".into(), recursive: false }]
+            );
         }
     }
 }

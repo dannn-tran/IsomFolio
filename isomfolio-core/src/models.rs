@@ -39,6 +39,9 @@ pub struct AssetFile {
     pub path: String,
     pub name: String,
     pub folder: String,
+    /// Case-preserved (real on-disk) folder path, for display. `folder` is the
+    /// case-folded key; this keeps the user-facing names without re-reading disk.
+    pub folder_display: String,
     pub ext: String,
     pub size_bytes: i64,
     pub mtime_unix: i64,

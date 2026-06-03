@@ -57,7 +57,7 @@ impl Catalog {
         db::update_file_path(&self.conn, old_path, new_file)
     }
 
-    pub fn get_folder_counts(&self) -> Result<Vec<(String, usize)>, AppError> {
+    pub fn get_folder_counts(&self) -> Result<Vec<(String, String, usize)>, AppError> {
         db::get_folder_counts(&self.conn)
     }
 
@@ -69,19 +69,24 @@ impl Catalog {
     pub fn folder_tree(&self) -> Result<Vec<crate::folder_tree::FolderNode>, AppError> {
         let mut folders = db::get_folder_counts(&self.conn)?;
         for root in db::list_library_roots(&self.conn)? {
-            // Normalise on read too: heals catalogs that stored a root before
-            // roots were normalised, so it merges with the (normalised) per-file
-            // folders instead of spawning a duplicate original-case tree.
-            folders.push((crate::path_utils::normalize_path(&root.path), 0));
+            // Empty roots (no files indexed yet) aren't in get_folder_counts, so
+            // add them here. Keyed on the normalised path; the stored display path
+            // carries real case. Folders with files already supply their display.
+            folders.push((root.path, root.path_display, 0));
         }
         Ok(crate::folder_tree::build_tree(&folders))
     }
 
-    /// Library roots must be stored normalised so they collate with the
-    /// normalised `folder` of each indexed file (case-folded on macOS/Windows);
-    /// otherwise the sidebar shows the root as a second, original-case tree.
+    /// Library roots are stored case-folded (so they collate with each file's
+    /// folded `folder` — otherwise the root shows as a second, original-case
+    /// tree) alongside a case-preserved display path for the sidebar.
     pub fn upsert_library_root(&self, path: &str, recursive: bool) -> Result<(), AppError> {
-        db::upsert_library_root(&self.conn, &crate::path_utils::normalize_path(path), recursive)
+        db::upsert_library_root(
+            &self.conn,
+            &crate::path_utils::normalize_path(path),
+            &crate::path_utils::display_path(path),
+            recursive,
+        )
     }
 
     pub fn remove_library_root(&self, path: &str) -> Result<(), AppError> {

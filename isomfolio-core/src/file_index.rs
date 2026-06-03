@@ -49,11 +49,11 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
     }
 
     let name = p.file_name()?.to_string_lossy().into_owned();
-    let folder = normalize_path(
-        p.parent()
-            .and_then(|d| d.to_str())
-            .unwrap_or(""),
-    );
+    let parent = p.parent().and_then(|d| d.to_str()).unwrap_or("");
+    // Canonicalise once: the display form keeps real casing, the key form folds
+    // it. The folder is online here (we're scanning it), so casing is accurate.
+    let folder_display = crate::path_utils::display_path(parent);
+    let folder = crate::path_utils::fold_case(&folder_display);
 
     let mtime_unix = meta
         .modified()
@@ -78,6 +78,7 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
         path: normalized,
         name,
         folder,
+        folder_display,
         ext,
         size_bytes: meta.len() as i64,
         mtime_unix,

@@ -268,7 +268,15 @@ fn execute_query_inner(
 
     let dir = if query.sort_asc { "ASC" } else { "DESC" };
     let nulls_clause = if matches!(query.sort_by, SortField::Date) { " NULLS LAST" } else { "" };
-    sql.push_str(&format!(" ORDER BY {} {}{}", sort_column(query.sort_by), dir, nulls_clause));
+    // Text sorts (filename, type) are case-insensitive so names read in natural
+    // alphabetical order instead of ASCII order (all-uppercase before lowercase).
+    // `f.id` is a stable tiebreaker so equal keys keep a deterministic order.
+    let collate =
+        if matches!(query.sort_by, SortField::Name | SortField::Ext) { " COLLATE NOCASE" } else { "" };
+    sql.push_str(&format!(
+        " ORDER BY {}{} {}{}, f.id ASC",
+        sort_column(query.sort_by), collate, dir, nulls_clause
+    ));
 
     let _ = param_idx;
 
@@ -312,6 +320,7 @@ mod tests {
                 path: format!("{folder}/{name}"),
                 name: name.to_string(),
                 folder: folder.to_string(),
+                folder_display: folder.to_string(),
                 ext: ext.to_string(),
                 size_bytes: 100,
                 mtime_unix: mtime,
