@@ -182,12 +182,15 @@ The sidebar has exactly **two** row kinds; the split is *"does this hold a child
 
 ### Folder tree
 
-Folders render as a navigable **tree**, not a flat list, showing the deepest folders the user actually has photos under (pass-through ancestors are collapsed away — never `/`, `/Users`, etc.). *(How the tree is built/collapsed and where expansion/scan-depth state live → `architecture.md`, UI rendering.)*
+Folders render as a navigable **tree**, not a flat list, and as a **forest** when top-level dirs diverge (separate volumes are sibling roots; there is no `/`/`Users` ghost parent). *(How the tree is built and where expansion/scan-depth state live → `architecture.md`, UI rendering.)*
 
-- **Expand/collapse** → a leading chevron (`▸` collapsed, `▾` expanded), `icon_btn_style`, in a fixed-width slot so all labels align regardless of whether a row has children. The chevron is a separate control and does not change selection.
-- **Indentation** → each depth level adds `SPACE_3` of leading space. The truncation budget shrinks with depth so deep labels still clip cleanly with a tooltip.
+- **Anchored at the library root** → the tree starts at the folders the user added (the deepest common ancestor of the added folders on a drive), not the filesystem root — so the `/Users/me` prefix above the content is hidden. Folders on different drives are separate roots.
+- **Compact folders (breadcrumb)** → below the anchor, a run of single-child pass-through folders (no own photos) renders as **one row** with the segments joined by muted `/` separators — `a / b / c` — VS Code style. Each segment is **separately clickable** (navigates to that folder); the intermediate names stay visible rather than being hidden. A plain folder is just a one-segment breadcrumb, so it reads like an ordinary row.
+- **Expand/collapse** → a leading chevron (`▸` collapsed, `▾` expanded), `TEXT_LG`, `icon_btn_style`, in a fixed-width slot so all labels align regardless of whether a row has children. The chevron toggles the row's deepest folder and is a separate control — it does not change selection.
+- **Indentation** → each depth level adds `SPACE_2` of leading space (tight, for compactness). The breadcrumb clips to the row width; an overflow tooltip shows the full chain.
 - **Count** → the photo count includes the folder *and* all descendants, not just direct children.
-- **Selection** → clicking the label selects the folder and loads its photos recursively.
+- **Selection** → clicking a segment selects that folder and loads its photos recursively; the whole row highlights when any of its segments is selected, with the selected segment in `WHITE`.
+- **Context menu** (right-click / Ctrl+Click) → **Sync Folder**, **Add Folder…** (opens the folder picker anchored at the clicked folder — Capture One style), and **Remove from Library…** (plus **Remove Missing Files…** when the folder has orphans).
 - **Dirty dot** → an accent `●` after the folder name means the watcher saw structural changes on disk (files added / removed / renamed) that have not been applied. The catalog is never mutated silently — the user applies the changes by syncing the folder (`Cmd+R` or context menu), which clears the dot. (Pure content edits to an already-tracked file are not structural: they just refresh that file's thumbnail, no dot.)
 
 ### Context menu
