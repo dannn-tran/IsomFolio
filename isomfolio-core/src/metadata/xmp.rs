@@ -115,7 +115,7 @@ pub fn parse_xmp_xml(xml: &str) -> XmpMetadata {
                     state.in_description = true;
                     for attr in e.attributes().flatten() {
                         let attr_name = std::str::from_utf8(attr.key.as_ref()).unwrap_or("").to_string();
-                        let val = std::str::from_utf8(attr.value.as_ref()).unwrap_or_default().to_string();
+                        let val = decode_entities(attr.value.as_ref());
                         let (ans, alocal) = resolve_prefix(&attr_name, &ns_map);
                         match (ans, alocal) {
                             (ns, "Rating") if ns == NS_XMP => {
@@ -423,6 +423,32 @@ fn serialize_prop(p: &XmpProp) -> String {
     }
 }
 
+/// Attribute-form properties on an `rdf:Description` (e.g. `xmp:Rating="5"`),
+/// skipping namespace declarations and `rdf:about`. Values are entity-decoded.
+fn description_attr_props(
+    e: &quick_xml::events::BytesStart<'_>,
+    ns_map: &HashMap<String, String>,
+) -> Vec<XmpProp> {
+    let mut out = Vec::new();
+    for attr in e.attributes().flatten() {
+        let k = std::str::from_utf8(attr.key.as_ref()).unwrap_or("").to_string();
+        if k == "rdf:about" || k == "xmlns" || k.starts_with("xmlns:") {
+            continue;
+        }
+        let (ans, al) = resolve_prefix(&k, ns_map);
+        if ans.is_empty() {
+            continue;
+        }
+        out.push(XmpProp {
+            raw_name: k.clone(),
+            ns: ans.to_string(),
+            local: al.to_string(),
+            value: PropValue::Simple(decode_entities(attr.value.as_ref())),
+        });
+    }
+    out
+}
+
 /// Parse a full XMP packet into a round-trippable document (all properties).
 pub fn parse_xmp_doc(xml: &str) -> XmpDoc {
     let ns_map = build_ns_map(xml);
@@ -436,34 +462,22 @@ pub fn parse_xmp_doc(xml: &str) -> XmpDoc {
     // Advance to the first rdf:Description, capturing its attribute-form props.
     let mut in_desc = false;
     loop {
-        match reader.read_event() {
-            Ok(Event::Start(e)) => {
-                let name = std::str::from_utf8(e.name().as_ref()).unwrap_or("").to_string();
-                let (ns, local) = resolve_prefix(&name, &ns_map);
-                if ns == NS_RDF && local == "Description" {
-                    in_desc = true;
-                    for attr in e.attributes().flatten() {
-                        let k = std::str::from_utf8(attr.key.as_ref()).unwrap_or("").to_string();
-                        if k == "rdf:about" || k == "xmlns" || k.starts_with("xmlns:") {
-                            continue;
-                        }
-                        let (ans, al) = resolve_prefix(&k, &ns_map);
-                        if ans.is_empty() {
-                            continue;
-                        }
-                        let v = std::str::from_utf8(attr.value.as_ref()).unwrap_or_default().to_string();
-                        props.push(XmpProp {
-                            raw_name: k.clone(),
-                            ns: ans.to_string(),
-                            local: al.to_string(),
-                            value: PropValue::Simple(v),
-                        });
-                    }
-                    break;
-                }
-            }
+        // `rdf:Description` may be a Start tag (with child-element props) or a
+        // self-closing Empty tag (attribute-form props only). Handle both, or a
+        // purely-attribute Description's fields are silently dropped on merge.
+        let (e, is_empty) = match reader.read_event() {
+            Ok(Event::Start(e)) => (e, false),
+            Ok(Event::Empty(e)) => (e, true),
             Ok(Event::Eof) | Err(_) => break,
-            _ => {}
+            _ => continue,
+        };
+        let name = std::str::from_utf8(e.name().as_ref()).unwrap_or("").to_string();
+        let (ns, local) = resolve_prefix(&name, &ns_map);
+        if ns == NS_RDF && local == "Description" {
+            props.extend(description_attr_props(&e, &ns_map));
+            // Start form has child-element props to iterate next; Empty form does not.
+            in_desc = !is_empty;
+            break;
         }
     }
 
@@ -508,10 +522,15 @@ pub fn parse_xmp_doc(xml: &str) -> XmpDoc {
 }
 
 fn decode_text(t: &quick_xml::events::BytesText<'_>) -> String {
-    let raw = std::str::from_utf8(t.as_ref()).unwrap_or_default();
-    quick_xml::escape::unescape(raw)
+    decode_entities(t.as_ref())
+}
+
+/// Decode XML entities in a raw attribute/text byte slice (`&amp;` → `&`, etc.).
+fn decode_entities(raw: &[u8]) -> String {
+    let s = std::str::from_utf8(raw).unwrap_or_default();
+    quick_xml::escape::unescape(s)
         .map(|c| c.into_owned())
-        .unwrap_or_else(|_| raw.to_string())
+        .unwrap_or_else(|_| s.to_string())
 }
 
 fn classify_prop(events: &[Event<'static>], ns_map: &HashMap<String, String>, raw_name: &str) -> PropValue {
@@ -747,6 +766,54 @@ mod tests {
         let meta = parse_xmp_xml(xml);
         assert_eq!(meta.core.rating, Some(4));
         assert_eq!(meta.core.label.as_deref(), Some("Red"));
+    }
+
+    #[test]
+    fn parse_decodes_entities_in_attribute_values() {
+        // A text field stored as an rdf:Description attribute with XML entities.
+        let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+                     xmp:Label="Sun &amp; Sea &lt;draft&gt;"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+        let meta = parse_xmp_xml(xml);
+        assert_eq!(meta.core.label.as_deref(), Some("Sun & Sea <draft>"));
+    }
+
+    #[test]
+    fn merge_preserves_attribute_form_props_on_self_closing_description() {
+        // Some apps write a purely-attribute, self-closing Description. Its
+        // unmanaged fields must survive our merge-write, not be dropped.
+        let existing = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+                     xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+                     photoshop:City="Paris" xmp:Rating="2"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+        let meta = XmpMetadata {
+            core: XmpCore { rating: Some(5), ..Default::default() },
+            ..Default::default()
+        };
+        let merged = merge_sidecar(Some(existing), &meta, &[]);
+        assert!(merged.contains("Paris"), "unmanaged attribute prop must survive");
+        let parsed = parse_xmp_doc(&merged);
+        let rating = parsed.props.iter().find(|p| p.local == "Rating").unwrap();
+        assert!(matches!(&rating.value, PropValue::Simple(s) if s == "5"), "managed prop updated");
+    }
+
+    #[test]
+    fn parse_doc_decodes_entities_in_attribute_values() {
+        let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+                     photoshop:Headline="A &amp; B"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+        let doc = parse_xmp_doc(xml);
+        let headline = doc.props.iter().find(|p| p.local == "Headline").unwrap();
+        assert!(matches!(&headline.value, PropValue::Simple(s) if s == "A & B"));
     }
 
     #[test]
