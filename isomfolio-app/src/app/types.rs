@@ -271,6 +271,9 @@ pub enum Msg {
     DropCompleted,
 
     SyncPickFolder,
+    /// Open the add-folder picker anchored at an existing folder (context-menu
+    /// "Add folder", Capture One style).
+    SyncPickFolderAt(String),
     SyncStart { path: String, recursive: bool },
     AddFolderPromptToggleRecursive,
     AddFolderConfirm,

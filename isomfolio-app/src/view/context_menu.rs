@@ -123,6 +123,7 @@ impl App {
                     && (f.folder == *path || f.folder.starts_with(&format!("{path}/"))));
                 let mut items = vec![
                     Some(("Sync Folder".into(), Msg::SyncFolder(path.clone()), false)),
+                    Some(("Add Folder…".into(), Msg::SyncPickFolderAt(path.clone()), false)),
                     None,
                     Some(("Remove from Library…".into(), Msg::RequestRemoveFolder(path.clone()), true)),
                 ];

@@ -56,6 +56,7 @@ impl App {
 
             // — scanning & file watching —
             Msg::SyncPickFolder
+            | Msg::SyncPickFolderAt(_)
             | Msg::SyncDialogDone(_)
             | Msg::SyncStart { .. }
             | Msg::AddFolderPromptToggleRecursive

@@ -388,10 +388,13 @@ impl App {
                 Msg::CancelRemoveMissing,
             ));
         } else {
-            let sel = self.selected_item == SidebarItem::Folder(node.path.clone());
+            let selected_path = match &self.selected_item {
+                SidebarItem::Folder(p) => Some(p.as_str()),
+                _ => None,
+            };
             let expanded = self.expanded_folders.contains(&node.path);
             let dirty = self.folder_is_dirty(path);
-            out.push(folder_tree_row(node, depth, sel, expanded, dirty, max_chars));
+            out.push(folder_tree_row(node, depth, selected_path, expanded, dirty, max_chars));
         }
 
         if !node.children.is_empty() && self.expanded_folders.contains(&node.path) {
@@ -510,17 +513,19 @@ const CHEVRON_W: f32 = 16.0;
 fn folder_tree_row<'a>(
     node: &'a FolderNode,
     depth: usize,
-    selected: bool,
+    selected_path: Option<&str>,
     expanded: bool,
     dirty: bool,
     max_chars: usize,
 ) -> Element<'a, Msg> {
     let path = node.path.clone();
-    let name = node.name.clone();
     let count = node.total_count;
     let has_children = !node.children.is_empty();
+    // The row highlights if *any* of its breadcrumb segments is the current
+    // selection (a compacted chain occupies one row but spans several folders).
+    let row_selected = node.chain.iter().any(|s| Some(s.path.as_str()) == selected_path);
 
-    let bg = if selected {
+    let bg = if row_selected {
         Color {
             r: ACCENT.r * 0.6,
             g: ACCENT.g * 0.6,
@@ -530,14 +535,19 @@ fn folder_tree_row<'a>(
     } else {
         Color::TRANSPARENT
     };
-    let border_color = if selected { ACCENT } else { Color::TRANSPARENT };
-    let text_color = if selected { Color::WHITE } else { FG };
+    let border_color = if row_selected { ACCENT } else { Color::TRANSPARENT };
 
-    // Indent deepens with tree depth; truncation budget shrinks to match.
-    // Kept tight (SPACE_2/level) for sidebar compactness.
+    // Indent deepens with tree depth. Kept tight (SPACE_2/level) for compactness.
     let indent = depth as f32 * SPACE_2;
+    // Full breadcrumb text, for the overflow tooltip + truncation heuristic.
+    let full_label = node
+        .chain
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect::<Vec<_>>()
+        .join("/");
     let effective_max = max_chars.saturating_sub(depth * 2 + 2).max(4);
-    let (display_name, was_truncated) = truncate_label(&name, effective_max);
+    let was_truncated = full_label.chars().count() > effective_max;
 
     let chevron: Element<Msg> = if has_children {
         button(text(if expanded { "▾" } else { "▸" }).size(TEXT_LG).color(FG_DIM))
@@ -549,41 +559,52 @@ fn folder_tree_row<'a>(
         Space::new().width(CHEVRON_W).into()
     };
 
-    let label_btn = button(
-        row![
-            container(
-                text(display_name)
+    // Breadcrumb: each segment a tight, separately-clickable button, joined by
+    // muted "/" separators (VS Code compact-folders style). A plain folder has a
+    // single segment, so it reads exactly like an ordinary row.
+    let mut crumbs = row![].spacing(SPACE_0_5).align_y(Alignment::Center);
+    for (i, seg) in node.chain.iter().enumerate() {
+        if i > 0 {
+            crumbs = crumbs.push(text("/").size(TEXT_BASE).color(FG_MUTED));
+        }
+        let seg_selected = Some(seg.path.as_str()) == selected_path;
+        let seg_color = if seg_selected || row_selected { Color::WHITE } else { FG };
+        crumbs = crumbs.push(
+            button(
+                text(seg.name.clone())
                     .size(TEXT_BASE)
-                    .color(text_color)
+                    .color(seg_color)
                     .wrapping(iced::widget::text::Wrapping::None),
             )
-            .width(Length::Fill)
-            .clip(true),
-            if dirty {
-                text("●").size(TEXT_SM).color(ACCENT)
-            } else {
-                text("").size(TEXT_SM).color(FG_MUTED)
-            },
-            if count > 0 {
-                text(format!(" {count}")).size(TEXT_SM).color(FG_MUTED)
-            } else {
-                text("").size(TEXT_SM).color(FG_MUTED)
-            },
-        ]
-        .align_y(Alignment::Center),
-    )
-    .on_press(Msg::SidebarItemClicked(SidebarItem::Folder(path.clone())))
-    .width(Length::Fill)
-    .style(|_: &Theme, _| button::Style {
-        background: Some(Background::Color(Color::TRANSPARENT)),
-        text_color: FG,
-        border: Border::default(),
-        shadow: iced::Shadow::default(),
-        snap: false,
-    });
+            .on_press(Msg::SidebarItemClicked(SidebarItem::Folder(seg.path.clone())))
+            .padding(0)
+            .style(|_: &Theme, _| button::Style {
+                background: Some(Background::Color(Color::TRANSPARENT)),
+                text_color: FG,
+                border: Border::default(),
+                shadow: iced::Shadow::default(),
+                snap: false,
+            }),
+        );
+    }
+
+    let label = row![
+        container(crumbs).width(Length::Fill).clip(true),
+        if dirty {
+            text("●").size(TEXT_SM).color(ACCENT)
+        } else {
+            text("").size(TEXT_SM).color(FG_MUTED)
+        },
+        if count > 0 {
+            text(format!(" {count}")).size(TEXT_SM).color(FG_MUTED)
+        } else {
+            text("").size(TEXT_SM).color(FG_MUTED)
+        },
+    ]
+    .align_y(Alignment::Center);
 
     let inner = container(
-        row![Space::new().width(indent), chevron, label_btn]
+        row![Space::new().width(indent), chevron, label]
             .align_y(Alignment::Center),
     )
     .height(FOLDER_ITEM_HEIGHT)
@@ -595,13 +616,14 @@ fn folder_tree_row<'a>(
         ..Default::default()
     });
 
+    // Right-click targets the deepest folder of the row.
     let entity = SidebarItem::Folder(path.clone());
     let row_el = mouse_area(inner)
         .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
         .on_exit(Msg::HoverSidebarEntityEnd(entity));
 
     if was_truncated {
-        tooltip(row_el, label_tooltip(name), tooltip::Position::Right).into()
+        tooltip(row_el, label_tooltip(full_label.replace('/', " / ")), tooltip::Position::Right).into()
     } else {
         row_el.into()
     }

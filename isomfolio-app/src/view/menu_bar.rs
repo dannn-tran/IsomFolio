@@ -190,6 +190,7 @@ impl App {
             SidebarItem::Folder(path) => {
                 items.push(MenuItem::Separator);
                 items.push(MenuItem::Action("Sync Folder", "⌘R", Msg::SyncFolder(path.clone())));
+                items.push(MenuItem::Action("Add Folder…", "", Msg::SyncPickFolderAt(path.clone())));
                 items.push(MenuItem::Action("Remove Folder from Library…", "", Msg::RequestRemoveFolder(path.clone())));
             }
             SidebarItem::Album(id) => {

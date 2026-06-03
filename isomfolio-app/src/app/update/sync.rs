@@ -27,6 +27,27 @@ impl App {
                 )
             }
 
+            Msg::SyncPickFolderAt(start) => {
+                if self.is_syncing || self.sync_pending {
+                    return Task::none();
+                }
+                self.sync_pending = true;
+                Task::perform(
+                    async move {
+                        let mut dialog = rfd::AsyncFileDialog::new()
+                            .set_title("Choose a folder to sync");
+                        if std::path::Path::new(&start).is_dir() {
+                            dialog = dialog.set_directory(&start);
+                        }
+                        dialog
+                            .pick_folder()
+                            .await
+                            .map(|h| h.path().to_string_lossy().to_string())
+                    },
+                    Msg::SyncDialogDone,
+                )
+            }
+
             Msg::SyncDialogDone(opt) => {
                 self.sync_pending = false;
                 match opt {
@@ -84,7 +105,12 @@ impl App {
             }
 
             Msg::SyncStart { path, recursive } => {
-                self.last_synced_path = Some(path.clone());
+                // The raw path drives the disk scan; the normalised form is what
+                // matches folder-tree node paths, dirty folders and selection
+                // (all case-folded). Mixing them up means expand/nav/dirty silently
+                // miss when the picker hands back a different casing.
+                let norm = normalize_path(&path);
+                self.last_synced_path = Some(norm.clone());
                 self.is_syncing = true;
                 self.task_panel_open = true;
                 self.status = "Syncing…".to_string();
@@ -95,7 +121,7 @@ impl App {
                 }
                 // Reveal the new root in the sidebar now (empty) instead of
                 // waiting for the scan to finish indexing files.
-                self.expand_under_path = Some(path.clone());
+                self.expand_under_path = Some(norm);
                 Task::batch([self.load_sidebar_task(), self.sync_folder_task(path, recursive)])
             }
 
