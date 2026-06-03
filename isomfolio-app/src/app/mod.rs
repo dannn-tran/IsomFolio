@@ -30,6 +30,30 @@ impl<T> LockUnwrap<T> for Mutex<T> {
     }
 }
 
+/// Decode a cached thumbnail off-thread into an `image::Handle` for the grid.
+/// Used both when the worker pool finishes generating a thumb and when a cached
+/// thumb is rediscovered on disk (catalog reopen).
+pub(crate) fn load_thumb_handle_task(file_id: String, path: String) -> Task<Msg> {
+    Task::perform(
+        async move {
+            tokio::task::spawn_blocking(move || {
+                image::open(&path).ok().map(|img| {
+                    let rgba = img.into_rgba8();
+                    let (w, h) = (rgba.width(), rgba.height());
+                    (file_id, iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
+                })
+            })
+            .await
+            .ok()
+            .flatten()
+        },
+        |res| match res {
+            Some((fid, handle)) => Msg::ThumbnailHandleReady { file_id: fid, handle },
+            None => Msg::NoOp,
+        },
+    )
+}
+
 pub struct LoupeState {
     pub idx: usize,
     pub full_res: Option<(usize, iced::widget::image::Handle)>,
@@ -219,6 +243,9 @@ pub struct App {
 
     pub sort_by: SortField,
     pub sort_asc: bool,
+    pub grid_layout: GridLayout,
+    pub list_col: ListColWidths,
+    pub list_resize: Option<ListResize>,
 
     pub filters: FilterState,
     pub detail: DetailState,
@@ -471,6 +498,9 @@ impl App {
             rename_album_input: String::new(),
             sort_by: SortField::Name,
             sort_asc: true,
+            grid_layout: GridLayout::Grid,
+            list_col: ListColWidths::default(),
+            list_resize: None,
             filters: FilterState::default(),
             detail: DetailState::default(),
             show_shortcut_help: false,
@@ -544,7 +574,7 @@ impl App {
 
     pub fn scroll_to_index(&self, idx: usize) -> Task<Msg> {
         let cols = self.cols().max(1);
-        let step = self.tile_px + TILE_GAP;
+        let step = self.row_step();
         let row = idx / cols;
         let target_y = row as f32 * step + GRID_PADDING;
         let centered = (target_y - self.viewport_height / 2.0 + step / 2.0).max(0.0);
@@ -554,7 +584,19 @@ impl App {
         )
     }
 
+    /// Vertical distance between consecutive rows in the content area.
+    /// One column means one file per row (List); the grid packs `cols` per row.
+    pub fn row_step(&self) -> f32 {
+        match self.grid_layout {
+            GridLayout::List => LIST_ROW_HEIGHT,
+            GridLayout::Grid => self.tile_px + TILE_GAP,
+        }
+    }
+
     pub fn cols(&self) -> usize {
+        if matches!(self.grid_layout, GridLayout::List) {
+            return 1;
+        }
         let detail_w = if self.detail.show { SIDEBAR_WIDTH } else { 0.0 };
         let avail = (self.viewport_width - 2.0 * GRID_PADDING - detail_w).max(0.0);
         ((avail + TILE_GAP) / (self.tile_px + TILE_GAP)) as usize
@@ -726,18 +768,25 @@ impl App {
         ));
     }
 
-    pub(crate) fn enqueue_thumbnails(&mut self) {
+    pub(crate) fn enqueue_thumbnails(&mut self) -> Task<Msg> {
         let Some(pool) = &self.thumb_ctx.pool else {
-            return;
+            return Task::none();
         };
         let catalog_dir = self.catalog_dir.clone();
         let mut newly_enqueued = 0usize;
+        // Cached thumbnails (cache file already on disk — e.g. after reopening a
+        // catalog) still need their decoded image handle loaded into memory;
+        // without it the grid draws the grey loading placeholder forever.
+        let mut load_tasks: Vec<Task<Msg>> = Vec::new();
         for (priority, file) in self.files.iter().enumerate() {
             if !self.thumbnails.contains_key(&file.id) {
                 self.thumbnails.insert(file.id.clone(), ThumbnailState::Pending);
                 let cache = thumbnail_cache_path(&catalog_dir, &file.id);
                 if std::path::Path::new(&cache).exists() {
-                    self.thumbnails.insert(file.id.clone(), ThumbnailState::Ready(cache));
+                    self.thumbnails.insert(file.id.clone(), ThumbnailState::Ready(cache.clone()));
+                    if !self.thumb_ctx.handles.contains_key(&file.id) {
+                        load_tasks.push(load_thumb_handle_task(file.id.clone(), cache));
+                    }
                 } else {
                     pool.enqueue(&file.id, &file.path, priority as i32);
                     newly_enqueued += 1;
@@ -755,6 +804,7 @@ impl App {
             self.thumb_ctx.pending += newly_enqueued;
             self.task_panel_open = true;
         }
+        Task::batch(load_tasks)
     }
 
     /// Force-regenerate cached thumbnails for the given paths (content changed
@@ -1062,17 +1112,44 @@ impl App {
         )
     }
 
+    /// True when `pos` falls in the List column-header strip (sort buttons and
+    /// resize handles). Clicks there must not touch the grid selection.
+    pub fn in_list_header_band(&self, pos: Point) -> bool {
+        if !matches!(self.grid_layout, GridLayout::List) {
+            return false;
+        }
+        let top = SEARCH_BAR_HEIGHT + CULL_STRIP_HEIGHT + self.filter_panel_height();
+        pos.x > self.sidebar_width + SIDEBAR_HANDLE_WIDTH
+            && pos.y >= top
+            && pos.y < top + LIST_HEADER_HEIGHT
+    }
+
     pub fn tile_index_at(&self, pos: Point) -> Option<usize> {
         let rel_x = pos.x - self.sidebar_width - SIDEBAR_HANDLE_WIDTH - GRID_PADDING;
         let criteria_h = self.filter_panel_height();
+        // List layout has a clickable column-header strip above the rows; the
+        // grid does not. Subtract it so row hit-testing stays aligned.
+        let list_header = match self.grid_layout {
+            GridLayout::List => LIST_HEADER_HEIGHT,
+            GridLayout::Grid => 0.0,
+        };
         let rel_y = pos.y + self.scroll_y
             - SEARCH_BAR_HEIGHT
             - CULL_STRIP_HEIGHT
             - criteria_h
+            - list_header
             - GRID_PADDING;
         if rel_x < 0.0 || rel_y < 0.0 {
             return None;
         }
+
+        if matches!(self.grid_layout, GridLayout::List) {
+            // One file per row spanning the full content width — the whole row
+            // is the hit target (no inter-tile gaps to reject).
+            let idx = (rel_y / LIST_ROW_HEIGHT) as usize;
+            return (idx < self.files.len()).then_some(idx);
+        }
+
         let step = self.tile_px + TILE_GAP;
         let col = (rel_x / step) as usize;
         let cols = self.cols();
@@ -1213,4 +1290,46 @@ pub fn format_file_size(bytes: i64) -> String {
         return format!("{mb} MB");
     }
     format!("{} GB", mb / 1024)
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    fn app() -> App {
+        App::new(None).0
+    }
+
+    #[test]
+    fn list_layout_is_single_column_with_list_row_step() {
+        let mut a = app();
+        a.grid_layout = GridLayout::List;
+        // Width/tile size are irrelevant in List — always one file per row.
+        a.viewport_width = 2000.0;
+        a.tile_px = 180.0;
+        assert_eq!(a.cols(), 1);
+        assert_eq!(a.row_step(), LIST_ROW_HEIGHT);
+    }
+
+    #[test]
+    fn grid_layout_packs_columns_from_width_and_tile_size() {
+        let mut a = app();
+        a.grid_layout = GridLayout::Grid;
+        a.viewport_width = 1000.0;
+        a.tile_px = 180.0;
+        a.detail.show = false;
+        assert!(a.cols() >= 2);
+        assert_eq!(a.row_step(), a.tile_px + TILE_GAP);
+    }
+
+    #[test]
+    fn list_col_set_clamps_to_bounds() {
+        let mut w = ListColWidths::default();
+        w.set(ListCol::Date, 5.0);
+        assert_eq!(w.date, LIST_COL_MIN);
+        w.set(ListCol::Date, 10_000.0);
+        assert_eq!(w.date, LIST_COL_MAX);
+        w.set(ListCol::Name, 200.0);
+        assert_eq!(w.get(ListCol::Name), 200.0);
+    }
 }

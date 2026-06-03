@@ -139,6 +139,7 @@ impl App {
             | Msg::LoupeJumpTo(_)
             | Msg::TogglePreview
             | Msg::SidebarResizeStart
+            | Msg::ListColResizeStart(_)
             | Msg::MouseMoved(_)
             | Msg::MouseRightClicked
             | Msg::MousePressed
@@ -391,6 +392,7 @@ impl App {
             Msg::SortFieldCycle
             | Msg::SortDirToggle
             | Msg::SetSortField(_)
+            | Msg::SetGridLayout(_)
             | Msg::SortCycleAll
             | Msg::SearchChanged(_)
             | Msg::ToggleFilterPanel
@@ -505,7 +507,7 @@ impl App {
 
             Msg::FilesLoaded(files) => {
                 self.files = files;
-                self.enqueue_thumbnails();
+                let enqueue = self.enqueue_thumbnails();
                 self.status = format!("{} photo(s)", self.files.len());
                 let restore = self.pending_restore_idx.take().and_then(|idx| {
                     (idx < self.files.len()).then(|| {
@@ -524,8 +526,8 @@ impl App {
                 let t3 = self.load_labels_task();
                 let t4 = self.load_burst_sizes_task();
                 match restore {
-                    Some(scroll) => Task::batch([scroll, t1, t2, t3, t4]),
-                    None => Task::batch([t1, t2, t3, t4]),
+                    Some(scroll) => Task::batch([enqueue, scroll, t1, t2, t3, t4]),
+                    None => Task::batch([enqueue, t1, t2, t3, t4]),
                 }
             }
 
@@ -619,25 +621,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                let fid2 = file_id.clone();
-                let load_task = Task::perform(
-                    async move {
-                        tokio::task::spawn_blocking(move || {
-                            image::open(&path).ok().map(|img| {
-                                let rgba = img.into_rgba8();
-                                let (w, h) = (rgba.width(), rgba.height());
-                                (fid2, iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
-                            })
-                        })
-                        .await
-                        .ok()
-                        .flatten()
-                    },
-                    |res| match res {
-                        Some((fid, handle)) => Msg::ThumbnailHandleReady { file_id: fid, handle },
-                        None => Msg::NoOp,
-                    },
-                );
+                let load_task = super::load_thumb_handle_task(file_id, path);
                 Task::batch([load_task, clear_task])
             }
 
