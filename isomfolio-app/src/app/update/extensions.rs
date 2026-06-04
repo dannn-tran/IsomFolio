@@ -233,7 +233,9 @@ impl App {
                 } else {
                     self.faces.selected.clear();
                     self.faces.batch_name_input.clear();
-                    Task::done(Msg::SidebarItemClicked(SidebarItem::FaceCluster(cluster_id)))
+                    self.filters.person = Some(cluster_id);
+                    self.mark_smart_dirty();
+                    Task::done(Msg::SidebarItemClicked(SidebarItem::AllFiles))
                 }
             }
 
