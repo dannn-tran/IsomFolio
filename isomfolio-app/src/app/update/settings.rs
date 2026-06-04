@@ -216,6 +216,26 @@ impl App {
                 Task::none()
             }
 
+            Msg::SetPreviewCacheCap(mb) => {
+                self.app_settings.preview_cache_max_mb = mb;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                // Apply the new cap immediately, off-thread.
+                let cap = mb.saturating_mul(1024 * 1024);
+                if cap == 0 {
+                    return Task::none();
+                }
+                let dir = self.catalog_dir.clone();
+                Task::perform(
+                    async move {
+                        let _ = tokio::task::spawn_blocking(move || {
+                            let _ = isomfolio_core::indexing::thumbnail::enforce_preview_cache_cap(&dir, cap);
+                        })
+                        .await;
+                    },
+                    |_| Msg::NoOp,
+                )
+            }
+
             Msg::ToggleImportXmpTags => {
                 let next = !self.app_settings.import_xmp_tags.unwrap_or(true);
                 self.app_settings.import_xmp_tags = Some(next);

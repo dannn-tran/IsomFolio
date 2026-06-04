@@ -35,7 +35,25 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([sidebar_task, extension_task, face_task])
+                // Cache hygiene, off-thread: drop orphaned thumbs/previews for
+                // files no longer catalogued, then bound the preview cache.
+                let maint_task = if let Some(conn) = self.catalog.clone() {
+                    let dir = self.catalog_dir.clone();
+                    let cap = self.app_settings.preview_cache_max_mb.saturating_mul(1024 * 1024);
+                    Task::perform(
+                        async move {
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let _ = conn.lock_unwrap().sweep_caches(&dir);
+                                let _ = isomfolio_core::indexing::thumbnail::enforce_preview_cache_cap(&dir, cap);
+                            })
+                            .await;
+                        },
+                        |_| Msg::NoOp,
+                    )
+                } else {
+                    Task::none()
+                };
+                Task::batch([sidebar_task, extension_task, face_task, maint_task])
             }
 
             Msg::OpenCatalog(path) => {

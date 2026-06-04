@@ -440,17 +440,12 @@ pub fn create_worker_pool(
     ThumbnailPool { sender: tx }
 }
 
-pub fn sweep_thumbnail_cache(
-    conn: &rusqlite::Connection,
-    catalog_dir: &str,
-) -> Result<usize, AppError> {
-    let cache_dir = thumbnail_cache_dir(catalog_dir);
-    if !Path::new(&cache_dir).exists() {
+/// Remove `<id>.jpg` files in `cache_dir` whose `id` isn't in `known`.
+fn sweep_orphans(cache_dir: &str, known: &HashSet<String>) -> Result<usize, AppError> {
+    if !Path::new(cache_dir).exists() {
         return Ok(0);
     }
-    let all_ids = crate::storage::db::get_all_file_ids(conn)?;
-    let known: HashSet<String> = all_ids.into_iter().collect();
-    let removed = fs::read_dir(&cache_dir)
+    let removed = fs::read_dir(cache_dir)
         .map_err(|e| AppError::Sync(e.to_string()))?
         .filter_map(|e| e.ok())
         .map(|entry| entry.path())
@@ -463,6 +458,77 @@ pub fn sweep_thumbnail_cache(
             let _ = fs::remove_file(path);
         })
         .count();
+    Ok(removed)
+}
+
+pub fn sweep_thumbnail_cache(
+    conn: &rusqlite::Connection,
+    catalog_dir: &str,
+) -> Result<usize, AppError> {
+    let known: HashSet<String> = crate::storage::db::get_all_file_ids(conn)?.into_iter().collect();
+    sweep_orphans(&thumbnail_cache_dir(catalog_dir), &known)
+}
+
+pub fn sweep_preview_cache(
+    conn: &rusqlite::Connection,
+    catalog_dir: &str,
+) -> Result<usize, AppError> {
+    let known: HashSet<String> = crate::storage::db::get_all_file_ids(conn)?.into_iter().collect();
+    sweep_orphans(&preview_cache_dir(catalog_dir), &known)
+}
+
+/// Drop cached thumbnails and previews whose file is no longer in the catalog
+/// (folder removed, files purged, edited externally). One DB id-set query for
+/// both. Cheap directory scan — safe to run on catalog open.
+pub fn sweep_caches(conn: &rusqlite::Connection, catalog_dir: &str) -> Result<usize, AppError> {
+    let known: HashSet<String> = crate::storage::db::get_all_file_ids(conn)?.into_iter().collect();
+    let t = sweep_orphans(&thumbnail_cache_dir(catalog_dir), &known)?;
+    let p = sweep_orphans(&preview_cache_dir(catalog_dir), &known)?;
+    Ok(t + p)
+}
+
+/// Bound the preview cache to `max_bytes` by deleting the oldest previews
+/// (by mtime) until it fits. `0` = unlimited (no-op). Returns files removed.
+/// Previews regenerate on demand when their drive is online, so eviction is safe.
+pub fn enforce_preview_cache_cap(catalog_dir: &str, max_bytes: u64) -> Result<usize, AppError> {
+    if max_bytes == 0 {
+        return Ok(0);
+    }
+    let dir = preview_cache_dir(catalog_dir);
+    if !Path::new(&dir).exists() {
+        return Ok(0);
+    }
+    let mut entries: Vec<(std::path::PathBuf, u64, std::time::SystemTime)> = fs::read_dir(&dir)
+        .map_err(|e| AppError::Sync(e.to_string()))?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let path = e.path();
+            if path.extension().and_then(|x| x.to_str()) != Some("jpg") {
+                return None;
+            }
+            let meta = e.metadata().ok()?;
+            let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+            Some((path, meta.len(), mtime))
+        })
+        .collect();
+
+    let total: u64 = entries.iter().map(|(_, size, _)| *size).sum();
+    if total <= max_bytes {
+        return Ok(0);
+    }
+    // Oldest first — evict until under the cap.
+    entries.sort_by_key(|(_, _, mtime)| *mtime);
+    let mut over = total - max_bytes;
+    let mut removed = 0usize;
+    for (path, size, _) in entries {
+        if over == 0 {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            over = over.saturating_sub(size);
+            removed += 1;
+        }
+    }
     Ok(removed)
 }
 
@@ -483,5 +549,57 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let result = generate_thumbnail(dir.path().to_str().unwrap(), "fid", "/nonexistent/x.jpg");
         assert!(result.is_err());
+    }
+
+    mod preview_cap {
+        use super::*;
+
+        fn write_preview(catalog: &str, name: &str, bytes: usize, mtime_secs: u64) {
+            let p = Path::new(&preview_cache_dir(catalog)).join(name);
+            fs::write(&p, vec![0u8; bytes]).unwrap();
+            let f = fs::OpenOptions::new().write(true).open(&p).unwrap();
+            f.set_modified(std::time::UNIX_EPOCH + Duration::from_secs(mtime_secs)).unwrap();
+        }
+
+        fn exists(catalog: &str, name: &str) -> bool {
+            Path::new(&preview_cache_dir(catalog)).join(name).exists()
+        }
+
+        #[test]
+        fn evicts_oldest_until_under_cap() {
+            let dir = TempDir::new().unwrap();
+            let cat = dir.path().to_str().unwrap();
+            fs::create_dir_all(preview_cache_dir(cat)).unwrap();
+            write_preview(cat, "old.jpg", 1000, 100);
+            write_preview(cat, "mid.jpg", 1000, 200);
+            write_preview(cat, "new.jpg", 1000, 300);
+
+            // 3000 total, cap 1500 → drop oldest two (down to 1000 ≤ 1500).
+            let removed = enforce_preview_cache_cap(cat, 1500).unwrap();
+            assert_eq!(removed, 2);
+            assert!(!exists(cat, "old.jpg"));
+            assert!(!exists(cat, "mid.jpg"));
+            assert!(exists(cat, "new.jpg"));
+        }
+
+        #[test]
+        fn under_cap_keeps_everything() {
+            let dir = TempDir::new().unwrap();
+            let cat = dir.path().to_str().unwrap();
+            fs::create_dir_all(preview_cache_dir(cat)).unwrap();
+            write_preview(cat, "a.jpg", 1000, 100);
+            assert_eq!(enforce_preview_cache_cap(cat, 5000).unwrap(), 0);
+            assert!(exists(cat, "a.jpg"));
+        }
+
+        #[test]
+        fn zero_means_unlimited() {
+            let dir = TempDir::new().unwrap();
+            let cat = dir.path().to_str().unwrap();
+            fs::create_dir_all(preview_cache_dir(cat)).unwrap();
+            write_preview(cat, "a.jpg", 10_000, 100);
+            assert_eq!(enforce_preview_cache_cap(cat, 0).unwrap(), 0);
+            assert!(exists(cat, "a.jpg"));
+        }
     }
 }

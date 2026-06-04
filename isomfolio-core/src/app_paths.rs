@@ -105,6 +105,11 @@ pub struct AppSettings {
     /// offline. Costs extra disk. Default on.
     #[serde(default = "default_true")]
     pub generate_previews: bool,
+    /// Cap on the preview cache, in megabytes; the oldest previews are evicted
+    /// when exceeded. `0` = unlimited. Previews regenerate on demand (drive
+    /// online), so eviction only costs a re-decode.
+    #[serde(default = "default_preview_cache_mb")]
+    pub preview_cache_max_mb: u64,
     /// DBSCAN cosine-distance radius — lower groups only very similar faces.
     #[serde(default = "default_face_eps")]
     pub face_eps: f32,
@@ -123,6 +128,7 @@ impl Default for AppSettings {
             inference_custom_url: None,
             inference_port: default_inference_port(),
             generate_previews: true,
+            preview_cache_max_mb: default_preview_cache_mb(),
             face_eps: default_face_eps(),
             face_min_pts: default_face_min_pts(),
         }
@@ -130,6 +136,7 @@ impl Default for AppSettings {
 }
 
 fn default_true() -> bool { true }
+fn default_preview_cache_mb() -> u64 { 5120 }
 fn default_inference_port() -> u16 { 45876 }
 fn default_face_eps() -> f32 { 0.4 }
 fn default_face_min_pts() -> u32 { 2 }

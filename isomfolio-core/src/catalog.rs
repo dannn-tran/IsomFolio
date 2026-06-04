@@ -186,6 +186,11 @@ impl Catalog {
         db::relocate_file(&self.conn, old_id, new_path)
     }
 
+    /// Drop cached thumbnails/previews for files no longer in the catalog.
+    pub fn sweep_caches(&self, catalog_dir: &str) -> Result<usize, AppError> {
+        crate::indexing::thumbnail::sweep_caches(&self.conn, catalog_dir)
+    }
+
     pub fn count_orphans_in_folder(&self, folder: &str) -> Result<usize, AppError> {
         db::count_orphans_in_folder(&self.conn, folder)
     }
