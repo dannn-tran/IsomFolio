@@ -40,7 +40,6 @@ impl App {
             | Msg::FaceClusterProgress { .. }
             | Msg::InferenceEngineReady { .. }
             | Msg::FaceClusteringDone(_)
-            | Msg::FaceClustersBatchDone(_)
             | Msg::FaceClustersLoaded(_)
             | Msg::FaceCropsReady(_)
             | Msg::OpenPeopleView
@@ -51,8 +50,7 @@ impl App {
             | Msg::FaceClusterCardClicked(_)
             | Msg::ClearFaceSelection
             | Msg::BatchFaceNameInputChanged(_)
-            | Msg::ConfirmBatchFaceNameMerge
-            | Msg::RemoveFileFromFaceCluster(_, _) => self.handle_extension_msg(msg),
+            | Msg::ConfirmBatchFaceNameMerge => self.handle_extension_msg(msg),
 
             // — scanning & file watching —
             Msg::SyncPickFolder
@@ -83,7 +81,7 @@ impl App {
             | Msg::RequestDeleteRejects
             | Msg::ConfirmDeleteRejects
             | Msg::CancelDeleteRejects
-            | Msg::SelectionDeleted { .. }
+            | Msg::SelectionDeleted
             | Msg::RequestPurgeSelected
             | Msg::RequestPurgeAll
             | Msg::ConfirmPurge
@@ -148,11 +146,8 @@ impl App {
             | Msg::ModifiersChanged(_)
             | Msg::EscapePressed
             | Msg::Scrolled { .. }
-            | Msg::DragHoverAlbum(_)
-            | Msg::OpenContextMenu(_, _)
             | Msg::OpenFaceClusterMenu(_)
             | Msg::ToggleAddToAlbumSubmenu
-            | Msg::CloseContextMenu
             | Msg::HoverSidebarEntityStart(_)
             | Msg::HoverSidebarEntityEnd(_)
             | Msg::ToggleShortcutHelp
@@ -265,11 +260,11 @@ impl App {
                         .ok();
                         count
                     },
-                    |count| Msg::MetadataExported { count },
+                    |_| Msg::MetadataExported,
                 )
             }
 
-            Msg::MetadataExported { .. } => Task::none(),
+            Msg::MetadataExported => Task::none(),
 
             Msg::ExportSelectionToDialog(mode) => {
                 let paths: Vec<String> = self
@@ -368,7 +363,6 @@ impl App {
             | Msg::StartCreateAlbum
             | Msg::CreateAlbumInputChanged(_)
             | Msg::ConfirmCreateAlbum
-            | Msg::CancelCreateAlbum
             | Msg::AlbumCreated
             | Msg::AlbumRenamed
             | Msg::FilesRemovedFromAlbum
@@ -390,11 +384,9 @@ impl App {
             | Msg::UpdateSmartAlbum => self.handle_album_msg(msg),
 
             // — search & filter criteria —
-            Msg::SortFieldCycle
-            | Msg::SortDirToggle
+            Msg::SortDirToggle
             | Msg::SetSortField(_)
             | Msg::SetGridLayout(_)
-            | Msg::SortCycleAll
             | Msg::SearchChanged(_)
             | Msg::ToggleFilterPanel
             | Msg::FilterTagInputChanged(_)

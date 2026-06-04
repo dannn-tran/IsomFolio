@@ -456,7 +456,7 @@ impl App {
                 self.soft_set_deleted(ids, true)
             }
 
-            Msg::SelectionDeleted { .. } => {
+            Msg::SelectionDeleted => {
                 // Status was set synchronously in `soft_set_deleted`; just refresh
                 // the sidebar (Deleted count) and the current view.
                 Task::batch([self.load_sidebar_task(), self.load_files_task()])
@@ -602,7 +602,7 @@ impl App {
                 .await
                 .ok();
             },
-            move |()| Msg::SelectionDeleted { count },
+            |()| Msg::SelectionDeleted,
         )
     }
 }

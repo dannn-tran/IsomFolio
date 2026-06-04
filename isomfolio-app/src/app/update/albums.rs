@@ -175,11 +175,6 @@ impl App {
                 )
             }
 
-            Msg::CancelCreateAlbum => {
-                self.create_album_input = None;
-                Task::none()
-            }
-
             Msg::AlbumCreated | Msg::AlbumRenamed => self.load_sidebar_task(),
 
             Msg::FilesRemovedFromAlbum => {

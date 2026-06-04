@@ -1,16 +1,9 @@
 use iced::Task;
-use isomfolio_core::models::SortField;
-
 use super::super::{App, Msg};
 
 impl App {
     pub(super) fn handle_filters(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
-            Msg::SortFieldCycle => {
-                self.sort_by = next_sort_field(self.sort_by);
-                self.load_files_task()
-            }
-
             Msg::SortDirToggle => {
                 self.sort_asc = !self.sort_asc;
                 self.load_files_task()
@@ -32,16 +25,6 @@ impl App {
                     return self.scroll_to_index(idx);
                 }
                 Task::none()
-            }
-
-            Msg::SortCycleAll => {
-                if self.sort_asc {
-                    self.sort_asc = false;
-                } else {
-                    self.sort_by = next_sort_field(self.sort_by);
-                    self.sort_asc = true;
-                }
-                self.load_files_task()
             }
 
             Msg::SearchChanged(text) => {
@@ -190,14 +173,5 @@ impl App {
 
             _ => Task::none(),
         }
-    }
-}
-
-fn next_sort_field(f: SortField) -> SortField {
-    match f {
-        SortField::Name => SortField::Date,
-        SortField::Date => SortField::Size,
-        SortField::Size => SortField::Ext,
-        SortField::Ext => SortField::Name,
     }
 }

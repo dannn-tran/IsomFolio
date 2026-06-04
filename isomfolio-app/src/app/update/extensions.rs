@@ -114,13 +114,6 @@ impl App {
                 }
             },
 
-            Msg::FaceClustersBatchDone(summaries) => {
-                let count = summaries.len();
-                self.faces.clusters = summaries;
-                self.faces.status = Some(format!("{count} people found so far…"));
-                self.load_face_crops_task()
-            }
-
             Msg::FaceClusteringDone(summaries) => {
                 let count = summaries.len();
                 let unnamed = summaries.iter().filter(|c| c.name.is_none()).count();
@@ -297,20 +290,6 @@ impl App {
                             if let Err(e) = g.rename_face_cluster(&target_id, &name) {
                                 eprintln!("[db] batch rename failed: {e}");
                             }
-                        }
-                        g.get_face_cluster_summaries().unwrap_or_default()
-                    },
-                    Msg::FaceClustersLoaded,
-                )
-            }
-
-            Msg::RemoveFileFromFaceCluster(cluster_id, file_id) => {
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        if let Err(e) = g.remove_file_from_face_cluster(&cluster_id, &file_id) {
-                            eprintln!("[db] remove_file_from_face_cluster failed: {e}");
                         }
                         g.get_face_cluster_summaries().unwrap_or_default()
                     },

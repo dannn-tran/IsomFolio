@@ -849,6 +849,9 @@ impl App {
             Space::new().width(Length::Fill),
             self.settings_tab_chip("General", SettingsTab::General),
             self.settings_tab_chip("Extensions", SettingsTab::Extensions),
+            button(text("✕").size(TEXT_MD).color(FG_DIM))
+                .on_press(Msg::CloseSettings)
+                .style(icon_btn_style),
         ]
         .align_y(Alignment::Center)
         .spacing(SPACE_1_5)

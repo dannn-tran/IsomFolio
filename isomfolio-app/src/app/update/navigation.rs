@@ -552,19 +552,6 @@ impl App {
                 Task::none()
             }
 
-            Msg::DragHoverAlbum(opt_id) => {
-                if self.drag.state.as_ref().map_or(false, |d| d.active) {
-                    self.drag.hover_album = opt_id;
-                }
-                Task::none()
-            }
-
-            Msg::OpenContextMenu(pos, target) => {
-                self.context_menu =
-                    Some(ContextMenuState { position: pos, target, submenu_open: false });
-                Task::none()
-            }
-
             Msg::OpenFaceClusterMenu(cluster_id) => {
                 self.context_menu = Some(ContextMenuState {
                     position: self.cursor,
@@ -578,11 +565,6 @@ impl App {
                 if let Some(ref mut cm) = self.context_menu {
                     cm.submenu_open = !cm.submenu_open;
                 }
-                Task::none()
-            }
-
-            Msg::CloseContextMenu => {
-                self.context_menu = None;
                 Task::none()
             }
 

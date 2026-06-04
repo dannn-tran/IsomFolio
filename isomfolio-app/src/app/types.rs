@@ -199,7 +199,6 @@ pub enum ThumbnailEvent {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum Msg {
     CatalogReady,
 
@@ -292,7 +291,6 @@ pub enum Msg {
     StartCreateAlbum,
     CreateAlbumInputChanged(String),
     ConfirmCreateAlbum,
-    CancelCreateAlbum,
     AlbumCreated,
     AlbumRenamed,
     SmartAlbumUpdated,
@@ -312,7 +310,6 @@ pub enum Msg {
     ConfirmRemoveFromAlbum,
     CancelRemoveFromAlbum,
 
-    SortFieldCycle,
     SortDirToggle,
     SetSortField(SortField),
     SetGridLayout(GridLayout),
@@ -388,7 +385,6 @@ pub enum Msg {
     TagsSavedResult(Vec<String>, Option<String>),
     SearchDebounceTimer { id: u64, text: String },
     ClearThumbnailProgress(u64),
-    DragHoverAlbum(Option<AlbumId>),
     SidebarScrolled(f32),
 
     PickOpenCatalog,
@@ -465,7 +461,6 @@ pub enum Msg {
         force_full: bool,
     },
     FaceClusteringDone(Vec<isomfolio_core::models::FaceClusterSummary>),
-    FaceClustersBatchDone(Vec<isomfolio_core::models::FaceClusterSummary>),
     FaceClustersLoaded(Vec<isomfolio_core::models::FaceClusterSummary>),
     RenameFaceCluster(String),
     RenameFaceClusterInputChanged(String),
@@ -478,7 +473,6 @@ pub enum Msg {
     BatchFaceNameInputChanged(String),
     /// Name the selected clusters as one person and merge them together.
     ConfirmBatchFaceNameMerge,
-    RemoveFileFromFaceCluster(String, String),
     FaceCropsReady(Vec<(String, iced::widget::image::Handle)>),
     OpenPeopleView,
 
@@ -490,12 +484,9 @@ pub enum Msg {
     UndoApplied,
     OpenCompare,
     CompareFullResLoaded { slot: usize, handle: iced::widget::image::Handle },
-    SortCycleAll,
     NoOp,
 
     SidebarResizeStart,
-    OpenContextMenu(Point, ContextMenuTarget),
-    CloseContextMenu,
     SyncFolder(String),
     SyncSelectedFolder,
     DuplicateAlbum(AlbumId),
@@ -527,7 +518,7 @@ pub enum Msg {
     RequestDeleteRejects,
     ConfirmDeleteRejects,
     CancelDeleteRejects,
-    SelectionDeleted { count: usize },
+    SelectionDeleted,
     /// Permanently delete (from disk + catalog): the current selection / all in Deleted.
     RequestPurgeSelected,
     RequestPurgeAll,
@@ -544,7 +535,7 @@ pub enum Msg {
     /// Export catalog metadata (selection or current view) to a CSV file.
     ExportMetadata,
     ExportMetadataDest { ids: Vec<String>, dest: Option<String> },
-    MetadataExported { count: usize },
+    MetadataExported,
     ExportSelectionToDialog(ExportMode),
     ExportDestPicked { paths: Vec<String>, dest: Option<String>, mode: ExportMode },
     ExportDone { task_id: BgTaskId, result: Result<(), String> },
