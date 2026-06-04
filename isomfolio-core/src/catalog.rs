@@ -174,10 +174,6 @@ impl Catalog {
         db::get_tags_for_file(&self.conn, file_id)
     }
 
-    pub fn add_tags_merge_scored(&self, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
-        db::add_tags_merge_scored(&self.conn, file_id, tags)
-    }
-
     pub fn purge_orphans_in_folder(&self, folder: &str) -> Result<usize, AppError> {
         db::purge_orphans_in_folder(&self.conn, folder)
     }
@@ -212,10 +208,7 @@ impl Catalog {
     }
 
     pub fn add_tag_to_files(&self, file_ids: &[String], tag: &str) -> Result<(), AppError> {
-        for fid in file_ids {
-            db::add_tags_merge(&self.conn, fid, &[tag.to_string()])?;
-        }
-        Ok(())
+        db::add_tag_to_files_bulk(&self.conn, file_ids, tag)
     }
 
     pub fn remove_tag_from_files(&self, file_ids: &[String], tag: &str) -> Result<(), AppError> {

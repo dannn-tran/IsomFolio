@@ -58,7 +58,6 @@ pub const CREATE_TAGS: &str = "
 CREATE TABLE IF NOT EXISTS tags (
     file_id     TEXT NOT NULL,
     tag         TEXT NOT NULL COLLATE NOCASE,
-    confidence  REAL,
     PRIMARY KEY (file_id, tag),
     FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
 );

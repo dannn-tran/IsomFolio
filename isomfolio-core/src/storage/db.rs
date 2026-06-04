@@ -15,9 +15,7 @@ fn now_unix() -> i64 {
         .as_secs() as i64
 }
 
-// ---------------------------------------------------------------------------
 // Init
-// ---------------------------------------------------------------------------
 
 pub fn open_database(db_path: &str) -> Result<Connection, AppError> {
     if let Some(parent) = Path::new(db_path).parent() {
@@ -66,9 +64,7 @@ fn run_migrations(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 pub fn read_asset_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetFile> {
     use crate::models::Flag;
@@ -102,9 +98,7 @@ pub const FILE_COLS_PREFIXED: &str =
 
 const FILE_COLS: &str = FILE_COLS_BARE;
 
-// ---------------------------------------------------------------------------
 // Files
-// ---------------------------------------------------------------------------
 
 pub fn upsert_files(conn: &Connection, files: &[AssetFile]) -> Result<usize, AppError> {
     let mut total = 0;
@@ -521,9 +515,7 @@ pub fn get_indexed_paths_in_folder(
         .map_err(Into::into)
 }
 
-// ---------------------------------------------------------------------------
 // Tags
-// ---------------------------------------------------------------------------
 
 /// Replace the user-owned tag list for a file. Tags not in `tags` are hard-deleted;
 /// new tags are inserted if absent (existing rows kept as-is).
@@ -550,22 +542,38 @@ pub fn upsert_tags(conn: &Connection, file_id: &str, tags: &[String]) -> Result<
     Ok(())
 }
 
-/// Add tags without deleting existing ones. Sets confidence for AI-generated tags.
+/// Add tags without removing existing ones. Use for single-file additive writes.
+/// For adding a tag across many files at once, use `add_tag_to_files_bulk`.
 pub fn add_tags_merge(conn: &Connection, file_id: &str, tags: &[String]) -> Result<(), AppError> {
-    add_tags_merge_scored(conn, file_id, &tags.iter().map(|t| (t.clone(), None)).collect::<Vec<_>>())
-}
-
-pub fn add_tags_merge_scored(conn: &Connection, file_id: &str, tags: &[(String, Option<f32>)]) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
-    for (tag, confidence) in tags {
+    for tag in tags {
         conn.execute(
-            "INSERT INTO tags (file_id, tag, confidence) VALUES (?1, ?2, ?3)
-             ON CONFLICT(file_id, tag) DO UPDATE SET confidence = COALESCE(?3, confidence)",
-            params![file_id, tag, confidence],
+            "INSERT OR IGNORE INTO tags (file_id, tag) VALUES (?1, ?2)",
+            params![file_id, tag],
         )?;
     }
     tx.commit()?;
     rebuild_fts_for_file(conn, file_id)?;
+    Ok(())
+}
+
+/// Add a single tag to many files in one transaction, with one FTS rebuild per file.
+/// Prefer this over calling `add_tags_merge` in a loop.
+pub fn add_tag_to_files_bulk(conn: &Connection, file_ids: &[String], tag: &str) -> Result<(), AppError> {
+    if file_ids.is_empty() {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    for fid in file_ids {
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (file_id, tag) VALUES (?1, ?2)",
+            params![fid, tag],
+        )?;
+    }
+    tx.commit()?;
+    for fid in file_ids {
+        rebuild_fts_for_file(conn, fid)?;
+    }
     Ok(())
 }
 
@@ -738,9 +746,7 @@ pub fn delete_tag_with_descendants(conn: &Connection, tag: &str) -> Result<usize
     Ok(exact + prefix_count)
 }
 
-// ---------------------------------------------------------------------------
 // Metadata
-// ---------------------------------------------------------------------------
 
 pub fn upsert_metadata(
     conn: &Connection,
@@ -906,9 +912,7 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
     Ok(Some(EmbeddedMetadata { xmp, apple, exif_tech }))
 }
 
-// ---------------------------------------------------------------------------
 // Burst detection
-// ---------------------------------------------------------------------------
 
 pub fn detect_and_store_bursts(conn: &Connection, folder: &str) -> Result<(), AppError> {
     let mut stmt = conn.prepare(
@@ -956,9 +960,7 @@ pub fn detect_and_store_bursts(conn: &Connection, folder: &str) -> Result<(), Ap
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Albums
-// ---------------------------------------------------------------------------
 
 fn serialize_query(q: &SearchQuery) -> String {
     serde_json::to_string(q).unwrap_or_default()
@@ -1212,9 +1214,7 @@ pub fn count_album_files(conn: &Connection, album_id: &str) -> Result<usize, App
     Ok(n as usize)
 }
 
-// ---------------------------------------------------------------------------
 // Face clustering
-// ---------------------------------------------------------------------------
 
 pub fn save_face_clusters(
     conn: &Connection,
@@ -1504,9 +1504,7 @@ pub fn remove_file_from_face_cluster(conn: &Connection, cluster_id: &str, file_i
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -1641,17 +1639,6 @@ mod tests {
         assert!(f2.orphaned_at.is_none());
     }
 
-    #[test]
-    fn tag_replace_atomic() {
-        let (conn, _f) = open_temp();
-        let file = make_file("x", "/tmp/x.jpg");
-        upsert_files(&conn, &[file]).unwrap();
-        upsert_tags(&conn, "x", &["a".to_string(), "b".to_string()]).unwrap();
-        upsert_tags(&conn, "x", &["c".to_string()]).unwrap();
-        let tags = get_tags_for_file(&conn, "x").unwrap();
-        assert_eq!(tags, vec!["c"]);
-    }
-
     mod face_persistence {
         use super::*;
 
@@ -1718,46 +1705,50 @@ mod tests {
         assert!(get_all_albums(&conn).unwrap().is_empty());
     }
 
-    #[test]
-    fn set_and_get_flag() {
-        let (conn, _f) = open_temp();
-        let file = make_file("f1", "/tmp/f1.jpg");
-        upsert_files(&conn, &[file]).unwrap();
-        set_file_flag(&conn, "f1", crate::models::Flag::Pick).unwrap();
-        let result = get_file_by_id(&conn, "f1").unwrap().unwrap();
-        assert_eq!(result.flag, crate::models::Flag::Pick);
-        set_file_flag(&conn, "f1", crate::models::Flag::Reject).unwrap();
-        let result2 = get_file_by_id(&conn, "f1").unwrap().unwrap();
-        assert_eq!(result2.flag, crate::models::Flag::Reject);
-    }
+    mod flags {
+        use super::*;
 
-    #[test]
-    fn resync_preserves_flag_and_added_time() {
-        let (conn, _f) = open_temp();
-        upsert_files(&conn, &[make_file("f1", "/tmp/f1.jpg")]).unwrap();
-        set_file_flag(&conn, "f1", crate::models::Flag::Pick).unwrap();
+        #[test]
+        fn set_and_get_flag() {
+            let (conn, _f) = open_temp();
+            let file = make_file("f1", "/tmp/f1.jpg");
+            upsert_files(&conn, &[file]).unwrap();
+            set_file_flag(&conn, "f1", crate::models::Flag::Pick).unwrap();
+            let result = get_file_by_id(&conn, "f1").unwrap().unwrap();
+            assert_eq!(result.flag, crate::models::Flag::Pick);
+            set_file_flag(&conn, "f1", crate::models::Flag::Reject).unwrap();
+            let result2 = get_file_by_id(&conn, "f1").unwrap().unwrap();
+            assert_eq!(result2.flag, crate::models::Flag::Reject);
+        }
 
-        // Re-sync: a freshly scanned asset (flag Unflagged, new created_at) with
-        // the same id and updated identity fields must NOT wipe the flag/add time.
-        let mut rescanned = make_file("f1", "/tmp/f1.jpg");
-        rescanned.flag = crate::models::Flag::Unflagged;
-        rescanned.created_at_unix = 99999;
-        rescanned.size_bytes = 2048; // identity changed on disk
-        upsert_files(&conn, &[rescanned]).unwrap();
+        #[test]
+        fn resync_preserves_flag_and_added_time() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[make_file("f1", "/tmp/f1.jpg")]).unwrap();
+            set_file_flag(&conn, "f1", crate::models::Flag::Pick).unwrap();
 
-        let got = get_file_by_id(&conn, "f1").unwrap().unwrap();
-        assert_eq!(got.flag, crate::models::Flag::Pick, "flag must survive re-sync");
-        assert_eq!(got.created_at_unix, 900, "catalog add-time must survive re-sync");
-        assert_eq!(got.size_bytes, 2048, "identity fields still refresh");
-    }
+            // Re-sync: a freshly scanned asset (flag Unflagged, new created_at) with
+            // the same id and updated identity fields must NOT wipe the flag/add time.
+            let mut rescanned = make_file("f1", "/tmp/f1.jpg");
+            rescanned.flag = crate::models::Flag::Unflagged;
+            rescanned.created_at_unix = 99999;
+            rescanned.size_bytes = 2048; // identity changed on disk
+            upsert_files(&conn, &[rescanned]).unwrap();
 
-    #[test]
-    fn set_files_flag_batch() {
-        let (conn, _f) = open_temp();
-        upsert_files(&conn, &[make_file("a", "/tmp/a.jpg"), make_file("b", "/tmp/b.jpg")]).unwrap();
-        set_files_flag(&conn, &["a".to_string(), "b".to_string()], crate::models::Flag::Pick).unwrap();
-        assert_eq!(get_file_by_id(&conn, "a").unwrap().unwrap().flag, crate::models::Flag::Pick);
-        assert_eq!(get_file_by_id(&conn, "b").unwrap().unwrap().flag, crate::models::Flag::Pick);
+            let got = get_file_by_id(&conn, "f1").unwrap().unwrap();
+            assert_eq!(got.flag, crate::models::Flag::Pick, "flag must survive re-sync");
+            assert_eq!(got.created_at_unix, 900, "catalog add-time must survive re-sync");
+            assert_eq!(got.size_bytes, 2048, "identity fields still refresh");
+        }
+
+        #[test]
+        fn set_files_flag_batch() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[make_file("a", "/tmp/a.jpg"), make_file("b", "/tmp/b.jpg")]).unwrap();
+            set_files_flag(&conn, &["a".to_string(), "b".to_string()], crate::models::Flag::Pick).unwrap();
+            assert_eq!(get_file_by_id(&conn, "a").unwrap().unwrap().flag, crate::models::Flag::Pick);
+            assert_eq!(get_file_by_id(&conn, "b").unwrap().unwrap().flag, crate::models::Flag::Pick);
+        }
     }
 
     #[test]
@@ -1883,6 +1874,17 @@ mod tests {
 
         fn setup(conn: &Connection) {
             upsert_files(conn, &[make_file("f1", "/p/a.jpg")]).unwrap();
+        }
+
+        #[test]
+        fn replace_atomic() {
+            let (conn, _f) = open_temp();
+            let file = make_file("x", "/tmp/x.jpg");
+            upsert_files(&conn, &[file]).unwrap();
+            upsert_tags(&conn, "x", &["a".to_string(), "b".to_string()]).unwrap();
+            upsert_tags(&conn, "x", &["c".to_string()]).unwrap();
+            let tags = get_tags_for_file(&conn, "x").unwrap();
+            assert_eq!(tags, vec!["c"]);
         }
 
         #[test]
