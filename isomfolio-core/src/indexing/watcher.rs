@@ -146,11 +146,42 @@ pub fn stop_watcher(_watcher: FileWatcher) {
     // Drop the watcher — notify cleans up automatically
 }
 
+/// A handle keeping the event-driven mount watcher alive. Dropping it stops the
+/// notify watcher (macOS/Linux); the Windows message-loop thread is app-lifetime.
+pub enum MountWatch {
+    Files(FileWatcher),
+    #[cfg(windows)]
+    Windows,
+}
+
+/// Start event-driven removable-drive detection, calling `on_change` on any
+/// mount/unmount. macOS/Linux watch the mount-container dirs via `notify`;
+/// Windows listens for `WM_DEVICECHANGE`. Returns `None` if no source could be
+/// started — callers keep the periodic poll as a backstop regardless.
+pub fn start_mount_watch<F>(on_change: F) -> Option<MountWatch>
+where
+    F: Fn() + Send + Sync + 'static,
+{
+    #[cfg(windows)]
+    {
+        windows_mount::start(on_change);
+        Some(MountWatch::Windows)
+    }
+    #[cfg(not(windows))]
+    {
+        let dirs = crate::volume::mount_watch_dirs();
+        if dirs.is_empty() {
+            return None;
+        }
+        create_mount_watcher(&dirs, on_change).ok().map(MountWatch::Files)
+    }
+}
+
 /// Watch the OS mount-container directories **non-recursively** (so we observe
 /// volumes mounting/unmounting as entries appearing/disappearing — never the
 /// contents of the drives themselves) and invoke `on_change` once per burst.
-/// Event-driven removable-drive detection. `Err` if nothing could be watched
-/// (e.g. Windows, where there's no mount directory — callers fall back to poll).
+/// Event-driven removable-drive detection. `Err` if nothing could be watched.
+#[cfg(not(windows))]
 pub fn create_mount_watcher<F>(dirs: &[String], on_change: F) -> Result<FileWatcher, crate::models::AppError>
 where
     F: Fn() + Send + Sync + 'static,
@@ -200,4 +231,91 @@ where
         return Err(crate::models::AppError::Watcher("no mount directories to watch".into()));
     }
     Ok(FileWatcher { _watcher: watcher, shutdown })
+}
+
+/// Windows removable-drive detection via `WM_DEVICECHANGE`. A message-only
+/// window pumps device-arrival/removal broadcasts on a dedicated, app-lifetime
+/// thread; the callback is held in a thread-local read by the (same-thread)
+/// window procedure. No mount directory exists to watch on Windows, so this is
+/// the event source there (with the periodic poll as backstop).
+#[cfg(windows)]
+mod windows_mount {
+    use std::cell::RefCell;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW,
+        TranslateMessage, DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE, HWND_MESSAGE, MSG,
+        WM_DEVICECHANGE, WNDCLASSW,
+    };
+
+    thread_local! {
+        static ON_CHANGE: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+    }
+
+    unsafe extern "system" fn wndproc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if msg == WM_DEVICECHANGE
+            && (wparam == DBT_DEVICEARRIVAL as WPARAM
+                || wparam == DBT_DEVICEREMOVECOMPLETE as WPARAM)
+        {
+            ON_CHANGE.with(|c| {
+                if let Some(f) = c.borrow().as_ref() {
+                    f();
+                }
+            });
+            return 1; // TRUE
+        }
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    pub fn start<F>(on_change: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        std::thread::spawn(move || unsafe {
+            ON_CHANGE.with(|c| *c.borrow_mut() = Some(Box::new(on_change)));
+
+            let hinstance = GetModuleHandleW(null_mut());
+            let class_name = wide("IsomFolioMountWatch");
+            let mut wc: WNDCLASSW = std::mem::zeroed();
+            wc.lpfnWndProc = Some(wndproc);
+            wc.hInstance = hinstance;
+            wc.lpszClassName = class_name.as_ptr();
+            RegisterClassW(&wc);
+
+            let hwnd = CreateWindowExW(
+                0,
+                class_name.as_ptr(),
+                null_mut(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                HWND_MESSAGE,
+                null_mut(),
+                hinstance,
+                null_mut(),
+            );
+            if hwnd.is_null() {
+                return;
+            }
+
+            let mut msg: MSG = std::mem::zeroed();
+            while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        });
+    }
 }

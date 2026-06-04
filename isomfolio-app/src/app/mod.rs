@@ -16,7 +16,7 @@ use isomfolio_core::indexing::thumbnail::{
     create_worker_pool, thumbnail_cache_path, ThumbnailPool,
 };
 use isomfolio_core::indexing::types::FileEvent;
-use isomfolio_core::indexing::watcher::{create_mount_watcher, create_watcher, FileWatcher};
+use isomfolio_core::indexing::watcher::{create_watcher, start_mount_watch, FileWatcher, MountWatch};
 use isomfolio_core::models::SearchQuery;
 use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, SortField, ThumbnailState};
 
@@ -216,7 +216,7 @@ pub struct App {
     /// watcher handle is kept alive for the app's lifetime; `None` where there's
     /// no mount directory to watch (Windows — the 5 s poll covers it).
     pub mount_rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<()>>>>,
-    pub _mount_watcher: Option<FileWatcher>,
+    pub _mount_watcher: Option<MountWatch>,
     pub watcher_debounce_id: u64,
 
     pub search_text: String,
@@ -448,17 +448,11 @@ impl App {
         let (mtx, mrx) = mpsc::sync_channel::<()>(8);
         let mount_rx = Arc::new(std::sync::Mutex::new(Some(mrx)));
         let mount_watcher = {
-            let dirs = isomfolio_core::volume::mount_watch_dirs();
-            if dirs.is_empty() {
-                None
-            } else {
-                let mtx = mtx.clone();
-                create_mount_watcher(&dirs, move || {
-                    isomfolio_core::volume::invalidate_cache();
-                    let _ = mtx.try_send(());
-                })
-                .ok()
-            }
+            let mtx = mtx.clone();
+            start_mount_watch(move || {
+                isomfolio_core::volume::invalidate_cache();
+                let _ = mtx.try_send(());
+            })
         };
 
         let recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
