@@ -16,7 +16,7 @@ use isomfolio_core::indexing::thumbnail::{
     create_worker_pool, thumbnail_cache_path, ThumbnailPool,
 };
 use isomfolio_core::indexing::types::FileEvent;
-use isomfolio_core::indexing::watcher::{create_watcher, FileWatcher};
+use isomfolio_core::indexing::watcher::{create_mount_watcher, create_watcher, FileWatcher};
 use isomfolio_core::models::SearchQuery;
 use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, SortField, ThumbnailState};
 
@@ -236,6 +236,12 @@ pub struct App {
     pub watcher_rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<FileEvent>>>>,
     pub watchers: Vec<(String, FileWatcher)>,
     pub pending_file_events: Vec<FileEvent>,
+    /// Event-driven removable-drive detection: a mount/unmount under the OS mount
+    /// dirs pushes a tick consumed by `MountRecipe` → `RecheckOfflineRoots`. The
+    /// watcher handle is kept alive for the app's lifetime; `None` where there's
+    /// no mount directory to watch (Windows — the 5 s poll covers it).
+    pub mount_rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<()>>>>,
+    pub _mount_watcher: Option<FileWatcher>,
     pub watcher_debounce_id: u64,
 
     pub search_text: String,
@@ -416,12 +422,69 @@ impl iced::advanced::subscription::Recipe for WatcherRecipe {
     }
 }
 
+/// Bridges mount/unmount ticks from the mount watcher into the update loop as
+/// `RecheckOfflineRoots`. Mirrors `WatcherRecipe`.
+struct MountRecipe {
+    rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<()>>>>,
+}
+
+impl iced::advanced::subscription::Recipe for MountRecipe {
+    type Output = Msg;
+
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
+        use std::hash::Hash;
+        std::any::TypeId::of::<Self>().hash(state);
+    }
+
+    fn stream(
+        self: Box<Self>,
+        _input: iced::advanced::subscription::EventStream,
+    ) -> std::pin::Pin<Box<dyn iced::futures::Stream<Item = Self::Output> + Send + 'static>> {
+        let rx_arc = self.rx;
+        Box::pin(iced::futures::stream::unfold(
+            None::<mpsc::Receiver<()>>,
+            move |rx| {
+                let rx_arc = rx_arc.clone();
+                async move {
+                    let rx = match rx {
+                        Some(r) => r,
+                        None => rx_arc.lock().ok()?.take()?,
+                    };
+                    let rx = tokio::task::spawn_blocking(move || rx.recv().ok().map(|_| rx))
+                        .await
+                        .ok()
+                        .flatten()?;
+                    Some((Msg::RecheckOfflineRoots, Some(rx)))
+                }
+            },
+        ))
+    }
+}
+
 impl App {
     pub fn new(catalog_dir: Option<String>) -> (Self, Task<Msg>) {
         let (tx, rx) = mpsc::sync_channel::<ThumbnailEvent>(500);
         let rx_arc = Arc::new(std::sync::Mutex::new(Some(rx)));
         let (wtx, wrx) = mpsc::sync_channel::<FileEvent>(200);
         let wrx_arc = Arc::new(std::sync::Mutex::new(Some(wrx)));
+
+        // Event-driven mount detection: watch the OS mount dirs; each mount change
+        // invalidates the volume snapshot and ticks the offline recheck.
+        let (mtx, mrx) = mpsc::sync_channel::<()>(8);
+        let mount_rx = Arc::new(std::sync::Mutex::new(Some(mrx)));
+        let mount_watcher = {
+            let dirs = isomfolio_core::volume::mount_watch_dirs();
+            if dirs.is_empty() {
+                None
+            } else {
+                let mtx = mtx.clone();
+                create_mount_watcher(&dirs, move || {
+                    isomfolio_core::volume::invalidate_cache();
+                    let _ = mtx.try_send(());
+                })
+                .ok()
+            }
+        };
 
         let recent_catalogs = isomfolio_core::app_paths::read_recent_catalogs();
 
@@ -492,6 +555,8 @@ impl App {
             },
             watcher_tx: wtx,
             watcher_rx: wrx_arc,
+            mount_rx,
+            _mount_watcher: mount_watcher,
             watchers: Vec::new(),
             pending_file_events: Vec::new(),
             watcher_debounce_id: 0,
@@ -1235,7 +1300,11 @@ impl App {
             rx: Arc::clone(&self.watcher_rx),
         });
 
-        let mut subs = vec![event_sub, thumb_sub, watcher_sub];
+        let mount_sub = iced::advanced::subscription::from_recipe(MountRecipe {
+            rx: Arc::clone(&self.mount_rx),
+        });
+
+        let mut subs = vec![event_sub, thumb_sub, watcher_sub, mount_sub];
         // Tick only while completed toasts are lingering, so they auto-expire.
         if !self.completed_tasks.is_empty() {
             subs.push(

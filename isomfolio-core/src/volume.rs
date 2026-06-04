@@ -83,6 +83,31 @@ fn path_under(path: &str, mount: &str) -> bool {
     path == m || path.starts_with(&format!("{m}{MAIN_SEPARATOR}"))
 }
 
+/// Directories where volumes mount, to watch (non-recursively) for drives
+/// appearing/disappearing — the event source for removable-drive detection.
+/// Only existing directories are returned. Empty on platforms without a mount
+/// container (Windows: drive letters, no directory to watch — poll instead).
+pub fn mount_watch_dirs() -> Vec<String> {
+    let mut candidates: Vec<String> = Vec::new();
+    if cfg!(target_os = "macos") {
+        candidates.push("/Volumes".into());
+    } else if cfg!(target_os = "linux") {
+        candidates.push("/media".into());
+        candidates.push("/mnt".into());
+        // udisks auto-mounts removable media under /run/media/<user>/<label> and
+        // some distros under /media/<user>/<label>; watch the per-user dir so the
+        // label-level mount is a direct child (non-recursive watch).
+        if let Some(user) = std::env::var_os("USER").and_then(|u| u.into_string().ok()) {
+            candidates.push(format!("/run/media/{user}"));
+            candidates.push(format!("/media/{user}"));
+        }
+    }
+    candidates
+        .into_iter()
+        .filter(|d| std::path::Path::new(d).is_dir())
+        .collect()
+}
+
 /// The volume-relative remainder of `path` under `mount` (no leading separator).
 pub fn relative_to_mount(path: &str, mount: &str) -> String {
     let m = mount.trim_end_matches(MAIN_SEPARATOR);

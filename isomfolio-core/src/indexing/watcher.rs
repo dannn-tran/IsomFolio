@@ -145,3 +145,59 @@ where
 pub fn stop_watcher(_watcher: FileWatcher) {
     // Drop the watcher — notify cleans up automatically
 }
+
+/// Watch the OS mount-container directories **non-recursively** (so we observe
+/// volumes mounting/unmounting as entries appearing/disappearing — never the
+/// contents of the drives themselves) and invoke `on_change` once per burst.
+/// Event-driven removable-drive detection. `Err` if nothing could be watched
+/// (e.g. Windows, where there's no mount directory — callers fall back to poll).
+pub fn create_mount_watcher<F>(dirs: &[String], on_change: F) -> Result<FileWatcher, crate::models::AppError>
+where
+    F: Fn() + Send + Sync + 'static,
+{
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_thread = Arc::clone(&shutdown);
+
+    let (tx, rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
+    let (sig_tx, sig_rx) = std::sync::mpsc::channel::<()>();
+
+    // Forward every raw event to a debounce signal.
+    std::thread::spawn(move || {
+        for result in rx {
+            if result.is_ok() {
+                let _ = sig_tx.send(());
+            }
+        }
+    });
+
+    // Coalesce a burst of mount/unmount events into one callback.
+    std::thread::spawn(move || {
+        while sig_rx.recv().is_ok() {
+            if shutdown_thread.load(Ordering::Relaxed) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(400));
+            while sig_rx.try_recv().is_ok() {}
+            if shutdown_thread.load(Ordering::Relaxed) {
+                break;
+            }
+            on_change();
+        }
+    });
+
+    let mut watcher = RecommendedWatcher::new(tx, Config::default())
+        .map_err(|e| crate::models::AppError::Watcher(e.to_string()))?;
+    let mut watched = 0usize;
+    for dir in dirs {
+        if watcher
+            .watch(Path::new(dir), RecursiveMode::NonRecursive)
+            .is_ok()
+        {
+            watched += 1;
+        }
+    }
+    if watched == 0 {
+        return Err(crate::models::AppError::Watcher("no mount directories to watch".into()));
+    }
+    Ok(FileWatcher { _watcher: watcher, shutdown })
+}
