@@ -425,6 +425,7 @@ impl App {
             | Msg::ExtensionInstallFailed(_)
             | Msg::UninstallExtension(_)
             | Msg::ToggleAutoFaceCluster
+            | Msg::ToggleGeneratePreviews
             | Msg::ToggleInferenceCustom
             | Msg::InferenceUrlChanged(_)
             | Msg::InferencePortChanged(_)

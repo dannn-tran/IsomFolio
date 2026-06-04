@@ -23,7 +23,7 @@ Sort options (accessible from the toolbar or sort button):
 
 Two toolbar buttons switch how the content area lays out photos:
 
-- **▦ Grid** (default) — a thumbnail grid. Use `Cmd++` / `Cmd+−` to change thumbnail size.
+- **▦ Grid** (default) — a thumbnail grid. Use the **− / +** buttons in the toolbar (or `Cmd++` / `Cmd+−`) to change thumbnail size.
 - **≡ List** — a compact line per photo with columns: thumbnail, **Name**, flag, rating, colour label, **Date**, **Size**, and **Type**. Best for scanning filenames and metadata at a glance, like the list view in Finder or Capture One.
 
 In List view, **click a column header** (Name / Date / Size / Type) to sort by it; click the active column again to flip the direction (`▲` / `▼`). **Drag a column's right edge** to resize it (Name, Rating, Date, Size, Type) — widths are remembered for the session. Everything else — selection, filtering, the cull strip, the Info panel, drag-to-album, and right-click menus — works exactly the same in both views.
@@ -61,10 +61,19 @@ Press `Esc` to return to the grid.
 
 ## Thumbnail zoom
 
-- `Cmd++` — increase thumbnail size (up to 400 px)
-- `Cmd+-` — decrease thumbnail size (down to 80 px)
+- **− / +** toolbar buttons, or `Cmd++` / `Cmd+−` — change thumbnail size (80–400 px).
 
 The zoom level is preserved between sessions.
+
+## Working offline (removable drives)
+
+You can keep browsing and culling even when a photo's drive is disconnected. IsomFolio caches a large **preview** of each photo (on by default — *Settings → General → Keep offline previews*), so:
+
+- A library root on an unplugged drive is marked **offline** in the sidebar (`⏏`); its photos still appear in the grid with an **Offline** badge.
+- Opening a photo in the loupe shows the cached preview, so you can review it full-screen.
+- **Flagging, rating, colour labels, and rejects all work offline** — they're saved to the catalog and apply to the originals next time the drive is connected.
+
+When you reconnect the drive, IsomFolio notices automatically and the offline markers clear. Full-resolution 1:1 zoom and export still need the original file, so reconnect the drive for those.
 
 ## Show in Finder
 

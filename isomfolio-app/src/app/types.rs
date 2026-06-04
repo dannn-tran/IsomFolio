@@ -439,6 +439,7 @@ pub enum Msg {
     SwitchSettingsTab(SettingsTab),
     CloseSettings,
     ToggleAutoFaceCluster,
+    ToggleGeneratePreviews,
     ToggleInferenceCustom,
     InferenceUrlChanged(String),
     InferencePortChanged(String),

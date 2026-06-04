@@ -7,13 +7,18 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::app_paths::{ensure_directories, thumbnail_cache_dir};
+use crate::app_paths::{
+    ensure_directories, preview_cache_dir, preview_cache_path, thumbnail_cache_dir,
+};
 use crate::models::AppError;
 
 // 512 covers the largest grid tile (TILE_SIZE_MAX 400px, 2× on HiDPI) without
 // upscaling. Safe to hold many of: the renderer decodes by path and evicts
 // off-screen textures, so RAM tracks the viewport, not the library size.
 const TARGET_SIZE: u32 = 512;
+/// Long-edge size of the cached **preview** (the "smart preview" tier): big
+/// enough to view/cull full-screen, small enough to keep on disk for offline use.
+const PREVIEW_SIZE: u32 = 2048;
 const JPEG_QUALITY: u8 = 85;
 const RETRY_DELAY_SECS: u64 = 5;
 
@@ -28,9 +33,16 @@ pub fn is_cache_valid(catalog_dir: &str, file_id: &str) -> bool {
     Path::new(&thumbnail_cache_path(catalog_dir, file_id)).exists()
 }
 
-fn resize_and_save(img: image::DynamicImage, dest: &str, file_id: &str) -> Result<(), AppError> {
+fn resize_and_save(
+    img: image::DynamicImage,
+    dest: &str,
+    file_id: &str,
+    target: u32,
+) -> Result<(), AppError> {
     let (w, h) = (img.width(), img.height());
-    let scale = TARGET_SIZE as f64 / w.max(h) as f64;
+    // Never upscale past the source — keeps a small original from bloating into
+    // a larger-but-blurry cache file.
+    let scale = (target as f64 / w.max(h) as f64).min(1.0);
     let new_w = ((w as f64 * scale).round() as u32).max(1);
     let new_h = ((h as f64 * scale).round() as u32).max(1);
     let resized = img.resize_exact(new_w, new_h, FilterType::Triangle);
@@ -169,7 +181,7 @@ pub fn generate_thumbnail(
     if is_raw_extension(&ext) {
         let img = decode_raw_preview(file_path)
             .ok_or_else(|| AppError::Thumbnail(file_id.to_string(), "no decodable preview in RAW file".into()))?;
-        resize_and_save(img, &dest, file_id)?;
+        resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
         return Ok(dest);
     }
 
@@ -179,7 +191,7 @@ pub fn generate_thumbnail(
         if let Some(thumb_bytes) = read_exif_jpeg_thumbnail(file_path) {
             if let Ok(img) = image::load_from_memory(&thumb_bytes) {
                 if img.width().max(img.height()) >= TARGET_SIZE {
-                    resize_and_save(img, &dest, file_id)?;
+                    resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
                     return Ok(dest);
                 }
             }
@@ -188,7 +200,37 @@ pub fn generate_thumbnail(
 
     let img = image::open(file_path)
         .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
-    resize_and_save(img, &dest, file_id)?;
+    resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
+    Ok(dest)
+}
+
+/// Generate the cached **preview** (a `PREVIEW_SIZE` JPEG) — the offline /
+/// loupe tier. Unlike the thumbnail it always decodes the real image (no tiny
+/// embedded-thumb fast path), so the result is full-screen quality. Idempotent.
+pub fn generate_preview(
+    catalog_dir: &str,
+    file_id: &str,
+    file_path: &str,
+) -> Result<String, AppError> {
+    let dest = preview_cache_path(catalog_dir, file_id);
+    if Path::new(&dest).exists() {
+        return Ok(dest);
+    }
+    let _ = fs::create_dir_all(preview_cache_dir(catalog_dir));
+
+    let ext = Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let img = if is_raw_extension(&ext) {
+        decode_raw_preview(file_path)
+            .ok_or_else(|| AppError::Thumbnail(file_id.to_string(), "no decodable preview in RAW file".into()))?
+    } else {
+        image::open(file_path).map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?
+    };
+    resize_and_save(img, &dest, file_id, PREVIEW_SIZE)?;
     Ok(dest)
 }
 
@@ -275,6 +317,7 @@ fn sweep_tmp_files(catalog_dir: &str) {
 pub fn create_worker_pool(
     catalog_dir: &str,
     concurrency: usize,
+    gen_previews: bool,
     on_ready: impl Fn(String, String) + Send + Sync + 'static,
     on_failed: impl Fn(String, String) + Send + Sync + 'static,
 ) -> ThumbnailPool {
@@ -352,6 +395,13 @@ pub fn create_worker_pool(
                         std::thread::spawn(move || {
                             match generate_thumbnail(&catalog, &file_id, &file_path) {
                                 Ok(path) => {
+                                    // Best-effort preview for offline/loupe use; a
+                                    // failure here must not fail the thumbnail.
+                                    if gen_previews {
+                                        if let Err(e) = generate_preview(&catalog, &file_id, &file_path) {
+                                            eprintln!("[thumbnail] preview gen failed for {file_id}: {e}");
+                                        }
+                                    }
                                     let _ = tx_done.send(ThumbnailMsg::Done {
                                         file_id, success: true, msg: path,
                                     });

@@ -957,6 +957,12 @@ impl App {
             Msg::ToggleAutoFaceCluster,
         ));
         col = col.push(self.toggle_row(
+            "Keep offline previews",
+            "Cache a large preview per photo so the loupe is sharp and you can view & cull photos while their drive is disconnected. Uses extra disk.",
+            self.app_settings.generate_previews,
+            Msg::ToggleGeneratePreviews,
+        ));
+        col = col.push(self.toggle_row(
             "Import XMP keywords",
             "Copy dc:subject keywords into new photos as tags. Applies going forward — turning this off never removes tags already imported.",
             self.app_settings.import_xmp_tags.unwrap_or(true),

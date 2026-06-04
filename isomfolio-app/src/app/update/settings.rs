@@ -205,6 +205,17 @@ impl App {
                 Task::none()
             }
 
+            Msg::ToggleGeneratePreviews => {
+                self.app_settings.generate_previews = !self.app_settings.generate_previews;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                // The pool captures this flag at creation — rebuild it so the new
+                // setting takes effect, then backfill previews for the open view.
+                self.thumb_ctx.pool = None;
+                self.start_thumbnail_pool();
+                self.enqueue_thumbnails();
+                Task::none()
+            }
+
             Msg::ToggleImportXmpTags => {
                 let next = !self.app_settings.import_xmp_tags.unwrap_or(true);
                 self.app_settings.import_xmp_tags = Some(next);
