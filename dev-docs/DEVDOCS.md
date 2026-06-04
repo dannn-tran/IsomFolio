@@ -55,7 +55,7 @@ Slice by **stable concern**, not by "what I was working on when I wrote it."
 | `architecture.md` | Crate structure, data flow, subsystem contracts | Invariants survive refactors; describes WHY not WHAT |
 | `DEVDOCS.md` | How to write docs | Meta — changes rarely |
 
-Three docs. Not more. Each answers a distinct question.
+Three stable normative docs — not more. Each answers a distinct question. Temporal docs (plans, TODOs, audits) don't count toward this ceiling and shouldn't be committed.
 
 ---
 

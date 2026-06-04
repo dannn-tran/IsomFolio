@@ -35,6 +35,49 @@ Density may not breach these, even when "compact" argues otherwise:
 - **Every action has an off-row, discoverable path.** Right-click / gestures are the *fast* path, never the *only* path: each must also be reachable via a menu entry and/or be documented in the `?` help panel (which lists gestures and right-click menus, not just key bindings).
 - **New capability checklist:** before a feature ships, name the path a first-time user finds it through. If the only answer is "they already knew the key" or "they happened to right-click," add a visible/menu/tooltip path first.
 
+#### Discoverability inventory
+
+Every significant action must have at least one discoverable path beyond right-click. This table is the canonical checklist — a blank cell in the menu or keyboard column is not automatically a defect (drag and `?` help panel satisfy the requirement for some actions), but it must be a conscious, documented decision.
+
+| Action | Context menu | Menu bar | Keyboard | Other visible path |
+|---|---|---|---|---|
+| Flag Pick | Tile | Photo → Flag Pick | `P` | Loupe HUD button |
+| Flag Reject | Tile | Photo → Flag Reject | `X` | Loupe HUD button |
+| Unflag | Tile | Photo → Unflag | `U` | Loupe HUD button |
+| Set colour label | Tile | Photo → Label | `6`–`9` | Loupe colour swatches |
+| Add to Album | Tile | — | `B` (target album) | Drag-to-album; `?` help panel |
+| Set Target Album | Album | — | — | `?` help panel |
+| Show in Finder | Tile | Photo → Show in Finder | — | — |
+| Locate… (orphaned) | Tile (orphaned only) | — | — | Tile "Missing" banner |
+| Copy / Move to Folder… | Tile | Photo → Copy/Move to Folder… | — | — |
+| Import XMP | Tile | Photo → Import XMP | — | — |
+| Write XMP Sidecars | — | Photo → Write XMP Sidecars | — | — |
+| Export Metadata (CSV) | — | Photo → Export Metadata (CSV)… | — | — |
+| Open in Loupe | Tile | View → Loupe | `Space` · double-click | — |
+| Compare | — | Photo → Compare | `C` | — |
+| Delete (soft) | — | Edit → Delete | `Del` / `Backspace` | — |
+| Restore from Deleted | Deleted-view tile | — | — | — |
+| Delete Permanently… | Deleted-view tile | — | — | — |
+| Empty Deleted… | — | — | — | Status bar button |
+| Sync Folder | Folder | — | `Cmd+R` | — |
+| Add Folder | — | Catalog → Add Folder… | — | Sidebar `+` button |
+| Remove from Library… | Folder | — | — | — |
+| Rename Album | Album | — | — | — |
+| Duplicate Album | Album | — | — | — |
+| Delete Album… | Album | — | — | — |
+| New Smart Album | — | Photo → New Smart Album from Filters… | — | Criteria panel Save button |
+| Edit Smart Album Criteria | Smart album | — | — | `?` help panel |
+| Find People | — | Photo → Find People | — | — |
+| Re-cluster All Faces | — | Photo → Re-cluster All Faces | — | — |
+| Rename Person | Person card | — | — | — |
+| Open Settings | — | — | `Cmd+,` | Gear icon (menu bar) |
+| Toggle Info Panel | — | View → Toggle Info Panel | — | — |
+| Toggle Criteria Panel | — | — | `F` | Toolbar "Filters" button |
+| Toggle Help | — | — | `?` | `?` icon (menu bar) |
+| Hide Rejects | — | View → Hide Rejects | `\` | Toolbar chip |
+
+**Noted gaps:** Restore from Deleted, Delete Permanently, Set Target Album, Edit Smart Album Criteria, and Rename Person are context-menu-only. All must appear in the `?` help panel under their respective sections as compensation. Remove from Library is context-menu-only for folders — it must be in the Catalog menu when a folder is selected. Add "Remove from Library…" to the Catalog menu spec.
+
 ---
 
 ## Colour Tokens
@@ -174,7 +217,7 @@ Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM
 
 The sidebar has exactly **two** row kinds; the split is *"does this hold a child list or not?"* Each class is internally uniform — section identity comes from the label, never from per-row styling.
 
-**Class A — section header (holds a collapsible list):** **Folders, Albums, Imports**. Built by the `section_header` helper. Anatomy: **leading section icon** (Lucide SVG, `FG_DIM`, see *Iconography*) · label (`TEXT_MD`/`FG_DIM`) · flexible spacer · right-aligned action glyphs (`+`, `⚡`) · optional inline status ("Syncing…") · **trailing collapse chevron** (`▾` expanded / `▸` collapsed, `icon_btn_style`). The collapse chevron sits at the **trailing (right) edge** — the disclosure convention — *not* the leading edge: a left chevron pushes the section icon out of the shared icon column and reads as stray chrome. Headers carry the **same horizontal padding** (`[0, SPACE_1]`) and **icon→label spacing** (`SPACE_1_5`) as Class-B nav rows, so every section icon and nav-row icon lines up in **one vertical column**. Clicking the chevron hides/shows that section's rows and nothing else — it is a *separate* control and never changes selection or navigates. Collapse state is per-section, in-memory (not persisted across restart). Action buttons stay to the left of the chevron regardless of collapse.
+**Class A — section header (holds a collapsible list):** **Folders, Albums, Imports**. Built by the `section_header` helper. Anatomy: **leading section icon** (Lucide SVG, `FG_DIM`, see *Iconography*) · label (`TEXT_MD`/`FG_DIM`) · flexible spacer · right-aligned action glyphs (`+`, `⚡`) · optional inline status ("Syncing…") · **trailing collapse chevron** (`▾` expanded / `▸` collapsed, `icon_btn_style`). The collapse chevron sits at the **trailing (right) edge** — the disclosure convention — *not* the leading edge: a left chevron pushes the section icon out of the shared icon column and reads as stray chrome. Headers carry the **same horizontal padding** (`[0, SPACE_1]`) and **icon→label spacing** (`SPACE_1_5`) as Class-B nav rows, so every section icon and nav-row icon lines up in **one vertical column**. Clicking the chevron hides/shows that section's rows and nothing else — it is a *separate* control and never changes selection or navigates. The label, section icon, and spacer area of a Class A header are **non-interactive**: only the chevron and the action glyphs (`+`, `⚡`) respond to click. Collapse state is per-section, in-memory (not persisted across restart). Action buttons stay to the left of the chevron regardless of collapse.
 
 **Class B — nav row (a single destination, no child list):** **All Photos**, **People**, **Deleted**, and each **import batch** under the Imports header. Built by the `nav_row` helper. Anatomy: **leading icon** (Lucide SVG, `FG_DIM` at rest / `Color::WHITE` when selected) · label (`TEXT_BASE`/`FG`) · right-aligned count (`TEXT_SM`/`FG_MUTED`, omitted when 0) · full-row click; **accent background fill when selected** (the same fill folders/albums use — selection is never colour-only, per *Density floor*). No chevron, no inline action buttons (per *Entity row anatomy*: nav rows carry no embedded actions — e.g. re-clustering lives in the Photo menu, not on the People row). Height `ALBUM_ITEM_HEIGHT`. Class-B rows are not collapsible — there is no list to hide. Import batches are nav rows *without* an icon (`icon: None` reserves the icon column so labels still align) — keeping leaf rows quiet, like folder-tree leaves.
 
@@ -191,7 +234,7 @@ Folders render as a navigable **tree**, not a flat list, and as a **forest** whe
 - **Count** → the photo count includes the folder *and* all descendants, not just direct children.
 - **Selection** → clicking a segment selects that folder and loads its photos recursively; the whole row highlights when any of its segments is selected, with the selected segment in `WHITE`.
 - **Context menu** (right-click / Ctrl+Click) → **Sync Folder**, **Add Folder…** (opens the folder picker anchored at the clicked folder — Capture One style), and **Remove from Library…** (plus **Remove Missing Files…** when the folder has orphans).
-- **Dirty dot** → an accent `●` after the folder name means the watcher saw structural changes on disk (files added / removed / renamed) that have not been applied. The catalog is never mutated silently — the user applies the changes by syncing the folder (`Cmd+R` or context menu), which clears the dot. (Pure content edits to an already-tracked file are not structural: they just refresh that file's thumbnail, no dot.)
+- **Dirty dot** → an accent `●` after the folder name means the watcher saw structural changes on disk (files added / removed / renamed) that have not been applied. The catalog is never mutated silently — the user applies the changes by syncing the folder (`Cmd+R` or context menu), which clears the dot. (Pure content edits to an already-tracked file are not structural: they just refresh that file's thumbnail, no dot.) The dot has a hover tooltip: *"New files detected — sync to apply (right-click → Sync Folder, or Cmd+R)."* It is also listed in the `?` help panel under Folders.
 - **Offline** → a library root on an unplugged drive shows an eject glyph `⏏` and its rows dim to `FG_MUTED`. Auto-clears on reconnect (polled). Offline is a recoverable state, never confused with deleted; its photos still appear (cached thumbnails) carrying an `Offline` tile banner (`WARN`), the same slot the `Missing` banner uses for a file gone while its drive is present.
 
 ### Context menu
@@ -208,7 +251,7 @@ Implemented as a `stack` overlay anchored to the cursor position. No scrim — c
 - Item text: `TEXT_MD`, `FG`
 - Hover state: ghost background (α 0.10)
 - Separator: 1 px `BORDER` line, 4 px vertical margin
-- Destructive item text: `ERR` (no background change — colour alone signals danger)
+- Destructive item: `ERR` text + leading `⚠` glyph (`TEXT_MD`). Two-channel signalling — colour is insufficient alone (see *Density floor*). The `⚠` glyph makes destructive items distinguishable without colour perception.
 
 **Dismiss:** click outside the menu, press Escape, or select any item.
 
@@ -253,6 +296,34 @@ Two-step for destructive ops: first trigger (context menu item) → inline confi
 Single-step for safe ops: primary button directly triggers action.
 
 The trigger for a destructive op is always the context menu item, never a persistent inline button.
+
+### Destructive action inventory
+
+Every destructive action must be listed here with its reversibility and confirmation copy. A new destructive action not in this table is a design omission. See also *Context menu → Style* for the `⚠` + `ERR` two-channel treatment on context menu items.
+
+| Action | Entry point(s) | Reversibility | Confirmation copy |
+|---|---|---|---|
+| **Delete** (soft) | `Del`/`Backspace` · Photo menu · context menu | ✅ Reversible — Restore clears the flag | None — safe immediate action |
+| **Remove from Album** | `Del`/`Backspace` in album view | ✅ Reversible — drag back | None |
+| **Remove from Library…** | Folder context menu | ✅ Catalog-only; files untouched | "Remove [folder] from library? Files stay on disk. [Cancel] [Remove]" |
+| **Remove Missing Files…** | Folder context menu (orphans present) | ⚠️ Catalog rows gone; files were already absent | "Remove N missing file(s) from catalog? [Cancel] [Remove]" |
+| **Delete Album…** | Album context menu | ✅ Album removed; photos stay in library | "Delete album '[name]'? Photos stay in the library. [Cancel] [Delete Album]" |
+| **Delete Permanently…** | Deleted-view tile context menu | ❌ **Irreversible — files deleted on disk** | `danger_btn_style` confirm: "Permanently delete N photo(s)? This cannot be undone. [Cancel] [Delete Permanently]" |
+| **Empty Deleted…** | Status bar button | ❌ **Irreversible — files deleted on disk** | `danger_btn_style` confirm: "Permanently delete all N deleted photo(s)? This cannot be undone. [Cancel] [Delete Permanently]" |
+
+**Confirm button style rule:** `danger_btn_style` for irreversible file-deleting operations. Standard `ERR`-coloured text with `ghost_btn_style` for reversible catalog-only operations. Cancel always appears to the left of the confirm button; default focus is Cancel.
+
+### Locate… (missing file recovery)
+
+When a file is orphaned (drive present but file moved or renamed externally), it shows a **Missing** banner on its grid tile and is eligible for Locate…
+
+**Trigger:** right-click the tile → "Locate…". Opens a system file picker pre-scoped to the file's last-known folder.
+
+**On confirmation:** the catalog row's `path` and `folder` update to the chosen file's normalised path; `is_orphaned` clears; thumbnail regenerates. All metadata (ratings, tags, flags) is preserved.
+
+**On cancel:** no change — the file stays orphaned.
+
+**Edge case:** if the chosen file is already tracked under its new path, surface an inline error: "This file is already in the catalog." Do not create a duplicate row.
 
 ### Disabled primary button
 
@@ -354,7 +425,7 @@ Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: cont
 |---|---|
 | Catalog | New Catalog… · Open Catalog… |
 | Edit | Undo · Redo · — · Delete Rejected Photos… |
-| Photo | Flag Pick/Reject/Unflag · — · Label … · — · Compare · Copy/Move to Folder… · Import XMP · Write XMP Sidecars · Export Metadata (CSV)… · — · Delete · — · Find People · Re-cluster All Faces · New Smart Album from Filters… |
+| Photo | Flag Pick/Reject/Unflag · — · Label … · — · Compare · Show in Finder · Copy/Move to Folder… · Import XMP · Write XMP Sidecars · Export Metadata (CSV)… · — · Delete · — · Find People · Re-cluster All Faces · New Smart Album from Filters… |
 | View | Toggle Info Panel · Preview · Loupe · People · — · Zoom In · Zoom Out · — · Hide Rejects |
 
 Every major selection action has a **menu path** (with its shortcut shown) so it's discoverable without memorising keys — the menu is the canonical "what can this app do?" surface. Right-click menus and the cull strip are faster paths to the same actions, not the only path.
@@ -406,13 +477,19 @@ A **single dense glyph row** (fixed height `CULL_STRIP_HEIGHT`, ≈ one row) sit
 
 The strip is a **fixed-height single row** — this is a hard requirement, not just a style choice: a variable-height band above the grid would break tile hit-testing (→ `architecture.md`, Grid layout & hit-testing).
 
+**Filter model:** the cull strip and the criteria panel together form the complete filter — all active constraints are **ANDed**. The cull strip covers the three primary culling axes (flag, rating, colour) via always-visible controls; the criteria panel covers everything else (tags, date, type, location, etc.). There is one filter state in `App`; both surfaces read from and write to different fields of it. There is no separate "cull filter" vs "search filter" — they compose into a single query.
+
 ### Search box
 
 The toolbar search box runs a full-text query over **filename, folder, tags, and descriptive metadata** (title, caption, creator, subjects — folded into the FTS index). A single bareword does **prefix** matching (type-ahead). A query with spaces/quotes is a full **FTS5 expression**: implicit AND between terms, plus `OR` / `NOT`, `"exact phrases"`, and `col:term` column filters (`filename:`, `tags:`, `folder:`). Malformed expressions degrade to a prefix search rather than erroring. Combines with all structured filters.
 
+**Discoverability:** the search input placeholder reads *"Search by name, tag, folder…"* A hover tooltip reads: *"Supports OR, NOT, \"phrase\", and col:term prefix filters (filename:, tags:, folder:)."* The FTS syntax is also listed in the `?` help panel under Search.
+
 ### Criteria / filter panel
 
 Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button. Holds the *advanced* (non-cull) criteria only: tags, date range + presets, file type, location, person, camera, added-within, and the Clear / Save-as-Smart-Album actions. Expands the grid area rather than overlaying it.
+
+**"New Smart Album from Filters…"** (Photo menu) and the **"Save as Smart Album"** button in the criteria panel invoke the same action — both open an inline name input and create a smart album from the current filter state. The menu entry is the off-row discoverable path; the panel button is the in-context shortcut.
 
 ---
 
@@ -455,6 +532,29 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | Drag a List column's right edge | Resize that column (Name / Rating / Date / Size / Type). Width is clamped and held in memory for the session; does not clear the photo selection. |
 | Hide Rejects (grid toolbar) / `\` | Convenience toggle between the `{Pick, Unflagged}` flag selection and "show all" — there is no separate hide-rejects state; it's a shortcut into the cull strip's flag set (single source of truth). |
 | ⧉ Stack (grid toolbar) | Collapse bursts (shots detected within ~3 s) to one representative tile (the earliest). A burst tile carries a `⧉ N` badge (N = burst size); the badge also shows on burst members when not collapsed. Toggle off to cull within a burst. |
+
+---
+
+## Settings dialog
+
+Triggered by the `⚙` icon (menu bar) or `Cmd+,`. A modal dialog (`BG_MODAL` background, 10 px radius, 24 px padding, 560 px fixed width) with a tabbed header: **General** and **Extensions**.
+
+### Row anatomy
+
+Each setting is one row: label (left, `TEXT_BASE`/`FG`, fills) + control (right, fixed width). Rows are separated by `SPACE_2` vertically. Section groupings within a tab use a `TEXT_SM`/`FG_DIM` section header with `SPACE_4` above it.
+
+### Control types
+
+| Setting type | Control |
+|---|---|
+| Boolean | Toggle switch |
+| Enum / choice | `pick_list` dropdown |
+| Numeric with units | Narrow `text_input` (right-aligned) + `TEXT_SM`/`FG_DIM` units label to its right |
+| File path | `text_input` (fills) + `ghost_btn_style` "Browse…" button |
+
+### Extension capability preference
+
+When two or more installed extensions share a capability (e.g. `classify`), a chip-selector row appears in Settings → Extensions: label (`TEXT_BASE`) + horizontal chip group (one chip per competing extension, `active_chip_style` for the preferred one). Selecting a chip updates the preference immediately — no Save/Cancel at the row level.
 
 ---
 
