@@ -9,13 +9,6 @@ pub enum FileEvent {
     SyncProgress(SyncProgress),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ReconcileResult {
-    pub new_or_modified: Vec<String>,
-    pub orphaned: Vec<FileId>,
-    pub sidecar_changed: Vec<String>,
-}
-
 #[derive(Debug, Clone)]
 pub struct ThumbnailRequest {
     pub file_id: FileId,
