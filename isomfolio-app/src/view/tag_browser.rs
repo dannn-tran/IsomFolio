@@ -6,8 +6,9 @@ use iced::{
 };
 
 use super::styles::{
-    danger_btn_style, ghost_btn_style, BG_MODAL, BORDER, ERR, FG, FG_DIM, OVERLAY_MEDIUM,
-    SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_XS,
+    danger_btn_style, ghost_btn_style, icon_btn_style, BG_MODAL, BORDER, ERR, FG, FG_DIM,
+    OVERLAY_MEDIUM, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, TEXT_BASE, TEXT_MD,
+    TEXT_SM, TEXT_XS,
 };
 use crate::app::{App, Msg};
 
@@ -60,7 +61,7 @@ impl App {
             Space::new().width(Length::Fill),
             button(text("✕").size(TEXT_MD).color(FG_DIM))
                 .on_press(Msg::CloseTagBrowser)
-                .style(ghost_btn_style),
+                .style(icon_btn_style),
         ]
         .align_y(Alignment::Center)
         .spacing(SPACE_2);
@@ -192,10 +193,10 @@ impl App {
                         .width(Length::Fill),
                     button(text("✓").size(TEXT_SM).color(FG))
                         .on_press(Msg::TagBrowserRenameConfirm)
-                        .style(ghost_btn_style),
+                        .style(icon_btn_style),
                     button(text("✕").size(TEXT_SM).color(FG_DIM))
                         .on_press(Msg::TagBrowserRenameCancel)
-                        .style(ghost_btn_style),
+                        .style(icon_btn_style),
                 ]
                 .spacing(SPACE_1)
                 .align_y(Alignment::Center),
@@ -241,7 +242,7 @@ impl App {
                     text(format!("{count}")).size(TEXT_XS).color(FG_DIM),
                     button(text("+").size(TEXT_XS))
                         .on_press(Msg::AddDetailTagDirect(tag_owned.clone()))
-                        .style(ghost_btn_style),
+                        .style(icon_btn_style),
                     button(text("Rename").size(TEXT_XS))
                         .on_press(Msg::TagBrowserRenameStart(tag_owned.clone()))
                         .style(ghost_btn_style),
