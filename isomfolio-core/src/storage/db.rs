@@ -243,7 +243,7 @@ pub fn purge_orphans_in_folder(conn: &Connection, folder: &str) -> Result<usize,
 pub fn relocate_file(conn: &Connection, old_id: &str, new_path: &str) -> Result<(), AppError> {
     use std::path::Path;
     let norm = crate::path_utils::normalize_path(new_path);
-    let new_id = crate::file_index::compute_file_id(&norm);
+    let new_id = crate::file_index::compute_file_id_for_path(new_path);
     let new_name = Path::new(&norm)
         .file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
     let new_folder = Path::new(&norm)

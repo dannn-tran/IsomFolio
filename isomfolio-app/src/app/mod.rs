@@ -848,9 +848,7 @@ impl App {
         let catalog_dir = self.catalog_dir.clone();
         let mut enqueued = 0usize;
         for path in paths {
-            let id = isomfolio_core::file_index::compute_file_id(
-                &isomfolio_core::path_utils::normalize_path(path),
-            );
+            let id = isomfolio_core::file_index::compute_file_id_for_path(path);
             let cache = thumbnail_cache_path(&catalog_dir, &id);
             let _ = std::fs::remove_file(&cache);
             self.thumbnails.insert(id.clone(), ThumbnailState::Pending);

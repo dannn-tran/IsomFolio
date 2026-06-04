@@ -10,6 +10,7 @@ pub mod models;
 pub mod path_utils;
 pub mod search;
 pub mod storage;
+pub mod volume;
 
 pub use catalog::Catalog;
 pub use models::*;

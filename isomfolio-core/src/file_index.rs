@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 use std::fs;
 use crate::models::{AssetFile, FileId};
-use crate::path_utils::normalize_path;
+use crate::path_utils::{display_path, fold_case};
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     // Standard formats
@@ -25,10 +25,31 @@ pub fn is_supported_extension(ext: &str) -> bool {
     SUPPORTED_EXTENSIONS.contains(&lower.as_str())
 }
 
-pub fn compute_file_id(absolute_path: &str) -> FileId {
+pub fn compute_file_id(key: &str) -> FileId {
     let mut hasher = Sha256::new();
-    hasher.update(absolute_path.as_bytes());
+    hasher.update(key.as_bytes());
     hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The stable identity key for a path: `vol:<uuid>:<rel>` when the path lives on
+/// a volume we can identify (so the id survives a remount under a different
+/// mount point / drive letter), otherwise the case-folded absolute path (the
+/// historical behaviour — boot volume, network shares, unknown filesystems).
+/// `display` must be the canonicalised, real-case absolute path.
+pub fn identity_key_from_display(display: &str) -> String {
+    if let Some(v) = crate::volume::resolve(display) {
+        if crate::volume::should_key_volume(&v.mount_point) {
+            let rel = crate::volume::relative_to_mount(display, &v.mount_point);
+            return format!("vol:{}:{}", v.uuid, fold_case(&rel));
+        }
+    }
+    fold_case(display)
+}
+
+/// Stable [`FileId`] for a path, volume-aware. Use this everywhere an id is
+/// derived from a path so the same file resolves to the same id across remounts.
+pub fn compute_file_id_for_path(path: &str) -> FileId {
+    compute_file_id(&identity_key_from_display(&display_path(path)))
 }
 
 pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
@@ -36,7 +57,6 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
     if !meta.is_file() {
         return None;
     }
-    let normalized = normalize_path(path);
     let p = std::path::Path::new(path);
     let ext = p
         .extension()
@@ -48,12 +68,18 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
         return None;
     }
 
+    // Canonicalise once: the display form keeps real casing; `normalized` is its
+    // case-folded form (the absolute key used for matching / disk access). The
+    // folder is online here (we're scanning it), so casing is accurate.
+    let file_display = display_path(path);
+    let normalized = fold_case(&file_display);
     let name = p.file_name()?.to_string_lossy().into_owned();
     let parent = p.parent().and_then(|d| d.to_str()).unwrap_or("");
-    // Canonicalise once: the display form keeps real casing, the key form folds
-    // it. The folder is online here (we're scanning it), so casing is accurate.
-    let folder_display = crate::path_utils::display_path(parent);
-    let folder = crate::path_utils::fold_case(&folder_display);
+    let folder_display = display_path(parent);
+    let folder = fold_case(&folder_display);
+    // Identity is volume-aware (survives remounts); the absolute `path`/`folder`
+    // remain mount-current and rebind on the next sync via upsert ON CONFLICT(id).
+    let id = compute_file_id(&identity_key_from_display(&file_display));
 
     let mtime_unix = meta
         .modified()
@@ -74,7 +100,7 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
     let exif = crate::metadata::exif::read_exif(path);
 
     Some(AssetFile {
-        id: compute_file_id(&normalized),
+        id,
         path: normalized,
         name,
         folder,
