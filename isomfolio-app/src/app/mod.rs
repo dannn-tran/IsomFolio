@@ -151,7 +151,7 @@ pub struct App {
     pub folders: Vec<(String, String, usize)>,
     pub folder_tree: Vec<isomfolio_core::folder_tree::FolderNode>,
     pub expanded_folders: HashSet<String>,
-    pub library_roots: Vec<isomfolio_core::storage::db::LibraryRoot>,
+    pub library_roots: Vec<isomfolio_core::LibraryRoot>,
     /// Normalised paths of library roots currently unreachable on disk (unplugged
     /// drive). Recomputed on each sidebar load; files under them render offline.
     pub offline_roots: HashSet<String>,

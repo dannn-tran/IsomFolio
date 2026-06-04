@@ -16,3 +16,4 @@ pub use catalog::Catalog;
 pub use models::*;
 pub use app_paths::*;
 pub use rusqlite::Connection;
+pub use storage::db::LibraryRoot;

@@ -8,7 +8,7 @@ pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::u
 use isomfolio_core::extension::ExtensionManifest;
 use isomfolio_core::folder_tree::FolderNode;
 use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, SortField};
-use isomfolio_core::storage::db::LibraryRoot;
+use isomfolio_core::LibraryRoot;
 
 #[derive(Debug, Clone)]
 pub enum ContextMenuTarget {
