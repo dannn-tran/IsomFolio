@@ -290,8 +290,8 @@ fn quiet_btn_disabled_style(_: &Theme, _: button::Status) -> button::Style {
 fn recent_item_style(selected: bool, status: button::Status) -> button::Style {
     let background = if selected {
         match status {
-            button::Status::Hovered => Color { r: 0.25, g: 0.59, b: 1.0, a: 0.28 },
-            button::Status::Pressed => Color { r: 0.18, g: 0.49, b: 0.88, a: 0.36 },
+            button::Status::Hovered => Color { a: 0.28, ..ACCENT },
+            button::Status::Pressed => Color { a: 0.36, ..ACCENT },
             _ => Color { a: 0.22, ..ACCENT },
         }
     } else {
