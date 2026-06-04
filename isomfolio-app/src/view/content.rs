@@ -504,7 +504,7 @@ impl App {
             fixed("Flag", LIST_COL_FLAG),
             plain_col("Rating", ListCol::Stars, w.stars),
             fixed("Col", LIST_COL_COLOR),
-            sortable_col("Date", SortField::Date, ListCol::Date, w.date),
+            sortable_col("Date Shot", SortField::Date, ListCol::Date, w.date),
             sortable_col("Size", SortField::Size, ListCol::Size, w.size),
             sortable_col("Type", SortField::Ext, ListCol::Type, w.type_),
             Space::new().width(Length::Fill),
