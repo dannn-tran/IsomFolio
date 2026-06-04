@@ -508,7 +508,6 @@ pub enum Msg {
     LoupeFullResLoaded { idx: usize, handle: iced::widget::image::Handle },
     LoupeHiresLoaded { idx: usize, handle: iced::widget::image::Handle },
     LoupePrefetchLoaded { idx: usize, handle: iced::widget::image::Handle },
-    ThumbnailHandleReady { file_id: String, handle: iced::widget::image::Handle },
     ThumbnailCompleted { file_id: String, path: String },
     ThumbnailFailed { file_id: String },
     FileWatcherEvent(isomfolio_core::indexing::types::FileEvent),

@@ -30,30 +30,6 @@ impl<T> LockUnwrap<T> for Mutex<T> {
     }
 }
 
-/// Decode a cached thumbnail off-thread into an `image::Handle` for the grid.
-/// Used both when the worker pool finishes generating a thumb and when a cached
-/// thumb is rediscovered on disk (catalog reopen).
-pub(crate) fn load_thumb_handle_task(file_id: String, path: String) -> Task<Msg> {
-    Task::perform(
-        async move {
-            tokio::task::spawn_blocking(move || {
-                image::open(&path).ok().map(|img| {
-                    let rgba = img.into_rgba8();
-                    let (w, h) = (rgba.width(), rgba.height());
-                    (file_id, iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
-                })
-            })
-            .await
-            .ok()
-            .flatten()
-        },
-        |res| match res {
-            Some((fid, handle)) => Msg::ThumbnailHandleReady { file_id: fid, handle },
-            None => Msg::NoOp,
-        },
-    )
-}
-
 pub struct LoupeState {
     pub idx: usize,
     pub full_res: Option<(usize, iced::widget::image::Handle)>,
@@ -113,7 +89,6 @@ pub struct ThumbnailContext {
     pub total: usize,
     pub start_at: Option<Instant>,
     pub done_gen: u64,
-    pub handles: HashMap<String, iced::widget::image::Handle>,
 }
 
 pub struct DragContext {
@@ -551,7 +526,6 @@ impl App {
                 total: 0,
                 start_at: None,
                 done_gen: 0,
-                handles: HashMap::new(),
             },
             watcher_tx: wtx,
             watcher_rx: wrx_arc,
@@ -864,26 +838,21 @@ impl App {
         ));
     }
 
-    pub(crate) fn enqueue_thumbnails(&mut self) -> Task<Msg> {
+    pub(crate) fn enqueue_thumbnails(&mut self) {
         let Some(pool) = &self.thumb_ctx.pool else {
-            return Task::none();
+            return;
         };
         let catalog_dir = self.catalog_dir.clone();
         let mut newly_enqueued = 0usize;
-        // Cached thumbnails (cache file already on disk — e.g. after reopening a
-        // catalog) still need their decoded image handle loaded into memory;
-        // without it the grid draws the grey loading placeholder forever.
-        let mut load_tasks: Vec<Task<Msg>> = Vec::new();
         for (priority, file) in self.files.iter().enumerate() {
             if !self.thumbnails.contains_key(&file.id) {
-                self.thumbnails.insert(file.id.clone(), ThumbnailState::Pending);
                 let cache = thumbnail_cache_path(&catalog_dir, &file.id);
                 if std::path::Path::new(&cache).exists() {
-                    self.thumbnails.insert(file.id.clone(), ThumbnailState::Ready(cache.clone()));
-                    if !self.thumb_ctx.handles.contains_key(&file.id) {
-                        load_tasks.push(load_thumb_handle_task(file.id.clone(), cache));
-                    }
+                    // On disk already (e.g. catalog reopen) — mark Ready; the
+                    // renderer decodes the JPEG by path on demand, no in-app load.
+                    self.thumbnails.insert(file.id.clone(), ThumbnailState::Ready(cache));
                 } else {
+                    self.thumbnails.insert(file.id.clone(), ThumbnailState::Pending);
                     pool.enqueue(&file.id, &file.path, priority as i32);
                     newly_enqueued += 1;
                 }
@@ -900,7 +869,6 @@ impl App {
             self.thumb_ctx.pending += newly_enqueued;
             self.task_panel_open = true;
         }
-        Task::batch(load_tasks)
     }
 
     /// Force-regenerate cached thumbnails for the given paths (content changed

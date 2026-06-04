@@ -65,6 +65,10 @@ Zoom/pan state lives in **app state, not inside the image widget**. The custom `
 - **Neighbour prefetch.** Adjacent photos are decoded ahead so forward/back navigation is instant.
 - **No redundant re-decode.** A freshly decoded handle gets a *new* texture id (the renderer keys textures by id), so re-decoding an already-displayed image forces a re-upload and a visible flicker — navigation reuses the prefetched handle instead of re-decoding.
 
+### Thumbnails (grid/list)
+
+The thumbnail **worker pool** generates a 512px JPEG per file into the catalog's thumbnail cache (512 covers the largest tile at 2× HiDPI without upscaling). The grid/list then render each tile with `image::Handle::from_path(cache_jpeg)` and hold **no decoded pixels** themselves — `iced_wgpu` decodes the JPEG on its own worker thread (never the UI thread, so fast fling doesn't stall — a not-yet-decoded tile just shows the loading placeholder for a frame or two) and keeps textures in a GPU atlas that it **trims** to the recently-drawn set. So thumbnail RAM is `O(viewport)`, not `O(library)`. *Never reintroduce an app-side `Handle` cache (`from_rgba` held in a map): that's what made memory grow with browse history.* `ThumbnailState::Ready(path)` carries the cache path; generation status (Pending/Ready/Failed) is all the app tracks. (The loupe is separate — it owns decoded handles for the focused image + neighbour prefetch; see *Loupe image*.)
+
 ### Context menu
 
 Right-click (Ctrl+Click aliased to it) opens a non-blocking cursor-anchored overlay; no scrim. It is the *fast* path to entity actions, never the *only* path — the off-row discoverability requirement and the menu mirrors are specified in `design-system.md`.

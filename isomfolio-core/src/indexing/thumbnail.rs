@@ -10,7 +10,10 @@ use std::time::Duration;
 use crate::app_paths::{ensure_directories, thumbnail_cache_dir};
 use crate::models::AppError;
 
-const TARGET_SIZE: u32 = 256;
+// 512 covers the largest grid tile (TILE_SIZE_MAX 400px, 2× on HiDPI) without
+// upscaling. Safe to hold many of: the renderer decodes by path and evicts
+// off-screen textures, so RAM tracks the viewport, not the library size.
+const TARGET_SIZE: u32 = 512;
 const JPEG_QUALITY: u8 = 85;
 const RETRY_DELAY_SECS: u64 = 5;
 

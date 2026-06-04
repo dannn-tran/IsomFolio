@@ -508,7 +508,7 @@ impl App {
 
             Msg::FilesLoaded(files) => {
                 self.files = files;
-                let enqueue = self.enqueue_thumbnails();
+                self.enqueue_thumbnails();
                 self.status = format!("{} photo(s)", self.files.len());
                 let restore = self.pending_restore_idx.take().and_then(|idx| {
                     (idx < self.files.len()).then(|| {
@@ -527,8 +527,8 @@ impl App {
                 let t3 = self.load_labels_task();
                 let t4 = self.load_burst_sizes_task();
                 match restore {
-                    Some(scroll) => Task::batch([enqueue, scroll, t1, t2, t3, t4]),
-                    None => Task::batch([enqueue, t1, t2, t3, t4]),
+                    Some(scroll) => Task::batch([scroll, t1, t2, t3, t4]),
+                    None => Task::batch([t1, t2, t3, t4]),
                 }
             }
 
@@ -639,9 +639,11 @@ impl App {
 
             // — inline: thumbnails —
             Msg::ThumbnailCompleted { file_id, path } => {
-                self.thumbnails.insert(file_id.clone(), ThumbnailState::Ready(path.clone()));
+                // The JPEG is on disk; mark Ready and let the renderer decode it
+                // by path on demand (no in-app decode/handle cache).
+                self.thumbnails.insert(file_id, ThumbnailState::Ready(path));
                 self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
-                let clear_task = if self.thumb_ctx.pending == 0 && self.thumb_ctx.total > 0 {
+                if self.thumb_ctx.pending == 0 && self.thumb_ctx.total > 0 {
                     let gen = self.thumb_ctx.done_gen;
                     Task::perform(
                         async move {
@@ -656,9 +658,7 @@ impl App {
                     )
                 } else {
                     Task::none()
-                };
-                let load_task = super::load_thumb_handle_task(file_id, path);
-                Task::batch([load_task, clear_task])
+                }
             }
 
             Msg::ThumbnailFailed { file_id } => {
@@ -680,11 +680,6 @@ impl App {
                 } else {
                     Task::none()
                 }
-            }
-
-            Msg::ThumbnailHandleReady { file_id, handle } => {
-                self.thumb_ctx.handles.insert(file_id, handle);
-                Task::none()
             }
 
             Msg::ClearThumbnailProgress(gen) => {

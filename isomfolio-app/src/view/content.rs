@@ -262,24 +262,15 @@ impl App {
         let thumb_state = self.thumbnails.get(&file.id);
 
         let tile_content: Element<Msg> = match thumb_state {
-            Some(ThumbnailState::Ready(_)) => {
-                if let Some(handle) = self.thumb_ctx.handles.get(&file.id).cloned() {
-                    image(handle)
-                        .width(self.tile_px)
-                        .height(self.tile_px)
-                        .content_fit(iced::ContentFit::Cover)
-                        .into()
-                } else {
-                    container(Space::new())
-                        .width(self.tile_px)
-                        .height(self.tile_px)
-                        .style(|_: &Theme| container::Style {
-                            background: Some(Background::Color(BG_TILE_LOADING)),
-                            border: Border { radius: TILE_CORNER.into(), ..Default::default() },
-                            ..Default::default()
-                        })
-                        .into()
-                }
+            // The renderer decodes the cached JPEG on its own worker thread and
+            // evicts off-screen textures — so we hand it the path and hold no
+            // decoded pixels ourselves (bounded RAM regardless of library size).
+            Some(ThumbnailState::Ready(path)) => {
+                image(image::Handle::from_path(path))
+                    .width(self.tile_px)
+                    .height(self.tile_px)
+                    .content_fit(iced::ContentFit::Cover)
+                    .into()
             }
             _ => {
                 container(Space::new())
@@ -555,17 +546,11 @@ impl App {
                 })
         };
         let thumb: Element<Msg> = match self.thumbnails.get(&file.id) {
-            Some(ThumbnailState::Ready(_)) => {
-                if let Some(handle) = self.thumb_ctx.handles.get(&file.id).cloned() {
-                    image(handle)
-                        .width(thumb_px)
-                        .height(thumb_px)
-                        .content_fit(iced::ContentFit::Cover)
-                        .into()
-                } else {
-                    placeholder().into()
-                }
-            }
+            Some(ThumbnailState::Ready(path)) => image(image::Handle::from_path(path))
+                .width(thumb_px)
+                .height(thumb_px)
+                .content_fit(iced::ContentFit::Cover)
+                .into(),
             _ => placeholder().into(),
         };
 

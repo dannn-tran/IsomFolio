@@ -69,7 +69,6 @@ impl App {
                 self.view_mode = ViewMode::Browse;
                 self.loupe.full_res = None;
                 self.loupe.prefetch.clear();
-                self.thumb_ctx.handles.clear();
                 self.album_pending_delete = None;
                 self.folder_pending_remove = None;
                 self.welcome.selected_recent_catalog = Some(path.clone());

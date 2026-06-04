@@ -462,10 +462,14 @@ impl App {
                 .height(Length::Fill)
                 .into(),
             None => {
-                let thumb = self.files.get(idx)
-                    .and_then(|f| self.thumb_ctx.handles.get(&f.id).cloned());
-                match thumb {
-                    Some(handle) => image(handle)
+                let thumb_path = self.files.get(idx).and_then(|f| {
+                    match self.thumbnails.get(&f.id) {
+                        Some(isomfolio_core::models::ThumbnailState::Ready(p)) => Some(p.clone()),
+                        _ => None,
+                    }
+                });
+                match thumb_path {
+                    Some(p) => image(image::Handle::from_path(p))
                         .content_fit(iced::ContentFit::Contain)
                         .width(Length::Fill)
                         .height(Length::Fill)
