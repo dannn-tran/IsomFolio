@@ -197,11 +197,19 @@ impl App {
                 let sep = std::path::MAIN_SEPARATOR;
                 let prefix = format!("{path}{sep}");
                 self.dirty_folders.retain(|d| d != &path && !d.starts_with(&prefix));
+                let catalog_dir = self.catalog_dir.clone();
                 Task::perform(
                     async move {
                         let guard = conn.lock_unwrap();
                         let _ = guard.remove_library_root(&path);
-                        guard.delete_files_by_root_folder(&path).err().map(|e| e.to_string())
+                        let err = guard
+                            .delete_files_by_root_folder(&path)
+                            .err()
+                            .map(|e| e.to_string());
+                        // Reclaim the removed files' thumbnails/previews now rather
+                        // than waiting for the next catalog open.
+                        let _ = guard.sweep_caches(&catalog_dir);
+                        err
                     },
                     |e| e.map_or(Msg::FolderRemoved, Msg::DbError),
                 )

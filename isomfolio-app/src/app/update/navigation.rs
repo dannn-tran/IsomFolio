@@ -945,6 +945,12 @@ fn decode_or_preview(
     preview: &str,
     prefer_full: bool,
 ) -> Option<iced::widget::image::Handle> {
+    // Mark the preview recently-used (loupe view = warm) so the cache cap evicts
+    // genuinely-cold previews first. Best-effort; no-op if there's no preview.
+    let _ = std::fs::OpenOptions::new()
+        .write(true)
+        .open(preview)
+        .and_then(|f| f.set_modified(std::time::SystemTime::now()));
     decode_image_for_display(original, prefer_full)
         .or_else(|| decode_image_for_display(preview, false))
 }

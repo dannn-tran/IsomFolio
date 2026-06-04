@@ -12,10 +12,12 @@ use crate::app_paths::{
 };
 use crate::models::AppError;
 
-// 512 covers the largest grid tile (TILE_SIZE_MAX 400px, 2× on HiDPI) without
-// upscaling. Safe to hold many of: the renderer decodes by path and evicts
-// off-screen textures, so RAM tracks the viewport, not the library size.
-const TARGET_SIZE: u32 = 512;
+// 640 keeps the largest grid tile (TILE_SIZE_MAX 400px) crisp well into HiDPI.
+// RAM is unaffected — the renderer decodes by path and evicts off-screen
+// textures, so memory tracks the viewport, not thumbnail resolution; only disk
+// grows modestly. The 2048px preview (loupe) is the pixel-accurate inspection
+// path, so the grid thumb doesn't need to chase full 2× of the max tile.
+const TARGET_SIZE: u32 = 640;
 /// Long-edge size of the cached **preview** (the "smart preview" tier): big
 /// enough to view/cull full-screen, small enough to keep on disk for offline use.
 const PREVIEW_SIZE: u32 = 2048;
