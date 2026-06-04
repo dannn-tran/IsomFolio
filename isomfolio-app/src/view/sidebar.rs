@@ -177,10 +177,10 @@ impl App {
                             .width(Length::Fill),
                         button(text("✓").size(TEXT_SM).color(FG))
                             .on_press(Msg::ConfirmCreateAlbum)
-                            .style(ghost_btn_style),
+                            .style(icon_btn_style),
                         button(text("✕").size(TEXT_SM).color(FG_DIM))
                             .on_press(Msg::EscapePressed)
-                            .style(ghost_btn_style),
+                            .style(icon_btn_style),
                     ]
                     .spacing(SPACE_1)
                     .align_y(Alignment::Center),
@@ -218,10 +218,10 @@ impl App {
                                 .width(Length::Fill),
                             button(text("✓").size(TEXT_SM).color(FG))
                                 .on_press(Msg::ConfirmRenameAlbum)
-                                .style(ghost_btn_style),
+                                .style(icon_btn_style),
                             button(text("✕").size(TEXT_SM).color(FG_DIM))
                                 .on_press(Msg::EscapePressed)
-                                .style(ghost_btn_style),
+                                .style(icon_btn_style),
                         ]
                         .spacing(SPACE_1)
                         .align_y(Alignment::Center),

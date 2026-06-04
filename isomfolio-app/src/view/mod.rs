@@ -600,11 +600,11 @@ impl App {
         let tip = |el, label: &'static str| styles::tip(el, label, styles::TipPos::Top);
         let zoom_cluster = row![
             tip(
-                button(text("−").size(TEXT_LG)).on_press(Msg::LoupeZoomBy(0.8)).style(ghost_btn_style),
+                button(text("−").size(TEXT_LG)).on_press(Msg::LoupeZoomBy(0.8)).style(icon_btn_style),
                 "Zoom out",
             ),
             tip(
-                button(text("+").size(TEXT_LG)).on_press(Msg::LoupeZoomBy(1.25)).style(ghost_btn_style),
+                button(text("+").size(TEXT_LG)).on_press(Msg::LoupeZoomBy(1.25)).style(icon_btn_style),
                 "Zoom in",
             ),
             tip(
