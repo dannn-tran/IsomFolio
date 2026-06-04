@@ -286,5 +286,26 @@ mod tests {
             assert_eq!(found.len(), 1);
             assert!(found[0].ends_with("top.jpg"));
         }
+
+        #[test]
+        #[cfg(unix)]
+        fn symlinked_subfolder_not_followed() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            fs::write(root.join("real.jpg"), b"x").unwrap();
+
+            // Create a real subfolder with a photo in it.
+            fs::create_dir(root.join("real_sub")).unwrap();
+            fs::write(root.join("real_sub").join("sub.jpg"), b"x").unwrap();
+
+            // Create a symlink that points back to the root — circular reference.
+            std::os::unix::fs::symlink(root, root.join("loop")).unwrap();
+
+            let found = discover_paths(root.to_str().unwrap(), true);
+            // real.jpg + real_sub/sub.jpg found; loop/ symlink not followed.
+            assert_eq!(found.len(), 2);
+            assert!(found.iter().any(|p| p.ends_with("real.jpg")));
+            assert!(found.iter().any(|p| p.ends_with("sub.jpg")));
+        }
     }
 }
