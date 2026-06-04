@@ -10,8 +10,8 @@ Design decisions and subsystem contracts. Describes WHY, not WHAT. Line referenc
 isomfolio-core          Domain logic, storage, indexing — no UI
 isomfolio-app           Iced UI, state machine, messages — no direct DB/scanner calls
 isomfolio-extension-host  Launches extension subprocesses; owns the IEP protocol
-isomfolio-extension-sdk   C# NuGet package for extension authors
-extensions/Faces          Example C# extension: InsightFace ONNX face clustering
+extensions-cs/Sdk         C# NuGet package for extension authors
+extensions-cs/Faces       C# extension: InsightFace ONNX face clustering
 ```
 
 **Boundary rule:** `isomfolio-app` never calls `db::` or `scanner::` directly. All catalog operations go through `Catalog` (`isomfolio-core/src/catalog.rs`). This keeps the app layer testable and prevents UI code from encoding storage decisions.
@@ -67,7 +67,7 @@ Zoom/pan state lives in **app state, not inside the image widget**. The custom `
 
 ### Thumbnails (grid/list)
 
-The thumbnail **worker pool** generates a 512px JPEG per file into the catalog's thumbnail cache (512 covers the largest tile at 2× HiDPI without upscaling). The grid/list then render each tile with `image::Handle::from_path(cache_jpeg)` and hold **no decoded pixels** themselves — `iced_wgpu` decodes the JPEG on its own worker thread (never the UI thread, so fast fling doesn't stall — a not-yet-decoded tile just shows the loading placeholder for a frame or two) and keeps textures in a GPU atlas that it **trims** to the recently-drawn set. So thumbnail RAM is `O(viewport)`, not `O(library)`. *Never reintroduce an app-side `Handle` cache (`from_rgba` held in a map): that's what made memory grow with browse history.* Decode is **reactive** (no predictive prefetch) — a hard fling shows the loading placeholder for a frame or two, same as Lightroom/Capture One; prefetching would mean holding handles again and bring the RAM problem back, so it's deliberately not done. `ThumbnailState::Ready(path)` carries the cache path; generation status (Pending/Ready/Failed) is all the app tracks. (The loupe is separate — it owns decoded handles for the focused image + neighbour prefetch; see *Loupe image*.)
+The thumbnail **worker pool** generates a 512px JPEG per file into the catalog's thumbnail cache (512 covers the largest tile at 2× HiDPI without upscaling). The grid/list then render each tile with `image::Handle::from_path(cache_jpeg)` and hold **no decoded pixels** themselves — `iced_wgpu` decodes the JPEG on its own worker thread (never the UI thread, so fast fling doesn't stall — a not-yet-decoded tile just shows the loading placeholder for a frame or two) and keeps textures in a GPU atlas that it **trims** to the recently-drawn set. So thumbnail RAM is `O(viewport)`, not `O(library)`. *Never reintroduce an app-side `Handle` cache (`from_rgba` held in a map): that's what made memory grow with browse history.* Decode is **reactive** (no predictive prefetch, unlike the loupe which prefetches neighbours) — a hard fling shows the loading placeholder for a frame or two, same as Lightroom/Capture One; prefetching would mean holding handles again and bring the RAM problem back, so it's deliberately not done. `ThumbnailState::Ready(path)` carries the cache path; generation status (Pending/Ready/Failed) is all the app tracks. (The loupe is separate — it owns decoded handles for the focused image + neighbour prefetch; see *Loupe image*.)
 
 **Preview tier (offline culling).** Alongside the 512px thumbnail the worker pool also writes a **2048px preview** JPEG (`generate_preview` → catalog `previews/` dir) when `AppSettings.generate_previews` is on (default). This is the "smart preview" tier: the loupe decodes the **original if reachable, else the preview** (`decode_or_preview`), so a photo can be viewed and culled while its drive is offline — and cull actions (flag/rate/colour/reject) are pure DB writes that already work offline, so the preview is the only missing piece. Previews are generated on import *and* backfilled for already-thumbnailed files when a view loads (so enabling the setting, or opening an existing catalog, fills in the whole library, not just new photos). Toggling the setting rebuilds the pool (it captures the flag at creation). **Cache hygiene**: `sweep_caches` runs on catalog open (off-thread) — it drops thumbnails *and* previews whose file id is no longer catalogued (covers folder removal, purge, external edits; previously the thumbnail sweep was never wired). The preview cache is bounded by `AppSettings.preview_cache_max_mb` (default 5 GB, `0` = unlimited): `enforce_preview_cache_cap` evicts oldest-by-mtime until under the cap, run on open and after each generation batch settles. Eviction is safe — a dropped preview regenerates on demand when its drive is online (the only cost a re-decode; a photo whose drive is offline when its preview was evicted loses offline view until reconnected). Eviction order is LRU: viewing a photo in the loupe touches its preview's mtime, so the cap drops genuinely-cold previews first. **Known limitation**: if previews are disabled, or one wasn't generated before the drive went offline, the *full* loupe of that offline photo is blank — the grid and the split Preview view still show the cached thumbnail.
 
@@ -133,16 +133,16 @@ Cancelling the prompt leaves settings at `None` so the prompt reappears. Setting
 
 ## Tag model
 
-Tags have an `origin` column distinguishing their provenance:
+The `tags` table stores `(file_id, tag)` pairs — no origin column, no confidence score. Tags from different sources live in the same table; provenance is encoded in the write path, not stored.
 
-| Origin | Write path | Semantics |
-|---|---|---|
-| `manual` | `upsert_tags` | User-assigned; authoritative; never auto-removed |
-| `ai` | `add_tags_merge` / `insert_pending_tags` | AI-suggested; shown with confidence; user confirms or rejects |
-| `xmp` | `sync_xmp_tags` | Imported from XMP `dc:subject`; additive, never removes existing tags |
-| `apple` | `sync_apple_tags` | Imported from macOS Finder tags; additive |
+| Write path | Semantics |
+|---|---|
+| `upsert_tags` | Full replace — deletes tags not in the new set. Use for manual edits (tag panel save). |
+| `add_tags_merge` | Additive — inserts without removing. Use for single-file additive writes (e.g. right-click → Add Tag). For adding a tag across many files at once, use `add_tag_to_files_bulk` (one transaction, one FTS rebuild per file). |
+| `sync_xmp_tags` | Additive import from XMP `dc:subject`. |
+| `sync_apple_tags` | Additive import from macOS Finder tags. |
 
-AI-origin tags enter as *pending* and surface in the Suggestions sidebar item. Accepting promotes them to `manual`. Rejecting discards them. The origin is preserved after promotion — do not overwrite origin on subsequent reads.
+**Removed:** origin column, confidence column, `pending_tags` table, `add_tags_merge_scored`. All were part of the AI auto-tagging system, which was removed before first release. No migration is needed — dead code must be deleted outright, no compatibility shims.
 
 ---
 
@@ -215,7 +215,16 @@ The host owns clustering; the inference engine only embeds faces (`POST /embed`)
 
 The manual ⟳ button runs a **full** re-cluster (`force_full: true`, DBSCAN over everything) — needed after changing `face_eps` / `face_min_pts`. The **incremental** path runs automatically after a sync that finds new files (when `auto_face_cluster` is on, the default), so adding photos surfaces new people cheaply without a full rebuild. Cluster names survive id changes either way: `save_face_clusters` re-associates names to the new cluster with maximum membership overlap.
 
-The ORT (ONNX Runtime) sessions for detection and recognition must have `EnableCpuMemArena = false` and `EnableMemoryPattern = false`. The default arena grows native heap across `Run()` calls and never releases to the OS, causing exhaustion over a large batch. This was validated via a 50-image stress test.
+**When to use each path:**
+
+| Path | When | Cost |
+|---|---|---|
+| Incremental (auto, post-sync) | New files added; `auto_face_cluster` enabled | O(n·k) assignment + O(m²) over unmatched subset |
+| Force-full (⟳ button) | After changing `face_eps` / `face_min_pts`, or after suspected mis-clustering | Full O(n²) DBSCAN |
+
+The ⟳ button always runs force-full. The automatic post-sync trigger always runs incremental.
+
+**ORT session flags (applies to `extensions-cs/Faces`):** `EnableCpuMemArena = false` and `EnableMemoryPattern = false` must be set on every `SessionOptions` instance. The default arena grows native heap across `Run()` calls and never releases to the OS, causing exhaustion over a large batch. Validated via a 50-image stress test. These flags live in `FaceDetector.cs` and `FaceRecognizer.cs` — verify them there, not in this repo.
 
 ---
 
