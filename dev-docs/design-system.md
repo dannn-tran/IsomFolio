@@ -450,6 +450,7 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | `\` key | Toggle hide rejects |
 | Sort control (grid toolbar) | `pick_list` dropdown of fields (Name / Date Shot / Size / Type) + a `▲`/`▼` direction toggle button. Not a cycle button — the field set is explicit and visible. |
 | Grid / List toggle (toolbar) | `▦` / `≡` icon buttons switch the Browse content layout (thumbnail grid ⇄ compact columnar list). Active layout shown with `active_chip_style`. Pure presentation — no reload; the anchor stays scrolled into view. |
+| Thumbnail size (grid toolbar) | `−` / `+` buttons step `tile_px` (mirrors `⌘−`/`⌘+`). Grid layout only — hidden in List (fixed row height). |
 | Click a List column header | Sort by that field (Name / Date / Size / Type); clicking the already-active column toggles direction. Shares the toolbar Sort state. Flag/Rating/Colour headers are display-only. |
 | Drag a List column's right edge | Resize that column (Name / Rating / Date / Size / Type). Width is clamped and held in memory for the session; does not clear the photo selection. |
 | Hide Rejects (grid toolbar) / `\` | Convenience toggle between the `{Pick, Unflagged}` flag selection and "show all" — there is no separate hide-rejects state; it's a shortcut into the cull strip's flag set (single source of truth). |

@@ -69,6 +69,31 @@ impl App {
         ]
         .spacing(SPACE_0_5);
 
+        // Thumbnail-size control (Grid only — List rows are fixed height). Mirrors
+        // the Cmd+/Cmd- shortcuts so the gesture is discoverable.
+        let size_control: Element<Msg> = if is_list {
+            Space::new().width(0.0).into()
+        } else {
+            row![
+                super::styles::tip(
+                    button(text("−").size(TEXT_MD))
+                        .on_press(Msg::TileSizeDown)
+                        .style(ghost_btn_style),
+                    "Smaller thumbnails (⌘−)",
+                    super::styles::TipPos::Bottom,
+                ),
+                super::styles::tip(
+                    button(text("+").size(TEXT_MD))
+                        .on_press(Msg::TileSizeUp)
+                        .style(ghost_btn_style),
+                    "Larger thumbnails (⌘+)",
+                    super::styles::TipPos::Bottom,
+                ),
+            ]
+            .spacing(SPACE_0_5)
+            .into()
+        };
+
         let sort_choices: Vec<SortChoice> = SORT_FIELDS.iter().copied().map(SortChoice).collect();
         let sort_picker = pick_list(
             sort_choices,
@@ -114,6 +139,7 @@ impl App {
                     ghost_btn_style(t, s)
                 }
             }),
+            size_control,
             layout_toggle,
             text("Sort").size(TEXT_MD).color(FG_DIM),
             sort_picker,
