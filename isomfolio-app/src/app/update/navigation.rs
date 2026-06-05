@@ -359,7 +359,6 @@ impl App {
                                 }
                             }
                             SidebarItem::AllFiles
-                            | SidebarItem::FaceCluster(_)
                             | SidebarItem::Deleted
                             | SidebarItem::Import(_) => None,
                         };

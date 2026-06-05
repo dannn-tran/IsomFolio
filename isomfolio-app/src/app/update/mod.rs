@@ -603,9 +603,6 @@ impl App {
                     SidebarItem::AllFiles | SidebarItem::Deleted => true,
                     SidebarItem::Folder(p) => self.folders.iter().any(|(fp, _, _)| fp == p),
                     SidebarItem::Album(id) => self.albums.iter().any(|a| &a.id == id),
-                    SidebarItem::FaceCluster(id) => {
-                        self.faces.clusters.iter().any(|c| &c.cluster_id == id)
-                    }
                     SidebarItem::Import(id) => self.import_batches.iter().any(|b| b.id == *id),
                 });
                 if let Some(item) = restore {

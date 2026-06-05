@@ -219,8 +219,6 @@ pub const SPACE_2: f32 = UNIT * 2.0;
 pub const SPACE_2_5: f32 = UNIT * 2.5;
 pub const SPACE_3: f32 = UNIT * 3.0;
 pub const SPACE_4: f32 = UNIT * 4.0;
-#[allow(dead_code)]
-pub const SPACE_5: f32 = UNIT * 5.0;
 pub const SPACE_6: f32 = UNIT * 6.0;
 
 pub fn icon_btn_style(_theme: &Theme, status: button::Status) -> button::Style {

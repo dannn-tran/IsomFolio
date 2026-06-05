@@ -1320,21 +1320,6 @@ pub fn get_face_cluster_summaries(
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
-pub fn get_files_in_face_cluster(
-    conn: &Connection,
-    cluster_id: &str,
-) -> Result<Vec<crate::models::AssetFile>, AppError> {
-    let mut stmt = conn.prepare(&format!(
-        "SELECT DISTINCT {FILE_COLS_PREFIXED}
-         FROM files f
-         JOIN face_clusters fc ON fc.file_id = f.id
-         WHERE fc.cluster_id = ?1 AND f.is_orphaned = 0
-         ORDER BY f.modified_time DESC",
-    ))?;
-    let rows = stmt.query_map([cluster_id], read_asset_file)?;
-    Ok(rows.filter_map(|r| r.ok()).collect())
-}
-
 pub fn get_all_file_paths_with_mtimes(
     conn: &Connection,
 ) -> Result<Vec<(String, String, i64)>, AppError> {

@@ -153,12 +153,6 @@ impl Catalog {
         db::load_face_centroids(&self.conn)
     }
 
-    pub fn get_indexed_paths_in_folder(
-        &self,
-        root: &str,
-    ) -> Result<HashMap<String, AssetFile>, AppError> {
-        db::get_indexed_paths_in_folder(&self.conn, root)
-    }
 
     // Tags
 
@@ -356,10 +350,6 @@ impl Catalog {
 
     pub fn get_face_cluster_summaries(&self) -> Result<Vec<FaceClusterSummary>, AppError> {
         db::get_face_cluster_summaries(&self.conn)
-    }
-
-    pub fn get_files_in_face_cluster(&self, cluster_id: &str) -> Result<Vec<AssetFile>, AppError> {
-        db::get_files_in_face_cluster(&self.conn, cluster_id)
     }
 
     pub fn rename_face_cluster(&self, cluster_id: &str, name: &str) -> Result<(), AppError> {

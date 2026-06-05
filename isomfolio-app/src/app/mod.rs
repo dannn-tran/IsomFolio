@@ -963,9 +963,6 @@ impl App {
                             cat.search_manual_album(&album_id, &query).unwrap_or_default()
                         }
                     }
-                    SidebarItem::FaceCluster(cluster_id) => {
-                        cat.get_files_in_face_cluster(&cluster_id).unwrap_or_default()
-                    }
                     SidebarItem::Deleted => {
                         let q = SearchQuery {
                             only_deleted: true,
