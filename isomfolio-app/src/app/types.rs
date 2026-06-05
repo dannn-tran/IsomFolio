@@ -39,13 +39,8 @@ pub const TILE_SIZE_MAX: f32 = 400.0;
 pub const SIDEBAR_WIDTH_MIN: f32 = 140.0;
 pub const SIDEBAR_WIDTH_MAX: f32 = 400.0;
 pub const BUFFER_ROWS: usize = 2;
-pub const SEARCH_BAR_HEIGHT: f32 = 40.0;
-/// Always-visible single-row cull strip (flag · rating · colour glyphs) under
-/// the toolbar. Fixed so grid hit-testing has an exact vertical offset.
-pub const CULL_STRIP_HEIGHT: f32 = 32.0;
-pub const CRITERIA_ROW_HEIGHT: f32 = 32.0;
-pub const CRITERIA_ROW_COUNT: usize = 3;
-pub const CRITERIA_PADDING: f32 = 18.0;
+/// Height of the minimal content-area toolbar (sort · view mode · grid size).
+pub const TOOLBAR_HEIGHT: f32 = 40.0;
 /// One row in the compact List layout (thumbnail + columns).
 pub const LIST_ROW_HEIGHT: f32 = 32.0;
 /// Clickable column-header strip shown above the grid in List layout only.
@@ -136,6 +131,7 @@ pub enum GridLayout {
 /// Collapsible sidebar sections that hold a list of rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SidebarSection {
+    Filters,
     Folders,
     Albums,
     Imports,
@@ -600,7 +596,6 @@ pub enum DatePreset {
 }
 
 pub struct FilterState {
-    pub show: bool,
     pub tags: Vec<String>,
     pub tag_input: String,
     /// How include `tags` combine (AND/OR).
@@ -629,7 +624,6 @@ pub struct FilterState {
 impl Default for FilterState {
     fn default() -> Self {
         Self {
-            show: false,
             tags: Vec::new(),
             tag_input: String::new(),
             tag_match: isomfolio_core::models::TagMatch::All,

@@ -657,20 +657,6 @@ impl App {
         ((avail + TILE_GAP) / (self.tile_px + TILE_GAP)) as usize
     }
 
-    pub fn filter_panel_height(&self) -> f32 {
-        if !self.filters.show {
-            return 0.0;
-        }
-        let rows = CRITERIA_ROW_COUNT as f32;
-        let spacing = (CRITERIA_ROW_COUNT - 1) as f32 * 6.0;
-        let action_row = if self.has_active_filters() {
-            CRITERIA_ROW_HEIGHT + 6.0
-        } else {
-            0.0
-        };
-        rows * CRITERIA_ROW_HEIGHT + spacing + CRITERIA_PADDING + action_row
-    }
-
     pub fn has_active_filters(&self) -> bool {
         !self.filters.tags.is_empty()
             || !self.filters.exclude_tags.is_empty()
@@ -1194,7 +1180,7 @@ impl App {
         if !matches!(self.grid_layout, GridLayout::List) {
             return false;
         }
-        let top = SEARCH_BAR_HEIGHT + CULL_STRIP_HEIGHT + self.filter_panel_height();
+        let top = TOOLBAR_HEIGHT;
         pos.x > self.sidebar_width + SIDEBAR_HANDLE_WIDTH
             && pos.y >= top
             && pos.y < top + LIST_HEADER_HEIGHT
@@ -1202,17 +1188,12 @@ impl App {
 
     pub fn tile_index_at(&self, pos: Point) -> Option<usize> {
         let rel_x = pos.x - self.sidebar_width - SIDEBAR_HANDLE_WIDTH - GRID_PADDING;
-        let criteria_h = self.filter_panel_height();
-        // List layout has a clickable column-header strip above the rows; the
-        // grid does not. Subtract it so row hit-testing stays aligned.
         let list_header = match self.grid_layout {
             GridLayout::List => LIST_HEADER_HEIGHT,
             GridLayout::Grid => 0.0,
         };
         let rel_y = pos.y + self.scroll_y
-            - SEARCH_BAR_HEIGHT
-            - CULL_STRIP_HEIGHT
-            - criteria_h
+            - TOOLBAR_HEIGHT
             - list_header
             - GRID_PADDING;
         if rel_x < 0.0 || rel_y < 0.0 {

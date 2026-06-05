@@ -464,7 +464,7 @@ impl App {
                             self.filters.camera = q.camera_model.clone();
                             self.filters.color = q.color_label.clone();
                             self.filters.added_within_days = q.added_within_days;
-                            self.filters.show = true;
+                            self.collapsed_sections.remove(&crate::app::SidebarSection::Filters);
                         }
                     }
                 }

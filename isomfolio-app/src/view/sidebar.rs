@@ -4,18 +4,18 @@ use iced::{
 };
 
 use isomfolio_core::folder_tree::FolderNode;
-use isomfolio_core::models::AlbumKind;
+use isomfolio_core::models::{AlbumKind, Flag, RatingFilter, TagMatch};
 
 use super::styles::{
-    confirm_action_row, ghost_btn_style, icon_btn_style, sidebar_divider, ACCENT, ALBUM_HOVER,
-    BG_SIDEBAR, BG_STATUSBAR, FG, FG_DIM, FG_MUTED,
-    SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_3,
-    TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM, TEXT_XS,
+    active_chip_style, color_label_swatch, confirm_action_row, danger_btn_style, ghost_btn_style,
+    icon_btn_style, sidebar_divider, ACCENT, ALBUM_HOVER, BORDER, BG_SIDEBAR, BG_STATUSBAR,
+    COLOR_LABELS, ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_3,
+    STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM, TEXT_XS,
 };
 use super::icons::{Icon, ICON_SIZE};
 use crate::app::{
-    unix_to_date_str, App, Msg, SidebarItem, SidebarSection, ViewMode, ALBUM_ITEM_HEIGHT,
-    FOLDER_ITEM_HEIGHT,
+    parse_date_str, unix_to_date_str, App, DatePreset, Msg, RatingCmp, SidebarItem, SidebarSection,
+    ViewMode, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT,
 };
 
 /// How many recent import batches the sidebar shows before "Show all".
@@ -70,9 +70,20 @@ impl App {
             .align_y(Alignment::Center)
             .into();
 
+        let filters_collapsed = self.collapsed_sections.contains(&SidebarSection::Filters);
         let folders_collapsed = self.collapsed_sections.contains(&SidebarSection::Folders);
         let albums_collapsed = self.collapsed_sections.contains(&SidebarSection::Albums);
         let imports_collapsed = self.collapsed_sections.contains(&SidebarSection::Imports);
+
+        let filters_active = self.has_active_filters();
+        let filter_title = if filters_active { "Filters ●" } else { "Filters" };
+        let filters_header: Element<Msg> = section_header(
+            Icon::Filters,
+            filter_title,
+            filters_collapsed,
+            SidebarSection::Filters,
+            vec![],
+        );
 
         let albums_header: Element<Msg> = section_header(
             Icon::Albums,
@@ -80,13 +91,6 @@ impl App {
             albums_collapsed,
             SidebarSection::Albums,
             vec![
-                super::styles::tip(
-                    button(text("⚡").size(TEXT_MD))
-                        .on_press(Msg::ToggleFilterPanel)
-                        .style(icon_btn_style),
-                    "Filter / save Smart Album",
-                    super::styles::TipPos::Bottom,
-                ),
                 super::styles::tip(
                     button(text("+").size(TEXT_BASE))
                         .on_press(Msg::StartCreateAlbum)
@@ -134,16 +138,23 @@ impl App {
         let mut content = column![
             catalog_header,
             Space::new().height(SPACE_1),
-            nav_row(
-                Some(Icon::AllPhotos),
-                "All Photos".to_string(),
-                Some(total_files),
-                all_sel,
-                Msg::SidebarItemClicked(SidebarItem::AllFiles),
-            ),
-            Space::new().height(SPACE_1_5),
+            filters_header,
         ]
         .spacing(SPACE_0_5);
+
+        if !filters_collapsed {
+            content = content.push(self.view_sidebar_filters());
+        }
+
+        content = content.push(Space::new().height(SPACE_1_5));
+        content = content.push(nav_row(
+            Some(Icon::AllPhotos),
+            "All Photos".to_string(),
+            Some(total_files),
+            all_sel,
+            Msg::SidebarItemClicked(SidebarItem::AllFiles),
+        ));
+        content = content.push(Space::new().height(SPACE_1_5));
 
         content = content.push(folders_header);
 
@@ -342,6 +353,15 @@ impl App {
             ));
         }
 
+        let search_bar = container(
+            text_input("Search…", &self.search_text)
+                .on_input(Msg::SearchChanged)
+                .padding([SPACE_1, SPACE_1_5])
+                .size(TEXT_MD)
+                .width(Length::Fill),
+        )
+        .padding([SPACE_1_5, SPACE_1_5]);
+
         let sidebar_scroll = scrollable(content.spacing(SPACE_0_5).padding(SPACE_3))
             .direction(scrollable::Direction::Vertical(
                 scrollable::Scrollbar::new().width(4).scroller_width(4),
@@ -365,11 +385,327 @@ impl App {
             }),
         ];
 
-        container(column![sidebar_scroll, bottom_strip])
+        container(column![search_bar, sidebar_divider(), sidebar_scroll, bottom_strip])
             .width(self.sidebar_width)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_SIDEBAR)),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    fn view_sidebar_filters(&self) -> Element<'_, Msg> {
+        let cur = self.filters.rating;
+        let cmp = self.filters.rating_cmp;
+
+        let chip = |glyph: &str, hint: &str, active: bool, color: Color, msg: Msg| -> Element<'_, Msg> {
+            super::styles::tip(
+                button(text(glyph.to_string()).size(TEXT_SM).color(color))
+                    .on_press(msg)
+                    .padding([SPACE_1, SPACE_1])
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+                hint,
+                super::styles::TipPos::Right,
+            )
+        };
+
+        let mut col = column![].spacing(SPACE_1_5).padding([SPACE_0_5, SPACE_1]);
+
+        // Flags row
+        let flags_row = row![
+            chip("✓", "Show picks", self.filters.flags.allows(Flag::Pick), FG, Msg::ToggleFlagFilter(Flag::Pick)),
+            chip("○", "Show unflagged", self.filters.flags.allows(Flag::Unflagged), FG, Msg::ToggleFlagFilter(Flag::Unflagged)),
+            chip("✕", "Show rejects", self.filters.flags.allows(Flag::Reject), FG, Msg::ToggleFlagFilter(Flag::Reject)),
+        ]
+        .spacing(SPACE_0_5)
+        .align_y(Alignment::Center);
+        col = col.push(flags_row);
+
+        // Rating row
+        let mut rating_row = row![text("★").size(TEXT_SM).color(STAR_GOLD)]
+            .spacing(SPACE_0_5)
+            .align_y(Alignment::Center);
+        for (c, hint) in [
+            (RatingCmp::AtLeast, "At least"),
+            (RatingCmp::Exactly, "Exactly"),
+            (RatingCmp::AtMost, "At most"),
+        ] {
+            rating_row = rating_row.push(chip(c.symbol(), hint, cmp == c, FG, Msg::SetRatingCmp(c)));
+        }
+        for n in 1..=5i32 {
+            let active = matches!(cur,
+                RatingFilter::AtLeast(v) | RatingFilter::Exactly(v) | RatingFilter::AtMost(v) if v == n);
+            let msg = if active { RatingFilter::Any } else { cmp.apply(n) };
+            rating_row = rating_row.push(chip(&n.to_string(), &format!("{} {n}★", cmp.symbol()), active, FG, Msg::SetRatingFilter(msg)));
+        }
+        let unrated = matches!(cur, RatingFilter::Unrated);
+        let unrated_msg = if unrated { RatingFilter::Any } else { RatingFilter::Unrated };
+        rating_row = rating_row.push(chip("0", "Unrated only", unrated, FG, Msg::SetRatingFilter(unrated_msg)));
+        col = col.push(rating_row.wrap());
+
+        // Colour row
+        let color_row = row(
+            COLOR_LABELS.iter().map(|name| {
+                let active = self.filters.color.as_deref() == Some(*name);
+                let msg = if active { None } else { Some(name.to_string()) };
+                chip("●", &format!("Colour: {name}"), active, color_label_swatch(name), Msg::SetColorFilter(msg))
+            }).collect::<Vec<_>>()
+        )
+        .spacing(SPACE_0_5);
+        col = col.push(color_row);
+
+        // Tags
+        let mut tags_row = row![
+            text("Tags").size(TEXT_XS).color(FG_DIM),
+        ]
+        .spacing(SPACE_1)
+        .align_y(Alignment::Center);
+
+        let seg = |label: &str, mode: TagMatch, active: bool| -> Element<'_, Msg> {
+            let style: fn(&Theme, iced::widget::button::Status) -> iced::widget::button::Style =
+                if active { active_chip_style } else { ghost_btn_style };
+            button(text(label.to_string()).size(TEXT_XS))
+                .on_press(Msg::SetTagMatch(mode))
+                .padding([1.0, SPACE_1])
+                .style(style)
+                .into()
+        };
+        let is_any = self.filters.tag_match == TagMatch::Any;
+        tags_row = tags_row.push(seg("All", TagMatch::All, !is_any));
+        tags_row = tags_row.push(seg("Any", TagMatch::Any, is_any));
+        col = col.push(tags_row);
+
+        let tag_chip = |tag: &str, negated: bool| -> Element<'_, Msg> {
+            let style: fn(&Theme, iced::widget::button::Status) -> iced::widget::button::Style =
+                if negated { danger_btn_style } else { active_chip_style };
+            let label = if negated { format!("−{tag}") } else { tag.to_string() };
+            row![
+                button(text(label).size(TEXT_SM))
+                    .on_press(Msg::ToggleFilterTagNegate(tag.to_string()))
+                    .padding([SPACE_0_5, SPACE_1])
+                    .style(style),
+                button(text("×").size(TEXT_SM))
+                    .on_press(Msg::RemoveFilterTag(tag.to_string()))
+                    .padding([SPACE_0_5, SPACE_1])
+                    .style(style),
+            ]
+            .spacing(1.0)
+            .into()
+        };
+        let mut chips_row = row![].spacing(SPACE_0_5).align_y(Alignment::Center);
+        for tag in &self.filters.tags {
+            chips_row = chips_row.push(tag_chip(tag, false));
+        }
+        for tag in &self.filters.exclude_tags {
+            chips_row = chips_row.push(tag_chip(tag, true));
+        }
+        chips_row = chips_row.push(
+            text_input("+ tag", &self.filters.tag_input)
+                .on_input(Msg::FilterTagInputChanged)
+                .on_submit(Msg::AddFilterTag)
+                .padding([SPACE_1, SPACE_1_5])
+                .size(TEXT_SM)
+                .width(Length::Fill),
+        );
+        col = col.push(chips_row.wrap());
+
+        // Date range (stacked vertically to fit narrow sidebar)
+        let from_err = !self.filters.date_from.is_empty()
+            && parse_date_str(&self.filters.date_from).is_none();
+        let to_err = !self.filters.date_to.is_empty()
+            && parse_date_str(&self.filters.date_to).is_none();
+
+        col = col.push(
+            column![
+                row![
+                    text("From").size(TEXT_XS).color(FG_DIM),
+                    text_input("YYYY-MM-DD", &self.filters.date_from)
+                        .on_input(Msg::FilterDateFromChanged)
+                        .padding([SPACE_1, SPACE_1_5])
+                        .size(TEXT_SM)
+                        .width(Length::Fill),
+                ]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center),
+                row![
+                    text("To").size(TEXT_XS).color(FG_DIM),
+                    text_input("YYYY-MM-DD", &self.filters.date_to)
+                        .on_input(Msg::FilterDateToChanged)
+                        .padding([SPACE_1, SPACE_1_5])
+                        .size(TEXT_SM)
+                        .width(Length::Fill),
+                ]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center),
+            ]
+            .spacing(SPACE_1),
+        );
+
+        if from_err || to_err {
+            col = col.push(text("Format: YYYY-MM-DD").size(TEXT_XS).color(ERR));
+        }
+
+        let mut preset_row = row![].spacing(SPACE_1).align_y(Alignment::Center);
+        for (label, preset) in [
+            ("7d", DatePreset::Last7),
+            ("30d", DatePreset::Last30),
+            ("Month", DatePreset::ThisMonth),
+            ("Year", DatePreset::ThisYear),
+        ] {
+            preset_row = preset_row.push(
+                button(text(label).size(TEXT_XS))
+                    .on_press(Msg::SetDatePreset(preset))
+                    .style(ghost_btn_style),
+            );
+        }
+        col = col.push(preset_row);
+
+        // File type chips
+        let mut ext_row = row![text("Type").size(TEXT_XS).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for ext in ["jpg", "png", "webp", "gif"] {
+            let active = self.filters.exts.contains(ext);
+            ext_row = ext_row.push(
+                button(text(format!(".{}", ext.to_uppercase())).size(TEXT_XS))
+                    .on_press(Msg::ToggleFilterFileType(ext.to_string()))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+        col = col.push(ext_row.wrap());
+
+        // Location
+        let mut loc_row = row![text("GPS").size(TEXT_XS).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for (label, val) in [("Any", None), ("✓", Some(true)), ("✕", Some(false))] {
+            let active = self.filters.has_location == val;
+            loc_row = loc_row.push(
+                button(text(label).size(TEXT_XS))
+                    .on_press(Msg::SetLocationFilter(val))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+        col = col.push(loc_row);
+
+        // Person filter (only when named clusters exist)
+        let named: Vec<&isomfolio_core::models::FaceClusterSummary> = self
+            .faces.clusters.iter()
+            .filter(|c| c.name.is_some())
+            .collect();
+        if !named.is_empty() {
+            let mut person_row = row![text("Person").size(TEXT_XS).color(FG_DIM)]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center);
+            let any_active = self.filters.person.is_none();
+            person_row = person_row.push(
+                button(text("Any").size(TEXT_XS))
+                    .on_press(Msg::SetPersonFilter(None))
+                    .style(if any_active { active_chip_style } else { ghost_btn_style }),
+            );
+            for c in named {
+                let name = c.name.clone().unwrap_or_default();
+                let active = self.filters.person.as_deref() == Some(c.cluster_id.as_str());
+                person_row = person_row.push(
+                    button(text(name).size(TEXT_XS))
+                        .on_press(Msg::SetPersonFilter(Some(c.cluster_id.clone())))
+                        .style(if active { active_chip_style } else { ghost_btn_style }),
+                );
+            }
+            col = col.push(person_row.wrap());
+        }
+
+        // Added within
+        let mut added_row = row![text("Added").size(TEXT_XS).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        for (label, days) in [("Any", None), ("7d", Some(7)), ("30d", Some(30))] {
+            let active = self.filters.added_within_days == days;
+            added_row = added_row.push(
+                button(text(label).size(TEXT_XS))
+                    .on_press(Msg::SetAddedWithinFilter(days))
+                    .style(if active { active_chip_style } else { ghost_btn_style }),
+            );
+        }
+        col = col.push(added_row);
+
+        // Camera filter (only when cameras exist)
+        if !self.cameras.is_empty() {
+            let mut cam_row = row![text("Camera").size(TEXT_XS).color(FG_DIM)]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center);
+            let any_active = self.filters.camera.is_none();
+            cam_row = cam_row.push(
+                button(text("Any").size(TEXT_XS))
+                    .on_press(Msg::SetCameraFilter(None))
+                    .style(if any_active { active_chip_style } else { ghost_btn_style }),
+            );
+            for cam in &self.cameras {
+                let active = self.filters.camera.as_deref() == Some(cam.as_str());
+                cam_row = cam_row.push(
+                    button(text(cam.clone()).size(TEXT_XS))
+                        .on_press(Msg::SetCameraFilter(Some(cam.clone())))
+                        .style(if active { active_chip_style } else { ghost_btn_style }),
+                );
+            }
+            col = col.push(cam_row.wrap());
+        }
+
+        // Clear / Smart Album actions
+        if self.has_active_filters() {
+            let is_smart = self.current_album_is_smart();
+            let mut action_row = row![
+                button(text("Clear").size(TEXT_SM))
+                    .on_press(Msg::ClearFilters)
+                    .style(ghost_btn_style),
+                Space::new().width(Length::Fill),
+            ]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+
+            if is_smart {
+                if self.smart_album_dirty {
+                    action_row = action_row.push(text("Unsaved").size(TEXT_XS).color(ERR));
+                }
+                action_row = action_row.push(
+                    button(text("Update").size(TEXT_SM))
+                        .on_press(Msg::UpdateSmartAlbum)
+                        .style(ghost_btn_style),
+                );
+            } else if let Some(ref name_input) = self.filters.save_smart_input {
+                action_row = action_row
+                    .push(
+                        text_input("Album name…", name_input)
+                            .on_input(Msg::SmartAlbumNameChanged)
+                            .on_submit(Msg::ConfirmSmartAlbum)
+                            .padding([SPACE_1, SPACE_1_5])
+                            .size(TEXT_SM)
+                            .width(Length::Fill),
+                    )
+                    .push(
+                        button(text("Save").size(TEXT_SM))
+                            .on_press(Msg::ConfirmSmartAlbum)
+                            .style(ghost_btn_style),
+                    );
+            } else {
+                action_row = action_row.push(
+                    button(text("Save Smart…").size(TEXT_SM))
+                        .on_press(Msg::SaveAsSmartAlbum)
+                        .style(ghost_btn_style),
+                );
+            }
+            col = col.push(action_row);
+        }
+
+        container(col)
+            .width(Length::Fill)
+            .style(|_: &Theme| container::Style {
+                border: Border {
+                    color: BORDER,
+                    width: 0.0,
+                    radius: 4.0.into(),
+                },
                 ..Default::default()
             })
             .into()

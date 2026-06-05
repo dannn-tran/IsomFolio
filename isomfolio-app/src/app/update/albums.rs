@@ -316,9 +316,9 @@ impl App {
             }
 
             Msg::SaveAsSmartAlbum => {
-                // Open the filter panel so the inline name input is visible
-                // (e.g. when triggered from the Photo menu with the panel shut).
-                self.filters.show = true;
+                // Expand the sidebar Filters section so the inline name input is
+                // visible (e.g. when triggered from the Photo menu with it shut).
+                self.collapsed_sections.remove(&crate::app::SidebarSection::Filters);
                 self.filters.save_smart_input = Some(String::new());
                 Task::none()
             }

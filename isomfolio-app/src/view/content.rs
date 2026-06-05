@@ -4,10 +4,7 @@ use iced::{
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
-use isomfolio_core::models::{Flag, FlagSelection, RatingFilter, SortField, ThumbnailState};
-
-/// The flag selection that "Hide Rejects" represents: show picks + unflagged.
-const HIDE_REJECTS: FlagSelection = FlagSelection { pick: true, unflagged: true, reject: false };
+use isomfolio_core::models::{Flag, SortField, ThumbnailState};
 
 /// Sort fields in the order they appear in the toolbar dropdown.
 const SORT_FIELDS: [SortField; 4] =
@@ -24,15 +21,14 @@ impl std::fmt::Display for SortChoice {
 }
 
 use super::styles::{
-    active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID,
+    active_chip_style, ghost_btn_style, ACCENT, BG_CRITERIA, BG_GRID,
     BG_TILE_LOADING, BORDER, ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
-    SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
+    SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_STAR, TEXT_XS, TILE_CORNER,
     WARN,
 };
 use crate::app::{
-    format_file_size, parse_date_str, sort_field_label, unix_to_date_str, App, DatePreset,
-    GridLayout, ListCol, Msg, DetailField, RatingCmp, BUFFER_ROWS, GRID_PADDING,
-    LIST_HEADER_HEIGHT, LIST_ROW_HEIGHT, TILE_GAP,
+    format_file_size, sort_field_label, unix_to_date_str, App, GridLayout, ListCol, Msg,
+    DetailField, BUFFER_ROWS, GRID_PADDING, LIST_HEADER_HEIGHT, LIST_ROW_HEIGHT, TILE_GAP,
 };
 
 // Fixed (non-resizable) glyph columns for the List layout. The resizable
@@ -46,9 +42,6 @@ const LIST_HANDLE_W: f32 = 6.0;
 
 impl App {
     pub(super) fn view_grid(&self) -> Element<'_, Msg> {
-        let filter_panel_open = self.filters.show;
-        let filters_active = self.has_active_filters();
-        let hide_rejects_on = self.filters.flags == HIDE_REJECTS;
         let is_list = matches!(self.grid_layout, GridLayout::List);
 
         let layout_toggle = row![
@@ -107,16 +100,6 @@ impl App {
             .style(ghost_btn_style);
 
         let toolbar_row = row![
-            text_input("Search names & tags…", &self.search_text)
-                .on_input(Msg::SearchChanged)
-                .padding([SPACE_1_5, SPACE_2_5])
-                .size(TEXT_BASE)
-                .width(Length::Fill),
-            button(text("Hide Rejects").size(TEXT_MD))
-                .on_press(Msg::ToggleHideRejects)
-                .style(move |t: &Theme, s| {
-                    if hide_rejects_on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
-                }),
             super::styles::tip(
                 button(text("⧉ Stack").size(TEXT_MD))
                     .on_press(Msg::ToggleCollapseBursts)
@@ -127,18 +110,7 @@ impl App {
                 "Collapse bursts to one tile",
                 super::styles::TipPos::Bottom,
             ),
-            button(
-                text(if filters_active { "Filters ●" } else { "Filters" })
-                    .size(TEXT_MD)
-            )
-            .on_press(Msg::ToggleFilterPanel)
-            .style(move |t: &Theme, s| {
-                if filter_panel_open {
-                    active_chip_style(t, s)
-                } else {
-                    ghost_btn_style(t, s)
-                }
-            }),
+            Space::new().width(Length::Fill),
             size_control,
             layout_toggle,
             text("Sort").size(TEXT_MD).color(FG_DIM),
@@ -235,10 +207,7 @@ impl App {
                 .into()
         };
 
-        let mut grid_col = column![filter_toolbar, self.view_cull_strip()];
-        if filter_panel_open {
-            grid_col = grid_col.push(self.view_filter_panel());
-        }
+        let mut grid_col = column![filter_toolbar];
         if is_list && !self.files.is_empty() {
             grid_col = grid_col.push(self.view_list_header());
         }
@@ -669,341 +638,6 @@ impl App {
             .into()
     }
 
-    /// The three cull axes — flags, rating, colour — as a single dense glyph
-    /// row, always visible under the toolbar so they're one click away mid-cull
-    /// without stealing grid rows (cf. Lightroom's filter bar / Photo Mechanic's
-    /// icon strip). Advanced filters stay behind the collapsible Filters panel.
-    pub(super) fn view_cull_strip(&self) -> Element<'_, Msg> {
-        let cur = self.filters.rating;
-        let cmp = self.filters.rating_cmp;
-
-        // Compact glyph chip with a hover tooltip (the glyphs are bare, so the
-        // tooltip is how their meaning is discovered).
-        let chip = |glyph: String, hint: String, active: bool, color: Color, msg: Msg| {
-            super::styles::tip(
-                // Vertical padding keeps the hit target near the 24 px floor
-                // (design-system "Density floor") despite the small glyph.
-                button(text(glyph).size(TEXT_SM).color(color))
-                    .on_press(msg)
-                    .padding([SPACE_1_5, SPACE_1_5])
-                    .style(if active { active_chip_style } else { ghost_btn_style }),
-                hint,
-                super::styles::TipPos::Bottom,
-            )
-        };
-        let divider = || text("│").size(TEXT_SM).color(FG_MUTED);
-
-        let mut r = row![].spacing(SPACE_0_5).align_y(Alignment::Center);
-
-        // Flags — independent toggles.
-        for (glyph, hint, flag) in [
-            ("✓", "Show picks", Flag::Pick),
-            ("○", "Show unflagged", Flag::Unflagged),
-            ("✕", "Show rejects", Flag::Reject),
-        ] {
-            r = r.push(chip(glyph.into(), hint.into(), self.filters.flags.allows(flag), FG, Msg::ToggleFlagFilter(flag)));
-        }
-        r = r.push(divider());
-
-        // Rating — star marker, comparator, star counts, plus 0 = unrated.
-        // Clicking the active count/unrated clears back to Any.
-        r = r.push(text("★").size(TEXT_SM).color(STAR_GOLD));
-        for (c, hint) in [
-            (RatingCmp::AtLeast, "Rating: at least"),
-            (RatingCmp::Exactly, "Rating: exactly"),
-            (RatingCmp::AtMost, "Rating: at most"),
-        ] {
-            r = r.push(chip(c.symbol().into(), hint.into(), cmp == c, FG, Msg::SetRatingCmp(c)));
-        }
-        for n in 1..=5i32 {
-            let active = matches!(cur,
-                RatingFilter::AtLeast(v) | RatingFilter::Exactly(v) | RatingFilter::AtMost(v) if v == n);
-            let msg = if active { RatingFilter::Any } else { cmp.apply(n) };
-            r = r.push(chip(n.to_string(), format!("{} {n} star", cmp.symbol()), active, FG, Msg::SetRatingFilter(msg)));
-        }
-        let unrated = matches!(cur, RatingFilter::Unrated);
-        let unrated_msg = if unrated { RatingFilter::Any } else { RatingFilter::Unrated };
-        r = r.push(chip("0".into(), "Unrated only".into(), unrated, FG, Msg::SetRatingFilter(unrated_msg)));
-        r = r.push(divider());
-
-        // Colours — dot toggles.
-        for name in super::styles::COLOR_LABELS {
-            let active = self.filters.color.as_deref() == Some(name);
-            let msg = if active { None } else { Some(name.to_string()) };
-            r = r.push(chip("●".into(), format!("Colour: {name}"), active, super::styles::color_label_swatch(name), Msg::SetColorFilter(msg)));
-        }
-
-        container(r)
-            .width(Length::Fill)
-            .height(Length::Fixed(crate::app::CULL_STRIP_HEIGHT))
-            .padding([SPACE_0_5, SPACE_3])
-            .align_y(Alignment::Center)
-            .clip(true)
-            .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(BG_CRITERIA)),
-                ..Default::default()
-            })
-            .into()
-    }
-
-    pub(super) fn view_filter_panel(&self) -> Element<'_, Msg> {
-        let mut col = column![].spacing(SPACE_1_5).padding([SPACE_1_5, SPACE_3]);
-
-        use isomfolio_core::models::TagMatch;
-        let mut tags_row = row![text("Tags").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1_5)
-            .align_y(Alignment::Center);
-
-        // All/Any toggle — always shown so OR is as discoverable as AND.
-        let seg = |label: &str, mode: TagMatch, active: bool| {
-            let style: fn(&Theme, iced::widget::button::Status) -> iced::widget::button::Style =
-                if active { active_chip_style } else { ghost_btn_style };
-            button(text(label.to_string()).size(TEXT_XS))
-                .on_press(Msg::SetTagMatch(mode))
-                .padding([1.0, SPACE_1])
-                .style(style)
-        };
-        let is_any = self.filters.tag_match == TagMatch::Any;
-        tags_row = tags_row
-            .push(seg("All", TagMatch::All, !is_any))
-            .push(seg("Any", TagMatch::Any, is_any));
-
-        // Include chips (accent) then exclude chips (danger, "−" prefix). Clicking
-        // the label toggles include⇄exclude; the × removes the tag entirely.
-        let chip = |tag: &str, negated: bool| -> Element<'_, Msg> {
-            let style: fn(&Theme, iced::widget::button::Status) -> iced::widget::button::Style =
-                if negated { danger_btn_style } else { active_chip_style };
-            let label = if negated { format!("−{tag}") } else { tag.to_string() };
-            row![
-                button(text(label).size(TEXT_SM))
-                    .on_press(Msg::ToggleFilterTagNegate(tag.to_string()))
-                    .padding([SPACE_0_5, SPACE_1])
-                    .style(style),
-                button(text("×").size(TEXT_SM))
-                    .on_press(Msg::RemoveFilterTag(tag.to_string()))
-                    .padding([SPACE_0_5, SPACE_1])
-                    .style(style),
-            ]
-            .spacing(1.0)
-            .into()
-        };
-        for tag in &self.filters.tags {
-            tags_row = tags_row.push(chip(tag, false));
-        }
-        for tag in &self.filters.exclude_tags {
-            tags_row = tags_row.push(chip(tag, true));
-        }
-        tags_row = tags_row.push(
-            text_input("+ tag", &self.filters.tag_input)
-                .on_input(Msg::FilterTagInputChanged)
-                .on_submit(Msg::AddFilterTag)
-                .padding([SPACE_1, SPACE_1_5])
-                .size(TEXT_SM)
-                .width(120),
-        );
-        col = col.push(tags_row);
-
-        let from_err = !self.filters.date_from.is_empty()
-            && parse_date_str(&self.filters.date_from).is_none();
-        let to_err =
-            !self.filters.date_to.is_empty() && parse_date_str(&self.filters.date_to).is_none();
-        let mut date_row = row![].spacing(SPACE_1_5).align_y(Alignment::Center);
-        date_row = date_row.push(text("From").size(TEXT_SM).color(FG_DIM));
-        date_row = date_row.push(
-            text_input("YYYY-MM-DD", &self.filters.date_from)
-                .on_input(Msg::FilterDateFromChanged)
-                .padding([SPACE_1, SPACE_1_5])
-                .size(TEXT_SM)
-                .width(100),
-        );
-        if from_err {
-            date_row = date_row.push(text("✕ bad date").size(TEXT_XS).color(ERR));
-        }
-        date_row = date_row.push(text("To").size(TEXT_SM).color(FG_DIM));
-        date_row = date_row.push(
-            text_input("YYYY-MM-DD", &self.filters.date_to)
-                .on_input(Msg::FilterDateToChanged)
-                .padding([SPACE_1, SPACE_1_5])
-                .size(TEXT_SM)
-                .width(100),
-        );
-        if to_err {
-            date_row = date_row.push(text("✕ bad date").size(TEXT_XS).color(ERR));
-        }
-        col = col.push(date_row);
-        if from_err || to_err {
-            col = col.push(
-                text("Format: YYYY-MM-DD  e.g. 2024-06-15")
-                    .size(TEXT_XS)
-                    .color(ERR),
-            );
-        }
-
-        let mut preset_row = row![Space::new().width(SPACE_3)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        for (label, preset) in [
-            ("Last 7 days", DatePreset::Last7),
-            ("Last 30 days", DatePreset::Last30),
-            ("This month", DatePreset::ThisMonth),
-            ("This year", DatePreset::ThisYear),
-        ] {
-            preset_row = preset_row.push(
-                button(text(label).size(TEXT_SM))
-                    .on_press(Msg::SetDatePreset(preset))
-                    .style(ghost_btn_style),
-            );
-        }
-        col = col.push(preset_row);
-
-        let mut ext_row = row![text("Type").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        for ext in ["jpg", "png", "webp", "gif"] {
-            let active = self.filters.exts.contains(ext);
-            ext_row = ext_row.push(
-                button(text(format!(".{}", ext.to_uppercase())).size(TEXT_SM))
-                    .on_press(Msg::ToggleFilterFileType(ext.to_string()))
-                    .style(if active { active_chip_style } else { ghost_btn_style }),
-            );
-        }
-        col = col.push(ext_row);
-
-        let mut loc_row = row![text("Location").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        for (label, val) in [("Any", None), ("With GPS", Some(true)), ("Without GPS", Some(false))] {
-            let active = self.filters.has_location == val;
-            loc_row = loc_row.push(
-                button(text(label).size(TEXT_SM))
-                    .on_press(Msg::SetLocationFilter(val))
-                    .style(if active { active_chip_style } else { ghost_btn_style }),
-            );
-        }
-        col = col.push(loc_row);
-
-        let named: Vec<&isomfolio_core::models::FaceClusterSummary> = self
-            .faces
-            .clusters
-            .iter()
-            .filter(|c| c.name.is_some())
-            .collect();
-        if !named.is_empty() {
-            let mut person_row = row![text("Person").size(TEXT_SM).color(FG_DIM)]
-                .spacing(SPACE_1)
-                .align_y(Alignment::Center);
-            let any_active = self.filters.person.is_none();
-            person_row = person_row.push(
-                button(text("Any").size(TEXT_SM))
-                    .on_press(Msg::SetPersonFilter(None))
-                    .style(if any_active { active_chip_style } else { ghost_btn_style }),
-            );
-            for c in named {
-                let name = c.name.clone().unwrap_or_default();
-                let active = self.filters.person.as_deref() == Some(c.cluster_id.as_str());
-                person_row = person_row.push(
-                    button(text(name).size(TEXT_SM))
-                        .on_press(Msg::SetPersonFilter(Some(c.cluster_id.clone())))
-                        .style(if active { active_chip_style } else { ghost_btn_style }),
-                );
-            }
-            col = col.push(person_row.wrap());
-        }
-
-        let mut added_row = row![text("Added").size(TEXT_SM).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        for (label, days) in [("Any", None), ("7 days", Some(7)), ("30 days", Some(30))] {
-            let active = self.filters.added_within_days == days;
-            added_row = added_row.push(
-                button(text(label).size(TEXT_SM))
-                    .on_press(Msg::SetAddedWithinFilter(days))
-                    .style(if active { active_chip_style } else { ghost_btn_style }),
-            );
-        }
-        col = col.push(added_row);
-
-        if !self.cameras.is_empty() {
-            let mut cam_row = row![text("Camera").size(TEXT_SM).color(FG_DIM)]
-                .spacing(SPACE_1)
-                .align_y(Alignment::Center);
-            let any_active = self.filters.camera.is_none();
-            cam_row = cam_row.push(
-                button(text("Any").size(TEXT_SM))
-                    .on_press(Msg::SetCameraFilter(None))
-                    .style(if any_active { active_chip_style } else { ghost_btn_style }),
-            );
-            for cam in &self.cameras {
-                let active = self.filters.camera.as_deref() == Some(cam.as_str());
-                cam_row = cam_row.push(
-                    button(text(cam.clone()).size(TEXT_SM))
-                        .on_press(Msg::SetCameraFilter(Some(cam.clone())))
-                        .style(if active { active_chip_style } else { ghost_btn_style }),
-                );
-            }
-            col = col.push(cam_row.wrap());
-        }
-
-        if self.has_active_filters() {
-            let is_smart = self.current_album_is_smart();
-            let mut action_row = row![
-                button(text("Clear").size(TEXT_SM))
-                    .on_press(Msg::ClearFilters)
-                    .style(ghost_btn_style),
-                Space::new().width(Length::Fill),
-            ]
-            .spacing(SPACE_1_5)
-            .align_y(Alignment::Center);
-
-            if is_smart {
-                if self.smart_album_dirty {
-                    action_row = action_row.push(
-                        text("Unsaved changes").size(TEXT_SM).color(ERR),
-                    );
-                }
-                action_row = action_row.push(
-                    button(text("Update Smart Album").size(TEXT_SM))
-                        .on_press(Msg::UpdateSmartAlbum)
-                        .style(ghost_btn_style),
-                );
-            } else if let Some(ref name_input) = self.filters.save_smart_input {
-                action_row = action_row
-                    .push(
-                        text_input("Album name…", name_input)
-                            .on_input(Msg::SmartAlbumNameChanged)
-                            .on_submit(Msg::ConfirmSmartAlbum)
-                            .padding([SPACE_1, SPACE_1_5])
-                            .size(TEXT_SM)
-                            .width(120),
-                    )
-                    .push(
-                        button(text("Save").size(TEXT_SM))
-                            .on_press(Msg::ConfirmSmartAlbum)
-                            .style(ghost_btn_style),
-                    );
-            } else {
-                action_row = action_row.push(
-                    button(text("Save as Smart Album").size(TEXT_SM))
-                        .on_press(Msg::SaveAsSmartAlbum)
-                        .style(ghost_btn_style),
-                );
-            }
-            col = col.push(action_row);
-        }
-
-        container(col)
-            .width(Length::Fill)
-            .style(|_: &Theme| container::Style {
-                background: Some(Background::Color(BG_CRITERIA)),
-                border: Border {
-                    color: BORDER,
-                    width: 1.0,
-                    radius: 4.0.into(),
-                },
-                ..Default::default()
-            })
-            .into()
-    }
 
     pub(super) fn view_detail(&self) -> Element<'_, Msg> {
         use super::styles::BG_SIDEBAR;

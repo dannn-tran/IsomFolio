@@ -45,7 +45,12 @@ impl App {
             }
 
             Msg::ToggleFilterPanel => {
-                self.filters.show = !self.filters.show;
+                use crate::app::SidebarSection;
+                if self.collapsed_sections.contains(&SidebarSection::Filters) {
+                    self.collapsed_sections.remove(&SidebarSection::Filters);
+                } else {
+                    self.collapsed_sections.insert(SidebarSection::Filters);
+                }
                 Task::none()
             }
 

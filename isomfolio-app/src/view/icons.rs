@@ -14,6 +14,7 @@ pub const ICON_SIZE: f32 = 15.0;
 #[derive(Debug, Clone, Copy)]
 pub enum Icon {
     AllPhotos,
+    Filters,
     Folders,
     Albums,
     People,
@@ -24,6 +25,7 @@ pub enum Icon {
 fn bytes(icon: Icon) -> &'static [u8] {
     match icon {
         Icon::AllPhotos => include_bytes!("../../assets/icons/images.svg"),
+        Icon::Filters => include_bytes!("../../assets/icons/sliders-horizontal.svg"),
         Icon::Folders => include_bytes!("../../assets/icons/folder.svg"),
         Icon::Albums => include_bytes!("../../assets/icons/book-image.svg"),
         Icon::People => include_bytes!("../../assets/icons/users.svg"),
