@@ -72,9 +72,9 @@ Every significant action must have at least one discoverable path beyond right-c
 | Rename Person | Person card | — | — | — |
 | Open Settings | — | — | `Cmd+,` | Gear icon (menu bar) |
 | Toggle Info Panel | — | View → Toggle Info Panel | — | — |
-| Toggle Criteria Panel | — | — | `F` | Toolbar "Filters" button |
+| Toggle Filters | — | — | `F` | Sidebar "Filters" section header |
 | Toggle Help | — | — | `?` | `?` icon (menu bar) |
-| Hide Rejects | — | View → Hide Rejects | `\` | Toolbar chip |
+| Hide Rejects | — | View → Hide Rejects | `\` | — |
 
 **Noted gaps:** Restore from Deleted, Delete Permanently, Set Target Album, Edit Smart Album Criteria, and Rename Person are context-menu-only. All must appear in the `?` help panel under their respective sections as compensation. Remove from Library is context-menu-only for folders — it must be in the Catalog menu when a folder is selected. Add "Remove from Library…" to the Catalog menu spec.
 
@@ -89,7 +89,7 @@ Defined in `src/view/styles.rs`. Never hardcode raw `Color` literals for semanti
 | `BG_SIDEBAR` | Sidebar, detail panel background |
 | `BG_GRID` | Main content area, welcome screen background |
 | `BG_STATUSBAR` | Status bar strip |
-| `BG_CRITERIA` | Criteria/filter panel background |
+| `BG_CRITERIA` | List-layout column-header strip background |
 | `BG_MODAL` | Modal card background |
 | `BG_TILE_LOADING` | Tile placeholder background (thumbnail not yet loaded) |
 | `FG` | Primary text, icons |
@@ -162,7 +162,7 @@ Defined in `src/view/styles.rs`. Use the right variant for the action's weight.
 
 | Style function | When to use |
 |---|---|
-| `icon_btn_style` | Icon-only buttons in section headers and toolbars (+ ⚡ etc.). No background — text colour brightens on hover. No box, no padding box. |
+| `icon_btn_style` | Icon-only buttons in section headers and toolbars (`+`, chevrons, etc.). No background — text colour brightens on hover. No box, no padding box. |
 | `ghost_btn_style` | Secondary text actions, toggles, chip/filter in off state |
 | `active_chip_style` | Primary action (enabled), toggled-on state |
 | `danger_btn_style` | Destructive confirm (delete, remove) |
@@ -217,11 +217,11 @@ Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM
 
 The sidebar has exactly **two** row kinds; the split is *"does this hold a child list or not?"* Each class is internally uniform — section identity comes from the label, never from per-row styling.
 
-**Class A — section header (holds a collapsible list):** **Folders, Albums, Imports**. Built by the `section_header` helper. Anatomy: **leading section icon** (Lucide SVG, `FG_DIM`, see *Iconography*) · label (`TEXT_MD`/`FG_DIM`) · flexible spacer · right-aligned action glyphs (`+`, `⚡`) · optional inline status ("Syncing…") · **trailing collapse chevron** (`▾` expanded / `▸` collapsed, `icon_btn_style`). The collapse chevron sits at the **trailing (right) edge** — the disclosure convention — *not* the leading edge: a left chevron pushes the section icon out of the shared icon column and reads as stray chrome. Headers carry the **same horizontal padding** (`[0, SPACE_1]`) and **icon→label spacing** (`SPACE_1_5`) as Class-B nav rows, so every section icon and nav-row icon lines up in **one vertical column**. Clicking the chevron hides/shows that section's rows and nothing else — it is a *separate* control and never changes selection or navigates. The label, section icon, and spacer area of a Class A header are **non-interactive**: only the chevron and the action glyphs (`+`, `⚡`) respond to click. Collapse state is per-section, in-memory (not persisted across restart). Action buttons stay to the left of the chevron regardless of collapse.
+**Class A — section header (holds a collapsible list):** **Filters, Folders, Albums, Imports**. Built by the `section_header` helper. Anatomy: **leading section icon** (Lucide SVG, `FG_DIM`, see *Iconography*) · label (`TEXT_MD`/`FG_DIM`) · flexible spacer · right-aligned action glyphs (`+`, only where the section has an add action) · optional inline status ("Syncing…") · **trailing collapse chevron** (`▾` expanded / `▸` collapsed, `icon_btn_style`). The collapse chevron sits at the **trailing (right) edge** — the disclosure convention — *not* the leading edge: a left chevron pushes the section icon out of the shared icon column and reads as stray chrome. Headers carry the **same horizontal padding** (`[0, SPACE_1]`) and **icon→label spacing** (`SPACE_1_5`) as Class-B nav rows, so every section icon and nav-row icon lines up in **one vertical column**. Clicking the chevron hides/shows that section's body and nothing else — it is a *separate* control and never changes selection or navigates. The label, section icon, and spacer area of a Class A header are **non-interactive**: only the chevron and the action glyphs respond to click. Collapse state is per-section, in-memory (not persisted across restart). Action buttons stay to the left of the chevron regardless of collapse. **Filters** is a Class-A header whose body is not a row list but the filter controls (→ *Filters (sidebar section)*); a `●` after its label marks active filters.
 
 **Class B — nav row (a single destination, no child list):** **All Photos**, **People**, **Deleted**, and each **import batch** under the Imports header. Built by the `nav_row` helper. Anatomy: **leading icon** (Lucide SVG, `FG_DIM` at rest / `Color::WHITE` when selected) · label (`TEXT_BASE`/`FG`) · right-aligned count (`TEXT_SM`/`FG_MUTED`, omitted when 0) · full-row click; **accent background fill when selected** (the same fill folders/albums use — selection is never colour-only, per *Density floor*). No chevron, no inline action buttons (per *Entity row anatomy*: nav rows carry no embedded actions — e.g. re-clustering lives in the Photo menu, not on the People row). Height `ALBUM_ITEM_HEIGHT`. Class-B rows are not collapsible — there is no list to hide. Import batches are nav rows *without* an icon (`icon: None` reserves the icon column so labels still align) — keeping leaf rows quiet, like folder-tree leaves.
 
-**Ordering & grouping.** Top→bottom: catalog-name title · **All Photos** · Folders · Albums · People · `──` · Imports · Deleted. The first block is user/library content; the second is **system collections** (app-generated). Content sections are separated by **spacing alone** (the iconned header already marks a new group). Exactly **one** `sidebar_divider()` exists — fencing the system block from the content above — because a rule between *every* section is decorative chrome (*Quiet by default*); the single divider carries meaning (content vs system boundary). **All Photos** is the catalog-level home (default `SidebarItem::AllFiles`, always-present way back to the whole catalog). **Deleted** shows only when something is soft-deleted; **People** only when a face cluster or inference engine is present; **Imports** only when batches exist.
+**Ordering & grouping.** Top→bottom: catalog-name title · **search box** · `──` · **Filters** · **All Photos** · Folders · Albums · People · `──` · Imports · Deleted. The search box is pinned above the scrollable region (always reachable, never scrolls away), fenced from the sections below by a `sidebar_divider()`. Filters leads the content block — it is the cross-cutting query that shapes every collection below it, so it reads top-down as *"narrow, then pick where to look."* After Filters the first block is user/library content; the final block is **system collections** (app-generated), fenced by a second `sidebar_divider()`. Content sections are otherwise separated by **spacing alone** (the iconned header already marks a new group); the two dividers carry meaning (search vs sections; content vs system) rather than decorating every boundary (*Quiet by default*). **All Photos** is the catalog-level home (default `SidebarItem::AllFiles`, always-present way back to the whole catalog). **Deleted** shows only when something is soft-deleted; **People** only when a face cluster or inference engine is present; **Imports** only when batches exist.
 
 ### Folder tree
 
@@ -446,14 +446,14 @@ Sidebar width is runtime state (user-resizable). `SIDEBAR_WIDTH` is the default 
 
 ### Content layout — Grid vs List
 
-The Browse content area renders files in one of two layouts, toggled by a pair of icon buttons (`▦` Grid / `≡` List) at the right of the toolbar, before the Sort control. **List is a sub-mode of Browse, not a separate `ViewMode`** — the cull strip, filter panel, search, sort, selection model, detail panel, drag-to-album, and context menus all stay live and identical in both. State lives in `App::grid_layout` (`GridLayout::{Grid, List}`), in-memory, default Grid.
+The Browse content area renders files in one of two layouts, toggled by a pair of icon buttons (`▦` Grid / `≡` List) at the right of the toolbar, before the Sort control. **List is a sub-mode of Browse, not a separate `ViewMode`** — the sidebar Filters section, search, sort, selection model, detail panel, drag-to-album, and context menus all stay live and identical in both. State lives in `App::grid_layout` (`GridLayout::{Grid, List}`), in-memory, default Grid.
 
 - **Grid** (default) — the thumbnail grid (`view_tile`), `cols` per row computed from tile size and width.
 - **List** — one file per line (`view_list_row`), like Capture One's Browser list / Finder list view. Columns, left→right: small thumbnail · **Name** · flag glyph · rating stars · colour dot · Date · Size · Type, then trailing slack (a `Fill` spacer). Row height `LIST_ROW_HEIGHT` (32 px). The hovered row gets a faint fill (derived from the tracked cursor via `tile_index_at`, since the global mouse model has no per-widget hover); a filename clipped by its column width gets a hover tooltip with the full name (same affordance as sidebar labels).
   - A clickable **column-header strip** (`view_list_header`, height `LIST_HEADER_HEIGHT`) sits above the rows. The four real `SortField`s — Name/Date/Size/Type — sort on click; clicking the **active** column toggles direction (`▲`/`▼` shown on it). Flag/Rating/Colour columns are display-only (no matching sort field). This is the same sort state as the toolbar Sort control — one source of truth.
   - **Resizable columns.** Name/Stars/Date/Size/Type are user-resizable; their widths live in `App::list_col` (`ListColWidths`, in-memory, clamped `LIST_COL_MIN..LIST_COL_MAX`). Each carries a right-edge drag handle (thin `BORDER` separator, horizontal-resize cursor). Resize follows the **sidebar-resize pattern**: handle press → `ListColResizeStart` records the start cursor x + width; `MouseMoved` sets the width to `start_w + (cursor.x − start_x)`; `MouseReleased` ends. Trailing slack absorbs the remainder, so a column's right edge tracks the cursor. Thumbnail/flag/colour are fixed glyph columns. A press in the header strip is excluded from grid selection by `in_list_header_band` (so resizing/sorting never clears the photo selection).
 
-**Geometry invariant:** both layouts share the same virtualised scroller and the same hit-test (`tile_index_at`) — clicks, drag-select, right-click, and double-click-to-loupe are *not* re-implemented per layout. The layout only changes three geometry inputs: `cols()` (1 in List), `row_step()` (`LIST_ROW_HEIGHT` in List), and the `LIST_HEADER_HEIGHT` offset added to `tile_index_at` when List is active (the header strip shifts rows down). Keep those three in lockstep with the view, exactly as the cull strip's fixed height is (→ `architecture.md`, Grid layout & hit-testing).
+**Geometry invariant:** both layouts share the same virtualised scroller and the same hit-test (`tile_index_at`) — clicks, drag-select, right-click, and double-click-to-loupe are *not* re-implemented per layout. With the cull strip and filter panel moved into the sidebar, the content area above the grid is now a **single fixed-height row** (`TOOLBAR_HEIGHT`), so `tile_index_at` subtracts exactly `TOOLBAR_HEIGHT` plus, in List, the `LIST_HEADER_HEIGHT` offset (the header strip shifts rows down). The layout only changes three geometry inputs: `cols()` (1 in List), `row_step()` (`LIST_ROW_HEIGHT` in List), and that `LIST_HEADER_HEIGHT` offset. Keep those in lockstep with the view (→ `architecture.md`, Grid layout & hit-testing).
 
 ### Welcome screen
 
@@ -467,29 +467,25 @@ container (fill, BG_GRID, padding [20, 24], horizontally centred)
 
 Recents takes available vertical space. Actions are always visible — they do not scroll out of view. No vertical centering of the whole column; content is top-anchored and the recents region absorbs resize.
 
-### Cull strip (always visible)
-
-A **single dense glyph row** (fixed height `CULL_STRIP_HEIGHT`, ≈ one row) sits directly under the toolbar, always visible so the three cull axes are one click away mid-cull without stealing grid rows. Deliberately *not* stacked, labelled-chip rows (cf. Lightroom's one-row filter bar / Photo Mechanic's icon strip) — glyphs, not words. Layout, left→right, separated by faint `│` dividers:
-
-- **Flags** — `✓ ○ ✕` (Pick / Unflagged / Reject), independent toggles forming an OR set: enabling any subset shows files matching *any* enabled flag; empty or all-three both mean *no filter*. Single source of truth for flag filtering — the toolbar "Hide Rejects" chip and `\` are a convenience that sets `{Pick, Unflagged}`.
-- **Rating** — a gold `★` marker, the comparator `≥ = ≤`, star counts `1–5`, and `0` = unrated. The comparator combines with a count to form the filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N". Clicking the active count (or `0`) clears back to Any.
-- **Colour** — five colour-dot toggles (Red/Yellow/Green/Blue/Purple); each dot keeps its swatch colour, clicking the active one clears. A second cull axis independent of stars; also set with keys `6`–`9` or the Loupe swatches, stored as XMP `xmp:Label`. Swatch colours from `styles::color_label_swatch`; shown as a dot on grid tiles and in Loupe.
-
-The strip is a **fixed-height single row** — this is a hard requirement, not just a style choice: a variable-height band above the grid would break tile hit-testing (→ `architecture.md`, Grid layout & hit-testing).
-
-**Filter model:** the cull strip and the criteria panel together form the complete filter — all active constraints are **ANDed**. The cull strip covers the three primary culling axes (flag, rating, colour) via always-visible controls; the criteria panel covers everything else (tags, date, type, location, etc.). There is one filter state in `App`; both surfaces read from and write to different fields of it. There is no separate "cull filter" vs "search filter" — they compose into a single query.
-
 ### Search box
 
-The toolbar search box runs a full-text query over **filename, folder, tags, and descriptive metadata** (title, caption, creator, subjects — folded into the FTS index). A single bareword does **prefix** matching (type-ahead). A query with spaces/quotes is a full **FTS5 expression**: implicit AND between terms, plus `OR` / `NOT`, `"exact phrases"`, and `col:term` column filters (`filename:`, `tags:`, `folder:`). Malformed expressions degrade to a prefix search rather than erroring. Combines with all structured filters.
+The **sidebar search box** (pinned at the top of the sidebar, above the scrollable sections) runs a full-text query over **filename, folder, tags, and descriptive metadata** (title, caption, creator, subjects — folded into the FTS index). A single bareword does **prefix** matching (type-ahead). A query with spaces/quotes is a full **FTS5 expression**: implicit AND between terms, plus `OR` / `NOT`, `"exact phrases"`, and `col:term` column filters (`filename:`, `tags:`, `folder:`). Malformed expressions degrade to a prefix search rather than erroring. Combines with all structured filters.
 
-**Discoverability:** the search input placeholder reads *"Search by name, tag, folder…"* A hover tooltip reads: *"Supports OR, NOT, \"phrase\", and col:term prefix filters (filename:, tags:, folder:)."* The FTS syntax is also listed in the `?` help panel under Search.
+**Discoverability:** the search input placeholder reads *"Search…"* A hover tooltip reads: *"Supports OR, NOT, \"phrase\", and col:term prefix filters (filename:, tags:, folder:)."* The FTS syntax is also listed in the `?` help panel under Search.
 
-### Criteria / filter panel
+### Filters (sidebar section)
 
-Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button. Holds the *advanced* (non-cull) criteria only: tags, date range + presets, file type, location, person, camera, added-within, and the Clear / Save-as-Smart-Album actions. Expands the grid area rather than overlaying it.
+All non-search query controls live in **one collapsible sidebar section** (`view_sidebar_filters`), led by a Class-A *Filters* header (`●` when any filter is active; toggled by `F` or clicking the header chevron). Folding everything into the sidebar — rather than a band above the grid — means the grid never reflows when filters open, hit-testing stays fixed (→ *Content layout*), and the whole query lives in one place. Controls stack vertically to fit the narrow column; glyph rows are dense (cf. Lightroom's filter bar / Photo Mechanic's icon strip — glyphs, not words). Top→bottom:
 
-**"New Smart Album from Filters…"** (Photo menu) and the **"Save as Smart Album"** button in the criteria panel invoke the same action — both open an inline name input and create a smart album from the current filter state. The menu entry is the off-row discoverable path; the panel button is the in-context shortcut.
+- **Flags** — `✓ ○ ✕` (Pick / Unflagged / Reject), independent toggles forming an OR set: enabling any subset shows files matching *any* enabled flag; empty or all-three both mean *no filter*. Single source of truth for flag filtering — the "Hide Rejects" affordance and `\` are a convenience that sets `{Pick, Unflagged}`.
+- **Rating** — a gold `★` marker, the comparator `≥ = ≤`, star counts `1–5`, and `0` = unrated. The comparator combines with a count to form the filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N". Clicking the active count (or `0`) clears back to Any.
+- **Colour** — five colour-dot toggles (Red/Yellow/Green/Blue/Purple); each dot keeps its swatch colour, clicking the active one clears. Independent of stars; also set with keys `6`–`9` or the Loupe swatches, stored as XMP `xmp:Label`. Swatch colours from `styles::color_label_swatch`; shown as a dot on grid tiles and in Loupe.
+- **Advanced criteria** — tags (with All/Any match toggle and include/exclude chips), date range + presets, file type, GPS-presence, person, added-within, and camera (person/camera rows appear only when such values exist).
+- **Actions** — shown only when filters are active: **Clear**, plus **Save as Smart Album** / **Update Smart Album** (with an inline name input and an "Unsaved" marker when a loaded smart album is dirty).
+
+**Filter model:** every active constraint — flags, rating, colour, search, and advanced criteria — is **ANDed** into a single query. There is one filter state in `App`; all controls read from and write to its fields. There is no separate "cull filter" vs "search filter."
+
+**Smart albums:** **"New Smart Album from Filters…"** (Photo menu) and the **"Save as Smart Album"** button invoke the same action — both expand the Filters section (`SaveAsSmartAlbum` and loading a smart album for edit both `remove` Filters from `collapsed_sections` so the inline name input / criteria are visible) and create or update a smart album from the current filter state. The menu entry is the off-row discoverable path; the section button is the in-context shortcut.
 
 ---
 
@@ -519,8 +515,8 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | Drag tile to album | Immediate drop target highlight; adds on release |
 | Rename (from context menu) | Inline input replaces row, pre-filled; Enter confirms, Escape cancels |
 | Album delete / folder remove | Context menu item → two-step inline confirm replaces row |
-| Smart album save | Name input appears inline in criteria panel, confirmed with Save |
-| Smart album "Edit Criteria" | Selects album, opens criteria panel |
+| Smart album save | Name input appears inline in the sidebar Filters section, confirmed with Save |
+| Smart album "Edit Criteria" | Selects album, expands the sidebar Filters section |
 | `.` key (grid) | Repeat last tag — applies most recent tag to current selection |
 | `B` key | Add selection to the **target album** (set one via an album's context menu → "Set as Target Album"; marked `◎` in the sidebar). Mirrors Lightroom's quick-collection add for fast keeper-gathering. |
 | `?` key | Toggle shortcut help panel |
@@ -530,7 +526,7 @@ Inline, below the cull strip, above grid; toggled by `F` / the "Filters" button.
 | Thumbnail size (grid toolbar) | `−` / `+` buttons step `tile_px` (mirrors `⌘−`/`⌘+`). Grid layout only — hidden in List (fixed row height). |
 | Click a List column header | Sort by that field (Name / Date / Size / Type); clicking the already-active column toggles direction. Shares the toolbar Sort state. Flag/Rating/Colour headers are display-only. |
 | Drag a List column's right edge | Resize that column (Name / Rating / Date / Size / Type). Width is clamped and held in memory for the session; does not clear the photo selection. |
-| Hide Rejects (grid toolbar) / `\` | Convenience toggle between the `{Pick, Unflagged}` flag selection and "show all" — there is no separate hide-rejects state; it's a shortcut into the cull strip's flag set (single source of truth). |
+| Hide Rejects (`\` / View menu) | Convenience toggle between the `{Pick, Unflagged}` flag selection and "show all" — there is no separate hide-rejects state; it's a shortcut into the Filters section's flag set (single source of truth). |
 | ⧉ Stack (grid toolbar) | Collapse bursts (shots detected within ~3 s) to one representative tile (the earliest). A burst tile carries a `⧉ N` badge (N = burst size); the badge also shows on burst members when not collapsed. Toggle off to cull within a burst. |
 
 ---
