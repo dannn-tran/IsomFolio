@@ -241,6 +241,9 @@ pub fn generate_preview(
 #[derive(Debug)]
 pub enum ThumbnailMsg {
     Enqueue { file_id: String, file_path: String, priority: i32, retry_count: u32 },
+    /// Pull these already-queued ids to the front (in the given order) so the
+    /// folder/view the user just opened generates ahead of any backlog.
+    Prioritize { file_ids: Vec<String> },
     Done { file_id: String, success: bool, msg: String },
     CancelAll,
     Shutdown,
@@ -257,6 +260,17 @@ impl ThumbnailPool {
             file_path: file_path.to_string(),
             priority,
             retry_count: 0,
+        });
+    }
+
+    /// Reorder the queue so the given ids (current view, in display order) come
+    /// first. Ids not currently queued (already done or in flight) are ignored.
+    pub fn prioritize(&self, file_ids: &[String]) {
+        if file_ids.is_empty() {
+            return;
+        }
+        let _ = self.sender.send(ThumbnailMsg::Prioritize {
+            file_ids: file_ids.to_vec(),
         });
     }
 
@@ -300,6 +314,38 @@ impl PoolState {
         self.queued.remove(&file_id);
         Some((file_id, file_path, retry))
     }
+
+    /// Move the given queued ids to the front, preserving their order. Each call
+    /// assigns a fresh priority band strictly below the current queue minimum, so
+    /// the most recently opened view always sorts ahead of older backlog — and
+    /// the band is recomputed from the live minimum each time, so priorities
+    /// never drift unbounded. In-flight ids (already processing) are left alone.
+    fn prioritize(&mut self, ids: &[String]) {
+        use std::collections::HashMap;
+        let order: HashMap<&String, usize> =
+            ids.iter().enumerate().map(|(i, id)| (id, i)).collect();
+        let mut pulled: Vec<(String, String, i32, u32)> = Vec::new();
+        self.queue.retain(|item| {
+            if order.contains_key(&item.0) {
+                pulled.push(item.clone());
+                false
+            } else {
+                true
+            }
+        });
+        if pulled.is_empty() {
+            return;
+        }
+        pulled.sort_by_key(|item| order.get(&item.0).copied().unwrap_or(usize::MAX));
+        let cur_min = self.queue.iter().map(|(_, _, p, _)| *p).min().unwrap_or(0);
+        let base = cur_min.saturating_sub(pulled.len() as i32);
+        for (k, (id, path, _, retry)) in pulled.into_iter().enumerate() {
+            self.queue.push_back((id, path, base + k as i32, retry));
+        }
+        // Restore the ascending-priority invariant the partition_point inserts in
+        // `enqueue` rely on; the promoted band (all < cur_min) sorts to the front.
+        self.queue.make_contiguous().sort_by_key(|(_, _, p, _)| *p);
+    }
 }
 
 fn sweep_tmp_files(catalog_dir: &str) {
@@ -342,6 +388,10 @@ pub fn create_worker_pool(
                 ThumbnailMsg::Enqueue { file_id, file_path, priority, retry_count } => {
                     let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
                     s.enqueue(file_id, file_path, priority, retry_count);
+                }
+                ThumbnailMsg::Prioritize { file_ids } => {
+                    let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
+                    s.prioritize(&file_ids);
                 }
                 ThumbnailMsg::Done { file_id, success, msg } => {
                     {
@@ -549,6 +599,63 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let result = generate_thumbnail(dir.path().to_str().unwrap(), "fid", "/nonexistent/x.jpg");
         assert!(result.is_err());
+    }
+
+    mod prioritize_queue {
+        use super::*;
+
+        fn enq(s: &mut PoolState, ids: &[&str]) {
+            for (i, id) in ids.iter().enumerate() {
+                s.enqueue((*id).to_string(), format!("/{id}.jpg"), i as i32, 0);
+            }
+        }
+
+        fn drain(s: &mut PoolState) -> Vec<String> {
+            let mut out = Vec::new();
+            while let Some((id, _, _)) = s.dequeue() {
+                out.push(id);
+            }
+            out
+        }
+
+        fn ids(v: &[&str]) -> Vec<String> {
+            v.iter().map(|s| s.to_string()).collect()
+        }
+
+        #[test]
+        fn promotes_subset_to_front_in_order() {
+            let mut s = PoolState::new();
+            enq(&mut s, &["a", "b", "c", "d"]);
+            s.prioritize(&ids(&["c", "d"]));
+            assert_eq!(drain(&mut s), ids(&["c", "d", "a", "b"]));
+        }
+
+        #[test]
+        fn newest_view_sorts_ahead_of_earlier_promotion() {
+            let mut s = PoolState::new();
+            enq(&mut s, &["a", "b", "c", "d"]);
+            s.prioritize(&ids(&["a", "b"])); // open folder 1
+            s.prioritize(&ids(&["c", "d"])); // then folder 2 — should win
+            assert_eq!(drain(&mut s), ids(&["c", "d", "a", "b"]));
+        }
+
+        #[test]
+        fn unknown_ids_are_ignored() {
+            let mut s = PoolState::new();
+            enq(&mut s, &["a", "b"]);
+            s.prioritize(&ids(&["zzz", "b"]));
+            assert_eq!(drain(&mut s), ids(&["b", "a"]));
+        }
+
+        #[test]
+        fn later_enqueue_stays_behind_promoted_band() {
+            let mut s = PoolState::new();
+            enq(&mut s, &["a", "b"]);
+            s.prioritize(&ids(&["b"])); // b jumps ahead with a negative band
+            s.enqueue("e".into(), "/e.jpg".into(), 0, 0); // new normal-priority job
+            // b (promoted) first, then a and e by ascending priority.
+            assert_eq!(drain(&mut s), ids(&["b", "a", "e"]));
+        }
     }
 
     mod preview_cap {

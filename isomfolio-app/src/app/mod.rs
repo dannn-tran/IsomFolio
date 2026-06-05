@@ -856,6 +856,11 @@ impl App {
                 newly_enqueued += 1;
             }
         }
+        // Pull the just-loaded view to the front of the queue (in display order),
+        // even for files enqueued earlier under a different view — switching to a
+        // folder should generate its thumbnails ahead of any remaining backlog.
+        let view_ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
+        pool.prioritize(&view_ids);
         if newly_enqueued > 0 {
             self.thumb_ctx.done_gen += 1;
             if self.thumb_ctx.pending == 0 {
