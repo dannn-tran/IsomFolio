@@ -68,6 +68,13 @@ impl Catalog {
     /// immediately — before its scan has indexed any files.
     pub fn folder_tree(&self) -> Result<Vec<crate::folder_tree::FolderNode>, AppError> {
         let mut folders = db::get_folder_counts(&self.conn)?;
+        // Discovered subfolders (count 0) so the tree shows the directory
+        // structure before any image in them is indexed. build_tree merges by
+        // path, so a folder that later gains indexed files just accumulates its
+        // real count onto the same node — no duplication.
+        for (path, display) in db::list_folders(&self.conn)? {
+            folders.push((path, display, 0));
+        }
         let mut root_keys = Vec::new();
         for root in db::list_library_roots(&self.conn)? {
             // Empty roots (no files indexed yet) aren't in get_folder_counts, so
@@ -94,7 +101,9 @@ impl Catalog {
     }
 
     pub fn remove_library_root(&self, path: &str) -> Result<(), AppError> {
-        db::remove_library_root(&self.conn, &crate::path_utils::normalize_path(path))
+        let key = crate::path_utils::normalize_path(path);
+        db::delete_folders_under(&self.conn, &key)?;
+        db::remove_library_root(&self.conn, &key)
     }
 
     pub fn record_import_batch(
@@ -385,6 +394,7 @@ impl Catalog {
         &self,
         root_path: &str,
         on_progress: &dyn Fn(SyncProgress),
+        on_dirs: &dyn Fn(),
         import_xmp_tags: bool,
         import_apple_tags: bool,
         recursive: bool,
@@ -394,6 +404,7 @@ impl Catalog {
             root_path,
             &|_| {},
             on_progress,
+            on_dirs,
             import_xmp_tags,
             import_apple_tags,
             recursive,
@@ -436,5 +447,57 @@ mod tests {
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].path, root);
         assert_eq!(tree[0].total_count, 0);
+    }
+
+    fn all_paths(nodes: &[crate::folder_tree::FolderNode], out: &mut Vec<String>) {
+        for n in nodes {
+            for seg in &n.chain {
+                out.push(seg.path.clone());
+            }
+            all_paths(&n.children, out);
+        }
+    }
+
+    #[test]
+    fn sync_surfaces_empty_subfolders_before_indexing() {
+        use crate::path_utils::normalize_path;
+        let (cat, _f) = open_temp();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // One subfolder with a photo, one empty — only the folders table can
+        // surface the empty one (get_folder_counts is files-derived).
+        std::fs::create_dir(root.join("withpix")).unwrap();
+        std::fs::write(root.join("withpix").join("a.jpg"), b"x").unwrap();
+        std::fs::create_dir(root.join("empty")).unwrap();
+
+        let root_str = root.to_str().unwrap();
+        cat.upsert_library_root(root_str, true).unwrap();
+        cat.sync_folder(root_str, &|_| {}, &|| {}, false, false, true)
+            .unwrap();
+
+        let tree = cat.folder_tree().unwrap();
+        let mut paths = Vec::new();
+        all_paths(&tree, &mut paths);
+        let empty_key = normalize_path(root.join("empty").to_str().unwrap());
+        assert!(
+            paths.contains(&empty_key),
+            "empty subfolder missing from tree: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn remove_root_drops_its_discovered_folders() {
+        let (cat, _f) = open_temp();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        let root_str = root.to_str().unwrap();
+        cat.upsert_library_root(root_str, true).unwrap();
+        cat.sync_folder(root_str, &|_| {}, &|| {}, false, false, true)
+            .unwrap();
+        assert!(!cat.folder_tree().unwrap().is_empty());
+
+        cat.remove_library_root(root_str).unwrap();
+        assert!(cat.folder_tree().unwrap().is_empty());
     }
 }

@@ -250,6 +250,11 @@ impl App {
                     );
                     return Task::none();
                 }
+                if let FileEvent::FoldersDiscovered = event {
+                    // Subfolders are persisted; show them now (expand state was set
+                    // at SyncStart) without waiting for image indexing to finish.
+                    return self.load_sidebar_task();
+                }
                 self.pending_file_events.push(event);
                 self.watcher_debounce_id += 1;
                 let id = self.watcher_debounce_id;
@@ -299,7 +304,7 @@ impl App {
                                 self.dirty_folders.insert(folder);
                             }
                         }
-                        FileEvent::SyncProgress(_) => {}
+                        FileEvent::SyncProgress(_) | FileEvent::FoldersDiscovered => {}
                     }
                 }
 
@@ -359,9 +364,19 @@ impl App {
             async move {
                 tokio::task::spawn_blocking(move || {
                     let cat = conn.lock_unwrap();
-                    cat.sync_folder(&path, &|prog| {
-                        let _ = wtx.try_send(FileEvent::SyncProgress(prog));
-                    }, import_xmp, import_apple, recursive)
+                    let wtx_dirs = wtx.clone();
+                    cat.sync_folder(
+                        &path,
+                        &|prog| {
+                            let _ = wtx.try_send(FileEvent::SyncProgress(prog));
+                        },
+                        &|| {
+                            let _ = wtx_dirs.try_send(FileEvent::FoldersDiscovered);
+                        },
+                        import_xmp,
+                        import_apple,
+                        recursive,
+                    )
                     .map(|r| (r.total_count, r.new_file_ids))
                     .unwrap_or((0, Vec::new()))
                 })

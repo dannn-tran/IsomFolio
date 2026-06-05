@@ -7,7 +7,7 @@ use crate::file_index::{asset_file_from_path, is_supported_extension};
 use crate::indexing::types::{SyncProgress, SyncResult};
 use crate::metadata;
 use crate::models::{AppError, AssetFile};
-use crate::path_utils::{normalize_path, CATALOG_EXT};
+use crate::path_utils::{display_path, normalize_path, CATALOG_EXT};
 use crate::storage::db;
 
 #[derive(Clone)]
@@ -58,6 +58,41 @@ fn discover_paths(root_path: &str, recursive: bool) -> Vec<String> {
     results
 }
 
+/// Enumerate directories under `root_path` (including the root), skipping
+/// catalog bundles. Cheap relative to indexing — no file stat or decode — so it
+/// can populate the folder tree before image indexing runs.
+fn discover_dirs(root_path: &str, recursive: bool) -> Vec<String> {
+    let mut results = vec![root_path.to_string()];
+    if !recursive {
+        return results;
+    }
+    let mut dirs = vec![root_path.to_string()];
+    while let Some(dir) = dirs.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.filter_map(|e| e.ok()) {
+            if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let path = match entry.path().to_str() {
+                Some(p) => p.to_string(),
+                None => continue,
+            };
+            let is_catalog = Path::new(&path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map_or(false, |n| n.ends_with(&format!(".{CATALOG_EXT}")));
+            if !is_catalog {
+                results.push(path.clone());
+                dirs.push(path);
+            }
+        }
+    }
+    results
+}
+
 /// Sync a folder. For NEW files only, XMP/Apple keywords are imported as tags
 /// (gated by `import_xmp_tags` / `import_apple_tags`). Existing files are not
 /// re-imported — that's an explicit user gesture via `import_external_tags`.
@@ -66,6 +101,7 @@ pub fn sync_folder(
     root_path: &str,
     on_batch: &dyn Fn(&[ScannedFile]),
     on_progress: &dyn Fn(SyncProgress),
+    on_dirs: &dyn Fn(),
     import_xmp_tags: bool,
     import_apple_tags: bool,
     recursive: bool,
@@ -75,6 +111,19 @@ pub fn sync_folder(
         .and_then(|n| n.to_str())
         .unwrap_or(root_path)
         .to_string();
+
+    // Persist the directory structure up front (cheap dir-only walk) so the tree
+    // shows subfolders immediately, before any image is indexed. `on_dirs` lets
+    // the caller refresh the sidebar at this point rather than waiting for the
+    // first indexed batch.
+    let dir_rows: Vec<(String, String)> = discover_dirs(root_path, recursive)
+        .into_iter()
+        .map(|d| (normalize_path(&d), display_path(&d)))
+        .collect();
+    if !dir_rows.is_empty() {
+        db::upsert_folders(conn, &dir_rows)?;
+        on_dirs();
+    }
 
     // Match the stored (normalised) `folder` column, not the raw picker path —
     // otherwise a mixed-case root finds nothing on case-folded filesystems and
@@ -239,21 +288,21 @@ mod tests {
             let np = |_: SyncProgress| {};
             let key = normalize_path(root);
 
-            sync_folder(&conn, root, &nb, &np, false, false, true).unwrap();
+            sync_folder(&conn, root, &nb, &np, &|| {}, false, false, true).unwrap();
             let idx = db::get_indexed_paths_in_folder(&conn, &key).unwrap();
             assert_eq!(idx.len(), 2);
             assert!(idx.values().all(|f| !f.is_orphaned));
 
             // Delete one on disk and re-sync — it becomes orphaned, the other stays.
             fs::remove_file(photos.path().join("a.jpg")).unwrap();
-            sync_folder(&conn, root, &nb, &np, false, false, true).unwrap();
+            sync_folder(&conn, root, &nb, &np, &|| {}, false, false, true).unwrap();
             let idx = db::get_indexed_paths_in_folder(&conn, &key).unwrap();
             assert!(idx.values().find(|f| f.name == "a.jpg").unwrap().is_orphaned);
             assert!(!idx.values().find(|f| f.name == "b.jpg").unwrap().is_orphaned);
 
             // Bring it back — re-sync clears the orphan flag.
             fs::write(photos.path().join("a.jpg"), b"x").unwrap();
-            sync_folder(&conn, root, &nb, &np, false, false, true).unwrap();
+            sync_folder(&conn, root, &nb, &np, &|| {}, false, false, true).unwrap();
             let idx = db::get_indexed_paths_in_folder(&conn, &key).unwrap();
             assert!(idx.values().all(|f| !f.is_orphaned));
         }

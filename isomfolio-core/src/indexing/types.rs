@@ -7,6 +7,9 @@ pub enum FileEvent {
     Renamed { old_path: String, new_path: String },
     Modified(String),
     SyncProgress(SyncProgress),
+    /// A sync has persisted its directory structure (before image indexing) —
+    /// the sidebar can reload now so subfolders appear immediately.
+    FoldersDiscovered,
 }
 
 #[derive(Debug, Clone)]
