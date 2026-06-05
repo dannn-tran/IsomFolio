@@ -134,6 +134,8 @@ Two distinct icon mechanisms, by origin:
 
 An icon resource is **not** a "decorative font" — the *Typography* rule ("default system font only") governs text, not iconography. Adding a new icon: drop the Lucide SVG in `assets/icons/`, add an `Icon` variant. Use sparingly — icons aid recognition on a *few* high-level destinations; do not sprinkle them on every row (e.g. folder-tree leaves and import batches stay text-only).
 
+**Disclosure/collapse glyphs — one family.** All expand/collapse affordances use the **filled-triangle family**, never thin chevrons (`∧ ∨ ‹ ›`): horizontal disclosure (sidebar sections, folder tree) is `▾` expanded / `▸` collapsed; vertical collapse (the task panel) is `▾` collapse / `▴` expand. They point toward the motion. Keep them consistent — mixing triangle and chevron glyphs for the same gesture reads as two different controls.
+
 ---
 
 ## Spacing
@@ -482,12 +484,14 @@ The **sidebar search box** (pinned at the top of the sidebar, above the scrollab
 
 ### Filters (sidebar section)
 
-All non-search query controls live in **one collapsible sidebar section** (`view_sidebar_filters`), led by a Class-A *Filters* header (`●` when any filter is active; toggled by `F` or clicking the header chevron). Folding everything into the sidebar — rather than a band above the grid — means the grid never reflows when filters open, hit-testing stays fixed (→ *Content layout*), and the whole query lives in one place. Controls stack vertically to fit the narrow column; glyph rows are dense (cf. Lightroom's filter bar / Photo Mechanic's icon strip — glyphs, not words). Top→bottom:
+All non-search query controls live in **one collapsible sidebar section** (`view_sidebar_filters`), led by a Class-A *Filters* header (`●` when any filter is active; toggled by `F` or clicking the header chevron). Folding everything into the sidebar — rather than a band above the grid — means the grid never reflows when filters open, hit-testing stays fixed (→ *Content layout*), and the whole query lives in one place.
+
+**Layout — regular two-column grid.** Every row is `filter_field(label, controls)`: a fixed-width label column (`FILTER_LABEL_W`, `TEXT_XS`/`FG_DIM`) + a controls block that fills the rest, so labels share one column and controls share one left edge instead of each row finding its own shape. Controls are **one uniform chip family** — `txt_chip` (text toggles/segments) and `glyph_chip` (a glyph with a hover tooltip, for flags/rating/colour), both at one size and padding. Overflowing chip groups `.wrap()`; sub-rows that continue a field (the tag chips+input under *Tags*, the date presets under *To*) use an empty-label `filter_field("", …)` so they stay aligned to the controls column. Do **not** hand-build filter rows with ad-hoc labels/padding — route through `filter_field` + the chip helpers. Top→bottom:
 
 - **Flags** — `✓ ○ ✕` (Pick / Unflagged / Reject), independent toggles forming an OR set: enabling any subset shows files matching *any* enabled flag; empty or all-three both mean *no filter*. Single source of truth for flag filtering — the "Hide Rejects" affordance and `\` are a convenience that sets `{Pick, Unflagged}`.
-- **Rating** — a gold `★` marker, the comparator `≥ = ≤`, star counts `1–5`, and `0` = unrated. The comparator combines with a count to form the filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N". Clicking the active count (or `0`) clears back to Any.
+- **Rating** — the comparator `≥ = ≤` then star counts `1–5` (gold), then `0` = unrated. The comparator combines with a count to form the filter, so "unrated only", "exactly 2", "≤ 1" are all expressible — not just "≥ N". Clicking the active count (or `0`) clears back to Any.
 - **Colour** — five colour-dot toggles (Red/Yellow/Green/Blue/Purple); each dot keeps its swatch colour, clicking the active one clears. Independent of stars; also set with keys `6`–`9` or the Loupe swatches, stored as XMP `xmp:Label`. Swatch colours from `styles::color_label_swatch`; shown as a dot on grid tiles and in Loupe.
-- **Advanced criteria** — tags (with All/Any match toggle and include/exclude chips), date range + presets, file type, GPS-presence, person, added-within, and camera (person/camera rows appear only when such values exist).
+- **Advanced criteria** — tags (with All/Any match toggle and include/exclude chips), date range (`From`/`To` rows + preset chips), file type, GPS (`Any`/`Yes`/`No`), person, added-within, and camera (person/camera rows appear only when such values exist).
 - **Actions** — shown only when filters are active: **Clear**, plus **Save as Smart Album** / **Update Smart Album** (with an inline name input and an "Unsaved" marker when a loaded smart album is dirty).
 
 **Filter model:** every active constraint — flags, rating, colour, search, and advanced criteria — is **ANDed** into a single query. There is one filter state in `App`; all controls read from and write to its fields. There is no separate "cull filter" vs "search filter."

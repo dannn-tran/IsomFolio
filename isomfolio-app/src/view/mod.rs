@@ -21,7 +21,7 @@ use styles::{
     BG_MODAL, BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
     OVERLAY_HEAVY, OVERLAY_LIGHT, OVERLAY_MEDIUM, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
     SPACE_2_5, SPACE_3, SPACE_4, SPACE_6, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
-    TEXT_STAR, TEXT_TITLE,
+    TEXT_STAR, TEXT_TITLE, TEXT_XS,
 };
 
 impl App {
@@ -377,10 +377,10 @@ impl App {
             let pill = container(
                 button(
                     row![
-                        text("◌").size(TEXT_SM).color(FG_DIM),
-                        text(label).size(TEXT_SM).color(FG_DIM),
+                        text("◌").size(TEXT_XS).color(FG_DIM),
+                        text(label).size(TEXT_XS).color(FG_DIM),
                         Space::new().width(Length::Fill),
-                        text("∨").size(TEXT_SM).color(FG_DIM),
+                        text("▴").size(TEXT_XS).color(FG_DIM),
                     ]
                     .spacing(SPACE_1)
                     .align_y(Alignment::Center),
@@ -395,8 +395,8 @@ impl App {
                 })
                 .width(Length::Fill),
             )
-            .width(200)
-            .padding([SPACE_1, SPACE_2])
+            .width(160)
+            .padding([SPACE_0_5, SPACE_1_5])
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_PANEL)),
                 border: Border { color: BORDER, width: 1.0, radius: 6.0.into() },
@@ -417,21 +417,21 @@ impl App {
         // Header
         col = col.push(
             row![
-                text("Tasks").size(TEXT_SM).color(FG_DIM),
+                text("Tasks").size(TEXT_XS).color(FG_DIM),
                 Space::new().width(Length::Fill),
-                styles::icon_btn("∧", Msg::ToggleTaskPanel),
+                styles::icon_btn("▾", Msg::ToggleTaskPanel),
             ]
             .align_y(Alignment::Center)
             .spacing(SPACE_1),
         );
 
         for task in tasks {
-            col = col.push(Space::new().height(SPACE_2));
+            col = col.push(Space::new().height(SPACE_1));
             col = col.push(task_row(task));
         }
 
-        let panel = container(col.padding([SPACE_1_5, SPACE_2]))
-            .width(260)
+        let panel = container(col.padding([SPACE_1, SPACE_1_5]))
+            .width(210)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_PANEL)),
                 border: Border { color: BORDER, width: 1.0, radius: 6.0.into() },
@@ -1430,7 +1430,7 @@ fn task_row(task: TaskView) -> Element<'static, Msg> {
     if task.done {
         let mut col = column![header].spacing(SPACE_0_5);
         if !task.detail.is_empty() {
-            col = col.push(text(task.detail).size(TEXT_SM).color(FG_MUTED));
+            col = col.push(text(task.detail).size(TEXT_XS).color(FG_MUTED));
         }
         return col.into();
     }
@@ -1443,7 +1443,7 @@ fn task_row(task: TaskView) -> Element<'static, Msg> {
 
     if task.failed {
         if !task.detail.is_empty() {
-            col = col.push(text(task.detail).size(TEXT_SM).color(ERR));
+            col = col.push(text(task.detail).size(TEXT_XS).color(ERR));
         }
         return col.into();
     }
@@ -1468,7 +1468,7 @@ fn task_row(task: TaskView) -> Element<'static, Msg> {
     col = col.push(bar);
 
     if !task.detail.is_empty() {
-        col = col.push(text(task.detail).size(TEXT_SM).color(FG_MUTED));
+        col = col.push(text(task.detail).size(TEXT_XS).color(FG_MUTED));
     }
 
     col.into()

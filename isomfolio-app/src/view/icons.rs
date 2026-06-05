@@ -7,9 +7,11 @@
 use iced::widget::svg;
 use iced::{Color, Element, Theme};
 
-/// Sidebar icon edge length (px). Sized to read as a peer of the label and of
-/// the 16 px glyphs in `icon_btn` controls, not as a button.
-pub const ICON_SIZE: f32 = 17.0;
+/// Sidebar icon edge length (px). These are quiet *illustrative* marks (the
+/// leading folder/album/people glyphs), not interactive buttons — they sit just
+/// under `TEXT_BASE` so they read as a peer of the label, never as a control.
+/// (Interactive icon *buttons* — chevrons, `+` — are sized by `ICON_BTN`.)
+pub const ICON_SIZE: f32 = 15.0;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Icon {
