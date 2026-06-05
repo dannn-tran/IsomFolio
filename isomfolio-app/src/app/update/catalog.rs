@@ -72,6 +72,7 @@ impl App {
                 self.file_ratings.clear();
                 self.thumbnails.clear();
                 self.folders.clear();
+                self.discovered_folders.clear();
                 self.albums.clear();
                 self.album_counts.clear();
                 self.grid_selected.clear();

@@ -207,6 +207,12 @@ pub struct App {
     /// applies them by syncing (transparency: see project_image_loading_design).
     pub dirty_folders: HashSet<String>,
 
+    /// Directories found by an in-progress scan (`path_key → path_display`) but
+    /// not yet indexed. Session-only — unioned into the folder tree so subfolders
+    /// show immediately on a recursive add, then become real once their files are
+    /// indexed. Not persisted; cleared on catalog switch.
+    pub discovered_folders: std::collections::HashMap<String, String>,
+
     pub watcher_tx: mpsc::SyncSender<FileEvent>,
     pub watcher_rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<FileEvent>>>>,
     pub watchers: Vec<(String, FileWatcher)>,
@@ -487,6 +493,7 @@ impl App {
             pending_restore: None,
             expand_under_path: None,
             dirty_folders: HashSet::new(),
+            discovered_folders: std::collections::HashMap::new(),
             add_folder_prompt: None,
             albums: Vec::new(),
             album_counts: HashMap::new(),
@@ -977,11 +984,19 @@ impl App {
         let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
+        // Directories found by an in-progress scan but not yet indexed — held in
+        // memory (session-only) so subfolders show the moment a recursive add is
+        // acknowledged. Unioned into the tree; never persisted.
+        let discovered: Vec<(String, String)> = self
+            .discovered_folders
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         Task::perform(
             async move {
                 let cat = catalog.lock_unwrap();
                 let raw_folders = cat.get_folder_counts().unwrap_or_default();
-                let folder_tree = cat.folder_tree().unwrap_or_default();
+                let folder_tree = cat.folder_tree(&discovered).unwrap_or_default();
                 let library_roots = cat.list_library_roots().unwrap_or_default();
                 let cameras = cat.distinct_camera_models().unwrap_or_default();
                 let albums = cat.get_all_albums().unwrap_or_default();

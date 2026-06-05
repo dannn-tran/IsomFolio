@@ -7,9 +7,10 @@ pub enum FileEvent {
     Renamed { old_path: String, new_path: String },
     Modified(String),
     SyncProgress(SyncProgress),
-    /// A sync has persisted its directory structure (before image indexing) —
-    /// the sidebar can reload now so subfolders appear immediately.
-    FoldersDiscovered,
+    /// A sync's directory-only walk found these `(path_key, path_display)`
+    /// folders (before image indexing). The app holds them in memory and shows
+    /// them in the tree immediately; they are not persisted.
+    FoldersDiscovered(Vec<(String, String)>),
 }
 
 #[derive(Debug, Clone)]

@@ -420,44 +420,6 @@ pub fn remove_library_root(conn: &Connection, path: &str) -> Result<(), AppError
     Ok(())
 }
 
-/// Persist discovered directories (case-folded key + display path) so the tree
-/// can show them before any image in them is indexed. Idempotent.
-pub fn upsert_folders(conn: &Connection, folders: &[(String, String)]) -> Result<(), AppError> {
-    let tx = conn.unchecked_transaction()?;
-    {
-        let mut stmt = conn.prepare(
-            "INSERT INTO folders (path, path_display) VALUES (?1, ?2) \
-             ON CONFLICT(path) DO UPDATE SET path_display = excluded.path_display",
-        )?;
-        for (path, display) in folders {
-            stmt.execute(params![path, display])?;
-        }
-    }
-    tx.commit()?;
-    Ok(())
-}
-
-/// All discovered folders as `(path, path_display)`.
-pub fn list_folders(conn: &Connection) -> Result<Vec<(String, String)>, AppError> {
-    let mut stmt = conn.prepare("SELECT path, path_display FROM folders")?;
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-}
-
-/// Drop a folder and everything beneath it (used when a library root is removed,
-/// so its subtree doesn't linger in the tree as empty ghost rows). `prefix` is
-/// the case-folded root path.
-pub fn delete_folders_under(conn: &Connection, prefix: &str) -> Result<(), AppError> {
-    let sep = std::path::MAIN_SEPARATOR;
-    conn.execute(
-        "DELETE FROM folders WHERE path = ?1 OR path LIKE ?2",
-        params![prefix, format!("{prefix}{sep}%")],
-    )?;
-    Ok(())
-}
-
 /// Record an import batch for the files a sync just added, stamping each with the
 /// new batch id. Returns the batch id, or None if `file_ids` is empty (nothing
 /// imported — no batch).

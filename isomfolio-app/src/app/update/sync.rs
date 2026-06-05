@@ -197,6 +197,8 @@ impl App {
                 let sep = std::path::MAIN_SEPARATOR;
                 let prefix = format!("{path}{sep}");
                 self.dirty_folders.retain(|d| d != &path && !d.starts_with(&prefix));
+                self.discovered_folders
+                    .retain(|d, _| d != &path && !d.starts_with(&prefix));
                 let catalog_dir = self.catalog_dir.clone();
                 Task::perform(
                     async move {
@@ -250,9 +252,13 @@ impl App {
                     );
                     return Task::none();
                 }
-                if let FileEvent::FoldersDiscovered = event {
-                    // Subfolders are persisted; show them now (expand state was set
-                    // at SyncStart) without waiting for image indexing to finish.
+                if let FileEvent::FoldersDiscovered(folders) = event {
+                    // Hold the discovered subfolders in memory and show them now
+                    // (expand state was set at SyncStart) — no wait for indexing,
+                    // no DB persistence. They solidify once their files index.
+                    for (key, display) in folders {
+                        self.discovered_folders.insert(key, display);
+                    }
                     return self.load_sidebar_task();
                 }
                 self.pending_file_events.push(event);
@@ -304,7 +310,7 @@ impl App {
                                 self.dirty_folders.insert(folder);
                             }
                         }
-                        FileEvent::SyncProgress(_) | FileEvent::FoldersDiscovered => {}
+                        FileEvent::SyncProgress(_) | FileEvent::FoldersDiscovered(_) => {}
                     }
                 }
 
@@ -370,8 +376,8 @@ impl App {
                         &|prog| {
                             let _ = wtx.try_send(FileEvent::SyncProgress(prog));
                         },
-                        &|| {
-                            let _ = wtx_dirs.try_send(FileEvent::FoldersDiscovered);
+                        &|dirs| {
+                            let _ = wtx_dirs.try_send(FileEvent::FoldersDiscovered(dirs));
                         },
                         import_xmp,
                         import_apple,

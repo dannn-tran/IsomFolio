@@ -172,17 +172,6 @@ CREATE TABLE IF NOT EXISTS library_roots (
 );
 ";
 
-/// Directory structure discovered at scan time, independent of whether any
-/// image in a folder has been indexed yet — so subfolders show in the tree the
-/// moment a recursive add is acknowledged, not after indexing completes. Keyed
-/// on the case-folded path; `path_display` keeps the real casing for the label.
-pub const CREATE_FOLDERS: &str = "
-CREATE TABLE IF NOT EXISTS folders (
-    path         TEXT PRIMARY KEY,
-    path_display TEXT NOT NULL DEFAULT ''
-);
-";
-
 pub const CREATE_IMPORT_BATCHES: &str = "
 CREATE TABLE IF NOT EXISTS import_batches (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -249,12 +238,6 @@ pub const MIGRATIONS: &[&str] = &[
         source_folder   TEXT,
         count           INTEGER NOT NULL
     )",
-    // Discovered directory structure (see CREATE_FOLDERS) — populated at scan
-    // start so subfolders appear in the tree before image indexing finishes.
-    "CREATE TABLE IF NOT EXISTS folders (
-        path         TEXT PRIMARY KEY,
-        path_display TEXT NOT NULL DEFAULT ''
-    )",
 ];
 
 pub const ALL_DDL: &[&str] = &[
@@ -277,5 +260,4 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_FACE_CENTROIDS,
     CREATE_LIBRARY_ROOTS,
     CREATE_IMPORT_BATCHES,
-    CREATE_FOLDERS,
 ];
