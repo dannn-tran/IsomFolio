@@ -17,7 +17,7 @@ use iced::{
 
 use crate::app::{App, Msg, SettingsTab, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
 use styles::{
-    active_chip_style, danger_btn_style, ghost_btn_style, icon_btn_style, ACCENT, BG_GRID,
+    active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_GRID,
     BG_MODAL, BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
     OVERLAY_HEAVY, OVERLAY_LIGHT, OVERLAY_MEDIUM, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
     SPACE_2_5, SPACE_3, SPACE_4, SPACE_6, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
@@ -419,9 +419,7 @@ impl App {
             row![
                 text("Tasks").size(TEXT_SM).color(FG_DIM),
                 Space::new().width(Length::Fill),
-                button(text("∧").size(TEXT_SM).color(FG_DIM))
-                    .on_press(Msg::ToggleTaskPanel)
-                    .style(styles::icon_btn_style),
+                styles::icon_btn("∧", Msg::ToggleTaskPanel),
             ]
             .align_y(Alignment::Center)
             .spacing(SPACE_1),
@@ -564,23 +562,7 @@ impl App {
 
         let top_bar = container(
             row![
-                button(text("✕").size(TEXT_LG).color(FG))
-                    .on_press(Msg::OpenLoupe)
-                    .style(|_: &Theme, _| button::Style {
-                        background: Some(Background::Color(Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: 0.1
-                        })),
-                        text_color: FG,
-                        border: Border {
-                            radius: 4.0.into(),
-                            ..Default::default()
-                        },
-                        shadow: iced::Shadow::default(),
-                        snap: false,
-                    }),
+                styles::icon_btn("✕", Msg::OpenLoupe),
                 Space::new().width(Length::Fill),
                 text(filename).size(TEXT_BASE).color(FG),
                 Space::new().width(Length::Fill),
@@ -600,11 +582,11 @@ impl App {
         let tip = |el, label: &'static str| styles::tip(el, label, styles::TipPos::Top);
         let zoom_cluster = row![
             tip(
-                button(text("−").size(TEXT_LG)).on_press(Msg::LoupeZoomBy(0.8)).style(icon_btn_style),
+                styles::icon_btn("−", Msg::LoupeZoomBy(0.8)),
                 "Zoom out",
             ),
             tip(
-                button(text("+").size(TEXT_LG)).on_press(Msg::LoupeZoomBy(1.25)).style(icon_btn_style),
+                styles::icon_btn("+", Msg::LoupeZoomBy(1.25)),
                 "Zoom in",
             ),
             tip(
@@ -617,14 +599,15 @@ impl App {
                 "Fit to window",
             ),
             tip(
-                button(text(if self.loupe.lock_zoom { "🔒" } else { "🔓" }).size(TEXT_MD)
-                    .color(if self.loupe.lock_zoom { ACCENT } else { FG_DIM }))
-                    .on_press(Msg::ToggleLoupeZoomLock).style(ghost_btn_style),
+                styles::icon_btn_color(
+                    if self.loupe.lock_zoom { "🔒" } else { "🔓" },
+                    Msg::ToggleLoupeZoomLock,
+                    if self.loupe.lock_zoom { ACCENT } else { FG_DIM },
+                ),
                 "Lock zoom across photos",
             ),
             tip(
-                button(text(if self.fullscreen { "⤢" } else { "⛶" }).size(TEXT_MD))
-                    .on_press(Msg::ToggleFullscreen).style(ghost_btn_style),
+                styles::icon_btn(if self.fullscreen { "⤢" } else { "⛶" }, Msg::ToggleFullscreen),
                 "Toggle fullscreen",
             ),
         ]
@@ -727,15 +710,17 @@ impl App {
                 let active = cur_label.as_deref() == Some(name);
                 let swatch = styles::color_label_swatch(name);
                 color_row = color_row.push(styles::tip(
-                    button(text("●").size(TEXT_LG).color(swatch))
-                        .on_press(Msg::SetColorLabel(Some(name.to_string())))
-                        .style(move |_: &Theme, _| button::Style {
+                    styles::icon_btn_styled(
+                        "●",
+                        Msg::SetColorLabel(Some(name.to_string())),
+                        move |_: &Theme, _| button::Style {
                             background: if active { Some(Background::Color(Color { a: 0.25, ..swatch })) } else { None },
                             text_color: swatch,
                             border: Border { radius: 4.0.into(), ..Default::default() },
                             shadow: iced::Shadow::default(),
                             snap: false,
-                        }),
+                        },
+                    ),
                     format!("Label {name}"),
                     styles::TipPos::Top,
                 ));
@@ -849,9 +834,7 @@ impl App {
             Space::new().width(Length::Fill),
             self.settings_tab_chip("General", SettingsTab::General),
             self.settings_tab_chip("Extensions", SettingsTab::Extensions),
-            button(text("✕").size(TEXT_MD).color(FG_DIM))
-                .on_press(Msg::CloseSettings)
-                .style(icon_btn_style),
+            styles::icon_btn("✕", Msg::CloseSettings),
         ]
         .align_y(Alignment::Center)
         .spacing(SPACE_1_5)
@@ -1281,9 +1264,7 @@ impl App {
             row![
                 text("Keyboard Shortcuts").size(TEXT_BASE).color(FG),
                 Space::new().width(Length::Fill),
-                button(text("✕").size(TEXT_MD).color(FG_DIM))
-                    .on_press(Msg::ToggleShortcutHelp)
-                    .style(ghost_btn_style),
+                styles::icon_btn("✕", Msg::ToggleShortcutHelp),
             ]
             .align_y(Alignment::Center)
             .spacing(SPACE_2),
@@ -1455,11 +1436,7 @@ fn task_row(task: TaskView) -> Element<'static, Msg> {
     }
 
     if let Some(id) = task.dismiss {
-        header = header.push(
-            button(text("✕").size(TEXT_SM).color(FG_MUTED))
-                .on_press(Msg::BgTaskDismissed(id))
-                .style(icon_btn_style),
-        );
+        header = header.push(styles::icon_btn("✕", Msg::BgTaskDismissed(id)));
     }
 
     let mut col = column![header].spacing(SPACE_0_5);

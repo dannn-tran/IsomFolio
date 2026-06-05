@@ -4,7 +4,7 @@ use iced::{
 };
 
 use super::styles::{
-    icon_btn_style, BG_MODAL, BG_STATUSBAR, BORDER, FG, FG_DIM, FG_MUTED, HINT_HOVER, HINT_SUBTLE,
+    BG_MODAL, BG_STATUSBAR, BORDER, FG, FG_DIM, FG_MUTED, HINT_HOVER, HINT_SUBTLE,
     SPACE_1, SPACE_1_5, SPACE_2, TEXT_MD, TEXT_SM,
 };
 use crate::app::{App, Msg};
@@ -74,20 +74,12 @@ impl App {
 
         bar = bar.push(Space::new().width(Length::Fill));
         bar = bar.push(super::styles::tip(
-            button(text("?").size(TEXT_MD).color(FG_DIM))
-                .on_press(Msg::ToggleShortcutHelp)
-                .style(icon_btn_style)
-                .padding([SPACE_1, SPACE_1_5])
-                .height(MENU_BAR_HEIGHT),
+            super::styles::icon_btn("?", Msg::ToggleShortcutHelp).height(MENU_BAR_HEIGHT),
             "Keyboard shortcuts (?)",
             super::styles::TipPos::Bottom,
         ));
         bar = bar.push(super::styles::tip(
-            button(text("⚙").size(TEXT_MD).color(FG_DIM))
-                .on_press(Msg::OpenSettings)
-                .style(icon_btn_style)
-                .padding([SPACE_1, SPACE_1_5])
-                .height(MENU_BAR_HEIGHT),
+            super::styles::icon_btn("⚙", Msg::OpenSettings).height(MENU_BAR_HEIGHT),
             "Settings (⌘,)",
             super::styles::TipPos::Bottom,
         ));

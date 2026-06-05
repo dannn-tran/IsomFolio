@@ -46,16 +46,14 @@ impl App {
 
         let layout_toggle = row![
             super::styles::tip(
-                button(text("▦").size(TEXT_MD))
-                    .on_press(Msg::SetGridLayout(GridLayout::Grid))
-                    .style(move |t: &Theme, s| if is_list { ghost_btn_style(t, s) } else { active_chip_style(t, s) }),
+                super::styles::icon_btn_styled("▦", Msg::SetGridLayout(GridLayout::Grid),
+                    move |t: &Theme, s| if is_list { ghost_btn_style(t, s) } else { active_chip_style(t, s) }),
                 "Grid view",
                 super::styles::TipPos::Bottom,
             ),
             super::styles::tip(
-                button(text("≡").size(TEXT_MD))
-                    .on_press(Msg::SetGridLayout(GridLayout::List))
-                    .style(move |t: &Theme, s| if is_list { active_chip_style(t, s) } else { ghost_btn_style(t, s) }),
+                super::styles::icon_btn_styled("≡", Msg::SetGridLayout(GridLayout::List),
+                    move |t: &Theme, s| if is_list { active_chip_style(t, s) } else { ghost_btn_style(t, s) }),
                 "List view",
                 super::styles::TipPos::Bottom,
             ),
@@ -69,16 +67,12 @@ impl App {
         } else {
             row![
                 super::styles::tip(
-                    button(text("−").size(TEXT_MD))
-                        .on_press(Msg::TileSizeDown)
-                        .style(ghost_btn_style),
+                    super::styles::icon_btn("−", Msg::TileSizeDown),
                     "Smaller thumbnails (⌘−)",
                     super::styles::TipPos::Bottom,
                 ),
                 super::styles::tip(
-                    button(text("+").size(TEXT_MD))
-                        .on_press(Msg::TileSizeUp)
-                        .style(ghost_btn_style),
+                    super::styles::icon_btn("+", Msg::TileSizeUp),
                     "Larger thumbnails (⌘+)",
                     super::styles::TipPos::Bottom,
                 ),
@@ -95,9 +89,8 @@ impl App {
         )
         .text_size(TEXT_MD)
         .padding([SPACE_1, SPACE_1_5]);
-        let sort_dir = button(text(if self.sort_asc { "▲" } else { "▼" }).size(TEXT_MD))
-            .on_press(Msg::SortDirToggle)
-            .style(ghost_btn_style);
+        let sort_dir =
+            super::styles::icon_btn(if self.sort_asc { "▲" } else { "▼" }, Msg::SortDirToggle);
 
         let toolbar_row = row![
             super::styles::tip(
@@ -740,15 +733,7 @@ impl App {
                 tag_row = tag_row
                     .push(Space::new().width(Length::Fill))
                     .push(
-                        button(text("×").size(TEXT_XS).color(FG_DIM))
-                            .on_press(Msg::RemoveDetailTag(tag.clone()))
-                            .style(|_: &Theme, _| button::Style {
-                                background: None,
-                                text_color: FG_DIM,
-                                border: Border::default(),
-                                shadow: iced::Shadow::default(),
-                                snap: false,
-                            }),
+                        super::styles::icon_btn("×", Msg::RemoveDetailTag(tag.clone())),
                     );
                 col = col.push(
                     container(tag_row)

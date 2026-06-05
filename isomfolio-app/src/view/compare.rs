@@ -1,6 +1,6 @@
 use iced::{
-    widget::{button, column, container, image, row, stack, text, Space},
-    Alignment, Background, Border, Color, Element, Length, Theme,
+    widget::{column, container, image, row, stack, text, Space},
+    Alignment, Background, Element, Length, Theme,
 };
 use isomfolio_core::models::Flag;
 
@@ -18,24 +18,7 @@ impl App {
 
         let top_bar = container(
             row![
-                button(text("✕").size(TEXT_BASE).color(FG))
-                    .on_press(Msg::EscapePressed)
-                    .style(|_: &Theme, status| button::Style {
-                        background: Some(Background::Color(Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: match status {
-                                button::Status::Hovered => 0.15,
-                                button::Status::Pressed => 0.25,
-                                _ => 0.08,
-                            },
-                        })),
-                        text_color: FG,
-                        border: Border { radius: 4.0.into(), ..Default::default() },
-                        shadow: iced::Shadow::default(),
-                        snap: false,
-                    }),
+                super::styles::icon_btn("✕", Msg::EscapePressed),
                 Space::new().width(Length::Fill),
                 text("Compare").size(TEXT_BASE).color(FG),
                 Space::new().width(Length::Fill),

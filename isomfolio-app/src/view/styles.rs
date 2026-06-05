@@ -221,6 +221,58 @@ pub const SPACE_3: f32 = UNIT * 3.0;
 pub const SPACE_4: f32 = UNIT * 4.0;
 pub const SPACE_6: f32 = UNIT * 6.0;
 
+/// Standard clickable square for icon-only buttons (px). One uniform footprint
+/// app-wide so every bare-glyph control (chevrons, `+`, `×`, `⚙`, zoom, …) has
+/// the same hit area. Sits at `FOLDER_ITEM_HEIGHT` — well above the 24 px
+/// *Density floor* and a comfortable pointer/coarse target — without ballooning
+/// the dense desktop layout the way a 44 px touch target would.
+pub const ICON_BTN: f32 = 28.0;
+/// Glyph size inside an `icon_btn` — the visible mark, sized independently of
+/// the clickable square so the target can grow without the glyph distorting.
+pub const ICON_GLYPH: f32 = 16.0;
+
+/// An icon-only button: a glyph centred in a fixed `ICON_BTN` square, using
+/// `icon_btn_style` (no box; tint brightens on hover). The single helper every
+/// bare-glyph control should route through so hit areas stay uniform.
+pub fn icon_btn<'a>(glyph: &str, msg: Msg) -> button::Button<'a, Msg> {
+    icon_btn_styled(glyph, msg, icon_btn_style)
+}
+
+/// `icon_btn` with a fixed glyph colour (no hover-brighten) — for glyphs whose
+/// colour carries meaning (a colour-label swatch, an `ERR`-tinted ×).
+pub fn icon_btn_color<'a>(glyph: &str, msg: Msg, color: Color) -> button::Button<'a, Msg> {
+    button(
+        container(text(glyph.to_string()).size(ICON_GLYPH).color(color))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),
+    )
+    .width(ICON_BTN)
+    .height(ICON_BTN)
+    .padding(0)
+    .on_press(msg)
+    .style(icon_btn_style)
+}
+
+/// `icon_btn` with a caller-supplied style fn — for icon-only *toggles* that
+/// show an active state (e.g. the Grid/List layout switch), where
+/// `active_chip_style` replaces `icon_btn_style` when on.
+pub fn icon_btn_styled<'a>(
+    glyph: &str,
+    msg: Msg,
+    style: impl Fn(&Theme, button::Status) -> button::Style + 'a,
+) -> button::Button<'a, Msg> {
+    button(
+        container(text(glyph.to_string()).size(ICON_GLYPH))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),
+    )
+    .width(ICON_BTN)
+    .height(ICON_BTN)
+    .padding(0)
+    .on_press(msg)
+    .style(style)
+}
+
 pub fn icon_btn_style(_theme: &Theme, status: button::Status) -> button::Style {
     let (text_color, alpha) = match status {
         button::Status::Hovered => (Color::WHITE, 0.0),

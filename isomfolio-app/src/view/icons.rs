@@ -7,9 +7,9 @@
 use iced::widget::svg;
 use iced::{Color, Element, Theme};
 
-/// Sidebar icon edge length (px). Sits just under `TEXT_BASE` so the glyph reads
-/// as a peer of the label, not a button.
-pub const ICON_SIZE: f32 = 15.0;
+/// Sidebar icon edge length (px). Sized to read as a peer of the label and of
+/// the 16 px glyphs in `icon_btn` controls, not as a button.
+pub const ICON_SIZE: f32 = 17.0;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Icon {

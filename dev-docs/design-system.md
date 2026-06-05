@@ -26,7 +26,7 @@ The historical failure mode of this app is (3)/(4) silently overriding (1)/(2): 
 Density may not breach these, even when "compact" argues otherwise:
 
 - **Body / interactive text** ≥ `TEXT_SM` (11 px). `TEXT_XS` (10 px) is for non-interactive micro-labels only.
-- **Interactive hit-target** ≥ 24 px in its smaller dimension (pad small glyph controls to reach it).
+- **Interactive hit-target** ≥ 24 px in its smaller dimension (pad small glyph controls to reach it). **Icon-only buttons** standardise *above* this floor at a uniform **`ICON_BTN` = 28 px square** (a comfortable pointer/coarse target without the bloat a 44 px touch target would force on a dense desktop layout). They are never sized ad-hoc per call site — see *Buttons*.
 - **Meaning is never opacity-only.** A dimmed/greyed state must also differ by another channel (icon, label, position) so it survives low-contrast displays and colour-blindness.
 
 ### Discoverability rules
@@ -169,6 +169,13 @@ Defined in `src/view/styles.rs`. Use the right variant for the action's weight.
 | `quiet_btn_disabled_style` (welcome.rs local) | Primary action when preconditions unmet |
 
 **Rule:** any button that is icon-only (single glyph, no text label) MUST use `icon_btn_style`. `ghost_btn_style` is only for buttons that carry a text label or are inside a content region where a subtle box hover is expected.
+
+**Icon-button helpers (sizing is centralised — do not hand-size).** Every icon-only button routes through one helper in `styles.rs` so the clickable square is uniformly `ICON_BTN` (28 px) with an `ICON_GLYPH` (16 px) mark, regardless of where it lives:
+- `icon_btn(glyph, msg)` — the default: `icon_btn_style`, tint brightens on hover.
+- `icon_btn_color(glyph, msg, color)` — fixed glyph colour when the colour carries meaning (a colour-label swatch, an `ERR` ×).
+- `icon_btn_styled(glyph, msg, style)` — for icon-only *toggles* that swap to `active_chip_style` when on (Grid/List switch, colour-label swatch active fill).
+
+Chevrons/`+`/`×`/`✕`/`✓`/`⚙`/zoom `−`/`+` etc. all use these. Override `.height(…)`/`.width(…)` only to fit a host band (menu bar height, the folder-tree chevron's fixed alignment slot) — never to shrink the target below `ICON_BTN`. New icon buttons MUST use a helper, not a bare `button(text(glyph)).style(icon_btn_style)`.
 
 Buttons without `on_press` are visually disabled. Do not use `ghost_btn_style` for a primary action when an `active_chip_style` primary button exists nearby.
 

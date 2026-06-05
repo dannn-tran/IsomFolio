@@ -8,9 +8,9 @@ use isomfolio_core::models::{AlbumKind, Flag, RatingFilter, TagMatch};
 
 use super::styles::{
     active_chip_style, color_label_swatch, confirm_action_row, danger_btn_style, ghost_btn_style,
-    icon_btn_style, sidebar_divider, ACCENT, ALBUM_HOVER, BORDER, BG_SIDEBAR, BG_STATUSBAR,
+    sidebar_divider, ACCENT, ALBUM_HOVER, BORDER, BG_SIDEBAR, BG_STATUSBAR,
     COLOR_LABELS, ERR, FG, FG_DIM, FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_3,
-    STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM, TEXT_XS,
+    STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM, TEXT_XS,
 };
 use super::icons::{Icon, ICON_SIZE};
 use crate::app::{
@@ -26,10 +26,11 @@ const IMPORTS_COLLAPSED: usize = 10;
 /// leading edge so every section's icon shares one column with the nav-row icons.
 /// Separate control: toggling collapse never changes selection.
 fn section_chevron<'a>(collapsed: bool, section: SidebarSection) -> Element<'a, Msg> {
-    button(text(if collapsed { "▸" } else { "▾" }).size(TEXT_LG).color(FG_DIM))
-        .on_press(Msg::ToggleSidebarSection(section))
-        .style(icon_btn_style)
-        .into()
+    super::styles::icon_btn(
+        if collapsed { "▸" } else { "▾" },
+        Msg::ToggleSidebarSection(section),
+    )
+    .into()
 }
 
 /// Build a section header that aligns with the nav rows: `[icon] Title …
@@ -92,9 +93,7 @@ impl App {
             SidebarSection::Albums,
             vec![
                 super::styles::tip(
-                    button(text("+").size(TEXT_BASE))
-                        .on_press(Msg::StartCreateAlbum)
-                        .style(icon_btn_style),
+                    super::styles::icon_btn("+", Msg::StartCreateAlbum),
                     "New album",
                     super::styles::TipPos::Bottom,
                 ),
@@ -107,9 +106,10 @@ impl App {
             folders_trailing.push(text("Syncing…").size(TEXT_SM).color(FG_DIM).into());
         }
         folders_trailing.push(super::styles::tip(
-            button(text("+").size(TEXT_BASE))
-                .on_press(if is_sync_active { Msg::NoOp } else { Msg::SyncPickFolder })
-                .style(icon_btn_style),
+            super::styles::icon_btn(
+                "+",
+                if is_sync_active { Msg::NoOp } else { Msg::SyncPickFolder },
+            ),
             "Add folder to library",
             super::styles::TipPos::Bottom,
         ));
@@ -186,12 +186,8 @@ impl App {
                             .padding([SPACE_1_5, SPACE_2])
                             .size(TEXT_BASE)
                             .width(Length::Fill),
-                        button(text("✓").size(TEXT_SM).color(FG))
-                            .on_press(Msg::ConfirmCreateAlbum)
-                            .style(icon_btn_style),
-                        button(text("✕").size(TEXT_SM).color(FG_DIM))
-                            .on_press(Msg::EscapePressed)
-                            .style(icon_btn_style),
+                        super::styles::icon_btn("✓", Msg::ConfirmCreateAlbum),
+                        super::styles::icon_btn("✕", Msg::EscapePressed),
                     ]
                     .spacing(SPACE_1)
                     .align_y(Alignment::Center),
@@ -227,12 +223,8 @@ impl App {
                                 .padding([SPACE_1_5, SPACE_2])
                                 .size(TEXT_BASE)
                                 .width(Length::Fill),
-                            button(text("✓").size(TEXT_SM).color(FG))
-                                .on_press(Msg::ConfirmRenameAlbum)
-                                .style(icon_btn_style),
-                            button(text("✕").size(TEXT_SM).color(FG_DIM))
-                                .on_press(Msg::EscapePressed)
-                                .style(icon_btn_style),
+                            super::styles::icon_btn("✓", Msg::ConfirmRenameAlbum),
+                            super::styles::icon_btn("✕", Msg::EscapePressed),
                         ]
                         .spacing(SPACE_1)
                         .align_y(Alignment::Center),
@@ -856,7 +848,7 @@ fn nav_row<'a>(
 }
 
 /// Width of the chevron / its placeholder, so parent and leaf labels align.
-const CHEVRON_W: f32 = 16.0;
+const CHEVRON_W: f32 = 20.0;
 
 fn folder_tree_row<'a>(
     node: &'a FolderNode,
@@ -899,11 +891,13 @@ fn folder_tree_row<'a>(
     let was_truncated = full_label.chars().count() > effective_max;
 
     let chevron: Element<Msg> = if has_children {
-        button(text(if expanded { "▾" } else { "▸" }).size(TEXT_LG).color(FG_DIM))
-            .on_press(Msg::ToggleFolderExpanded(path.clone()))
-            .width(Length::Fixed(CHEVRON_W))
-            .style(icon_btn_style)
-            .into()
+        super::styles::icon_btn(
+            if expanded { "▾" } else { "▸" },
+            Msg::ToggleFolderExpanded(path.clone()),
+        )
+        .width(Length::Fixed(CHEVRON_W))
+        .height(Length::Fixed(FOLDER_ITEM_HEIGHT))
+        .into()
     } else {
         Space::new().width(CHEVRON_W).into()
     };

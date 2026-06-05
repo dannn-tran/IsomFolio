@@ -6,7 +6,7 @@ use iced::{
 };
 
 use super::styles::{
-    danger_btn_style, ghost_btn_style, icon_btn_style, BG_MODAL, BORDER, ERR, FG, FG_DIM,
+    danger_btn_style, ghost_btn_style, BG_MODAL, BORDER, ERR, FG, FG_DIM,
     OVERLAY_MEDIUM, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, TEXT_BASE, TEXT_MD,
     TEXT_SM, TEXT_XS,
 };
@@ -59,9 +59,7 @@ impl App {
         let header = row![
             text("All Tags").size(TEXT_BASE).color(FG),
             Space::new().width(Length::Fill),
-            button(text("✕").size(TEXT_MD).color(FG_DIM))
-                .on_press(Msg::CloseTagBrowser)
-                .style(icon_btn_style),
+            super::styles::icon_btn("✕", Msg::CloseTagBrowser),
         ]
         .align_y(Alignment::Center)
         .spacing(SPACE_2);
@@ -191,12 +189,8 @@ impl App {
                         .padding([SPACE_0_5, SPACE_1])
                         .size(TEXT_SM)
                         .width(Length::Fill),
-                    button(text("✓").size(TEXT_SM).color(FG))
-                        .on_press(Msg::TagBrowserRenameConfirm)
-                        .style(icon_btn_style),
-                    button(text("✕").size(TEXT_SM).color(FG_DIM))
-                        .on_press(Msg::TagBrowserRenameCancel)
-                        .style(icon_btn_style),
+                    super::styles::icon_btn("✓", Msg::TagBrowserRenameConfirm),
+                    super::styles::icon_btn("✕", Msg::TagBrowserRenameCancel),
                 ]
                 .spacing(SPACE_1)
                 .align_y(Alignment::Center),
@@ -240,9 +234,7 @@ impl App {
                     text(leaf_owned).size(TEXT_SM).color(FG),
                     Space::new().width(Length::Fill),
                     text(format!("{count}")).size(TEXT_XS).color(FG_DIM),
-                    button(text("+").size(TEXT_XS))
-                        .on_press(Msg::AddDetailTagDirect(tag_owned.clone()))
-                        .style(icon_btn_style),
+                    super::styles::icon_btn("+", Msg::AddDetailTagDirect(tag_owned.clone())),
                     button(text("Rename").size(TEXT_XS))
                         .on_press(Msg::TagBrowserRenameStart(tag_owned.clone()))
                         .style(ghost_btn_style),
