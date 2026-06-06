@@ -13,7 +13,19 @@ pub fn read_exif(path: &str) -> Option<ExifData> {
     let file = File::open(path).ok()?;
     let mut reader = BufReader::new(file);
     let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
+    Some(parse(&exif))
+}
 
+/// Parse EXIF from an in-memory image buffer. Lets a single `fs::read` feed both
+/// the EXIF and XMP parsers, instead of re-opening the file per parser.
+pub fn read_exif_from_bytes(data: &[u8]) -> Option<ExifData> {
+    let exif = exif::Reader::new()
+        .read_from_container(&mut std::io::Cursor::new(data))
+        .ok()?;
+    Some(parse(&exif))
+}
+
+fn parse(exif: &exif::Exif) -> ExifData {
     let capture_date = exif
         .get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
         .and_then(|f| ascii_first(&f.value).and_then(exif_datetime_to_unix));
@@ -75,12 +87,12 @@ pub fn read_exif(path: &str) -> Option<ExifData> {
             _ => None,
         });
 
-    Some(ExifData {
+    ExifData {
         capture_date,
         gps_lat,
         gps_lon,
         tech: ExifTechMeta { camera_make, camera_model, lens_model, focal_length_mm, aperture, shutter_speed, iso, flash },
-    })
+    }
 }
 
 fn ascii_first(value: &exif::Value) -> Option<&str> {

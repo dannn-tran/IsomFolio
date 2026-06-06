@@ -53,6 +53,17 @@ pub fn compute_file_id_for_path(path: &str) -> FileId {
 }
 
 pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
+    let exif = crate::metadata::exif::read_exif(path);
+    asset_file_from_path_with_exif(path, exif.as_ref())
+}
+
+/// Build the [`AssetFile`] from an already-parsed EXIF block, so a scan that has
+/// already read+parsed the file once (sharing the buffer with the XMP parser)
+/// doesn't re-open it here just for capture date / GPS.
+pub fn asset_file_from_path_with_exif(
+    path: &str,
+    exif: Option<&crate::metadata::exif::ExifData>,
+) -> Option<AssetFile> {
     let meta = fs::metadata(path).ok()?;
     if !meta.is_file() {
         return None;
@@ -97,8 +108,6 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    let exif = crate::metadata::exif::read_exif(path);
-
     Some(AssetFile {
         id,
         path: normalized,
@@ -112,8 +121,8 @@ pub fn asset_file_from_path(path: &str) -> Option<AssetFile> {
         is_orphaned: false,
         orphaned_at: None,
         flag: crate::models::Flag::Unflagged,
-        exif_date_unix: exif.as_ref().and_then(|e| e.capture_date),
-        gps_lat: exif.as_ref().and_then(|e| e.gps_lat),
-        gps_lon: exif.as_ref().and_then(|e| e.gps_lon),
+        exif_date_unix: exif.and_then(|e| e.capture_date),
+        gps_lat: exif.and_then(|e| e.gps_lat),
+        gps_lon: exif.and_then(|e| e.gps_lon),
     })
 }

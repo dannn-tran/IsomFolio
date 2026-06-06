@@ -28,15 +28,30 @@ pub struct EmbeddedMetadata {
 }
 
 pub fn read_metadata(file_path: &str) -> EmbeddedMetadata {
+    let bytes = std::fs::read(file_path).ok();
+    let exif = bytes.as_deref().and_then(exif::read_exif_from_bytes);
+    read_metadata_from(file_path, bytes.as_deref(), exif.as_ref())
+}
+
+/// Build embedded metadata from already-read image bytes and an already-parsed
+/// EXIF block, so one `fs::read` + one EXIF parse feed both the file-identity
+/// stage and this metadata stage during a scan (no redundant opens/parses).
+/// `bytes` is `None` when the file was unreadable; `exif` is `None` when absent.
+pub fn read_metadata_from(
+    file_path: &str,
+    bytes: Option<&[u8]>,
+    exif: Option<&exif::ExifData>,
+) -> EmbeddedMetadata {
     let sidecar_path = {
         let p = Path::new(file_path);
         p.with_extension("xmp").to_string_lossy().into_owned()
     };
 
+    // A sidecar wins over the embedded packet; otherwise scan the shared buffer.
     let xmp = if Path::new(&sidecar_path).exists() {
         xmp::parse_sidecar(&sidecar_path)
     } else {
-        xmp::parse_embedded(file_path)
+        bytes.and_then(xmp::parse_embedded_from_bytes)
     };
 
     #[cfg(target_os = "macos")]
@@ -44,7 +59,7 @@ pub fn read_metadata(file_path: &str) -> EmbeddedMetadata {
     #[cfg(not(target_os = "macos"))]
     let apple_meta = None;
 
-    let exif_tech = exif::read_exif(file_path).map(|e| e.tech);
+    let exif_tech = exif.map(|e| e.tech.clone());
 
     EmbeddedMetadata { xmp, apple: apple_meta, exif_tech }
 }

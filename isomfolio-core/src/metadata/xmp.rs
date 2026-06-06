@@ -665,11 +665,17 @@ pub fn parse_sidecar(xmp_path: &str) -> Option<XmpMetadata> {
 
 pub fn parse_embedded(image_path: &str) -> Option<XmpMetadata> {
     let data = std::fs::read(image_path).ok()?;
+    parse_embedded_from_bytes(&data)
+}
+
+/// Parse an embedded XMP packet from an in-memory image buffer, so the bytes can
+/// be shared with the EXIF parser instead of re-reading the file.
+pub fn parse_embedded_from_bytes(data: &[u8]) -> Option<XmpMetadata> {
     // Quick check: XMP namespace marker must be present
     if !data.windows(28).any(|w| w == b"http://ns.adobe.com/xap/1.0/") {
         return None;
     }
-    let packet = find_xmp_packet(&data)?;
+    let packet = find_xmp_packet(data)?;
     let text = std::str::from_utf8(packet).ok()?;
     let meta = parse_xmp_xml(text);
     if meta == XmpMetadata::default() { None } else { Some(meta) }
