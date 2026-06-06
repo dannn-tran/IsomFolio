@@ -77,21 +77,33 @@ impl Catalog {
         &self,
         extra: &[(String, String)],
     ) -> Result<Vec<crate::folder_tree::FolderNode>, AppError> {
-        let mut folders = db::get_folder_counts(&self.conn)?;
+        let folders = db::get_folder_counts(&self.conn)?;
+        let roots = db::list_library_roots(&self.conn)?;
+        Ok(Self::folder_tree_from(folders, &roots, extra))
+    }
+
+    /// Build the folder forest from already-fetched counts + roots — so the
+    /// sidebar load doesn't re-query `get_folder_counts` / `list_library_roots`
+    /// (the caller needs both for the flat folder list and offline detection).
+    pub fn folder_tree_from(
+        mut folders: Vec<(String, String, usize)>,
+        library_roots: &[db::LibraryRoot],
+        extra: &[(String, String)],
+    ) -> Vec<crate::folder_tree::FolderNode> {
         for (path, display) in extra {
             folders.push((path.clone(), display.clone(), 0));
         }
         let mut root_keys = Vec::new();
-        for root in db::list_library_roots(&self.conn)? {
+        for root in library_roots {
             // Empty roots (no files indexed yet) aren't in get_folder_counts, so
             // add them here. Keyed on the normalised path; the stored display path
             // carries real case. Folders with files already supply their display.
-            folders.push((root.path.clone(), root.path_display, 0));
-            root_keys.push(root.path);
+            folders.push((root.path.clone(), root.path_display.clone(), 0));
+            root_keys.push(root.path.clone());
         }
         // The forest is anchored at the library roots so breadcrumbs start at the
         // user's added folders, not the filesystem root.
-        Ok(crate::folder_tree::build_tree(&folders, &root_keys))
+        crate::folder_tree::build_tree(&folders, &root_keys)
     }
 
     /// Library roots are stored case-folded (so they collate with each file's

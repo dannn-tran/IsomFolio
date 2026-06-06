@@ -978,8 +978,9 @@ impl App {
         Task::perform(
             async move {
                 let cat = catalog.lock_unwrap();
+                // Fetch folder counts + library roots once; the flat folder list,
+                // the folder tree, and offline detection all derive from them.
                 let raw_folders = cat.get_folder_counts().unwrap_or_default();
-                let folder_tree = cat.folder_tree(&discovered).unwrap_or_default();
                 let library_roots = cat.list_library_roots().unwrap_or_default();
                 let cameras = cat.distinct_camera_models().unwrap_or_default();
                 let albums = cat.get_all_albums().unwrap_or_default();
@@ -989,18 +990,21 @@ impl App {
                 drop(cat);
                 // Display basename comes from the stored case-preserved path —
                 // no disk read. Falls back to the key path when display is unset.
-                let folders = raw_folders
-                    .into_iter()
+                let folders: Vec<(String, String, usize)> = raw_folders
+                    .iter()
                     .map(|(path, display, count)| {
-                        let src = if display.is_empty() { &path } else { &display };
+                        let src = if display.is_empty() { path } else { display };
                         let name = std::path::Path::new(src)
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or(src)
                             .to_string();
-                        (path, name, count)
+                        (path.clone(), name, *count)
                     })
                     .collect();
+                // Built from the already-fetched counts + roots — no re-query.
+                let folder_tree =
+                    isomfolio_core::Catalog::folder_tree_from(raw_folders, &library_roots, &discovered);
                 // A library root whose path isn't a directory right now is offline
                 // (unplugged drive). Cheap — roots are few; the key path resolves
                 // on case-insensitive filesystems.
