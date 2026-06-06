@@ -19,6 +19,7 @@ base64 = "0.22"
 bytemuck = { version = "1", features = ["derive"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 rawler = "0.7.2"
+rayon = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 plist = "1"

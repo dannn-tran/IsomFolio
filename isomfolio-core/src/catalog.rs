@@ -406,7 +406,6 @@ impl Catalog {
         scanner::sync_folder(
             &self.conn,
             root_path,
-            &|_| {},
             on_progress,
             on_dirs,
             import_xmp_tags,

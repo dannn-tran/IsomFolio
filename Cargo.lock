@@ -2255,6 +2255,7 @@ dependencies = [
  "plist",
  "quick-xml 0.40.1",
  "rawler",
+ "rayon",
  "rusqlite",
  "serde",
  "serde_json",

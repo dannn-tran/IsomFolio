@@ -1,14 +1,29 @@
+use rayon::prelude::*;
 use rusqlite::Connection;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use crate::file_index::{asset_file_from_path, is_supported_extension};
+use crate::file_index::{asset_file_from_path, asset_file_from_path_with_exif, is_supported_extension};
 use crate::indexing::types::{SyncProgress, SyncResult};
 use crate::metadata;
 use crate::models::{AppError, AssetFile};
 use crate::path_utils::{display_path, normalize_path, CATALOG_EXT};
 use crate::storage::db;
+
+/// Decode one file into its catalog identity + embedded metadata, reading and
+/// parsing the bytes exactly once (shared by the EXIF and XMP parsers). Pure and
+/// `Send` — safe to run across rayon workers. `None` = unsupported / unreadable.
+fn scan_one(path: &str, existing_ids: &HashSet<String>) -> Option<(ScannedFile, bool)> {
+    // One read feeds both parsers; `None` (unreadable) still yields an asset from
+    // the filesystem stat, just without EXIF/embedded-XMP fields.
+    let bytes = fs::read(path).ok();
+    let exif = bytes.as_deref().and_then(metadata::exif::read_exif_from_bytes);
+    let asset = asset_file_from_path_with_exif(path, exif.as_ref())?;
+    let is_new = !existing_ids.contains(&asset.id);
+    let meta = metadata::read_metadata_from(path, bytes.as_deref(), exif.as_ref());
+    Some((ScannedFile { asset, meta }, is_new))
+}
 
 #[derive(Clone)]
 pub struct ScannedFile {
@@ -99,7 +114,6 @@ fn discover_dirs(root_path: &str, recursive: bool) -> Vec<String> {
 pub fn sync_folder(
     conn: &Connection,
     root_path: &str,
-    on_batch: &dyn Fn(&[ScannedFile]),
     on_progress: &dyn Fn(SyncProgress),
     on_dirs: &dyn Fn(Vec<(String, String)>),
     import_xmp_tags: bool,
@@ -138,62 +152,55 @@ pub fn sync_folder(
 
     let mut total = 0usize;
     let mut new_file_ids: Vec<String> = Vec::new();
-    let mut batch: Vec<(ScannedFile, bool)> = Vec::with_capacity(500);
 
     let flush_batch = |conn: &Connection, batch: &[(ScannedFile, bool)]| -> Result<(), AppError> {
         let assets: Vec<AssetFile> = batch.iter().map(|(s, _)| s.asset.clone()).collect();
         db::upsert_files(conn, &assets)?;
-        for (sf, is_new) in batch {
-            db::upsert_metadata(conn, &sf.asset.id, &sf.meta)?;
-            if *is_new {
-                if import_xmp_tags {
-                    if let Some(ref xmp) = sf.meta.xmp {
-                        db::sync_xmp_tags(conn, &sf.asset.id, &xmp.dublin_core.subject)?;
+        let writes: Vec<db::MetadataWrite> = batch
+            .iter()
+            .map(|(sf, is_new)| {
+                // Imported keywords only on first insert (additive), matching the
+                // old per-file path; existing files keep their catalog tags.
+                let mut tags: Vec<String> = Vec::new();
+                if *is_new {
+                    if import_xmp_tags {
+                        if let Some(ref xmp) = sf.meta.xmp {
+                            tags.extend(xmp.dublin_core.subject.iter().cloned());
+                        }
+                    }
+                    if import_apple_tags {
+                        if let Some(ref apple) = sf.meta.apple {
+                            tags.extend(apple.user_tags.iter().map(|t| t.text.clone()));
+                        }
                     }
                 }
-                if import_apple_tags {
-                    if let Some(ref apple) = sf.meta.apple {
-                        let names: Vec<String> = apple.user_tags.iter().map(|t| t.text.clone()).collect();
-                        db::sync_apple_tags(conn, &sf.asset.id, &names)?;
-                    }
-                }
-            }
-        }
-        Ok(())
+                db::MetadataWrite { file_id: &sf.asset.id, meta: &sf.meta, tags }
+            })
+            .collect();
+        db::upsert_metadata_batch(conn, &writes)
     };
 
-    for path in discover_paths(root_path, recursive) {
-        let asset = match asset_file_from_path(&path) {
-            Some(a) => a,
-            None => continue,
-        };
-        let is_new = !existing_ids.contains(&asset.id);
-        seen.insert(asset.path.clone());
-        let meta = metadata::read_metadata(&path);
-        if is_new {
-            new_file_ids.push(asset.id.clone());
+    // Decode each chunk's files in parallel (the CPU/IO-bound read+parse), then
+    // write the chunk serially — the SQLite connection isn't `Sync`. Chunking
+    // bounds peak memory (one batch of decoded metadata at a time) and preserves
+    // the per-batch progress cadence.
+    let all_paths = discover_paths(root_path, recursive);
+    for chunk in all_paths.chunks(500) {
+        let batch: Vec<(ScannedFile, bool)> = chunk
+            .par_iter()
+            .filter_map(|path| scan_one(path, &existing_ids))
+            .collect();
+        if batch.is_empty() {
+            continue;
         }
-        batch.push((ScannedFile { asset, meta }, is_new));
-
-        if batch.len() >= 500 {
-            flush_batch(conn, &batch)?;
-            total += batch.len();
-            let scanned: Vec<ScannedFile> = batch.iter().map(|(s, _)| s.clone()).collect();
-            on_batch(&scanned);
-            on_progress(SyncProgress {
-                total_found: total,
-                inserted: total,
-                folder_name: folder_name.clone(),
-            });
-            batch.clear();
-        }
-    }
-
-    if !batch.is_empty() {
         flush_batch(conn, &batch)?;
+        for (sf, is_new) in &batch {
+            seen.insert(sf.asset.path.clone());
+            if *is_new {
+                new_file_ids.push(sf.asset.id.clone());
+            }
+        }
         total += batch.len();
-        let scanned: Vec<ScannedFile> = batch.iter().map(|(s, _)| s.clone()).collect();
-        on_batch(&scanned);
         on_progress(SyncProgress {
             total_found: total,
             inserted: total,
@@ -283,25 +290,24 @@ mod tests {
             let root = photos.path().to_str().unwrap();
             fs::write(photos.path().join("a.jpg"), b"x").unwrap();
             fs::write(photos.path().join("b.jpg"), b"x").unwrap();
-            let nb = |_: &[ScannedFile]| {};
             let np = |_: SyncProgress| {};
             let key = normalize_path(root);
 
-            sync_folder(&conn, root, &nb, &np, &|_| {}, false, false, true).unwrap();
+            sync_folder(&conn, root, &np, &|_| {}, false, false, true).unwrap();
             let idx = db::get_indexed_paths_in_folder(&conn, &key).unwrap();
             assert_eq!(idx.len(), 2);
             assert!(idx.values().all(|f| !f.is_orphaned));
 
             // Delete one on disk and re-sync — it becomes orphaned, the other stays.
             fs::remove_file(photos.path().join("a.jpg")).unwrap();
-            sync_folder(&conn, root, &nb, &np, &|_| {}, false, false, true).unwrap();
+            sync_folder(&conn, root, &np, &|_| {}, false, false, true).unwrap();
             let idx = db::get_indexed_paths_in_folder(&conn, &key).unwrap();
             assert!(idx.values().find(|f| f.name == "a.jpg").unwrap().is_orphaned);
             assert!(!idx.values().find(|f| f.name == "b.jpg").unwrap().is_orphaned);
 
             // Bring it back — re-sync clears the orphan flag.
             fs::write(photos.path().join("a.jpg"), b"x").unwrap();
-            sync_folder(&conn, root, &nb, &np, &|_| {}, false, false, true).unwrap();
+            sync_folder(&conn, root, &np, &|_| {}, false, false, true).unwrap();
             let idx = db::get_indexed_paths_in_folder(&conn, &key).unwrap();
             assert!(idx.values().all(|f| !f.is_orphaned));
         }
