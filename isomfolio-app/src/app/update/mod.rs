@@ -417,8 +417,6 @@ impl App {
             | Msg::ExtensionInstallFailed(_)
             | Msg::UninstallExtension(_)
             | Msg::ToggleAutoFaceCluster
-            | Msg::ToggleGeneratePreviews
-            | Msg::SetPreviewCacheCap(_)
             | Msg::ToggleInferenceCustom
             | Msg::InferenceUrlChanged(_)
             | Msg::InferencePortChanged(_)
@@ -677,22 +675,7 @@ impl App {
                 if gen == self.thumb_ctx.done_gen {
                     self.thumb_ctx.total = 0;
                 }
-                // A generation batch just settled — bound the preview cache
-                // off-thread (no-op when unlimited or already under the cap).
-                let cap = self.app_settings.preview_cache_max_mb.saturating_mul(1024 * 1024);
-                if cap == 0 {
-                    return Task::none();
-                }
-                let dir = self.catalog_dir.clone();
-                Task::perform(
-                    async move {
-                        let _ = tokio::task::spawn_blocking(move || {
-                            let _ = isomfolio_core::indexing::thumbnail::enforce_preview_cache_cap(&dir, cap);
-                        })
-                        .await;
-                    },
-                    |_| Msg::NoOp,
-                )
+                Task::none()
             }
 
             Msg::SearchDebounceTimer { id, text } => {

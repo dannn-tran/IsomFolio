@@ -813,11 +813,9 @@ impl App {
         let concurrency = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
-        let gen_previews = self.app_settings.generate_previews;
         self.thumb_ctx.pool = Some(create_worker_pool(
             &catalog_dir,
             concurrency,
-            gen_previews,
             move |fid, path| {
                 let _ = tx_ready.try_send(ThumbnailEvent::Ready(fid, path));
             },
@@ -832,31 +830,16 @@ impl App {
             return;
         };
         let catalog_dir = self.catalog_dir.clone();
-        let gen_previews = self.app_settings.generate_previews;
         let mut newly_enqueued = 0usize;
         for (priority, file) in self.files.iter().enumerate() {
             if self.thumbnails.contains_key(&file.id) {
                 continue;
             }
             let cache = thumbnail_cache_path(&catalog_dir, &file.id);
-            let thumb_ready = std::path::Path::new(&cache).exists();
-            // Backfill the preview for already-thumbnailed files (e.g. an existing
-            // catalog, or previews just enabled) so offline culling works for the
-            // whole library, not only freshly-imported photos.
-            let needs_preview = gen_previews
-                && !std::path::Path::new(
-                    &isomfolio_core::app_paths::preview_cache_path(&catalog_dir, &file.id),
-                )
-                .exists();
-            if thumb_ready {
+            if std::path::Path::new(&cache).exists() {
                 // On disk already (e.g. catalog reopen) — mark Ready; the renderer
                 // decodes the JPEG by path on demand, no in-app load.
                 self.thumbnails.insert(file.id.clone(), ThumbnailState::Ready(cache));
-                if needs_preview {
-                    // The job no-ops the existing thumbnail and just makes the preview.
-                    pool.enqueue(&file.id, &file.path, priority as i32);
-                    newly_enqueued += 1;
-                }
             } else {
                 self.thumbnails.insert(file.id.clone(), ThumbnailState::Pending);
                 pool.enqueue(&file.id, &file.path, priority as i32);

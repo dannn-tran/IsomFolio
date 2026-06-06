@@ -687,10 +687,9 @@ impl App {
         let idx = self.loupe.idx;
         let Some(file) = self.files.get(idx) else { return Task::none() };
         let path = file.path.clone();
-        let preview = isomfolio_core::app_paths::preview_cache_path(&self.catalog_dir, &file.id);
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || decode_or_preview(&path, &preview, false))
+                tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
                     .await
                     .ok()
                     .flatten()
@@ -715,10 +714,9 @@ impl App {
             return Task::none();
         }
         let path = file.path.clone();
-        let preview = isomfolio_core::app_paths::preview_cache_path(&self.catalog_dir, &file.id);
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || decode_or_preview(&path, &preview, true))
+                tokio::task::spawn_blocking(move || decode_image_for_display(&path, true))
                     .await
                     .ok()
                     .flatten()
@@ -764,10 +762,9 @@ impl App {
             }
             if let Some(file) = self.files.get(idx) {
                 let path = file.path.clone();
-                let preview = isomfolio_core::app_paths::preview_cache_path(&self.catalog_dir, &file.id);
                 tasks.push(Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || decode_or_preview(&path, &preview, false))
+                        tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
                             .await
                             .ok()
                             .flatten()
@@ -917,23 +914,6 @@ fn decode_image_for_display(path: &str, prefer_full: bool) -> Option<iced::widge
     let rgba = img.into_rgba8();
     let (w, h) = (rgba.width(), rgba.height());
     Some(iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
-}
-
-/// Decode the original for display; if it's unreachable (offline drive), fall
-/// back to the cached preview so the loupe still shows the photo for culling.
-fn decode_or_preview(
-    original: &str,
-    preview: &str,
-    prefer_full: bool,
-) -> Option<iced::widget::image::Handle> {
-    // Mark the preview recently-used (loupe view = warm) so the cache cap evicts
-    // genuinely-cold previews first. Best-effort; no-op if there's no preview.
-    let _ = std::fs::OpenOptions::new()
-        .write(true)
-        .open(preview)
-        .and_then(|f| f.set_modified(std::time::SystemTime::now()));
-    decode_image_for_display(original, prefer_full)
-        .or_else(|| decode_image_for_display(preview, false))
 }
 
 /// Decode an image for on-screen display. For RAW, `prefer_full = false` returns

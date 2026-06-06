@@ -943,33 +943,6 @@ impl App {
             Msg::ToggleAutoFaceCluster,
         ));
         col = col.push(self.toggle_row(
-            "Keep offline previews",
-            "Cache a large preview per photo so the loupe is sharp and you can view & cull photos while their drive is disconnected. Uses extra disk.",
-            self.app_settings.generate_previews,
-            Msg::ToggleGeneratePreviews,
-        ));
-        if self.app_settings.generate_previews {
-            let mut chips = row![].spacing(SPACE_1).align_y(Alignment::Center);
-            for (label, mb) in [("1 GB", 1024u64), ("5 GB", 5120), ("10 GB", 10240), ("20 GB", 20480), ("Unlimited", 0u64)] {
-                let active = self.app_settings.preview_cache_max_mb == mb;
-                chips = chips.push(
-                    button(text(label).size(TEXT_SM))
-                        .on_press(Msg::SetPreviewCacheCap(mb))
-                        .style(move |t: &Theme, s| if active { active_chip_style(t, s) } else { ghost_btn_style(t, s) }),
-                );
-            }
-            col = col.push(
-                column![
-                    text("Preview cache limit").size(TEXT_MD).color(FG),
-                    text("When exceeded, the oldest previews are removed (they regenerate on demand).")
-                        .size(TEXT_SM)
-                        .color(FG_DIM),
-                    chips,
-                ]
-                .spacing(SPACE_1),
-            );
-        }
-        col = col.push(self.toggle_row(
             "Import XMP keywords",
             "Copy dc:subject keywords into new photos as tags. Applies going forward — turning this off never removes tags already imported.",
             self.app_settings.import_xmp_tags.unwrap_or(true),

@@ -48,25 +48,8 @@ pub fn thumbnail_cache_dir(catalog_dir: &str) -> String {
         .into_owned()
 }
 
-/// Larger cached previews (loupe + offline viewing/culling) — the "smart
-/// preview" tier, kept separate from grid thumbnails.
-pub fn preview_cache_dir(catalog_dir: &str) -> String {
-    Path::new(catalog_dir)
-        .join("previews")
-        .to_string_lossy()
-        .into_owned()
-}
-
-pub fn preview_cache_path(catalog_dir: &str, file_id: &str) -> String {
-    Path::new(&preview_cache_dir(catalog_dir))
-        .join(format!("{file_id}.jpg"))
-        .to_string_lossy()
-        .into_owned()
-}
-
 pub fn ensure_directories(catalog_dir: &str) {
     let _ = std::fs::create_dir_all(thumbnail_cache_dir(catalog_dir));
-    let _ = std::fs::create_dir_all(preview_cache_dir(catalog_dir));
 }
 
 pub fn create_catalog(parent_dir: &str, name: &str) -> Result<String, std::io::Error> {
@@ -100,16 +83,6 @@ pub struct AppSettings {
     /// Port the managed local engine binds (ignored when a custom URL is set).
     #[serde(default = "default_inference_port")]
     pub inference_port: u16,
-    /// Generate a larger cached preview per photo (the "smart preview" tier) so
-    /// the loupe is sharp and photos can be viewed/culled while their drive is
-    /// offline. Costs extra disk. Default on.
-    #[serde(default = "default_true")]
-    pub generate_previews: bool,
-    /// Cap on the preview cache, in megabytes; the oldest previews are evicted
-    /// when exceeded. `0` = unlimited. Previews regenerate on demand (drive
-    /// online), so eviction only costs a re-decode.
-    #[serde(default = "default_preview_cache_mb")]
-    pub preview_cache_max_mb: u64,
     /// DBSCAN cosine-distance radius — lower groups only very similar faces.
     #[serde(default = "default_face_eps")]
     pub face_eps: f32,
@@ -127,8 +100,6 @@ impl Default for AppSettings {
             auto_advance_on_flag: true,
             inference_custom_url: None,
             inference_port: default_inference_port(),
-            generate_previews: true,
-            preview_cache_max_mb: default_preview_cache_mb(),
             face_eps: default_face_eps(),
             face_min_pts: default_face_min_pts(),
         }
@@ -136,7 +107,6 @@ impl Default for AppSettings {
 }
 
 fn default_true() -> bool { true }
-fn default_preview_cache_mb() -> u64 { 5120 }
 fn default_inference_port() -> u16 { 45876 }
 fn default_face_eps() -> f32 { 0.4 }
 fn default_face_min_pts() -> u32 { 2 }

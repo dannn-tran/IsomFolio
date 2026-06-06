@@ -428,9 +428,6 @@ pub enum Msg {
     SwitchSettingsTab(SettingsTab),
     CloseSettings,
     ToggleAutoFaceCluster,
-    ToggleGeneratePreviews,
-    /// Set the preview-cache size cap in MB (0 = unlimited).
-    SetPreviewCacheCap(u64),
     ToggleInferenceCustom,
     InferenceUrlChanged(String),
     InferencePortChanged(String),

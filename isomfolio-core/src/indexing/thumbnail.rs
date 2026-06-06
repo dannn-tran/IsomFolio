@@ -7,20 +7,15 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::app_paths::{
-    ensure_directories, preview_cache_dir, preview_cache_path, thumbnail_cache_dir,
-};
+use crate::app_paths::{ensure_directories, thumbnail_cache_dir};
 use crate::models::AppError;
 
 // 640 keeps the largest grid tile (TILE_SIZE_MAX 400px) crisp well into HiDPI.
 // RAM is unaffected — the renderer decodes by path and evicts off-screen
 // textures, so memory tracks the viewport, not thumbnail resolution; only disk
-// grows modestly. The 2048px preview (loupe) is the pixel-accurate inspection
-// path, so the grid thumb doesn't need to chase full 2× of the max tile.
+// grows modestly. The loupe decodes the original on demand for pixel-accurate
+// inspection, so the grid thumb doesn't need to chase the full max tile.
 const TARGET_SIZE: u32 = 640;
-/// Long-edge size of the cached **preview** (the "smart preview" tier): big
-/// enough to view/cull full-screen, small enough to keep on disk for offline use.
-const PREVIEW_SIZE: u32 = 2048;
 const JPEG_QUALITY: u8 = 85;
 const RETRY_DELAY_SECS: u64 = 5;
 
@@ -206,36 +201,6 @@ pub fn generate_thumbnail(
     Ok(dest)
 }
 
-/// Generate the cached **preview** (a `PREVIEW_SIZE` JPEG) — the offline /
-/// loupe tier. Unlike the thumbnail it always decodes the real image (no tiny
-/// embedded-thumb fast path), so the result is full-screen quality. Idempotent.
-pub fn generate_preview(
-    catalog_dir: &str,
-    file_id: &str,
-    file_path: &str,
-) -> Result<String, AppError> {
-    let dest = preview_cache_path(catalog_dir, file_id);
-    if Path::new(&dest).exists() {
-        return Ok(dest);
-    }
-    let _ = fs::create_dir_all(preview_cache_dir(catalog_dir));
-
-    let ext = Path::new(file_path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    let img = if is_raw_extension(&ext) {
-        decode_raw_preview(file_path)
-            .ok_or_else(|| AppError::Thumbnail(file_id.to_string(), "no decodable preview in RAW file".into()))?
-    } else {
-        image::open(file_path).map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?
-    };
-    resize_and_save(img, &dest, file_id, PREVIEW_SIZE)?;
-    Ok(dest)
-}
-
 // Worker pool
 
 #[derive(Debug)]
@@ -363,7 +328,6 @@ fn sweep_tmp_files(catalog_dir: &str) {
 pub fn create_worker_pool(
     catalog_dir: &str,
     concurrency: usize,
-    gen_previews: bool,
     on_ready: impl Fn(String, String) + Send + Sync + 'static,
     on_failed: impl Fn(String, String) + Send + Sync + 'static,
 ) -> ThumbnailPool {
@@ -445,13 +409,6 @@ pub fn create_worker_pool(
                         std::thread::spawn(move || {
                             match generate_thumbnail(&catalog, &file_id, &file_path) {
                                 Ok(path) => {
-                                    // Best-effort preview for offline/loupe use; a
-                                    // failure here must not fail the thumbnail.
-                                    if gen_previews {
-                                        if let Err(e) = generate_preview(&catalog, &file_id, &file_path) {
-                                            eprintln!("[thumbnail] preview gen failed for {file_id}: {e}");
-                                        }
-                                    }
                                     let _ = tx_done.send(ThumbnailMsg::Done {
                                         file_id, success: true, msg: path,
                                     });
@@ -519,67 +476,12 @@ pub fn sweep_thumbnail_cache(
     sweep_orphans(&thumbnail_cache_dir(catalog_dir), &known)
 }
 
-pub fn sweep_preview_cache(
-    conn: &rusqlite::Connection,
-    catalog_dir: &str,
-) -> Result<usize, AppError> {
-    let known: HashSet<String> = crate::storage::db::get_all_file_ids(conn)?.into_iter().collect();
-    sweep_orphans(&preview_cache_dir(catalog_dir), &known)
-}
-
-/// Drop cached thumbnails and previews whose file is no longer in the catalog
-/// (folder removed, files purged, edited externally). One DB id-set query for
-/// both. Cheap directory scan — safe to run on catalog open.
+/// Drop cached thumbnails whose file is no longer in the catalog (folder
+/// removed, files purged, edited externally). Cheap directory scan — safe to run
+/// on catalog open.
 pub fn sweep_caches(conn: &rusqlite::Connection, catalog_dir: &str) -> Result<usize, AppError> {
     let known: HashSet<String> = crate::storage::db::get_all_file_ids(conn)?.into_iter().collect();
-    let t = sweep_orphans(&thumbnail_cache_dir(catalog_dir), &known)?;
-    let p = sweep_orphans(&preview_cache_dir(catalog_dir), &known)?;
-    Ok(t + p)
-}
-
-/// Bound the preview cache to `max_bytes` by deleting the oldest previews
-/// (by mtime) until it fits. `0` = unlimited (no-op). Returns files removed.
-/// Previews regenerate on demand when their drive is online, so eviction is safe.
-pub fn enforce_preview_cache_cap(catalog_dir: &str, max_bytes: u64) -> Result<usize, AppError> {
-    if max_bytes == 0 {
-        return Ok(0);
-    }
-    let dir = preview_cache_dir(catalog_dir);
-    if !Path::new(&dir).exists() {
-        return Ok(0);
-    }
-    let mut entries: Vec<(std::path::PathBuf, u64, std::time::SystemTime)> = fs::read_dir(&dir)
-        .map_err(|e| AppError::Sync(e.to_string()))?
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let path = e.path();
-            if path.extension().and_then(|x| x.to_str()) != Some("jpg") {
-                return None;
-            }
-            let meta = e.metadata().ok()?;
-            let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
-            Some((path, meta.len(), mtime))
-        })
-        .collect();
-
-    let total: u64 = entries.iter().map(|(_, size, _)| *size).sum();
-    if total <= max_bytes {
-        return Ok(0);
-    }
-    // Oldest first — evict until under the cap.
-    entries.sort_by_key(|(_, _, mtime)| *mtime);
-    let mut over = total - max_bytes;
-    let mut removed = 0usize;
-    for (path, size, _) in entries {
-        if over == 0 {
-            break;
-        }
-        if fs::remove_file(&path).is_ok() {
-            over = over.saturating_sub(size);
-            removed += 1;
-        }
-    }
-    Ok(removed)
+    sweep_orphans(&thumbnail_cache_dir(catalog_dir), &known)
 }
 
 #[cfg(test)]
@@ -655,58 +557,6 @@ mod tests {
             s.enqueue("e".into(), "/e.jpg".into(), 0, 0); // new normal-priority job
             // b (promoted) first, then a and e by ascending priority.
             assert_eq!(drain(&mut s), ids(&["b", "a", "e"]));
-        }
-    }
-
-    mod preview_cap {
-        use super::*;
-
-        fn write_preview(catalog: &str, name: &str, bytes: usize, mtime_secs: u64) {
-            let p = Path::new(&preview_cache_dir(catalog)).join(name);
-            fs::write(&p, vec![0u8; bytes]).unwrap();
-            let f = fs::OpenOptions::new().write(true).open(&p).unwrap();
-            f.set_modified(std::time::UNIX_EPOCH + Duration::from_secs(mtime_secs)).unwrap();
-        }
-
-        fn exists(catalog: &str, name: &str) -> bool {
-            Path::new(&preview_cache_dir(catalog)).join(name).exists()
-        }
-
-        #[test]
-        fn evicts_oldest_until_under_cap() {
-            let dir = TempDir::new().unwrap();
-            let cat = dir.path().to_str().unwrap();
-            fs::create_dir_all(preview_cache_dir(cat)).unwrap();
-            write_preview(cat, "old.jpg", 1000, 100);
-            write_preview(cat, "mid.jpg", 1000, 200);
-            write_preview(cat, "new.jpg", 1000, 300);
-
-            // 3000 total, cap 1500 → drop oldest two (down to 1000 ≤ 1500).
-            let removed = enforce_preview_cache_cap(cat, 1500).unwrap();
-            assert_eq!(removed, 2);
-            assert!(!exists(cat, "old.jpg"));
-            assert!(!exists(cat, "mid.jpg"));
-            assert!(exists(cat, "new.jpg"));
-        }
-
-        #[test]
-        fn under_cap_keeps_everything() {
-            let dir = TempDir::new().unwrap();
-            let cat = dir.path().to_str().unwrap();
-            fs::create_dir_all(preview_cache_dir(cat)).unwrap();
-            write_preview(cat, "a.jpg", 1000, 100);
-            assert_eq!(enforce_preview_cache_cap(cat, 5000).unwrap(), 0);
-            assert!(exists(cat, "a.jpg"));
-        }
-
-        #[test]
-        fn zero_means_unlimited() {
-            let dir = TempDir::new().unwrap();
-            let cat = dir.path().to_str().unwrap();
-            fs::create_dir_all(preview_cache_dir(cat)).unwrap();
-            write_preview(cat, "a.jpg", 10_000, 100);
-            assert_eq!(enforce_preview_cache_cap(cat, 0).unwrap(), 0);
-            assert!(exists(cat, "a.jpg"));
         }
     }
 }

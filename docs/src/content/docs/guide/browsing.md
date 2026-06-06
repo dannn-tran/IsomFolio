@@ -67,13 +67,12 @@ The zoom level is preserved between sessions.
 
 ## Working offline (removable drives)
 
-You can keep browsing and culling even when a photo's drive is disconnected. IsomFolio caches a large **preview** of each photo (on by default — *Settings → General → Keep offline previews*), so:
+You can keep browsing and culling from thumbnails even when a photo's drive is disconnected:
 
 - A library root on an unplugged drive is marked **offline** in the sidebar (`⏏`); its photos still appear in the grid with an **Offline** badge.
-- Opening a photo in the loupe shows the cached preview, so you can review it full-screen.
 - **Flagging, rating, colour labels, and rejects all work offline** — they're saved to the catalog and apply to the originals next time the drive is connected.
 
-When you reconnect the drive, IsomFolio notices automatically and the offline markers clear. Full-resolution 1:1 zoom and export still need the original file, so reconnect the drive for those.
+Opening a photo in the loupe (and full-resolution zoom and export) needs the original file, so reconnect the drive for those. When you reconnect, IsomFolio notices automatically and the offline markers clear.
 
 ## Show in Finder
 
