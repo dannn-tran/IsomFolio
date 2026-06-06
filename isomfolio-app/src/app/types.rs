@@ -30,6 +30,10 @@ pub const SIDEBAR_WIDTH: f32 = 220.0;
 pub const SIDEBAR_HANDLE_WIDTH: f32 = 5.0;
 pub const GRID_PADDING: f32 = 12.0;
 pub const TILE_GAP: f32 = 8.0;
+/// Width the grid's vertical scrollbar reserves — must match the `Scrollbar`
+/// width set on the grid scrollable in `content.rs`, so column math leaves room
+/// for it instead of letting the last tile wrap.
+pub const GRID_SCROLLBAR_WIDTH: f32 = 6.0;
 pub const ALBUM_ITEM_HEIGHT: f32 = 32.0;
 pub const FOLDER_ITEM_HEIGHT: f32 = 28.0;
 pub const DRAG_THRESHOLD: f32 = 6.0;
@@ -224,6 +228,10 @@ pub enum Msg {
 
     TileSizeUp,
     TileSizeDown,
+    /// Absolute tile size from the toolbar slider (clamped to the size bounds).
+    SetTileSize(f32),
+    /// Window resized — carries the new logical width, used to recompute columns.
+    WindowResized(f32),
 
     MouseMoved(Point),
     MousePressed,

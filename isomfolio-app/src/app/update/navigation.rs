@@ -21,6 +21,16 @@ impl App {
                 if let Some(idx) = self.anchor_idx { self.scroll_to_index(idx) } else { Task::none() }
             }
 
+            Msg::SetTileSize(px) => {
+                self.tile_px = px.clamp(TILE_SIZE_MIN, TILE_SIZE_MAX);
+                if let Some(idx) = self.anchor_idx { self.scroll_to_index(idx) } else { Task::none() }
+            }
+
+            Msg::WindowResized(width) => {
+                self.window_width = width;
+                Task::none()
+            }
+
             Msg::Navigate { dx, dy } => {
                 if matches!(self.view_mode, ViewMode::Loupe | ViewMode::Preview) {
                     let total = self.files.len();

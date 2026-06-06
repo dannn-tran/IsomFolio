@@ -123,6 +123,8 @@ impl App {
             // — navigation, mouse, loupe, compare, context menu —
             Msg::TileSizeUp
             | Msg::TileSizeDown
+            | Msg::SetTileSize(_)
+            | Msg::WindowResized(_)
             | Msg::Navigate { .. }
             | Msg::NavigateExtend { .. }
             | Msg::OpenLoupe

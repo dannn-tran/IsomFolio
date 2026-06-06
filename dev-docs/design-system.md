@@ -539,7 +539,7 @@ All non-search query controls live in **one collapsible Filters panel** (`view_s
 | `\` key | Toggle hide rejects |
 | Sort control (grid toolbar) | `pick_list` dropdown of fields (Name / Date Shot / Size / Type) + a `▲`/`▼` direction toggle button. Not a cycle button — the field set is explicit and visible. |
 | Grid / List toggle (toolbar) | `▦` / `≡` icon buttons switch the Browse content layout (thumbnail grid ⇄ compact columnar list). Active layout shown with `active_chip_style`. Pure presentation — no reload; the anchor stays scrolled into view. |
-| Thumbnail size (grid toolbar) | `−` / `+` buttons step `tile_px` (mirrors `⌘−`/`⌘+`). Grid layout only — hidden in List (fixed row height). |
+| Thumbnail size (grid toolbar) | A **slider** (`TILE_SIZE_MIN..=MAX`, flanked by small→large `▪ ▰` glyphs, tooltip "Thumbnail size") sets `tile_px` continuously — reads as *size* where a `+`/`−` pair read ambiguously as zoom. `⌘−`/`⌘+` still step it. Grid layout only — hidden in List (fixed row height). |
 | Click a List column header | Sort by that field (Name / Date / Size / Type); clicking the already-active column toggles direction. Shares the toolbar Sort state. Flag/Rating/Colour headers are display-only. |
 | Drag a List column's right edge | Resize that column (Name / Rating / Date / Size / Type). Width is clamped and held in memory for the session; does not clear the photo selection. |
 | Hide Rejects (`\` / View menu) | Convenience toggle between the `{Pick, Unflagged}` flag selection and "show all" — there is no separate hide-rejects state; it's a shortcut into the Filters section's flag set (single source of truth). |

@@ -195,6 +195,11 @@ pub struct App {
     pub scroll_y: f32,
     pub viewport_height: f32,
     pub viewport_width: f32,
+    /// Window width (logical px), tracked from window resize events. Column count
+    /// derives from this analytically (minus the known panel widths) so it stays
+    /// correct on resize / sidebar-drag / detail-toggle — unlike the scroll-only
+    /// `viewport_width`, which is stale until the next scroll.
+    pub window_width: f32,
 
     pub cursor: Point,
     pub drag: DragContext,
@@ -515,6 +520,7 @@ impl App {
             scroll_y: 0.0,
             viewport_height: 600.0,
             viewport_width: 1060.0,
+            window_width: 1300.0,
             cursor: Point::ORIGIN,
             drag: DragContext::default(),
             modifiers: keyboard::Modifiers::default(),
@@ -666,9 +672,15 @@ impl App {
         if matches!(self.grid_layout, GridLayout::List) {
             return 1;
         }
+        // Derive the grid's usable width from the window minus the panels flanking
+        // it — sidebar, its resize handle, and (once) the detail panel when shown —
+        // then the grid's own padding and scrollbar. Computing it here (rather than
+        // reading the scroll-sourced `viewport_width`) keeps the column count exact
+        // the instant any of those widths change, without waiting for a scroll.
         let detail_w = if self.detail.show { SIDEBAR_WIDTH } else { 0.0 };
-        let avail = (self.viewport_width - 2.0 * GRID_PADDING - detail_w).max(0.0);
-        ((avail + TILE_GAP) / (self.tile_px + TILE_GAP)) as usize
+        let grid_w = self.window_width - self.sidebar_width - SIDEBAR_HANDLE_WIDTH - detail_w;
+        let avail = (grid_w - 2.0 * GRID_PADDING - GRID_SCROLLBAR_WIDTH).max(0.0);
+        (((avail + TILE_GAP) / (self.tile_px + TILE_GAP)) as usize).max(1)
     }
 
     pub fn has_active_filters(&self) -> bool {
@@ -1224,6 +1236,9 @@ impl App {
                 Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) if ignored => {
                     Some(Msg::MouseRightClicked)
                 }
+                Event::Window(iced::window::Event::Resized(size)) => {
+                    Some(Msg::WindowResized(size.width))
+                }
                 Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::ModifiersChanged(m)),
                 Event::Keyboard(keyboard::Event::KeyPressed { ref key, modifiers, .. }) => {
                     keybinds::match_event(keybinds::bindings(), key, modifiers, ignored)
@@ -1358,7 +1373,7 @@ mod layout_tests {
         let mut a = app();
         a.grid_layout = GridLayout::List;
         // Width/tile size are irrelevant in List — always one file per row.
-        a.viewport_width = 2000.0;
+        a.window_width = 2000.0;
         a.tile_px = 180.0;
         assert_eq!(a.cols(), 1);
         assert_eq!(a.row_step(), LIST_ROW_HEIGHT);
@@ -1368,11 +1383,39 @@ mod layout_tests {
     fn grid_layout_packs_columns_from_width_and_tile_size() {
         let mut a = app();
         a.grid_layout = GridLayout::Grid;
-        a.viewport_width = 1000.0;
+        a.window_width = 1000.0;
+        a.sidebar_width = SIDEBAR_WIDTH;
         a.tile_px = 180.0;
         a.detail.show = false;
         assert!(a.cols() >= 2);
         assert_eq!(a.row_step(), a.tile_px + TILE_GAP);
+    }
+
+    #[test]
+    fn detail_panel_costs_exactly_one_panel_width_not_two() {
+        // Regression: cols() once subtracted the detail-panel width on top of the
+        // already-narrower grid measurement, charging the panel twice and dropping
+        // an extra column when it opened. Invariant: opening the panel at window
+        // width W must equal closing it at width W − one panel width.
+        let mut a = app();
+        a.grid_layout = GridLayout::Grid;
+        a.sidebar_width = SIDEBAR_WIDTH;
+        a.tile_px = 180.0;
+
+        a.window_width = 1400.0;
+        a.detail.show = false;
+        let wide = a.cols();
+        a.detail.show = true;
+        let narrow = a.cols();
+        assert!(wide >= narrow, "opening detail should never add columns");
+
+        a.detail.show = false;
+        a.window_width = 1400.0 - SIDEBAR_WIDTH;
+        assert_eq!(
+            narrow,
+            a.cols(),
+            "detail panel must cost exactly one panel width, not two",
+        );
     }
 
     #[test]

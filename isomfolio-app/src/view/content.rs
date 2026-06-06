@@ -1,6 +1,6 @@
 use iced::widget::scrollable::Direction;
 use iced::{
-    widget::{button, column, container, image, mouse_area, pick_list, row, scrollable, stack, text, text_input, tooltip, Space},
+    widget::{button, column, container, image, mouse_area, pick_list, row, scrollable, slider, stack, text, text_input, tooltip, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 
@@ -29,6 +29,7 @@ use super::styles::{
 use crate::app::{
     format_file_size, sort_field_label, unix_to_date_str, App, GridLayout, ListCol, Msg,
     DetailField, BUFFER_ROWS, GRID_PADDING, LIST_HEADER_HEIGHT, LIST_ROW_HEIGHT, TILE_GAP,
+    TILE_SIZE_MAX, TILE_SIZE_MIN,
 };
 
 // Fixed (non-resizable) glyph columns for the List layout. The resizable
@@ -60,25 +61,26 @@ impl App {
         ]
         .spacing(SPACE_0_5);
 
-        // Thumbnail-size control (Grid only — List rows are fixed height). Mirrors
-        // the Cmd+/Cmd- shortcuts so the gesture is discoverable.
+        // Thumbnail-size control (Grid only — List rows are fixed height). A
+        // continuous slider reads as "size" directly (Lightroom/Photos/Finder
+        // convention) where a `+`/`−` pair read ambiguously as zoom; the small→
+        // large glyphs flanking it name the axis, and ⌘−/⌘+ still step it.
         let size_control: Element<Msg> = if is_list {
             Space::new().width(0.0).into()
         } else {
-            row![
-                super::styles::tip(
-                    super::styles::icon_btn("−", Msg::TileSizeDown),
-                    "Smaller thumbnails (⌘−)",
-                    super::styles::TipPos::Bottom,
-                ),
-                super::styles::tip(
-                    super::styles::icon_btn("+", Msg::TileSizeUp),
-                    "Larger thumbnails (⌘+)",
-                    super::styles::TipPos::Bottom,
-                ),
-            ]
-            .spacing(SPACE_0_5)
-            .into()
+            super::styles::tip(
+                row![
+                    text("▪").size(TEXT_XS).color(FG_DIM),
+                    slider(TILE_SIZE_MIN..=TILE_SIZE_MAX, self.tile_px, Msg::SetTileSize)
+                        .step(2.0)
+                        .width(96),
+                    text("▰").size(TEXT_MD).color(FG_DIM),
+                ]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center),
+                "Thumbnail size (⌘− / ⌘+)",
+                super::styles::TipPos::Bottom,
+            )
         };
 
         let sort_choices: Vec<SortChoice> = SORT_FIELDS.iter().copied().map(SortChoice).collect();
