@@ -72,8 +72,11 @@ pub fn default_bindings() -> Vec<KeyBind> {
         // View
         KeyBind { key: Named(Named::Space), mods: Mods::NONE, when_ignored: true, action: || Msg::OpenLoupe,       label: "Toggle Loupe",    category: View },
         KeyBind { key: Char("i"),           mods: Mods::NONE, when_ignored: true, action: || Msg::ToggleDetail,     label: "Toggle Info",     category: View },
-        KeyBind { key: Char("="),           mods: Mods::CMD,  when_ignored: true, action: || Msg::TileSizeUp,       label: "Zoom In",         category: View },
-        KeyBind { key: Char("-"),           mods: Mods::CMD,  when_ignored: true, action: || Msg::TileSizeDown,     label: "Zoom Out",        category: View },
+        KeyBind { key: Char("="),           mods: Mods::CMD,  when_ignored: true, action: || Msg::TileSizeUp,       label: "Zoom In (grid / loupe)",  category: View },
+        KeyBind { key: Char("-"),           mods: Mods::CMD,  when_ignored: true, action: || Msg::TileSizeDown,     label: "Zoom Out (grid / loupe)", category: View },
+        KeyBind { key: Char("="),           mods: Mods::NONE, when_ignored: true, action: || Msg::TileSizeUp,       label: "Zoom In (grid / loupe)",  category: View },
+        KeyBind { key: Char("+"),           mods: Mods::SHIFT, when_ignored: true, action: || Msg::TileSizeUp,      label: "Zoom In (grid / loupe)",  category: View },
+        KeyBind { key: Char("-"),           mods: Mods::NONE, when_ignored: true, action: || Msg::TileSizeDown,     label: "Zoom Out (grid / loupe)", category: View },
         KeyBind { key: Char("e"),           mods: Mods::NONE, when_ignored: true, action: || Msg::TogglePreview,      label: "Toggle Preview",  category: View },
         KeyBind { key: Char("z"),           mods: Mods::NONE, when_ignored: true, action: || Msg::LoupeZoomActual,    label: "Loupe 1:1 / Fit", category: View },
         KeyBind { key: Char("f"),           mods: Mods::NONE, when_ignored: true, action: || Msg::ToggleFilterPanel,  label: "Toggle Filters",  category: View },

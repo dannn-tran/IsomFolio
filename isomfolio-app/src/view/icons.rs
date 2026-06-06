@@ -29,6 +29,8 @@ pub enum Icon {
     ChevronRight,
     ChevronUp,
     Plus,
+    ZoomIn,
+    ZoomOut,
 }
 
 fn bytes(icon: Icon) -> &'static [u8] {
@@ -44,6 +46,8 @@ fn bytes(icon: Icon) -> &'static [u8] {
         Icon::ChevronRight => include_bytes!("../../assets/icons/chevron-right.svg"),
         Icon::ChevronUp => include_bytes!("../../assets/icons/chevron-up.svg"),
         Icon::Plus => include_bytes!("../../assets/icons/plus.svg"),
+        Icon::ZoomIn => include_bytes!("../../assets/icons/zoom-in.svg"),
+        Icon::ZoomOut => include_bytes!("../../assets/icons/zoom-out.svg"),
     }
 }
 

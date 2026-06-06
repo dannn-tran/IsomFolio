@@ -150,6 +150,8 @@ impl App {
             | Msg::ToggleAddToAlbumSubmenu
             | Msg::HoverSidebarEntityStart(_)
             | Msg::HoverSidebarEntityEnd(_)
+            | Msg::OpenSidebarEntityMenu(_)
+            | Msg::SidebarEntityPressed(_)
             | Msg::ToggleShortcutHelp
             | Msg::OpenMenuDropdown(_)
             | Msg::HoverMenuTab(_)

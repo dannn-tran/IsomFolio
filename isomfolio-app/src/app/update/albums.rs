@@ -124,12 +124,20 @@ impl App {
                 };
                 let new_id = new_album_id();
                 self.pending_album_select = Some(new_id.clone());
+                // Keep names unique: "X copy", then "X copy 2", "X copy 3"…
+                let base = format!("{} copy", src.name);
+                let mut name = base.clone();
+                let mut n = 2;
+                while self.albums.iter().any(|a| a.name.to_lowercase() == name.to_lowercase()) {
+                    name = format!("{base} {n}");
+                    n += 1;
+                }
                 Task::perform(
                     async move {
                         let guard = conn.lock_unwrap();
                         let new_album = Album {
                             id: new_id.clone(),
-                            name: format!("{} copy", src.name),
+                            name,
                             kind: src.kind.clone(),
                             sort_order: 0,
                         };
@@ -159,6 +167,11 @@ impl App {
                 let name = self.create_album_input.take().unwrap_or_default();
                 let name = name.trim().to_string();
                 if name.is_empty() {
+                    return Task::none();
+                }
+                if self.albums.iter().any(|a| a.name.to_lowercase() == name.to_lowercase()) {
+                    self.status = format!("An album named \u{201C}{name}\u{201D} already exists");
+                    self.create_album_input = Some(name);
                     return Task::none();
                 }
                 let Some(conn) = self.catalog.clone() else {
@@ -204,6 +217,11 @@ impl App {
                     return Task::none();
                 };
                 if name.is_empty() {
+                    return Task::none();
+                }
+                if self.albums.iter().any(|a| a.id != album_id && a.name.to_lowercase() == name.to_lowercase()) {
+                    self.status = format!("An album named \u{201C}{name}\u{201D} already exists");
+                    self.rename_album_id = Some(album_id);
                     return Task::none();
                 }
                 let Some(conn) = self.catalog.clone() else {
@@ -332,6 +350,11 @@ impl App {
                 let name = self.filters.save_smart_input.take().unwrap_or_default();
                 let name = name.trim().to_string();
                 if name.is_empty() {
+                    return Task::none();
+                }
+                if self.albums.iter().any(|a| a.name.to_lowercase() == name.to_lowercase()) {
+                    self.status = format!("An album named \u{201C}{name}\u{201D} already exists");
+                    self.filters.save_smart_input = Some(name);
                     return Task::none();
                 }
                 let query = self.build_search_query();

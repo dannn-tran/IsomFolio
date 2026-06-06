@@ -500,6 +500,13 @@ pub enum Msg {
     AddSelectionToTargetAlbum,
     HoverSidebarEntityStart(SidebarItem),
     HoverSidebarEntityEnd(SidebarItem),
+    /// Right-click on a sidebar entity row — opens its context menu directly,
+    /// without relying on hover state + the global uncaptured-right-click path.
+    OpenSidebarEntityMenu(SidebarItem),
+    /// Left-press on a sidebar entity row's name button. The button captures the
+    /// press (so the global Ctrl+Click→menu path never sees it); this routes it:
+    /// Ctrl held → open the context menu, otherwise → select/navigate.
+    SidebarEntityPressed(SidebarItem),
     ToggleAddToAlbumSubmenu,
     LoupeFullResLoaded { idx: usize, handle: iced::widget::image::Handle },
     LoupeHiresLoaded { idx: usize, handle: iced::widget::image::Handle },
@@ -521,7 +528,7 @@ pub enum Msg {
     ConfirmDeleteRejects,
     CancelDeleteRejects,
     SelectionDeleted,
-    /// Permanently delete (from disk + catalog): the current selection / all in Deleted.
+    /// Move to OS Trash + drop catalog rows: the current selection / all in Deleted.
     RequestPurgeSelected,
     RequestPurgeAll,
     ConfirmPurge,

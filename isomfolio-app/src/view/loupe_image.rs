@@ -186,10 +186,14 @@ where
         let bounds = layout.bounds();
         if tree.state.downcast_ref::<State>().grabbed.is_some() {
             mouse::Interaction::Grabbing
-        } else if self.scale > self.min_scale && cursor.is_over(bounds) {
+        } else if !cursor.is_over(bounds) {
+            mouse::Interaction::None
+        } else if self.scale > self.min_scale {
+            // Zoomed in: the image can be dragged to pan.
             mouse::Interaction::Grab
         } else {
-            mouse::Interaction::None
+            // At fit: signal that scrolling here zooms.
+            mouse::Interaction::ZoomIn
         }
     }
 

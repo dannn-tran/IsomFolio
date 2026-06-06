@@ -169,12 +169,12 @@ impl App {
                 items
             }
             ContextMenuTarget::GridTiles => {
-                // In the Deleted view: restore, or permanently delete from disk.
+                // In the Deleted view: restore, or move the files to the OS Trash.
                 if self.selected_item == crate::app::SidebarItem::Deleted {
                     return vec![
                         Some(("Restore".into(), Msg::RestoreSelection, false)),
                         None,
-                        Some(("Delete Permanently…".into(), Msg::RequestPurgeSelected, true)),
+                        Some((format!("Move to {}…", crate::app::os_trash_name()), Msg::RequestPurgeSelected, true)),
                     ];
                 }
                 let n = self.grid_selected.len();

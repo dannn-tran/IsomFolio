@@ -492,6 +492,7 @@ impl App {
                     .collect();
                 if !targets.is_empty() {
                     self.purge_pending = Some(targets);
+                    self.context_menu = None;
                 }
                 Task::none()
             }
@@ -515,14 +516,16 @@ impl App {
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let count = targets.len();
                 self.grid_selected.clear();
-                self.status = format!("Permanently deleted {count} file(s)");
+                self.status = format!("Moved {count} photo(s) to {}", crate::app::os_trash_name());
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            // This is the one delete path that touches disk.
-                            for (_, path) in &targets {
-                                let _ = std::fs::remove_file(path);
-                            }
+                            // The one delete path that touches disk: move files to the
+                            // OS Trash / Recycle Bin (recoverable there), then drop the
+                            // catalog rows. Their catalog edits do not survive.
+                            let paths: Vec<String> =
+                                targets.iter().map(|(_, p)| p.clone()).collect();
+                            let _ = trash::delete_all(&paths);
                             let ids: Vec<String> = targets.into_iter().map(|(id, _)| id).collect();
                             let _ = conn.lock_unwrap().delete_files(&ids);
                         })

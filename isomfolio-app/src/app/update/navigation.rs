@@ -12,11 +12,18 @@ impl App {
     pub(super) fn handle_navigation_msg(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::TileSizeUp => {
+                // In the loupe the "zoom" keys zoom the image, not the grid tiles.
+                if matches!(self.view_mode, ViewMode::Loupe) {
+                    return self.handle_navigation_msg(Msg::LoupeZoomBy(1.25));
+                }
                 self.tile_px = (self.tile_px + TILE_SIZE_STEP).min(TILE_SIZE_MAX);
                 if let Some(idx) = self.anchor_idx { self.scroll_to_index(idx) } else { Task::none() }
             }
 
             Msg::TileSizeDown => {
+                if matches!(self.view_mode, ViewMode::Loupe) {
+                    return self.handle_navigation_msg(Msg::LoupeZoomBy(0.8));
+                }
                 self.tile_px = (self.tile_px - TILE_SIZE_STEP).max(TILE_SIZE_MIN);
                 if let Some(idx) = self.anchor_idx { self.scroll_to_index(idx) } else { Task::none() }
             }
@@ -509,6 +516,10 @@ impl App {
             }
 
             Msg::EscapePressed => {
+                if self.purge_pending.is_some() {
+                    self.purge_pending = None;
+                    return Task::none();
+                }
                 if self.open_menu.is_some() {
                     self.open_menu = None;
                     return Task::none();
@@ -575,6 +586,22 @@ impl App {
                     cm.submenu_open = !cm.submenu_open;
                 }
                 Task::none()
+            }
+
+            Msg::OpenSidebarEntityMenu(item) => {
+                // Right-clicking the row is authoritative about which entity is
+                // targeted — don't depend on a hover that may have been missed.
+                self.hovered_sidebar_entity = Some(item);
+                return self.handle_navigation_msg(Msg::MouseRightClicked);
+            }
+
+            Msg::SidebarEntityPressed(item) => {
+                // The name button captured this left-press, so the global
+                // Ctrl+Click→menu path (in MousePressed) never ran — honour Ctrl here.
+                if self.modifiers.control() {
+                    return self.handle_navigation_msg(Msg::OpenSidebarEntityMenu(item));
+                }
+                return Task::done(Msg::SidebarItemClicked(item));
             }
 
             Msg::HoverSidebarEntityStart(item) => {

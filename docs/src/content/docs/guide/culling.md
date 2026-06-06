@@ -49,7 +49,7 @@ Pressing **Delete** (or **Backspace**) on the selected photos, or **Edit → Del
 
 To **recover**, open the **Deleted** folder, select the photos, and choose **Restore** (right-click) — they return to their place instantly, with ratings and tags intact. (Inside a manual album, Delete instead just removes the photos from that album.)
 
-To remove them for good, use **Delete Permanently…** (right-click) on a selection, or **Empty Deleted…** in the status bar. This is the *only* action that deletes the actual files from disk, so it asks for confirmation and **cannot be undone**.
+To remove them from your library, use **Move to Trash…** (right-click) on a selection, or **Empty Deleted…** in the status bar. This is the *only* action that touches the files on disk: it moves them to your system **Trash** (Recycle Bin on Windows) — so they're still recoverable there until you empty it — and drops them from the catalog. The files come back, but their **ratings and tags do not** (re-importing gives a fresh entry), so it asks for confirmation first.
 
 ## Colour labels
 

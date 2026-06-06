@@ -154,23 +154,7 @@ impl App {
             );
         }
 
-        if let Some(targets) = &self.purge_pending {
-            let n = targets.len();
-            status_row = status_row.push(
-                row![
-                    text(format!("Permanently delete {n} file(s) from disk? Cannot be undone."))
-                        .size(TEXT_MD).color(ERR),
-                    button(text("Cancel").size(TEXT_MD))
-                        .on_press(Msg::CancelPurge)
-                        .style(ghost_btn_style),
-                    button(text("Delete").size(TEXT_MD))
-                        .on_press(Msg::ConfirmPurge)
-                        .style(danger_btn_style),
-                ]
-                .spacing(SPACE_1_5)
-                .align_y(Alignment::Center),
-            );
-        } else if self.selected_item == SidebarItem::Deleted && !self.files.is_empty() {
+        if self.selected_item == SidebarItem::Deleted && !self.files.is_empty() {
             status_row = status_row.push(
                 button(text("Empty Deleted…").size(TEXT_MD).color(ERR))
                     .on_press(Msg::RequestPurgeAll)
@@ -254,6 +238,9 @@ impl App {
         }
         if self.welcome.show_new_catalog_modal {
             layers.push(self.new_catalog_modal_overlay());
+        }
+        if self.purge_pending.is_some() {
+            layers.push(self.purge_confirm_overlay());
         }
         let root: Element<Msg> = if layers.len() == 1 {
             layers.remove(0)
@@ -582,12 +569,12 @@ impl App {
         let tip = |el, label: &'static str| styles::tip(el, label, styles::TipPos::Top);
         let zoom_cluster = row![
             tip(
-                styles::icon_btn("−", Msg::LoupeZoomBy(0.8)),
-                "Zoom out",
+                styles::icon_btn_svg_color(icons::Icon::ZoomOut, Msg::LoupeZoomBy(0.8), FG),
+                "Zoom out (−)",
             ),
             tip(
-                styles::icon_btn("+", Msg::LoupeZoomBy(1.25)),
-                "Zoom in",
+                styles::icon_btn_svg_color(icons::Icon::ZoomIn, Msg::LoupeZoomBy(1.25), FG),
+                "Zoom in (+)",
             ),
             tip(
                 button(text("1:1").size(TEXT_MD)).on_press(Msg::LoupeZoomActual).style(ghost_btn_style),
@@ -1318,12 +1305,64 @@ impl App {
 
         modal_with_backdrop(panel).into()
     }
+
+    /// Permanent-purge confirmation. The one confirm in the app that uses a modal:
+    /// deleting files from disk is irreversible, so the scrim guards against an
+    /// accidental click-through and forces a deliberate confirm (see
+    /// design-system.md → Modal dialogs). Reversible confirms stay inline.
+    fn purge_confirm_overlay(&self) -> Element<'_, Msg> {
+        let n = self.purge_pending.as_ref().map(|t| t.len()).unwrap_or(0);
+        let noun = if n == 1 { "photo" } else { "photos" };
+        let trash = crate::app::os_trash_name();
+
+        let body = column![
+            text(format!("Move to {trash}")).size(TEXT_TITLE).color(FG),
+            Space::new().height(SPACE_2),
+            text(format!("{n} {noun} will be moved to the {trash}."))
+                .size(TEXT_SM).color(FG_DIM),
+            Space::new().height(SPACE_1),
+            text("Their ratings and tags are removed from the catalog.")
+                .size(TEXT_SM).color(ERR),
+            Space::new().height(SPACE_4),
+            row![
+                button(text("Cancel").size(TEXT_BASE))
+                    .on_press(Msg::CancelPurge)
+                    .style(ghost_btn_style),
+                Space::new().width(Length::Fill),
+                button(text(format!("Move to {trash}")).size(TEXT_BASE))
+                    .on_press(Msg::ConfirmPurge)
+                    .style(danger_btn_style),
+            ]
+            .align_y(Alignment::Center),
+        ]
+        .spacing(0)
+        .width(420);
+
+        let modal = container(body)
+            .padding(SPACE_6)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_MODAL)),
+                border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
+                ..Default::default()
+            });
+        // Scrim-click cancels — safe, since Cancel is the non-destructive choice.
+        modal_with_backdrop_dismiss(modal, Msg::CancelPurge).into()
+    }
 }
 
 /// Wrap a modal panel with a backdrop that blocks all mouse events from reaching
 /// the layers below. The backdrop is darkened (OVERLAY_MEDIUM) and the modal is
-/// centered on top.
+/// centered on top. Scrim-click is inert.
 fn modal_with_backdrop<'a, E>(modal: E) -> Element<'a, Msg>
+where
+    E: Into<Element<'a, Msg>>,
+{
+    modal_with_backdrop_dismiss(modal, Msg::NoOp)
+}
+
+/// As [`modal_with_backdrop`], but a scrim-click emits `on_dismiss` (e.g. Cancel)
+/// rather than being inert. All other mouse events are still swallowed.
+fn modal_with_backdrop_dismiss<'a, E>(modal: E, on_dismiss: Msg) -> Element<'a, Msg>
 where
     E: Into<Element<'a, Msg>>,
 {
@@ -1336,7 +1375,7 @@ where
                 ..Default::default()
             }),
     )
-    .on_press(Msg::NoOp)
+    .on_press(on_dismiss)
     .on_release(Msg::NoOp)
     .on_right_press(Msg::NoOp)
     .on_right_release(Msg::NoOp)

@@ -948,6 +948,7 @@ fn folder_tree_row<'a>(
     let entity = SidebarItem::Folder(path.clone());
     let row_el = mouse_area(inner)
         .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
+        .on_right_press(Msg::OpenSidebarEntityMenu(entity.clone()))
         .on_exit(Msg::HoverSidebarEntityEnd(entity));
 
     if was_truncated {
@@ -1010,7 +1011,7 @@ fn album_sidebar_row<'a>(
         ]
         .align_y(Alignment::Center),
     )
-    .on_press(Msg::SidebarItemClicked(SidebarItem::Album(
+    .on_press(Msg::SidebarEntityPressed(SidebarItem::Album(
         album_id.clone(),
     )))
     .width(Length::Fill)
@@ -1039,6 +1040,7 @@ fn album_sidebar_row<'a>(
     let entity = SidebarItem::Album(album_id.clone());
     let row_el = mouse_area(inner)
         .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
+        .on_right_press(Msg::OpenSidebarEntityMenu(entity.clone()))
         .on_exit(Msg::HoverSidebarEntityEnd(entity));
 
     if was_truncated {

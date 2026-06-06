@@ -20,6 +20,11 @@ use isomfolio_core::indexing::watcher::{create_watcher, start_mount_watch, FileW
 use isomfolio_core::models::SearchQuery;
 use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, SortField, ThumbnailState};
 
+/// Platform name for the OS trash, used in user-facing delete copy.
+pub fn os_trash_name() -> &'static str {
+    if cfg!(target_os = "windows") { "Recycle Bin" } else { "Trash" }
+}
+
 pub trait LockUnwrap<T> {
     fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T>;
 }

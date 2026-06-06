@@ -281,8 +281,18 @@ pub fn icon_btn_styled<'a>(
 /// than `icon_btn`'s tint-brighten). Returns a `Button` so callers can size it to
 /// a host slot (e.g. the folder-tree chevron column).
 pub fn icon_btn_svg<'a>(kind: super::icons::Icon, msg: Msg) -> button::Button<'a, Msg> {
+    icon_btn_svg_color(kind, msg, FG_DIM)
+}
+
+/// `icon_btn_svg` with a caller-chosen tint — for SVG icon buttons that sit on a
+/// dark compositing layer (the loupe overlay) where `FG_DIM` would read too faint.
+pub fn icon_btn_svg_color<'a>(
+    kind: super::icons::Icon,
+    msg: Msg,
+    color: Color,
+) -> button::Button<'a, Msg> {
     button(
-        container(super::icons::icon(kind, FG_DIM))
+        container(super::icons::icon(kind, color))
             .center_x(Length::Fill)
             .center_y(Length::Fill),
     )

@@ -57,7 +57,7 @@ Every significant action must have at least one discoverable path beyond right-c
 | Compare | — | Photo → Compare | `C` | — |
 | Delete (soft) | — | Edit → Delete | `Del` / `Backspace` | — |
 | Restore from Deleted | Deleted-view tile | — | — | — |
-| Delete Permanently… | Deleted-view tile | — | — | — |
+| Move to Trash… | Deleted-view tile | — | — | — |
 | Empty Deleted… | — | — | — | Status bar button |
 | Sync Folder | Folder | — | `Cmd+R` | — |
 | Add Folder | — | Catalog → Add Folder… | — | Sidebar `+` button |
@@ -76,7 +76,7 @@ Every significant action must have at least one discoverable path beyond right-c
 | Toggle Help | — | — | `?` | `?` icon (menu bar) |
 | Hide Rejects | — | View → Hide Rejects | `\` | — |
 
-**Noted gaps:** Restore from Deleted, Delete Permanently, Set Target Album, Edit Smart Album Criteria, and Rename Person are context-menu-only. All must appear in the `?` help panel under their respective sections as compensation. Remove from Library is context-menu-only for folders — it must be in the Catalog menu when a folder is selected. Add "Remove from Library…" to the Catalog menu spec.
+**Noted gaps:** Restore from Deleted, Move to Trash, Set Target Album, Edit Smart Album Criteria, and Rename Person are context-menu-only. All must appear in the `?` help panel under their respective sections as compensation. Remove from Library is context-menu-only for folders — it must be in the Catalog menu when a folder is selected. Add "Remove from Library…" to the Catalog menu spec.
 
 ---
 
@@ -129,7 +129,7 @@ Do not create new size tiers. Pick the closest existing token.
 
 Two distinct icon mechanisms, by origin:
 
-- **Unicode glyphs** — compact inline controls and status marks (flags `✓ ✕ ○`, `⚡ ⟳ ★ ● ◎ ⧉`, layout toggles `▦ ≡`, sort `▲ ▼`, zoom `− +`, confirm `✓ ✕`). Rendered as text in the system font; no asset needed. Keep using these for compact inline controls and for chip/row status — not for the structural disclosure/add controls below.
+- **Unicode glyphs** — compact inline controls and status marks (flags `✓ ✕ ○`, `⚡ ⟳ ★ ● ◎ ⧉`, layout toggles `▦ ≡`, sort `▲ ▼`, grid tile-size `− +`, confirm `✓ ✕`). Rendered as text in the system font; no asset needed. Keep using these for compact inline controls and for chip/row status — not for the structural disclosure/add controls below. (The *loupe* zoom buttons are the exception — they use the Lucide `zoom-in`/`zoom-out` magnifier icons, not bare `− +`, so the control reads unambiguously as *image* zoom.)
 - **SVG line icons** — for *navigation destinations* (sidebar rows/headers) **and the structural control glyphs that sit beside them** (disclosure chevrons, the `+` add action). [Lucide](https://lucide.dev) (ISC), embedded under `assets/icons/`, rendered via `view/icons.rs` (`icon(Icon, Color)`) at `ICON_SIZE` (15 px) and **tinted single-colour** through `svg::Style.color`, so a glyph adopts its row's state colour (`FG_DIM` at rest, brighter/`Color::WHITE` when selected). Never multi-colour; never emoji (colour emoji clash with the quiet dark UI).
 
 An icon resource is **not** a "decorative font" — the *Typography* rule ("default system font only") governs text, not iconography. Adding a new icon: drop the Lucide SVG in `assets/icons/`, add an `Icon` variant. Use sparingly — icons aid recognition on a *few* high-level destinations; do not sprinkle them on every row (e.g. folder-tree leaves and import batches stay text-only).
@@ -299,7 +299,7 @@ A rejected grid tile is **dimmed in place** (dark scrim, α ≈ 0.55) rather tha
 
 **Delete never touches the file on disk.** "Delete" (the `Del`/`Backspace` key, the Photo menu, or "Delete Rejected Photos") sets a virtual `is_deleted` flag in the catalog: the photo drops out of every normal view and collects in a virtual **Deleted** sidebar entry (shown only when non-empty, with a count). **Restore** (right-click in the Deleted view) clears the flag — instant and lossless, because the row never left the catalog (ratings/tags intact). There is no on-disk trash folder and no file move. (Inside a manual album, `Del` instead unlinks from the album.) Implementation invariant — the flag survives re-sync — is in `architecture.md`.
 
-**Permanent purge** is the one exception that touches disk: "Delete Permanently…" (Deleted-view context menu, on a selection) or "Empty Deleted…" (status bar) deletes the actual files and removes the rows. It is irreversible, so it uses the inline `ERR` confirm (Cancel + Delete) before acting.
+**Move to Trash** is the one action that touches disk: "Move to Trash…" (Deleted-view context menu, on a selection) or "Empty Deleted…" (status bar) moves the actual files to the **OS Trash / Recycle Bin** (`trash` crate; platform name via `os_trash_name()`) and removes the catalog rows. The *file* is recoverable from the OS trash until it's emptied; the *catalog edits* (rating, tags, album membership) are dropped and do not survive a re-import — that loss is the permanent consequence. Because it's a batch removal with permanent catalog-edit loss, it uses a **modal dialog** (centred card + scrim), not an inline confirm: the scrim blocks accidental click-through, and the single dialog serves both triggers (the context-menu item closes the menu and opens it; the status-bar button opens it directly). See *Confirmation pattern* and *Modal dialogs* for the carve-out.
 
 ### Confirmation pattern
 
@@ -308,6 +308,10 @@ Two-step for destructive ops: first trigger (context menu item) → inline confi
 Single-step for safe ops: primary button directly triggers action.
 
 The trigger for a destructive op is always the context menu item, never a persistent inline button.
+
+**The confirm co-locates with its trigger, never the status bar.** A context-menu trigger closes the menu and shows its confirm inline on the entity; a status-bar button confirms beside itself. A confirm rendered far from where the user clicked (e.g. a context-menu action whose confirm appears in the status bar) is a bug.
+
+**Modal carve-out — the disk-touching removal only.** Reversible / catalog-only confirms stay inline. The *single* action that moves files off disk (Move to Trash) instead uses a **modal dialog**: it's a batch operation whose catalog-edit loss is permanent, and the scrim guards against an accidental click-through. This is the only confirmation permitted to use a modal; do not let it spread to reversible ops. Dialog: Esc / Cancel / scrim-click all cancel, default focus is Cancel, `danger_btn_style` on the confirm.
 
 ### Destructive action inventory
 
@@ -320,8 +324,8 @@ Every destructive action must be listed here with its reversibility and confirma
 | **Remove from Library…** | Folder context menu | ✅ Catalog-only; files untouched | "Remove [folder] from library? Files stay on disk. [Cancel] [Remove]" |
 | **Remove Missing Files…** | Folder context menu (orphans present) | ⚠️ Catalog rows gone; files were already absent | "Remove N missing file(s) from catalog? [Cancel] [Remove]" |
 | **Delete Album…** | Album context menu | ✅ Album removed; photos stay in library | "Delete album '[name]'? Photos stay in the library. [Cancel] [Delete Album]" |
-| **Delete Permanently…** | Deleted-view tile context menu | ❌ **Irreversible — files deleted on disk** | `danger_btn_style` confirm: "Permanently delete N photo(s)? This cannot be undone. [Cancel] [Delete Permanently]" |
-| **Empty Deleted…** | Status bar button | ❌ **Irreversible — files deleted on disk** | `danger_btn_style` confirm: "Permanently delete all N deleted photo(s)? This cannot be undone. [Cancel] [Delete Permanently]" |
+| **Move to Trash…** | Deleted-view tile context menu | ⚠️ File recoverable in OS Trash until emptied; **catalog edits lost** | **Modal** (title "Move to Trash"): "N photo(s) will be moved to the Trash. Their ratings and tags are removed from the catalog." `[Cancel]` (default) `[Move to Trash]` (`danger_btn_style`). Trash/Recycle Bin term via `os_trash_name()` |
+| **Empty Deleted…** | Status bar button | ⚠️ File recoverable in OS Trash until emptied; **catalog edits lost** | Same modal as above — one dialog serves both triggers; N reflects all photos in Deleted |
 
 **Confirm button style rule:** `danger_btn_style` for irreversible file-deleting operations. Standard `ERR`-coloured text with `ghost_btn_style` for reversible catalog-only operations. Cancel always appears to the left of the confirm button; default focus is Cancel.
 
@@ -407,7 +411,7 @@ One panel renders **every** long-running process through a single uniform `TaskV
 
 ### Modal dialogs
 
-Use `stack` overlay: base layer + semi-opaque scrim (`Color { r:0, g:0, b:0, a:0.55 }`) + centred modal card. Modal card: `BG_MODAL` background, 10 px radius, 24 px padding, fixed width (≈ 420 px). Reserve modals for focused multi-field task flows (e.g. New Catalog). Do not use modals for simple toggles or confirmations.
+Use `stack` overlay: base layer + semi-opaque scrim (`Color { r:0, g:0, b:0, a:0.55 }`) + centred modal card. Modal card: `BG_MODAL` background, 10 px radius, 24 px padding, fixed width (≈ 420 px). Reserve modals for focused multi-field task flows (e.g. New Catalog). Do not use modals for simple toggles or confirmations — **with one carve-out: the Move to Trash confirm** (see *Confirmation pattern* → modal carve-out). `modal_with_backdrop` builds an inert-scrim modal; `modal_with_backdrop_dismiss(modal, msg)` makes a scrim-click emit `msg` (used by Move to Trash to cancel).
 
 ---
 

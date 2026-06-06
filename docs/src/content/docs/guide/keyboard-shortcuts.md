@@ -30,8 +30,9 @@ Press `?` at any time to open the in-app shortcut help panel.
 | `E` | Toggle Preview mode |
 | `I` | Toggle Info panel |
 | `C` | Compare (requires exactly 2 photos selected) |
-| `Cmd++` | Zoom in (larger thumbnails) |
-| `Cmd+-` | Zoom out (smaller thumbnails) |
+| `+` / `Cmd++` | Zoom in — larger grid thumbnails, or zoom the loupe image |
+| `-` / `Cmd+-` | Zoom out — smaller grid thumbnails, or zoom the loupe image |
+| `Z` | In the loupe: toggle 1:1 (actual pixels) / Fit |
 | `\` | Toggle hide rejected photos |
 | `?` | Toggle shortcut help |
 
