@@ -55,84 +55,35 @@ fn resize_and_save(
     fs::rename(&tmp, dest).map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))
 }
 
-// Extract the embedded JPEG thumbnail from a JPEG file's EXIF APP1 segment.
-// Returns None if absent or malformed. No external dependencies — pure byte parsing.
-fn read_exif_jpeg_thumbnail(file_path: &str) -> Option<Vec<u8>> {
-    let data = fs::read(file_path).ok()?;
-    if !data.starts_with(&[0xFF, 0xD8]) {
-        return None;
+/// Decode a JPEG at a reduced DCT scale (1/8, 1/4, 1/2 of full) — the smallest
+/// step still ≥ `target` on the long edge. The decoder skips most of the inverse
+/// DCT / upsampling, so a 24MP frame downscales to a thumbnail several times
+/// faster (and with a fraction of the RAM) than a full decode. Returns `None`
+/// for unusual JPEGs (CMYK, 16-bit, decode error) so the caller can fall back to
+/// the general `image::open` path.
+fn decode_jpeg_scaled(file_path: &str, target: u32) -> Option<image::DynamicImage> {
+    use jpeg_decoder::{Decoder, PixelFormat};
+    let file = fs::File::open(file_path).ok()?;
+    let mut dec = Decoder::new(std::io::BufReader::new(file));
+    let (w, h) = dec.scale(target as u16, target as u16).ok()?;
+    let pixels = dec.decode().ok()?;
+    let (w, h) = (w as u32, h as u32);
+    let info = dec.info()?;
+    match info.pixel_format {
+        PixelFormat::RGB24 => {
+            (pixels.len() as u32 == w * h * 3)
+                .then(|| image::RgbImage::from_raw(w, h, pixels))
+                .flatten()
+                .map(image::DynamicImage::ImageRgb8)
+        }
+        PixelFormat::L8 => {
+            (pixels.len() as u32 == w * h)
+                .then(|| image::GrayImage::from_raw(w, h, pixels))
+                .flatten()
+                .map(image::DynamicImage::ImageLuma8)
+        }
+        _ => None,
     }
-    let mut pos = 2usize;
-    while pos + 4 <= data.len() {
-        if data[pos] != 0xFF {
-            break;
-        }
-        let marker = data[pos + 1];
-        if marker == 0xD8 || marker == 0xD9 {
-            pos += 2;
-            continue;
-        }
-        let seg_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
-        if seg_len < 2 || pos + 2 + seg_len > data.len() {
-            break;
-        }
-        if marker == 0xE1 {
-            let seg = &data[pos + 4..pos + 2 + seg_len];
-            if seg.starts_with(b"Exif\0\0") {
-                if let Some(thumb) = extract_tiff_jpeg_thumbnail(&seg[6..]) {
-                    return Some(thumb);
-                }
-            }
-        }
-        if marker == 0xDA {
-            break;
-        }
-        pos += 2 + seg_len;
-    }
-    None
-}
-
-fn extract_tiff_jpeg_thumbnail(tiff: &[u8]) -> Option<Vec<u8>> {
-    if tiff.len() < 8 {
-        return None;
-    }
-    let le = match &tiff[0..2] {
-        b"II" => true,
-        b"MM" => false,
-        _ => return None,
-    };
-    let u16_at = |off: usize| -> Option<u16> {
-        if off + 2 > tiff.len() { return None; }
-        Some(if le { u16::from_le_bytes([tiff[off], tiff[off+1]]) }
-             else  { u16::from_be_bytes([tiff[off], tiff[off+1]]) })
-    };
-    let u32_at = |off: usize| -> Option<u32> {
-        if off + 4 > tiff.len() { return None; }
-        Some(if le { u32::from_le_bytes([tiff[off], tiff[off+1], tiff[off+2], tiff[off+3]]) }
-             else  { u32::from_be_bytes([tiff[off], tiff[off+1], tiff[off+2], tiff[off+3]]) })
-    };
-    if u16_at(2)? != 42 { return None; }
-    let ifd0_off = u32_at(4)? as usize;
-    let ifd0_count = u16_at(ifd0_off)? as usize;
-    let ifd1_off = u32_at(ifd0_off + 2 + ifd0_count * 12)? as usize;
-    if ifd1_off == 0 || ifd1_off + 2 > tiff.len() { return None; }
-    let ifd1_count = u16_at(ifd1_off)? as usize;
-    let (mut off, mut len) = (None::<u32>, None::<u32>);
-    for i in 0..ifd1_count {
-        let e = ifd1_off + 2 + i * 12;
-        if e + 12 > tiff.len() { break; }
-        match u16_at(e)? {
-            0x0201 => off = Some(u32_at(e + 8)?),
-            0x0202 => len = Some(u32_at(e + 8)?),
-            _ => {}
-        }
-    }
-    let off = off? as usize;
-    let len = len? as usize;
-    if len == 0 || off + len > tiff.len() { return None; }
-    let thumb = &tiff[off..off + len];
-    if !thumb.starts_with(&[0xFF, 0xD8]) { return None; }
-    Some(thumb.to_vec())
 }
 
 pub fn is_raw_extension(ext: &str) -> bool {
@@ -182,17 +133,13 @@ pub fn generate_thumbnail(
         return Ok(dest);
     }
 
-    // Fast path for JPEG: try the embedded EXIF thumbnail first.
-    // Only use it when large enough to avoid upscaling artefacts.
+    // Fast path for JPEG: decode at a reduced DCT scale instead of full-res.
     if matches!(ext.as_str(), "jpg" | "jpeg") {
-        if let Some(thumb_bytes) = read_exif_jpeg_thumbnail(file_path) {
-            if let Ok(img) = image::load_from_memory(&thumb_bytes) {
-                if img.width().max(img.height()) >= TARGET_SIZE {
-                    resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
-                    return Ok(dest);
-                }
-            }
+        if let Some(img) = decode_jpeg_scaled(file_path, TARGET_SIZE) {
+            resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
+            return Ok(dest);
         }
+        // Fall through to the general decoder for CMYK / 16-bit / odd JPEGs.
     }
 
     let img = image::open(file_path)
@@ -501,6 +448,35 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let result = generate_thumbnail(dir.path().to_str().unwrap(), "fid", "/nonexistent/x.jpg");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn generate_thumbnail_downscales_large_jpeg() {
+        let cat = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let src_path = src.path().join("big.jpg");
+        // A 2000x1500 JPEG → the DCT path should decode small and the saved thumb
+        // must be capped at TARGET_SIZE on its long edge.
+        image::RgbImage::from_fn(2000, 1500, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        })
+        .save(&src_path)
+        .unwrap();
+
+        let out = generate_thumbnail(
+            cat.path().to_str().unwrap(),
+            "fid",
+            src_path.to_str().unwrap(),
+        )
+        .unwrap();
+
+        let thumb = image::open(&out).unwrap();
+        assert_eq!(thumb.width().max(thumb.height()), TARGET_SIZE);
+        // Idempotent: a second call returns the cached path without re-decoding.
+        assert_eq!(
+            generate_thumbnail(cat.path().to_str().unwrap(), "fid", src_path.to_str().unwrap()).unwrap(),
+            out
+        );
     }
 
     mod prioritize_queue {
