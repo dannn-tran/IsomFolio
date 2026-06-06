@@ -92,6 +92,29 @@ impl App {
         let sort_dir =
             super::styles::icon_btn(if self.sort_asc { "▲" } else { "▼" }, Msg::SortDirToggle);
 
+        // Active-filter indicator: when a filter narrows the current collection,
+        // say so right above the grid with a one-click Clear. Without it, landing
+        // in a filtered view (e.g. importing into an active filter) silently shows
+        // fewer photos than the collection holds, with no visible cause.
+        let filter_indicator: Element<Msg> = if self.has_active_filters() {
+            super::styles::tip(
+                button(
+                    row![
+                        text("Filtered").size(TEXT_MD),
+                        text("✕").size(TEXT_MD),
+                    ]
+                    .spacing(SPACE_1)
+                    .align_y(Alignment::Center),
+                )
+                .on_press(Msg::ClearFilters)
+                .style(active_chip_style),
+                "Filters are narrowing this view — click to clear",
+                super::styles::TipPos::Bottom,
+            )
+        } else {
+            Space::new().width(0.0).into()
+        };
+
         let toolbar_row = row![
             super::styles::tip(
                 button(text("⧉ Stack").size(TEXT_MD))
@@ -103,6 +126,7 @@ impl App {
                 "Collapse bursts to one tile",
                 super::styles::TipPos::Bottom,
             ),
+            filter_indicator,
             Space::new().width(Length::Fill),
             size_control,
             layout_toggle,
