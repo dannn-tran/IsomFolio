@@ -291,18 +291,10 @@ impl App {
                 if self.filters.rating.is_active() { self.load_files_task() } else { Task::none() }
             }
 
-            Msg::RatingsLoaded(map) => {
-                self.file_ratings = map;
-                Task::none()
-            }
-
-            Msg::LabelsLoaded(map) => {
-                self.file_labels = map;
-                Task::none()
-            }
-
-            Msg::BurstSizesLoaded(map) => {
-                self.file_burst_sizes = map;
+            Msg::FileSideDataLoaded { ratings, labels, bursts } => {
+                self.file_ratings = ratings;
+                self.file_labels = labels;
+                self.file_burst_sizes = bursts;
                 Task::none()
             }
 
@@ -404,9 +396,8 @@ impl App {
             Msg::UndoApplied => {
                 let t1 = self.load_files_task();
                 let t2 = self.maybe_load_detail();
-                let t3 = self.load_ratings_task();
-                let t4 = self.load_labels_task();
-                Task::batch([t1, t2, t3, t4])
+                let t3 = self.load_file_side_data_task();
+                Task::batch([t1, t2, t3])
             }
 
             _ => Task::none(),

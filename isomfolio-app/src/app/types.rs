@@ -404,12 +404,16 @@ pub enum Msg {
     /// current selection / loupe photo.
     SetColorLabel(Option<String>),
     SetColorFilter(Option<String>),
-    LabelsLoaded(HashMap<String, String>),
-    BurstSizesLoaded(HashMap<String, usize>),
+    /// Per-file grid side data (ratings, colour labels, burst sizes), loaded
+    /// together after a file-list load.
+    FileSideDataLoaded {
+        ratings: HashMap<String, i32>,
+        labels: HashMap<String, String>,
+        bursts: HashMap<String, usize>,
+    },
     ToggleCollapseBursts,
     FlagsApplied,
     RatingsApplied,
-    RatingsLoaded(HashMap<String, i32>),
     ToggleHideRejects,
     ToggleFlagFilter(Flag),
     SetRatingFilter(isomfolio_core::models::RatingFilter),

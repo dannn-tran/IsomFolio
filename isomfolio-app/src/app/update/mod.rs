@@ -109,10 +109,8 @@ impl App {
             | Msg::FlagsApplied
             | Msg::SetRating(_)
             | Msg::RatingsApplied
-            | Msg::RatingsLoaded(_)
             | Msg::SetColorLabel(_)
-            | Msg::LabelsLoaded(_)
-            | Msg::BurstSizesLoaded(_)
+            | Msg::FileSideDataLoaded { .. }
             | Msg::ToggleHideRejects
             | Msg::ToggleFlagFilter(_)
             | Msg::SetRatingFilter(_)
@@ -515,12 +513,10 @@ impl App {
                     })
                 });
                 let t1 = self.maybe_load_detail();
-                let t2 = self.load_ratings_task();
-                let t3 = self.load_labels_task();
-                let t4 = self.load_burst_sizes_task();
+                let t2 = self.load_file_side_data_task();
                 match restore {
-                    Some(scroll) => Task::batch([scroll, t1, t2, t3, t4]),
-                    None => Task::batch([t1, t2, t3, t4]),
+                    Some(scroll) => Task::batch([scroll, t1, t2]),
+                    None => Task::batch([t1, t2]),
                 }
             }
 

@@ -273,6 +273,10 @@ impl Catalog {
         db::get_file_labels(&self.conn, file_ids)
     }
 
+    pub fn get_ratings_for(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, i32>, AppError> {
+        db::get_ratings_for(&self.conn, file_ids)
+    }
+
     pub fn set_files_title(&self, ids: &[String], value: Option<&str>) -> Result<(), AppError> {
         db::set_files_title(&self.conn, ids, value)
     }

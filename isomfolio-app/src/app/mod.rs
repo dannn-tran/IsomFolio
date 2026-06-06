@@ -1106,61 +1106,30 @@ impl App {
         )
     }
 
-    pub(crate) fn load_ratings_task(&self) -> Task<Msg> {
+    /// Load the per-file side data the grid shows alongside each tile — ratings,
+    /// colour labels, burst sizes — in one task (one catalog lock), each via a
+    /// batched query rather than a per-file round-trip.
+    pub(crate) fn load_file_side_data_task(&self) -> Task<Msg> {
         let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
         let file_ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
         if file_ids.is_empty() {
-            return Task::done(Msg::RatingsLoaded(HashMap::new()));
+            return Task::done(Msg::FileSideDataLoaded {
+                ratings: HashMap::new(),
+                labels: HashMap::new(),
+                bursts: HashMap::new(),
+            });
         }
         Task::perform(
             async move {
                 let cat = catalog.lock_unwrap();
-                file_ids
-                    .iter()
-                    .filter_map(|id| {
-                        let meta = cat.get_metadata(id).ok()??;
-                        let r = meta.xmp.as_ref()?.core.rating?;
-                        (r > 0).then(|| (id.clone(), r))
-                    })
-                    .collect()
+                let ratings = cat.get_ratings_for(&file_ids).unwrap_or_default();
+                let labels = cat.get_file_labels(&file_ids).unwrap_or_default();
+                let bursts = cat.get_burst_sizes_for(&file_ids).unwrap_or_default();
+                (ratings, labels, bursts)
             },
-            Msg::RatingsLoaded,
-        )
-    }
-
-    pub(crate) fn load_burst_sizes_task(&self) -> Task<Msg> {
-        let Some(catalog) = self.catalog.clone() else {
-            return Task::none();
-        };
-        let file_ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
-        if file_ids.is_empty() {
-            return Task::done(Msg::BurstSizesLoaded(HashMap::new()));
-        }
-        Task::perform(
-            async move {
-                let cat = catalog.lock_unwrap();
-                cat.get_burst_sizes_for(&file_ids).unwrap_or_default()
-            },
-            Msg::BurstSizesLoaded,
-        )
-    }
-
-    pub(crate) fn load_labels_task(&self) -> Task<Msg> {
-        let Some(catalog) = self.catalog.clone() else {
-            return Task::none();
-        };
-        let file_ids: Vec<String> = self.files.iter().map(|f| f.id.clone()).collect();
-        if file_ids.is_empty() {
-            return Task::done(Msg::LabelsLoaded(HashMap::new()));
-        }
-        Task::perform(
-            async move {
-                let cat = catalog.lock_unwrap();
-                cat.get_file_labels(&file_ids).unwrap_or_default()
-            },
-            Msg::LabelsLoaded,
+            |(ratings, labels, bursts)| Msg::FileSideDataLoaded { ratings, labels, bursts },
         )
     }
 

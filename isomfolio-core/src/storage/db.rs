@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -356,18 +356,62 @@ pub fn count_deleted(conn: &Connection) -> Result<usize, AppError> {
 
 /// For each of `file_ids` that belongs to a burst, its burst size (count of
 /// non-deleted members). Files not in a burst are absent from the map.
+/// `?,?,…` for an `IN (…)` clause of `n` bound parameters.
+fn placeholders(n: usize) -> String {
+    let mut s = String::with_capacity(n.saturating_mul(2));
+    for i in 0..n {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push('?');
+    }
+    s
+}
+
+/// SQLite caps bound parameters per statement; stay well under it so a single
+/// view's worth of ids (which can be thousands) still loads in a few queries.
+const IN_CHUNK: usize = 900;
+
 pub fn get_burst_sizes_for(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, usize>, AppError> {
     let mut out = std::collections::HashMap::new();
-    let mut stmt = conn.prepare(
-        "SELECT (SELECT COUNT(*) FROM files b WHERE b.burst_id = f.burst_id AND b.is_deleted = 0) \
-         FROM files f WHERE f.id = ?1 AND f.burst_id IS NOT NULL",
-    )?;
-    for id in file_ids {
-        let size: Option<i64> = stmt.query_row([id.as_str()], |r| r.get(0)).optional()?;
-        if let Some(n) = size {
+    for chunk in file_ids.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT f.id, \
+                (SELECT COUNT(*) FROM files b WHERE b.burst_id = f.burst_id AND b.is_deleted = 0) \
+             FROM files f WHERE f.burst_id IS NOT NULL AND f.id IN ({})",
+            placeholders(chunk.len()),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (id, n) = row?;
             if n >= 2 {
-                out.insert(id.clone(), n as usize);
+                out.insert(id, n as usize);
             }
+        }
+    }
+    Ok(out)
+}
+
+/// Ratings (1–5) for the given files, in one batched query per chunk — reads only
+/// the `rating` column instead of decoding each file's whole metadata row.
+pub fn get_ratings_for(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, i32>, AppError> {
+    let mut out = std::collections::HashMap::new();
+    for chunk in file_ids.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT file_id, rating FROM metadata \
+             WHERE rating IS NOT NULL AND rating > 0 AND file_id IN ({})",
+            placeholders(chunk.len()),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i32>(1)?))
+        })?;
+        for row in rows {
+            let (id, rating) = row?;
+            out.insert(id, rating);
         }
     }
     Ok(out)
@@ -1220,16 +1264,19 @@ pub fn set_files_creator(conn: &Connection, file_ids: &[String], value: Option<&
 
 pub fn get_file_labels(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, String>, AppError> {
     let mut out = std::collections::HashMap::new();
-    let mut stmt = conn.prepare("SELECT label FROM metadata WHERE file_id = ?1")?;
-    for id in file_ids {
-        let label: Option<String> = stmt
-            .query_row(params![id.as_str()], |r| r.get(0))
-            .optional()?
-            .flatten();
-        if let Some(l) = label {
-            if !l.is_empty() {
-                out.insert(id.clone(), l);
-            }
+    for chunk in file_ids.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT file_id, label FROM metadata \
+             WHERE label IS NOT NULL AND label != '' AND file_id IN ({})",
+            placeholders(chunk.len()),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, label) = row?;
+            out.insert(id, label);
         }
     }
     Ok(out)
@@ -1632,6 +1679,49 @@ mod tests {
                 get_metadata(&conn2, "b1").unwrap().unwrap().xmp.unwrap().core.rating,
             );
             assert_eq!(get_tags_for_file(&conn, "b1").unwrap(), get_tags_for_file(&conn2, "b1").unwrap());
+        }
+    }
+
+    mod side_data {
+        use super::*;
+
+        #[test]
+        fn ratings_and_labels_batched_skip_zero_and_empty() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                make_file("a", "/tmp/a.jpg"),
+                make_file("b", "/tmp/b.jpg"),
+                make_file("c", "/tmp/c.jpg"),
+            ]).unwrap();
+            set_files_rating(&conn, &["a".into(), "b".into()], Some(4)).unwrap();
+            set_files_rating(&conn, &["b".into()], Some(0)).unwrap(); // 0 = cleared
+            set_files_label(&conn, &["a".into()], Some("Red")).unwrap();
+            set_files_label(&conn, &["c".into()], Some("")).unwrap(); // empty = none
+
+            let want: Vec<String> = vec!["a".into(), "b".into(), "c".into()];
+            let ratings = get_ratings_for(&conn, &want).unwrap();
+            assert_eq!(ratings.get("a"), Some(&4));
+            assert!(!ratings.contains_key("b"), "rating 0 omitted");
+            assert!(!ratings.contains_key("c"), "no metadata row → omitted");
+
+            let labels = get_file_labels(&conn, &want).unwrap();
+            assert_eq!(labels.get("a").map(String::as_str), Some("Red"));
+            assert!(!labels.contains_key("b"));
+            assert!(!labels.contains_key("c"), "empty label omitted");
+        }
+
+        #[test]
+        fn ratings_resolve_across_the_chunk_boundary() {
+            let (conn, _f) = open_temp();
+            // More ids than IN_CHUNK so the query runs in multiple batches.
+            let ids: Vec<String> = (0..IN_CHUNK + 100).map(|i| format!("f{i}")).collect();
+            for id in &ids {
+                upsert_files(&conn, &[make_file(id, &format!("/tmp/{id}.jpg"))]).unwrap();
+            }
+            set_files_rating(&conn, &ids, Some(3)).unwrap();
+            let ratings = get_ratings_for(&conn, &ids).unwrap();
+            assert_eq!(ratings.len(), ids.len(), "every id resolved across chunks");
+            assert!(ratings.values().all(|&r| r == 3));
         }
     }
 
