@@ -748,7 +748,56 @@ pub fn delete_tag_with_descendants(conn: &Connection, tag: &str) -> Result<usize
 
 // Metadata
 
+/// One file's metadata row plus any keyword tags to add additively (empty when
+/// the file isn't new or tag import is off). Used by [`upsert_metadata_batch`].
+pub struct MetadataWrite<'a> {
+    pub file_id: &'a str,
+    pub meta: &'a EmbeddedMetadata,
+    pub tags: Vec<String>,
+}
+
+/// Write a whole scan batch's metadata + imported tags in two transactions (rows
+/// then FTS), instead of one transaction per file. Same per-row semantics as
+/// [`upsert_metadata`] + [`sync_xmp_tags`] — descriptive metadata is imported on
+/// first insert and preserved on re-sync; only EXIF tech refreshes.
+pub fn upsert_metadata_batch(conn: &Connection, items: &[MetadataWrite]) -> Result<(), AppError> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    for w in items {
+        insert_metadata_row(conn, w.file_id, w.meta)?;
+        for tag in &w.tags {
+            conn.execute(
+                "INSERT OR IGNORE INTO tags (file_id, tag) VALUES (?1, ?2)",
+                params![w.file_id, tag],
+            )?;
+        }
+    }
+    tx.commit()?;
+    let tx = conn.unchecked_transaction()?;
+    for w in items {
+        rebuild_fts_for_file(conn, w.file_id)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn upsert_metadata(
+    conn: &Connection,
+    file_id: &str,
+    meta: &EmbeddedMetadata,
+) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    insert_metadata_row(conn, file_id, meta)?;
+    tx.commit()?;
+    // Index imported descriptive metadata (title/caption/creator/subjects) for
+    // full-text search — the sync import path previously skipped this.
+    rebuild_fts_for_file(conn, file_id)?;
+    Ok(())
+}
+
+fn insert_metadata_row(
     conn: &Connection,
     file_id: &str,
     meta: &EmbeddedMetadata,
@@ -776,7 +825,6 @@ pub fn upsert_metadata(
     let tech = meta.exif_tech.as_ref();
     let flash_i: Option<i32> = tech.and_then(|t| t.flash).map(|b| b as i32);
 
-    let tx = conn.unchecked_transaction()?;
     // First detection imports the descriptive metadata from XMP/IPTC; on
     // re-detection we PRESERVE it (and any in-app edits) and only refresh the
     // file-derived EXIF tech — matching the "imported once, never overwritten
@@ -803,10 +851,6 @@ pub fn upsert_metadata(
             flash_i,
         ],
     )?;
-    tx.commit()?;
-    // Index imported descriptive metadata (title/caption/creator/subjects) for
-    // full-text search — the sync import path previously skipped this.
-    rebuild_fts_for_file(conn, file_id)?;
     Ok(())
 }
 
@@ -1531,6 +1575,63 @@ mod tests {
             exif_date_unix: None,
             gps_lat: None,
             gps_lon: None,
+        }
+    }
+
+    mod metadata_batch {
+        use super::*;
+        use crate::metadata::{DublinCore, EmbeddedMetadata, XmpCore, XmpMetadata};
+
+        fn meta(subjects: &[&str], rating: Option<i32>) -> EmbeddedMetadata {
+            EmbeddedMetadata {
+                xmp: Some(XmpMetadata {
+                    core: XmpCore { rating, ..Default::default() },
+                    dublin_core: DublinCore {
+                        subject: subjects.iter().map(|s| s.to_string()).collect(),
+                        ..Default::default()
+                    },
+                }),
+                apple: None,
+                exif_tech: None,
+            }
+        }
+
+        #[test]
+        fn writes_rows_and_imports_tags_in_one_pass() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[make_file("f1", "/tmp/a.jpg"), make_file("f2", "/tmp/b.jpg")]).unwrap();
+            let m1 = meta(&["beach", "sunset"], Some(4));
+            let m2 = meta(&[], Some(2));
+            let writes = vec![
+                MetadataWrite { file_id: "f1", meta: &m1, tags: vec!["beach".into(), "sunset".into()] },
+                MetadataWrite { file_id: "f2", meta: &m2, tags: vec![] },
+            ];
+            upsert_metadata_batch(&conn, &writes).unwrap();
+
+            assert_eq!(get_metadata(&conn, "f1").unwrap().unwrap().xmp.unwrap().core.rating, Some(4));
+            let mut tags = get_tags_for_file(&conn, "f1").unwrap();
+            tags.sort();
+            assert_eq!(tags, vec!["beach".to_string(), "sunset".to_string()]);
+            assert!(get_tags_for_file(&conn, "f2").unwrap().is_empty());
+        }
+
+        #[test]
+        fn matches_per_file_upsert() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[make_file("b1", "/tmp/x.jpg")]).unwrap();
+            let m = meta(&["a"], Some(5));
+            upsert_metadata_batch(&conn, &[MetadataWrite { file_id: "b1", meta: &m, tags: vec!["a".into()] }]).unwrap();
+
+            let (conn2, _f2) = open_temp();
+            upsert_files(&conn2, &[make_file("b1", "/tmp/x.jpg")]).unwrap();
+            upsert_metadata(&conn2, "b1", &m).unwrap();
+            sync_xmp_tags(&conn2, "b1", &["a".to_string()]).unwrap();
+
+            assert_eq!(
+                get_metadata(&conn, "b1").unwrap().unwrap().xmp.unwrap().core.rating,
+                get_metadata(&conn2, "b1").unwrap().unwrap().xmp.unwrap().core.rating,
+            );
+            assert_eq!(get_tags_for_file(&conn, "b1").unwrap(), get_tags_for_file(&conn2, "b1").unwrap());
         }
     }
 
