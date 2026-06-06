@@ -22,6 +22,13 @@ pub enum Icon {
     People,
     Imports,
     Deleted,
+    // Control glyphs (disclosure + add) — rendered in `icon_btn_svg`, sized to
+    // match the leading section icons so a header's chevron/`+` read as peers of
+    // its icon rather than heavier unicode marks.
+    ChevronDown,
+    ChevronRight,
+    ChevronUp,
+    Plus,
 }
 
 fn bytes(icon: Icon) -> &'static [u8] {
@@ -33,6 +40,10 @@ fn bytes(icon: Icon) -> &'static [u8] {
         Icon::People => include_bytes!("../../assets/icons/users.svg"),
         Icon::Imports => include_bytes!("../../assets/icons/import.svg"),
         Icon::Deleted => include_bytes!("../../assets/icons/trash-2.svg"),
+        Icon::ChevronDown => include_bytes!("../../assets/icons/chevron-down.svg"),
+        Icon::ChevronRight => include_bytes!("../../assets/icons/chevron-right.svg"),
+        Icon::ChevronUp => include_bytes!("../../assets/icons/chevron-up.svg"),
+        Icon::Plus => include_bytes!("../../assets/icons/plus.svg"),
     }
 }
 

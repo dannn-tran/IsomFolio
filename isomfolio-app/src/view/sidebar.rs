@@ -26,8 +26,8 @@ const IMPORTS_COLLAPSED: usize = 10;
 /// leading edge so every section's icon shares one column with the nav-row icons.
 /// Separate control: toggling collapse never changes selection.
 fn section_chevron<'a>(collapsed: bool, section: SidebarSection) -> Element<'a, Msg> {
-    super::styles::icon_btn(
-        if collapsed { "▸" } else { "▾" },
+    super::styles::icon_btn_svg(
+        if collapsed { Icon::ChevronRight } else { Icon::ChevronDown },
         Msg::ToggleSidebarSection(section),
     )
     .into()
@@ -43,13 +43,25 @@ fn section_header<'a>(
     section: SidebarSection,
     trailing: Vec<Element<'a, Msg>>,
 ) -> Element<'a, Msg> {
-    let mut r = row![
-        super::icons::icon(icon, FG_DIM),
-        text(title).size(TEXT_MD).color(FG_DIM),
-        Space::new().width(Length::Fill),
-    ]
-    .spacing(SPACE_1_5)
-    .align_y(Alignment::Center);
+    // The whole header band (icon · label · gap) toggles collapse — the obvious
+    // target is the section name, not only the far-right chevron (Fitts). Action
+    // glyphs and the chevron sit *outside* this hit area as their own controls,
+    // so clicking `+` adds rather than collapsing. The chevron stays as the
+    // glanceable open/closed indicator (redundant control, not chrome).
+    let label_area: Element<Msg> = mouse_area(
+        row![
+            super::icons::icon(icon, FG_DIM),
+            text(title).size(TEXT_MD).color(FG_DIM),
+            Space::new().width(Length::Fill),
+        ]
+        .spacing(SPACE_1_5)
+        .align_y(Alignment::Center)
+        .width(Length::Fill),
+    )
+    .on_press(Msg::ToggleSidebarSection(section))
+    .into();
+
+    let mut r = row![label_area].spacing(SPACE_1_5).align_y(Alignment::Center);
     for el in trailing {
         r = r.push(el);
     }
@@ -137,7 +149,7 @@ impl App {
             SidebarSection::Albums,
             vec![
                 super::styles::tip(
-                    super::styles::icon_btn("+", Msg::StartCreateAlbum),
+                    super::styles::icon_btn_svg(Icon::Plus, Msg::StartCreateAlbum),
                     "New album",
                     super::styles::TipPos::Bottom,
                 ),
@@ -150,8 +162,8 @@ impl App {
             folders_trailing.push(text("Syncing…").size(TEXT_SM).color(FG_DIM).into());
         }
         folders_trailing.push(super::styles::tip(
-            super::styles::icon_btn(
-                "+",
+            super::styles::icon_btn_svg(
+                Icon::Plus,
                 if is_sync_active { Msg::NoOp } else { Msg::SyncPickFolder },
             ),
             "Add folder to library",
@@ -179,18 +191,15 @@ impl App {
         let total_files: usize = self.folder_tree.iter().map(|n| n.total_count).sum();
         let all_sel = self.selected_item == SidebarItem::AllFiles;
 
+        // Navigation only — "where to look". Filters moved out to a panel pinned
+        // at the sidebar bottom (built below), so the criteria controls never
+        // bury the folder/album the user is actually navigating to.
         let mut content = column![
             catalog_header,
             Space::new().height(SPACE_1),
-            filters_header,
         ]
         .spacing(SPACE_0_5);
 
-        if !filters_collapsed {
-            content = content.push(self.view_sidebar_filters());
-        }
-
-        content = content.push(Space::new().height(SPACE_1_5));
         content = content.push(nav_row(
             Some(Icon::AllPhotos),
             "All Photos".to_string(),
@@ -403,7 +412,27 @@ impl App {
                 scrollable::Scrollbar::new().width(4).scroller_width(4),
             ))
             .on_scroll(|vp| Msg::SidebarScrolled(vp.absolute_offset().y))
-            .height(Length::Fill);
+            .height(Length::FillPortion(2));
+
+        // Filters panel pinned to the sidebar bottom — the lower of two stacked
+        // panels (navigation above, filtering here). Always visible as a header
+        // (with its `●` active marker), collapsed by default. Expanded it takes a
+        // bounded share (FillPortion 1 vs the nav's 2) and scrolls internally, so
+        // opening it squeezes — never hides — the navigation list above.
+        let mut filters_footer = column![
+            sidebar_divider(),
+            container(filters_header).padding([0.0, SPACE_3]),
+        ]
+        .spacing(SPACE_0_5);
+        if !filters_collapsed {
+            filters_footer = filters_footer.push(
+                scrollable(container(self.view_sidebar_filters()).padding([0.0, SPACE_3]))
+                    .direction(scrollable::Direction::Vertical(
+                        scrollable::Scrollbar::new().width(4).scroller_width(4),
+                    ))
+                    .height(Length::FillPortion(1)),
+            );
+        }
 
         let bottom_strip = column![
             sidebar_divider(),
@@ -421,7 +450,7 @@ impl App {
             }),
         ];
 
-        container(column![search_bar, sidebar_divider(), sidebar_scroll, bottom_strip])
+        container(column![search_bar, sidebar_divider(), sidebar_scroll, filters_footer, bottom_strip])
             .width(self.sidebar_width)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {
@@ -835,8 +864,8 @@ fn folder_tree_row<'a>(
     let was_truncated = full_label.chars().count() > effective_max;
 
     let chevron: Element<Msg> = if has_children {
-        super::styles::icon_btn(
-            if expanded { "▾" } else { "▸" },
+        super::styles::icon_btn_svg(
+            if expanded { Icon::ChevronDown } else { Icon::ChevronRight },
             Msg::ToggleFolderExpanded(path.clone()),
         )
         .width(Length::Fixed(CHEVRON_W))

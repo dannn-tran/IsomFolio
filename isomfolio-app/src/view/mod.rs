@@ -380,7 +380,7 @@ impl App {
                         text("◌").size(TEXT_XS).color(FG_DIM),
                         text(label).size(TEXT_XS).color(FG_DIM),
                         Space::new().width(Length::Fill),
-                        text("▴").size(TEXT_XS).color(FG_DIM),
+                        icons::icon(icons::Icon::ChevronUp, FG_DIM),
                     ]
                     .spacing(SPACE_1)
                     .align_y(Alignment::Center),
@@ -419,7 +419,7 @@ impl App {
             row![
                 text("Tasks").size(TEXT_XS).color(FG_DIM),
                 Space::new().width(Length::Fill),
-                styles::icon_btn("▾", Msg::ToggleTaskPanel),
+                styles::icon_btn_svg(icons::Icon::ChevronDown, Msg::ToggleTaskPanel),
             ]
             .align_y(Alignment::Center)
             .spacing(SPACE_1),

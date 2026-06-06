@@ -572,7 +572,14 @@ impl App {
             deleted_count: 0,
             import_batches: Vec::new(),
             show_all_imports: false,
-            collapsed_sections: HashSet::new(),
+            // Filters starts collapsed: the sidebar opens on navigation (All
+            // Photos / Folders / Albums), not a wall of criteria. The pinned
+            // footer header + `●` marker keep it one click away.
+            collapsed_sections: {
+                let mut s = HashSet::new();
+                s.insert(crate::app::types::SidebarSection::Filters);
+                s
+            },
             purge_pending: None,
             smart_album_dirty: false,
             context_menu: None,

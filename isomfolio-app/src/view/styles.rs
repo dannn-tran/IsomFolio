@@ -273,6 +273,41 @@ pub fn icon_btn_styled<'a>(
     .style(style)
 }
 
+/// An icon-only button whose mark is a tinted **SVG** glyph (Lucide), centred in
+/// the same `ICON_BTN` square as `icon_btn`. Used for disclosure chevrons and the
+/// `+` add actions so they sit at the weight of the leading section icons instead
+/// of reading as heavier unicode. An SVG's tint can't follow button hover state
+/// the way text colour can, so feedback is a faint background on hover (rather
+/// than `icon_btn`'s tint-brighten). Returns a `Button` so callers can size it to
+/// a host slot (e.g. the folder-tree chevron column).
+pub fn icon_btn_svg<'a>(kind: super::icons::Icon, msg: Msg) -> button::Button<'a, Msg> {
+    button(
+        container(super::icons::icon(kind, FG_DIM))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),
+    )
+    .width(ICON_BTN)
+    .height(ICON_BTN)
+    .padding(0)
+    .on_press(msg)
+    .style(icon_svg_btn_style)
+}
+
+fn icon_svg_btn_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let alpha = match status {
+        button::Status::Hovered => 0.10,
+        button::Status::Pressed => 0.16,
+        _ => 0.0,
+    };
+    button::Style {
+        background: Some(Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: alpha })),
+        text_color: FG_DIM,
+        border: Border { radius: 4.0.into(), ..Default::default() },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
 pub fn icon_btn_style(_theme: &Theme, status: button::Status) -> button::Style {
     let (text_color, alpha) = match status {
         button::Status::Hovered => (Color::WHITE, 0.0),
