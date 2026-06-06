@@ -271,6 +271,12 @@ impl App {
             }
 
             Msg::DeleteKeyPressed => {
+                // In the loupe the target is the displayed photo (`loupe.idx`), not
+                // the grid selection — which `DeleteSelection` clears, so gating on
+                // it here would make every delete after the first a no-op.
+                if matches!(self.view_mode, crate::app::ViewMode::Loupe) {
+                    return Task::done(Msg::DeleteSelection);
+                }
                 if self.grid_selected.is_empty() {
                     return Task::none();
                 }

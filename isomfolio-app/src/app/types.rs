@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use iced::{keyboard, widget, Point};
 
 pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
+pub static SIDEBAR_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
 use isomfolio_core::extension::ExtensionManifest;
 use isomfolio_core::folder_tree::FolderNode;
 use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, Shelf, ShelfId, SortField};

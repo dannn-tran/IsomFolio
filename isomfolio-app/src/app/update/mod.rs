@@ -281,7 +281,7 @@ impl App {
                     .iter()
                     .filter_map(|id| self.files.iter().find(|f| &f.id == id))
                     .filter(|f| !f.is_orphaned)
-                    .map(|f| f.path.clone())
+                    .map(export_source_path)
                     .collect();
                 if paths.is_empty() {
                     return Task::none();
@@ -317,7 +317,7 @@ impl App {
                                     .search_manual_album(&album_id, &SearchQuery::default())
                                     .unwrap_or_default(),
                             };
-                            files.into_iter().filter(|f| !f.is_orphaned).map(|f| f.path).collect()
+                            files.iter().filter(|f| !f.is_orphaned).map(export_source_path).collect()
                         };
                         let dest = if paths.is_empty() {
                             None
@@ -783,4 +783,15 @@ impl App {
             self.smart_album_dirty = true;
         }
     }
+}
+
+/// Real-cased on-disk path for export: the stored `path` is case-folded (the
+/// matching/identity key), so copying from it and taking its basename yields a
+/// lower-cased filename. Rebuild from `folder_display` + `name`, both of which
+/// preserve the original casing, so the exported copy keeps the exact filename.
+fn export_source_path(f: &isomfolio_core::models::AssetFile) -> String {
+    std::path::Path::new(&f.folder_display)
+        .join(&f.name)
+        .to_string_lossy()
+        .into_owned()
 }

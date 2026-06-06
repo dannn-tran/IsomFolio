@@ -400,6 +400,7 @@ impl App {
         .padding([SPACE_1_5, SPACE_1_5]);
 
         let sidebar_scroll = scrollable(content.spacing(SPACE_0_5).padding(SPACE_3))
+            .id(crate::app::SIDEBAR_SCROLL_ID.clone())
             .direction(scrollable::Direction::Vertical(
                 scrollable::Scrollbar::new().width(4).scroller_width(4),
             ))

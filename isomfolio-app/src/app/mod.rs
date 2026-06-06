@@ -679,6 +679,16 @@ impl App {
         )
     }
 
+    /// Restore the sidebar scroll to its tracked offset. Full-screen views
+    /// (loupe, compare, settings) drop the sidebar from the widget tree, so on
+    /// return it rebuilds at the top; this puts it back where the user left it.
+    pub fn restore_sidebar_scroll(&self) -> Task<Msg> {
+        iced::widget::operation::scroll_to(
+            SIDEBAR_SCROLL_ID.clone(),
+            iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: self.sidebar_scroll_y },
+        )
+    }
+
     /// Vertical distance between consecutive rows in the content area.
     /// One column means one file per row (List); the grid packs `cols` per row.
     pub fn row_step(&self) -> f32 {

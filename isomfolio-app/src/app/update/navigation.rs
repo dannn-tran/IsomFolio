@@ -252,7 +252,10 @@ impl App {
                         self.view_mode = ViewMode::Browse;
                         self.loupe.full_res = None;
                         self.loupe.prefetch.clear();
-                        return self.scroll_to_index(self.loupe.idx);
+                        return Task::batch([
+                            self.scroll_to_index(self.loupe.idx),
+                            self.restore_sidebar_scroll(),
+                        ]);
                     }
                     ViewMode::Preview => {
                         self.loupe.reset_zoom();
@@ -549,11 +552,14 @@ impl App {
                     self.view_mode = ViewMode::Browse;
                     self.loupe.full_res = None;
                     self.loupe.prefetch.clear();
-                    return self.scroll_to_index(self.loupe.idx);
+                    return Task::batch([
+                        self.scroll_to_index(self.loupe.idx),
+                        self.restore_sidebar_scroll(),
+                    ]);
                 }
                 if matches!(self.view_mode, ViewMode::Compare | ViewMode::Settings) {
                     self.view_mode = ViewMode::Browse;
-                    return Task::none();
+                    return self.restore_sidebar_scroll();
                 }
                 self.create_album_input = None;
                 self.rename_album_id = None;
