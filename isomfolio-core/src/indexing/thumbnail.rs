@@ -4,7 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::io::BufWriter;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use crate::app_paths::{ensure_directories, thumbnail_cache_dir};
@@ -156,13 +156,20 @@ pub enum ThumbnailMsg {
     /// Pull these already-queued ids to the front (in the given order) so the
     /// folder/view the user just opened generates ahead of any backlog.
     Prioritize { file_ids: Vec<String> },
-    Done { file_id: String, success: bool, msg: String },
     CancelAll,
     Shutdown,
 }
 
 pub struct ThumbnailPool {
     sender: std::sync::mpsc::Sender<ThumbnailMsg>,
+}
+
+impl Drop for ThumbnailPool {
+    fn drop(&mut self) {
+        // Stop the coordinator + workers cleanly when the pool is replaced
+        // (e.g. opening another catalog), rather than leaking their threads.
+        let _ = self.sender.send(ThumbnailMsg::Shutdown);
+    }
 }
 
 impl ThumbnailPool {
@@ -199,7 +206,7 @@ struct PoolState {
     queue: VecDeque<(String, String, i32, u32)>, // (file_id, file_path, priority, retry)
     in_flight: HashSet<String>,
     queued: HashSet<String>,
-    active_count: usize,
+    shutdown: bool,
 }
 
 impl PoolState {
@@ -208,7 +215,7 @@ impl PoolState {
             queue: VecDeque::new(),
             in_flight: HashSet::new(),
             queued: HashSet::new(),
-            active_count: 0,
+            shutdown: false,
         }
     }
 
@@ -272,6 +279,12 @@ fn sweep_tmp_files(catalog_dir: &str) {
     }
 }
 
+/// Queue + wake signal shared by the coordinator and the fixed worker threads.
+struct Shared {
+    state: Mutex<PoolState>,
+    cv: Condvar,
+}
+
 pub fn create_worker_pool(
     catalog_dir: &str,
     concurrency: usize,
@@ -283,115 +296,114 @@ pub fn create_worker_pool(
     let (tx, rx) = std::sync::mpsc::channel::<ThumbnailMsg>();
     let on_ready = Arc::new(on_ready);
     let on_failed = Arc::new(on_failed);
-    let tx_worker = tx.clone();
+    let shared = Arc::new(Shared {
+        state: Mutex::new(PoolState::new()),
+        cv: Condvar::new(),
+    });
 
-    std::thread::spawn(move || {
-        let state = Arc::new(Mutex::new(PoolState::new()));
+    // A *fixed* pool of worker threads, each pulling the next job from the shared
+    // queue and parking on the condvar when idle — no thread spawned per file.
+    for _ in 0..concurrency.max(1) {
+        let shared = Arc::clone(&shared);
+        let catalog = catalog_dir.clone();
+        let on_ready = Arc::clone(&on_ready);
+        let on_failed = Arc::clone(&on_failed);
+        let tx_retry = tx.clone();
+        std::thread::spawn(move || worker_loop(shared, catalog, on_ready, on_failed, tx_retry));
+    }
 
-        let process_msg = |msg: ThumbnailMsg| -> bool {
-            match msg {
-                ThumbnailMsg::Shutdown => return false,
-                ThumbnailMsg::CancelAll => {
-                    let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-                    s.queue.clear();
-                    s.queued.clear();
-                }
-                ThumbnailMsg::Enqueue { file_id, file_path, priority, retry_count } => {
-                    let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-                    s.enqueue(file_id, file_path, priority, retry_count);
-                }
-                ThumbnailMsg::Prioritize { file_ids } => {
-                    let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-                    s.prioritize(&file_ids);
-                }
-                ThumbnailMsg::Done { file_id, success, msg } => {
-                    {
-                        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-                        s.in_flight.remove(&file_id);
-                        s.active_count = s.active_count.saturating_sub(1);
+    // Coordinator: applies the public API's queue mutations on one thread (keeps
+    // PoolState single-writer for ordering/dedup), then wakes workers.
+    {
+        let shared = Arc::clone(&shared);
+        std::thread::spawn(move || {
+            for msg in rx {
+                let mut s = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+                match msg {
+                    ThumbnailMsg::Enqueue { file_id, file_path, priority, retry_count } => {
+                        s.enqueue(file_id, file_path, priority, retry_count);
+                        drop(s);
+                        shared.cv.notify_one();
                     }
-                    if success {
-                        on_ready(file_id, msg);
-                    } else {
-                        on_failed(file_id, msg);
+                    ThumbnailMsg::Prioritize { file_ids } => {
+                        // Reorders existing work only; no new jobs, so no wake — an
+                        // idle worker implies an empty queue, so nothing to take.
+                        s.prioritize(&file_ids);
+                    }
+                    ThumbnailMsg::CancelAll => {
+                        s.queue.clear();
+                        s.queued.clear();
+                    }
+                    ThumbnailMsg::Shutdown => {
+                        s.shutdown = true;
+                        drop(s);
+                        shared.cv.notify_all();
+                        return;
                     }
                 }
             }
-            true
+        });
+    }
+
+    ThumbnailPool { sender: tx }
+}
+
+fn worker_loop<R, F>(
+    shared: Arc<Shared>,
+    catalog: String,
+    on_ready: Arc<R>,
+    on_failed: Arc<F>,
+    tx_retry: std::sync::mpsc::Sender<ThumbnailMsg>,
+) where
+    R: Fn(String, String) + Send + Sync + 'static,
+    F: Fn(String, String) + Send + Sync + 'static,
+{
+    loop {
+        // Claim the next job under the lock, or park until one arrives / shutdown.
+        // dequeue (remove from `queued`) + insert into `in_flight` happen in one
+        // lock hold, so an id is never momentarily absent from both dedup sets.
+        let (file_id, file_path, retry) = {
+            let mut s = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+            loop {
+                if s.shutdown {
+                    return;
+                }
+                if let Some(job) = s.dequeue() {
+                    s.in_flight.insert(job.0.clone());
+                    break job;
+                }
+                s = shared.cv.wait(s).unwrap_or_else(|e| e.into_inner());
+            }
         };
 
-        loop {
-            // Block until the next message — a new request when idle, or a worker
-            // completion when busy. Workers send ThumbnailMsg::Done on finish, so
-            // recv() naturally wakes the coordinator without polling or spin.
-            match rx.recv() {
-                Err(_) => return,
-                Ok(msg) => if !process_msg(msg) { return; }
-            }
-            // Drain any additional messages that arrived concurrently.
-            loop {
-                match rx.try_recv() {
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
-                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                    Ok(msg) => if !process_msg(msg) { return; }
-                }
-            }
-
-            // Spawn workers up to concurrency limit.
-            loop {
-                let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-                if s.active_count >= concurrency {
-                    break;
-                }
-                match s.dequeue() {
-                    None => break,
-                    Some((file_id, file_path, retry)) => {
-                        s.in_flight.insert(file_id.clone());
-                        s.active_count += 1;
-                        drop(s);
-
-                        let catalog = catalog_dir.clone();
-                        let tx_done = tx_worker.clone();
-
-                        std::thread::spawn(move || {
-                            match generate_thumbnail(&catalog, &file_id, &file_path) {
-                                Ok(path) => {
-                                    let _ = tx_done.send(ThumbnailMsg::Done {
-                                        file_id, success: true, msg: path,
-                                    });
-                                }
-                                Err(e) => {
-                                    if retry < 1 {
-                                        let fid = file_id.clone();
-                                        let fp = file_path.clone();
-                                        let tx_retry = tx_done.clone();
-                                        std::thread::spawn(move || {
-                                            std::thread::sleep(Duration::from_secs(RETRY_DELAY_SECS));
-                                            let _ = tx_retry.send(ThumbnailMsg::Enqueue {
-                                                file_id: fid,
-                                                file_path: fp,
-                                                priority: 99,
-                                                retry_count: retry + 1,
-                                            });
-                                        });
-                                        let _ = tx_done.send(ThumbnailMsg::Done {
-                                            file_id, success: false, msg: format!("retry scheduled: {e}"),
-                                        });
-                                    } else {
-                                        let _ = tx_done.send(ThumbnailMsg::Done {
-                                            file_id, success: false, msg: e.to_string(),
-                                        });
-                                    }
-                                }
-                            }
+        let result = generate_thumbnail(&catalog, &file_id, &file_path);
+        {
+            let mut s = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+            s.in_flight.remove(&file_id);
+        }
+        match result {
+            Ok(path) => on_ready(file_id, path),
+            Err(e) => {
+                if retry < 1 {
+                    // One delayed retry, re-enqueued through the coordinator.
+                    let tx = tx_retry.clone();
+                    let (fid, fp) = (file_id.clone(), file_path.clone());
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_secs(RETRY_DELAY_SECS));
+                        let _ = tx.send(ThumbnailMsg::Enqueue {
+                            file_id: fid,
+                            file_path: fp,
+                            priority: 99,
+                            retry_count: retry + 1,
                         });
-                    }
+                    });
+                    on_failed(file_id, format!("retry scheduled: {e}"));
+                } else {
+                    on_failed(file_id, e.to_string());
                 }
             }
         }
-    });
-
-    ThumbnailPool { sender: tx }
+    }
 }
 
 /// Remove `<id>.jpg` files in `cache_dir` whose `id` isn't in `known`.
@@ -477,6 +489,34 @@ mod tests {
             generate_thumbnail(cat.path().to_str().unwrap(), "fid", src_path.to_str().unwrap()).unwrap(),
             out
         );
+    }
+
+    #[test]
+    fn worker_pool_generates_thumbnail_end_to_end() {
+        use std::sync::mpsc;
+        let cat = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let src_path = src.path().join("p.jpg");
+        image::RgbImage::from_fn(800, 600, |x, _| image::Rgb([(x % 256) as u8, 10, 200]))
+            .save(&src_path)
+            .unwrap();
+
+        let (tx, rx) = mpsc::channel::<(String, String)>();
+        let tx_fail = tx.clone();
+        let pool = create_worker_pool(
+            cat.path().to_str().unwrap(),
+            2,
+            move |id, path| { let _ = tx.send((id, path)); },
+            move |id, _| { let _ = tx_fail.send((id, "FAIL".into())); },
+        );
+        pool.enqueue("fid", src_path.to_str().unwrap(), 0);
+
+        let (id, path) = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("worker produced a result");
+        assert_eq!(id, "fid");
+        assert_ne!(path, "FAIL");
+        assert!(Path::new(&thumbnail_cache_path(cat.path().to_str().unwrap(), "fid")).exists());
     }
 
     mod prioritize_queue {
