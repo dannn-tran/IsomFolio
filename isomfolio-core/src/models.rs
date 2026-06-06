@@ -261,6 +261,22 @@ pub struct Album {
     pub name: String,
     pub kind: AlbumKind,
     pub sort_order: i32,
+    /// Shelf this album is filed under, or `None` when it sits ungrouped at the
+    /// top of the Albums list. A shelf is purely an organisational container —
+    /// deleting one re-files its albums as ungrouped (never deletes them).
+    #[serde(default)]
+    pub shelf_id: Option<ShelfId>,
+}
+
+pub type ShelfId = String;
+
+/// A named container that holds albums (a "bookshelf" of albums). Shelves only
+/// group — they have no membership of their own and no query.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Shelf {
+    pub id: ShelfId,
+    pub name: String,
+    pub sort_order: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -1064,13 +1064,14 @@ fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
     let kind_str: String = row.get(2)?;
     let query_json: Option<String> = row.get(3)?;
     let sort_order: i32 = row.get(4)?;
+    let shelf_id: Option<String> = row.get(5)?;
     let kind = match kind_str.as_str() {
         "smart" => query_json
             .map(|j| AlbumKind::Smart(deserialize_query(&j)))
             .unwrap_or(AlbumKind::Manual),
         _ => AlbumKind::Manual,
     };
-    Ok(Album { id, name, kind, sort_order })
+    Ok(Album { id, name, kind, sort_order, shelf_id })
 }
 
 pub fn create_album(conn: &Connection, album: &Album) -> Result<(), AppError> {
@@ -1079,18 +1080,67 @@ pub fn create_album(conn: &Connection, album: &Album) -> Result<(), AppError> {
         AlbumKind::Manual => ("manual", None),
     };
     conn.execute(
-        "INSERT INTO albums (id, name, kind, query_json, sort_order) VALUES (?1,?2,?3,?4,?5)",
-        params![album.id, album.name, kind_str, query_json, album.sort_order],
+        "INSERT INTO albums (id, name, kind, query_json, sort_order, shelf_id) VALUES (?1,?2,?3,?4,?5,?6)",
+        params![album.id, album.name, kind_str, query_json, album.sort_order, album.shelf_id],
     )?;
     Ok(())
 }
 
 pub fn get_all_albums(conn: &Connection) -> Result<Vec<Album>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, kind, query_json, sort_order FROM albums ORDER BY sort_order, name",
+        "SELECT id, name, kind, query_json, sort_order, shelf_id FROM albums ORDER BY sort_order, name",
     )?;
     let rows = stmt.query_map([], read_album)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+fn read_shelf(row: &rusqlite::Row<'_>) -> rusqlite::Result<Shelf> {
+    Ok(Shelf {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        sort_order: row.get(2)?,
+    })
+}
+
+pub fn create_shelf(conn: &Connection, shelf: &Shelf) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT INTO shelves (id, name, sort_order) VALUES (?1,?2,?3)",
+        params![shelf.id, shelf.name, shelf.sort_order],
+    )?;
+    Ok(())
+}
+
+pub fn get_all_shelves(conn: &Connection) -> Result<Vec<Shelf>, AppError> {
+    let mut stmt =
+        conn.prepare("SELECT id, name, sort_order FROM shelves ORDER BY sort_order, name")?;
+    let rows = stmt.query_map([], read_shelf)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn rename_shelf(conn: &Connection, shelf_id: &str, new_name: &str) -> Result<(), AppError> {
+    conn.execute("UPDATE shelves SET name = ?1 WHERE id = ?2", params![new_name, shelf_id])?;
+    Ok(())
+}
+
+/// Delete a shelf. The `albums.shelf_id` FK is `ON DELETE SET NULL`, so its
+/// albums survive and become ungrouped — the container is removed, not its
+/// contents.
+pub fn delete_shelf(conn: &Connection, shelf_id: &str) -> Result<(), AppError> {
+    conn.execute("DELETE FROM shelves WHERE id = ?1", [shelf_id])?;
+    Ok(())
+}
+
+/// File an album under a shelf, or pass `None` to ungroup it.
+pub fn set_album_shelf(
+    conn: &Connection,
+    album_id: &str,
+    shelf_id: Option<&str>,
+) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE albums SET shelf_id = ?1 WHERE id = ?2",
+        params![shelf_id, album_id],
+    )?;
+    Ok(())
 }
 
 pub fn rename_album(conn: &Connection, album_id: &str, new_name: &str) -> Result<(), AppError> {
@@ -1869,6 +1919,7 @@ mod tests {
             name: "Favorites".to_string(),
             kind: AlbumKind::Manual,
             sort_order: 0,
+            shelf_id: None,
         };
         create_album(&conn, &album).unwrap();
         let albums = get_all_albums(&conn).unwrap();
@@ -1879,6 +1930,62 @@ mod tests {
         assert_eq!(albums2[0].name, "Best");
         delete_album(&conn, "al1").unwrap();
         assert!(get_all_albums(&conn).unwrap().is_empty());
+    }
+
+    mod shelves {
+        use super::*;
+
+        fn album(id: &str, shelf: Option<&str>) -> Album {
+            Album {
+                id: id.to_string(),
+                name: id.to_string(),
+                kind: AlbumKind::Manual,
+                sort_order: 0,
+                shelf_id: shelf.map(str::to_string),
+            }
+        }
+
+        fn shelf(id: &str) -> Shelf {
+            Shelf { id: id.to_string(), name: id.to_string(), sort_order: 0 }
+        }
+
+        #[test]
+        fn crud() {
+            let (conn, _f) = open_temp();
+            create_shelf(&conn, &shelf("sh1")).unwrap();
+            assert_eq!(get_all_shelves(&conn).unwrap().len(), 1);
+            rename_shelf(&conn, "sh1", "Events").unwrap();
+            assert_eq!(get_all_shelves(&conn).unwrap()[0].name, "Events");
+            delete_shelf(&conn, "sh1").unwrap();
+            assert!(get_all_shelves(&conn).unwrap().is_empty());
+        }
+
+        #[test]
+        fn set_album_shelf_files_and_ungroups() {
+            let (conn, _f) = open_temp();
+            create_shelf(&conn, &shelf("sh1")).unwrap();
+            create_album(&conn, &album("al1", None)).unwrap();
+            assert_eq!(get_all_albums(&conn).unwrap()[0].shelf_id, None);
+
+            set_album_shelf(&conn, "al1", Some("sh1")).unwrap();
+            assert_eq!(get_all_albums(&conn).unwrap()[0].shelf_id, Some("sh1".to_string()));
+
+            set_album_shelf(&conn, "al1", None).unwrap();
+            assert_eq!(get_all_albums(&conn).unwrap()[0].shelf_id, None);
+        }
+
+        #[test]
+        fn deleting_shelf_rehomes_its_albums_without_deleting_them() {
+            let (conn, _f) = open_temp();
+            create_shelf(&conn, &shelf("sh1")).unwrap();
+            create_album(&conn, &album("al1", Some("sh1"))).unwrap();
+
+            delete_shelf(&conn, "sh1").unwrap();
+
+            let albums = get_all_albums(&conn).unwrap();
+            assert_eq!(albums.len(), 1, "album must survive shelf deletion");
+            assert_eq!(albums[0].shelf_id, None, "album must become ungrouped");
+        }
     }
 
     mod flags {
@@ -1937,6 +2044,7 @@ mod tests {
             name: "A".to_string(),
             kind: AlbumKind::Manual,
             sort_order: 0,
+            shelf_id: None,
         };
         create_album(&conn, &album).unwrap();
         add_file_to_album(&conn, "a1", "f1").unwrap();

@@ -32,6 +32,26 @@ Right-click the album in the sidebar to access rename and delete options. Deleti
 
 Right-click an album and choose **Duplicate**. Useful as a starting point for a related collection.
 
+### Export an album
+
+Right-click an album and choose **Export Album…**, then pick a destination folder. IsomFolio copies every photo currently in the album into that folder, leaving the originals untouched. This works for both manual and smart albums — for a smart album it exports whatever matches its criteria at that moment. Offline (missing) files are skipped.
+
+## Shelves
+
+When you have lots of albums, group them onto **shelves**. A shelf is a named container that holds albums — think of it as a bookshelf your photo albums sit on (for example, a shelf per year or per client).
+
+### Create a shelf
+
+Click the shelf (`library`) icon in the **Albums** section header, type a name, and press `Enter`. The shelf appears in the sidebar with a disclosure chevron; click its header to collapse or expand the albums beneath it.
+
+### File an album under a shelf
+
+Right-click an album and choose **Move to Shelf →**, then pick a shelf — or **Ungrouped** to lift it back to the top of the list. Both manual and smart albums can live on a shelf. Duplicating an album keeps it on the same shelf as the original.
+
+### Rename or delete a shelf
+
+Right-click a shelf header for **Rename** and **Delete Shelf**. Deleting a shelf only removes the container — its albums are kept and simply become ungrouped again. Your photos are never affected.
+
 ## Smart albums
 
 Smart albums automatically include every photo that matches a set of criteria. They update in real time as you add photos, edit tags, or change ratings.

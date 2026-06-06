@@ -4,12 +4,13 @@ mod criteria;
 mod detail;
 mod extensions;
 mod navigation;
+mod shelves;
 mod sync;
 mod settings;
 mod tag_browser;
 
 use iced::Task;
-use isomfolio_core::models::ThumbnailState;
+use isomfolio_core::models::{SearchQuery, ThumbnailState};
 
 use super::{
     unix_to_date_str, AlbumKind, App, ExportMode, Msg, SidebarItem,
@@ -19,6 +20,12 @@ pub(super) use super::LockUnwrap;
 
 impl App {
     pub fn update(&mut self, msg: Msg) -> Task<Msg> {
+        // Any context-menu leaf action closes the menu first, then runs. Single
+        // chokepoint so no individual handler has to remember to dismiss it.
+        if let Msg::MenuAction(inner) = msg {
+            self.context_menu = None;
+            return self.update(*inner);
+        }
         match msg {
             // — catalog & welcome —
             Msg::CatalogReady
@@ -282,7 +289,6 @@ impl App {
                 self.context_menu = None;
                 let title = match mode {
                     ExportMode::Copy => "Copy files to…",
-                    ExportMode::Move => "Move files to…",
                 };
                 Task::perform(
                     async move {
@@ -294,6 +300,37 @@ impl App {
                         (paths, dest, mode)
                     },
                     |(paths, dest, mode)| Msg::ExportDestPicked { paths, dest, mode },
+                )
+            }
+
+            Msg::ExportAlbumToDialog(album_id) => {
+                let Some(catalog) = self.catalog.clone() else { return Task::none() };
+                self.context_menu = None;
+                let kind = self.albums.iter().find(|a| a.id == album_id).map(|a| a.kind.clone());
+                Task::perform(
+                    async move {
+                        let paths: Vec<String> = {
+                            let cat = catalog.lock_unwrap();
+                            let files = match kind {
+                                Some(AlbumKind::Smart(q)) => cat.search(&q).unwrap_or_default(),
+                                _ => cat
+                                    .search_manual_album(&album_id, &SearchQuery::default())
+                                    .unwrap_or_default(),
+                            };
+                            files.into_iter().filter(|f| !f.is_orphaned).map(|f| f.path).collect()
+                        };
+                        let dest = if paths.is_empty() {
+                            None
+                        } else {
+                            rfd::AsyncFileDialog::new()
+                                .set_title("Export album to…")
+                                .pick_folder()
+                                .await
+                                .map(|h| h.path().to_string_lossy().to_string())
+                        };
+                        (paths, dest)
+                    },
+                    |(paths, dest)| Msg::ExportDestPicked { paths, dest, mode: ExportMode::Copy },
                 )
             }
 
@@ -311,7 +348,6 @@ impl App {
                     .to_string();
                 let verb = match mode {
                     ExportMode::Copy => "Copying",
-                    ExportMode::Move => "Moving",
                 };
                 let plural = if n == 1 { "" } else { "s" };
                 let task_id = self.bg_push(format!("{verb} {n} file{plural} to \u{201c}{dest_name}\u{201d}\u{2026}"));
@@ -328,13 +364,6 @@ impl App {
                                     ExportMode::Copy => {
                                         std::fs::copy(src, &dst)
                                             .map_err(|e| format!("copy {src}: {e}"))?;
-                                    }
-                                    ExportMode::Move => {
-                                        std::fs::rename(src, &dst).or_else(|_| {
-                                            std::fs::copy(src, &dst)
-                                                .and_then(|_| std::fs::remove_file(src))
-                                                .map_err(|e| std::io::Error::other(e.to_string()))
-                                        }).map_err(|e| format!("move {src}: {e}"))?;
                                     }
                                 }
                             }
@@ -384,6 +413,24 @@ impl App {
             | Msg::ConfirmSmartAlbum
             | Msg::SmartAlbumUpdated
             | Msg::UpdateSmartAlbum => self.handle_album_msg(msg),
+
+            // — shelves —
+            Msg::StartCreateShelf
+            | Msg::CreateShelfInputChanged(_)
+            | Msg::ConfirmCreateShelf
+            | Msg::ShelfCreated
+            | Msg::StartRenameShelf(_)
+            | Msg::RenameShelfInputChanged(_)
+            | Msg::ConfirmRenameShelf
+            | Msg::ShelfRenamed
+            | Msg::RequestDeleteShelf(_)
+            | Msg::CancelDeleteShelf
+            | Msg::DeleteShelf(_)
+            | Msg::ShelfDeleted
+            | Msg::ToggleShelfCollapsed(_)
+            | Msg::OpenShelfMenu(_)
+            | Msg::MoveAlbumToShelf { .. }
+            | Msg::AlbumMovedToShelf => self.handle_shelf_msg(msg),
 
             // — search & filter criteria —
             Msg::SortDirToggle
@@ -504,6 +551,26 @@ impl App {
                 self.files = files;
                 self.enqueue_thumbnails();
                 self.status = format!("{} photo(s)", self.files.len());
+                // The loupe full-res cache is keyed only by index, so any list
+                // mutation (delete, filter, re-sort) leaves it pointing at a photo
+                // that may no longer live at that slot. Re-sync: clamp the index,
+                // drop the stale image, reload — or fall back to the grid if the
+                // view is now empty. Covers the loupe-delete "advance to next" case.
+                let loupe_resync = if matches!(self.view_mode, super::ViewMode::Loupe) {
+                    if self.files.is_empty() {
+                        self.view_mode = super::ViewMode::Browse;
+                        self.loupe.full_res = None;
+                        self.loupe.prefetch.clear();
+                        None
+                    } else {
+                        self.loupe.idx = self.loupe.idx.min(self.files.len() - 1);
+                        self.loupe.full_res = None;
+                        self.loupe.prefetch.clear();
+                        Some(self.load_loupe_full_res())
+                    }
+                } else {
+                    None
+                };
                 let restore = self.pending_restore_idx.take().and_then(|idx| {
                     (idx < self.files.len()).then(|| {
                         self.anchor_idx = Some(idx);
@@ -518,10 +585,14 @@ impl App {
                 });
                 let t1 = self.maybe_load_detail();
                 let t2 = self.load_file_side_data_task();
-                match restore {
-                    Some(scroll) => Task::batch([scroll, t1, t2]),
-                    None => Task::batch([t1, t2]),
+                let mut tasks = vec![t1, t2];
+                if let Some(scroll) = restore {
+                    tasks.push(scroll);
                 }
+                if let Some(loupe) = loupe_resync {
+                    tasks.push(loupe);
+                }
+                Task::batch(tasks)
             }
 
             Msg::ImportBatchesLoaded(batches) => {
@@ -581,13 +652,16 @@ impl App {
                 self.load_sidebar_task()
             }
 
-            Msg::SidebarLoaded { folders, folder_tree, library_roots, offline_roots, cameras, albums, album_counts, deleted_count, import_batches } => {
+            Msg::SidebarLoaded { folders, folder_tree, library_roots, offline_roots, cameras, albums, shelves, album_counts, deleted_count, import_batches } => {
                 self.folders = folders;
                 self.folder_tree = folder_tree;
                 self.library_roots = library_roots;
                 self.offline_roots = offline_roots;
                 self.cameras = cameras;
                 self.albums = albums;
+                self.shelves = shelves;
+                // Drop collapse state for shelves that no longer exist.
+                self.collapsed_shelves.retain(|id| self.shelves.iter().any(|s| &s.id == id));
                 self.album_counts = album_counts;
                 self.deleted_count = deleted_count;
                 self.import_batches = import_batches;
@@ -698,6 +772,9 @@ impl App {
             }
 
             Msg::NoOp => Task::none(),
+
+            // Unwrapped above, before this match.
+            Msg::MenuAction(_) => unreachable!(),
         }
     }
 

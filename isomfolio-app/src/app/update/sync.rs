@@ -5,7 +5,7 @@ use isomfolio_core::indexing::types::FileEvent;
 use isomfolio_core::path_utils::{normalize_path, CATALOG_EXT};
 
 use super::LockUnwrap;
-use super::super::{App, Msg};
+use super::super::{App, Msg, ViewMode};
 
 impl App {
     pub(super) fn handle_sync_msg(&mut self, msg: Msg) -> Task<Msg> {
@@ -436,9 +436,15 @@ impl App {
             }
 
             Msg::DeleteSelection => {
-                // Soft-delete (virtual): mark selected photos deleted. The files
-                // on disk are never touched; they move to the Deleted view.
-                let ids: Vec<String> = self.grid_selected.iter().cloned().collect();
+                // Soft-delete (virtual): mark photos deleted. The files on disk are
+                // never touched; they move to the Deleted view. In loupe, the target
+                // is always the photo on display (the grid selection may lag behind
+                // loupe navigation); removing it slides the next photo into place.
+                let ids: Vec<String> = if matches!(self.view_mode, ViewMode::Loupe) {
+                    self.files.get(self.loupe.idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
+                } else {
+                    self.grid_selected.iter().cloned().collect()
+                };
                 if ids.is_empty() {
                     return Task::none();
                 }

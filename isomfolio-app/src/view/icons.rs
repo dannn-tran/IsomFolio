@@ -31,6 +31,10 @@ pub enum Icon {
     Plus,
     ZoomIn,
     ZoomOut,
+    /// Leading glyph for a shelf row (books on a shelf).
+    Shelf,
+    /// "New shelf" action button.
+    ShelfPlus,
 }
 
 fn bytes(icon: Icon) -> &'static [u8] {
@@ -48,6 +52,8 @@ fn bytes(icon: Icon) -> &'static [u8] {
         Icon::Plus => include_bytes!("../../assets/icons/plus.svg"),
         Icon::ZoomIn => include_bytes!("../../assets/icons/zoom-in.svg"),
         Icon::ZoomOut => include_bytes!("../../assets/icons/zoom-out.svg"),
+        Icon::Shelf => include_bytes!("../../assets/icons/library.svg"),
+        Icon::ShelfPlus => include_bytes!("../../assets/icons/folder-plus.svg"),
     }
 }
 

@@ -557,6 +557,9 @@ impl App {
                 }
                 self.create_album_input = None;
                 self.rename_album_id = None;
+                self.create_shelf_input = None;
+                self.rename_shelf_id = None;
+                self.shelf_pending_delete = None;
                 self.faces.rename_cluster_id = None;
                 self.filters.save_smart_input = None;
                 self.remove_from_album_pending = false;
@@ -1169,7 +1172,7 @@ mod tests {
         use super::*;
 
         fn manual(id: &str) -> Album {
-            Album { id: id.into(), name: id.into(), kind: AlbumKind::Manual, sort_order: 0 }
+            Album { id: id.into(), name: id.into(), kind: AlbumKind::Manual, sort_order: 0, shelf_id: None }
         }
         fn smart(id: &str) -> Album {
             Album {
@@ -1177,6 +1180,7 @@ mod tests {
                 name: id.into(),
                 kind: AlbumKind::Smart(SearchQuery::default()),
                 sort_order: 0,
+                shelf_id: None,
             }
         }
 

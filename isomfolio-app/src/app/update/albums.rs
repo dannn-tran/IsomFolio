@@ -140,6 +140,8 @@ impl App {
                             name,
                             kind: src.kind.clone(),
                             sort_order: 0,
+                            // A duplicate lands on the same shelf as its original.
+                            shelf_id: src.shelf_id.clone(),
                         };
                         let e1 = guard.create_album(&new_album).err();
                         let e2 = if matches!(src.kind, AlbumKind::Manual) {
@@ -177,7 +179,7 @@ impl App {
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
-                let album = Album { id: new_album_id(), name, kind: AlbumKind::Manual, sort_order: 0 };
+                let album = Album { id: new_album_id(), name, kind: AlbumKind::Manual, sort_order: 0, shelf_id: None };
                 self.pending_album_select = Some(album.id.clone());
                 Task::perform(
                     async move {
@@ -366,6 +368,7 @@ impl App {
                     name,
                     kind: AlbumKind::Smart(query),
                     sort_order: 0,
+                    shelf_id: None,
                 };
                 Task::perform(
                     async move {

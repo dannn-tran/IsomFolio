@@ -45,7 +45,7 @@ Ratings are stored and filterable but are **not yet displayed as overlays on gri
 
 ## Clearing rejects
 
-Pressing **Delete** (or **Backspace**) on the selected photos, or **Edit → Delete Rejected Photos…**, moves them to the **Deleted** folder. This is a *virtual* delete: **your files on disk are never moved or touched** — the photos just drop out of all normal views and collect in a "Deleted" entry that appears in the sidebar.
+Pressing **Delete** (or **Backspace**) on the selected photos, or **Edit → Delete Rejected Photos…**, moves them to the **Deleted** folder. This is a *virtual* delete: **your files on disk are never moved or touched** — the photos just drop out of all normal views and collect in a "Deleted" entry that appears in the sidebar. In the loupe, **Delete** removes the photo you're viewing and slides the next one into place, so you can keep culling without leaving the loupe.
 
 To **recover**, open the **Deleted** folder, select the photos, and choose **Restore** (right-click) — they return to their place instantly, with ratings and tags intact. (Inside a manual album, Delete instead just removes the photos from that album.)
 

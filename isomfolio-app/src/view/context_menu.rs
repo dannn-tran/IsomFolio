@@ -54,7 +54,7 @@ impl App {
                                 .unwrap_or_else(|| format!("Unnamed ({})", cluster.file_count));
                             col = col.push(
                                 button(text(label).size(TEXT_MD).color(FG))
-                                    .on_press(Msg::MergeFaceClusters(target, src))
+                                    .on_press(Msg::MenuAction(Box::new(Msg::MergeFaceClusters(target, src))))
                                     .style(menu_item_style)
                                     .height(ITEM_HEIGHT)
                                     .width(Length::Fill),
@@ -62,6 +62,42 @@ impl App {
                         }
                         col.padding([SPACE_1, 0.0])
                     }
+                }
+                ContextMenuTarget::ManualAlbum(album_id)
+                | ContextMenuTarget::SmartAlbum(album_id) => {
+                    // "Move to Shelf" submenu: every shelf + an "Ungrouped" escape.
+                    let current = self
+                        .albums
+                        .iter()
+                        .find(|a| &a.id == album_id)
+                        .and_then(|a| a.shelf_id.clone());
+                    let mut col = column![].spacing(0);
+                    let ungrouped_label = if current.is_none() { "Ungrouped ✓" } else { "Ungrouped" };
+                    col = col.push(
+                        button(text(ungrouped_label).size(TEXT_MD).color(FG))
+                            .on_press(Msg::MenuAction(Box::new(Msg::MoveAlbumToShelf {
+                                album_id: album_id.clone(),
+                                shelf_id: None,
+                            })))
+                            .style(menu_item_style)
+                            .height(ITEM_HEIGHT)
+                            .width(Length::Fill),
+                    );
+                    for shelf in &self.shelves {
+                        let here = current.as_deref() == Some(shelf.id.as_str());
+                        let label = if here { format!("{} ✓", shelf.name) } else { shelf.name.clone() };
+                        col = col.push(
+                            button(text(label).size(TEXT_MD).color(FG))
+                                .on_press(Msg::MenuAction(Box::new(Msg::MoveAlbumToShelf {
+                                    album_id: album_id.clone(),
+                                    shelf_id: Some(shelf.id.clone()),
+                                })))
+                                .style(menu_item_style)
+                                .height(ITEM_HEIGHT)
+                                .width(Length::Fill),
+                        );
+                    }
+                    col.padding([SPACE_1, 0.0])
                 }
                 _ => {
                     let manual_albums: Vec<_> = self
@@ -78,7 +114,7 @@ impl App {
                             let id = album.id.clone();
                             col = col.push(
                                 button(text(&album.name).size(TEXT_MD).color(FG))
-                                    .on_press(Msg::AddSelectionToAlbum(id))
+                                    .on_press(Msg::MenuAction(Box::new(Msg::AddSelectionToAlbum(id))))
                                     .style(menu_item_style)
                                     .height(ITEM_HEIGHT)
                                     .width(Length::Fill),
@@ -142,6 +178,8 @@ impl App {
                     Some(("Rename".into(), Msg::StartRenameAlbum(id.clone()), false)),
                     Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),
                     Some((target_label.into(), Msg::SetTargetAlbum(id.clone()), false)),
+                    Some(("Move to Shelf ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)),
+                    Some(("Export Album…".into(), Msg::ExportAlbumToDialog(id.clone()), false)),
                     None,
                     Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
                 ]
@@ -154,8 +192,15 @@ impl App {
                     Msg::SidebarItemClicked(crate::app::SidebarItem::Album(id.clone())),
                     false,
                 )),
+                Some(("Move to Shelf ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)),
+                Some(("Export Album…".into(), Msg::ExportAlbumToDialog(id.clone()), false)),
                 None,
                 Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
+            ],
+            ContextMenuTarget::Shelf(id) => vec![
+                Some(("Rename".into(), Msg::StartRenameShelf(id.clone()), false)),
+                None,
+                Some(("Delete Shelf…".into(), Msg::RequestDeleteShelf(id.clone()), true)),
             ],
             ContextMenuTarget::FaceCluster(cluster_id) => {
                 let id = cluster_id.clone();
@@ -223,7 +268,6 @@ impl App {
 
                 if has_non_orphaned {
                     items.push(Some(("Copy to Folder…".into(), Msg::ExportSelectionToDialog(ExportMode::Copy), false)));
-                    items.push(Some(("Move to Folder…".into(), Msg::ExportSelectionToDialog(ExportMode::Move), false)));
                 }
                 items
             }
@@ -250,13 +294,20 @@ impl App {
                 }
                 Some((label, msg, is_destructive)) => {
                     let color = if is_destructive { ERR } else { FG };
+                    // The submenu-opening toggle must keep the menu open; every
+                    // other (leaf) action routes through MenuAction to auto-close.
+                    let on = if matches!(msg, Msg::ToggleAddToAlbumSubmenu) {
+                        msg
+                    } else {
+                        Msg::MenuAction(Box::new(msg))
+                    };
                     col = col.push(
                         button(
                             row![text(label).size(TEXT_MD).color(color)]
                                 .padding([0.0, SPACE_1_5])
                                 .align_y(Alignment::Center),
                         )
-                        .on_press(msg.clone())
+                        .on_press(on)
                         .style(menu_item_style)
                         .height(ITEM_HEIGHT)
                         .width(Length::Fill),

@@ -96,13 +96,22 @@ CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
 END;
 ";
 
+pub const CREATE_SHELVES: &str = "
+CREATE TABLE IF NOT EXISTS shelves (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+";
+
 pub const CREATE_ALBUMS: &str = "
 CREATE TABLE IF NOT EXISTS albums (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
     kind       TEXT NOT NULL,
     query_json TEXT,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    shelf_id   TEXT REFERENCES shelves(id) ON DELETE SET NULL
 );
 ";
 
@@ -249,6 +258,7 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_TRIGGER_INSERT,
     CREATE_TRIGGER_DELETE,
     CREATE_TRIGGER_UPDATE,
+    CREATE_SHELVES,
     CREATE_ALBUMS,
     CREATE_ALBUM_FILES,
     CREATE_ALBUM_FILES_INDEX,

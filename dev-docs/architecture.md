@@ -150,6 +150,19 @@ The `tags` table stores `(file_id, tag)` pairs — no origin column, no confiden
 
 ---
 
+## Albums & shelves
+
+Two collection entities, both purely organisational (they never touch files on disk):
+
+- **Album** — a manual collection (`album_files` membership) or a **smart album** (a stored `SearchQuery`, evaluated live). `AlbumKind` distinguishes them.
+- **Shelf** — a named container that *groups albums*. A shelf has no membership and no query; it only holds albums. `albums.shelf_id` (nullable) files an album under a shelf; `NULL` means ungrouped (shown at the top level of the Albums list).
+
+**Invariant — a shelf groups, never owns.** The `albums.shelf_id` FK is `ON DELETE SET NULL`, so deleting a shelf re-files its albums as ungrouped — it never deletes the albums or their photos. This is enforced in the schema (FK action) and relied on by `delete_shelf`; `foreign_keys=ON` makes it fire. App code goes through `Catalog` (`create_shelf` / `get_all_shelves` / `rename_shelf` / `delete_shelf` / `set_album_shelf`), never `db::` directly. (Pre-release, the schema is defined only in `ALL_DDL` — `shelves` + `albums.shelf_id` — with no migration; catalogs start fresh.)
+
+The shelf hierarchy is one level deep by design (shelves hold albums; shelves do not hold shelves) — keeps the sidebar tree shallow and the data model a single nullable FK rather than a recursive parent pointer.
+
+---
+
 ## Virtual delete
 
 Deleting a photo sets an `is_deleted` flag on the `files` row — **the file on disk is never moved or removed.** Deleted rows are excluded from every normal query/count (`is_deleted = 0`, threaded like `is_orphaned`); the Deleted view inverts it (`only_deleted`). Restore just clears the flag, so it's instant and lossless (the row, with its rating/tags, never left the catalog).

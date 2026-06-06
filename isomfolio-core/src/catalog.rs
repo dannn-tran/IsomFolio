@@ -367,6 +367,28 @@ impl Catalog {
         db::copy_album_files(&self.conn, src, dst)
     }
 
+    // Shelves — containers that group albums.
+
+    pub fn create_shelf(&self, shelf: &Shelf) -> Result<(), AppError> {
+        db::create_shelf(&self.conn, shelf)
+    }
+
+    pub fn get_all_shelves(&self) -> Result<Vec<Shelf>, AppError> {
+        db::get_all_shelves(&self.conn)
+    }
+
+    pub fn rename_shelf(&self, shelf_id: &str, new_name: &str) -> Result<(), AppError> {
+        db::rename_shelf(&self.conn, shelf_id, new_name)
+    }
+
+    pub fn delete_shelf(&self, shelf_id: &str) -> Result<(), AppError> {
+        db::delete_shelf(&self.conn, shelf_id)
+    }
+
+    pub fn set_album_shelf(&self, album_id: &str, shelf_id: Option<&str>) -> Result<(), AppError> {
+        db::set_album_shelf(&self.conn, album_id, shelf_id)
+    }
+
     // Face clusters
 
     pub fn save_face_clusters(&self, members: &[FaceClusterMember]) -> Result<(), AppError> {

@@ -4,7 +4,7 @@ use iced::{
 };
 
 use isomfolio_core::folder_tree::FolderNode;
-use isomfolio_core::models::{AlbumKind, Flag, RatingFilter, TagMatch};
+use isomfolio_core::models::{Album, AlbumKind, Flag, RatingFilter, Shelf, TagMatch};
 
 use super::styles::{
     active_chip_style, color_label_swatch, confirm_action_row, danger_btn_style, ghost_btn_style,
@@ -149,6 +149,11 @@ impl App {
             SidebarSection::Albums,
             vec![
                 super::styles::tip(
+                    super::styles::icon_btn_svg(Icon::ShelfPlus, Msg::StartCreateShelf),
+                    "New shelf",
+                    super::styles::TipPos::Bottom,
+                ),
+                super::styles::tip(
                     super::styles::icon_btn_svg(Icon::Plus, Msg::StartCreateAlbum),
                     "New album",
                     super::styles::TipPos::Bottom,
@@ -251,55 +256,42 @@ impl App {
             );
         }
 
-        for album in &self.albums {
-            if albums_collapsed {
-                break;
-            }
-            let sel = self.selected_item == SidebarItem::Album(album.id.clone());
-            let hovered = drag_hover.as_deref() == Some(album.id.as_str());
-            let count = self.album_counts.get(&album.id).copied().unwrap_or(0);
-            let is_smart = matches!(album.kind, AlbumKind::Smart(_));
+        if let Some(ref input_val) = self.create_shelf_input {
+            content = content.push(
+                container(
+                    row![
+                        super::icons::icon(Icon::Shelf, FG_DIM),
+                        text_input("Shelf name…", input_val)
+                            .on_input(Msg::CreateShelfInputChanged)
+                            .on_submit(Msg::ConfirmCreateShelf)
+                            .padding([SPACE_1_5, SPACE_2])
+                            .size(TEXT_BASE)
+                            .width(Length::Fill),
+                        super::styles::icon_btn("✓", Msg::ConfirmCreateShelf),
+                        super::styles::icon_btn("✕", Msg::EscapePressed),
+                    ]
+                    .spacing(SPACE_1)
+                    .align_y(Alignment::Center),
+                )
+                .height(ALBUM_ITEM_HEIGHT)
+                .align_y(Alignment::Center)
+                .padding([0.0, SPACE_1]),
+            );
+        }
 
-            if self.album_pending_delete.as_deref() == Some(album.id.as_str()) {
-                content = content.push(confirm_action_row(
-                    format!("Delete \"{}\"?", album.name),
-                    Msg::DeleteAlbum(album.id.clone()),
-                    Msg::CancelDeleteAlbum,
-                ));
-            } else if self.rename_album_id.as_deref() == Some(album.id.as_str()) {
-                content = content.push(
-                    container(
-                        row![
-                            text_input(&album.name, &self.rename_album_input)
-                                .on_input(Msg::RenameAlbumInputChanged)
-                                .on_submit(Msg::ConfirmRenameAlbum)
-                                .padding([SPACE_1_5, SPACE_2])
-                                .size(TEXT_BASE)
-                                .width(Length::Fill),
-                            super::styles::icon_btn("✓", Msg::ConfirmRenameAlbum),
-                            super::styles::icon_btn("✕", Msg::EscapePressed),
-                        ]
-                        .spacing(SPACE_1)
-                        .align_y(Alignment::Center),
-                    )
-                    .height(ALBUM_ITEM_HEIGHT)
-                    .align_y(Alignment::Center)
-                    .padding([0.0, SPACE_1]),
-                );
-            } else {
-                let dirty = sel && is_smart && self.smart_album_dirty;
-                let is_target = self.target_album.as_deref() == Some(album.id.as_str());
-                content = content.push(album_sidebar_row(
-                    album.name.clone(),
-                    album.id.clone(),
-                    count,
-                    sel,
-                    hovered,
-                    is_smart,
-                    dirty,
-                    is_target,
-                    max_chars,
-                ));
+        if !albums_collapsed {
+            // Shelves first, each with its filed albums nested beneath; then the
+            // ungrouped albums at the top level.
+            for shelf in &self.shelves {
+                content = content.push(self.render_shelf_header(shelf, max_chars));
+                if !self.collapsed_shelves.contains(&shelf.id) {
+                    for album in self.albums.iter().filter(|a| a.shelf_id.as_deref() == Some(shelf.id.as_str())) {
+                        content = content.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, true));
+                    }
+                }
+            }
+            for album in self.albums.iter().filter(|a| a.shelf_id.is_none()) {
+                content = content.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, false));
             }
         }
 
@@ -458,6 +450,145 @@ impl App {
                 ..Default::default()
             })
             .into()
+    }
+
+    /// One album row in the Albums list, handling its inline delete-confirm and
+    /// rename states. `indent` nests it under a shelf header.
+    fn render_album_row<'a>(
+        &'a self,
+        album: &'a Album,
+        drag_hover: Option<&str>,
+        max_chars: usize,
+        indent: bool,
+    ) -> Element<'a, Msg> {
+        let sel = self.selected_item == SidebarItem::Album(album.id.clone());
+        let hovered = drag_hover == Some(album.id.as_str());
+        let count = self.album_counts.get(&album.id).copied().unwrap_or(0);
+        let is_smart = matches!(album.kind, AlbumKind::Smart(_));
+
+        let el: Element<Msg> = if self.album_pending_delete.as_deref() == Some(album.id.as_str()) {
+            confirm_action_row(
+                format!("Delete \"{}\"?", album.name),
+                Msg::DeleteAlbum(album.id.clone()),
+                Msg::CancelDeleteAlbum,
+            )
+        } else if self.rename_album_id.as_deref() == Some(album.id.as_str()) {
+            container(
+                row![
+                    text_input(&album.name, &self.rename_album_input)
+                        .on_input(Msg::RenameAlbumInputChanged)
+                        .on_submit(Msg::ConfirmRenameAlbum)
+                        .padding([SPACE_1_5, SPACE_2])
+                        .size(TEXT_BASE)
+                        .width(Length::Fill),
+                    super::styles::icon_btn("✓", Msg::ConfirmRenameAlbum),
+                    super::styles::icon_btn("✕", Msg::EscapePressed),
+                ]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center),
+            )
+            .height(ALBUM_ITEM_HEIGHT)
+            .align_y(Alignment::Center)
+            .padding([0.0, SPACE_1])
+            .into()
+        } else {
+            let dirty = sel && is_smart && self.smart_album_dirty;
+            let is_target = self.target_album.as_deref() == Some(album.id.as_str());
+            album_sidebar_row(
+                album.name.clone(),
+                album.id.clone(),
+                count,
+                sel,
+                hovered,
+                is_smart,
+                dirty,
+                is_target,
+                max_chars,
+            )
+        };
+
+        if indent {
+            row![Space::new().width(SPACE_3), el].into()
+        } else {
+            el
+        }
+    }
+
+    /// A shelf header row in the Albums list: a collapse chevron, the shelf glyph,
+    /// its name, and the count of albums it holds. Right-click / Ctrl+Click opens
+    /// its context menu (rename / delete). Renders inline rename / delete states.
+    fn render_shelf_header<'a>(&'a self, shelf: &'a Shelf, max_chars: usize) -> Element<'a, Msg> {
+        if self.shelf_pending_delete.as_deref() == Some(shelf.id.as_str()) {
+            return confirm_action_row(
+                format!("Delete shelf \"{}\"? (albums are kept)", shelf.name),
+                Msg::DeleteShelf(shelf.id.clone()),
+                Msg::CancelDeleteShelf,
+            );
+        }
+        if self.rename_shelf_id.as_deref() == Some(shelf.id.as_str()) {
+            return container(
+                row![
+                    text_input(&shelf.name, &self.rename_shelf_input)
+                        .on_input(Msg::RenameShelfInputChanged)
+                        .on_submit(Msg::ConfirmRenameShelf)
+                        .padding([SPACE_1_5, SPACE_2])
+                        .size(TEXT_BASE)
+                        .width(Length::Fill),
+                    super::styles::icon_btn("✓", Msg::ConfirmRenameShelf),
+                    super::styles::icon_btn("✕", Msg::EscapePressed),
+                ]
+                .spacing(SPACE_1)
+                .align_y(Alignment::Center),
+            )
+            .height(ALBUM_ITEM_HEIGHT)
+            .align_y(Alignment::Center)
+            .padding([0.0, SPACE_1])
+            .into();
+        }
+
+        let collapsed = self.collapsed_shelves.contains(&shelf.id);
+        let album_count = self.albums.iter().filter(|a| a.shelf_id.as_deref() == Some(shelf.id.as_str())).count();
+        let (display_label, was_truncated) = truncate_label(&shelf.name, max_chars);
+
+        let chevron = super::styles::icon_btn_svg(
+            if collapsed { Icon::ChevronRight } else { Icon::ChevronDown },
+            Msg::ToggleShelfCollapsed(shelf.id.clone()),
+        );
+
+        let label_area = mouse_area(
+            row![
+                super::icons::icon(Icon::Shelf, FG_DIM),
+                container(
+                    text(display_label)
+                        .size(TEXT_BASE)
+                        .color(FG)
+                        .wrapping(iced::widget::text::Wrapping::None),
+                )
+                .width(Length::Fill)
+                .clip(true),
+                text(if album_count > 0 { album_count.to_string() } else { String::new() })
+                    .size(TEXT_SM)
+                    .color(FG_MUTED),
+            ]
+            .spacing(SPACE_1_5)
+            .align_y(Alignment::Center)
+            .width(Length::Fill),
+        )
+        .on_press(Msg::ToggleShelfCollapsed(shelf.id.clone()))
+        .on_right_press(Msg::OpenShelfMenu(shelf.id.clone()));
+
+        let inner = container(
+            row![chevron, label_area].spacing(SPACE_1).align_y(Alignment::Center),
+        )
+        .height(ALBUM_ITEM_HEIGHT)
+        .align_y(Alignment::Center)
+        .padding([0.0, SPACE_1]);
+
+        if was_truncated {
+            tooltip(inner, label_tooltip(shelf.name.clone()), tooltip::Position::Right).into()
+        } else {
+            inner.into()
+        }
     }
 
     fn view_sidebar_filters(&self) -> Element<'_, Msg> {

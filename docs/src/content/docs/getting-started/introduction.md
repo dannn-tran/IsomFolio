@@ -31,7 +31,7 @@ IsomFolio is a **local-first photo library manager** for macOS. It organises you
 
 - **RAW processing or editing** — IsomFolio is a library manager, not an editor. Open photos in your editor of choice.
 - **Cloud sync** — by design. All data stays local.
-- **Export / print** — not yet. Use the "Show in Finder" context menu action to hand off to another tool.
+- **Print** — not yet. Use the "Show in Finder" context menu action to hand off to another tool. (Copying photos out to a folder — including a whole album — is supported via the **Copy to Folder…** and **Export Album…** context-menu actions.)
 
 ## Supported platforms
 

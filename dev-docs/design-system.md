@@ -49,7 +49,11 @@ Every significant action must have at least one discoverable path beyond right-c
 | Set Target Album | Album | — | — | `?` help panel |
 | Show in Finder | Tile | Photo → Show in Finder | — | — |
 | Locate… (orphaned) | Tile (orphaned only) | — | — | Tile "Missing" banner |
-| Copy / Move to Folder… | Tile | Photo → Copy/Move to Folder… | — | — |
+| Copy to Folder… | Tile | Photo → Copy to Folder… | — | — |
+| Export Album… | Album row | — | — | Copies all present files in the album to a chosen folder |
+| New shelf | Album row | — | — | Albums-section header `library`-plus glyph |
+| Move to Shelf | Album row | — | — | Album context menu → submenu of shelves + Ungrouped |
+| Rename / Delete shelf | Shelf row | — | — | Shelf context menu (delete keeps the albums) |
 | Import XMP | Tile | Photo → Import XMP | — | — |
 | Write XMP Sidecars | — | Photo → Write XMP Sidecars | — | — |
 | Export Metadata (CSV) | — | Photo → Export Metadata (CSV)… | — | — |
@@ -223,6 +227,8 @@ Two row height constants exist to express the hierarchy between containers and i
 
 Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM_HEIGHT`.
 
+**Shelves** (containers grouping albums) sit inside the Albums list. A shelf header row uses `ALBUM_ITEM_HEIGHT` — it reads as a peer of the album rows it groups, not a folder. Anatomy: collapse chevron · shelf glyph (Lucide `library`) · name · right-aligned album count. Its albums render one indent level (`SPACE_3`) beneath it; ungrouped albums follow at the top level. The header toggles collapse on click; right-click / Ctrl+Click opens its context menu. The Albums section header carries two add controls: a `library`-plus glyph (**New shelf**) and `+` (**New album**).
+
 ### Sidebar row classes
 
 The sidebar has exactly **two** row kinds; the split is *"does this hold a child list or not?"* Each class is internally uniform — section identity comes from the label, never from per-row styling.
@@ -265,17 +271,18 @@ Implemented as a `stack` overlay anchored to the cursor position. No scrim — c
 - Separator: 1 px `BORDER` line, 4 px vertical margin
 - Destructive item: `ERR` text + leading `⚠` glyph (`TEXT_MD`). Two-channel signalling — colour is insufficient alone (see *Density floor*). The `⚠` glyph makes destructive items distinguishable without colour perception.
 
-**Dismiss:** click outside the menu, press Escape, or select any item.
+**Dismiss:** click outside the menu, press Escape, or select any item. Selecting an item closes the menu *unconditionally* — every leaf action is dispatched wrapped in `Msg::MenuAction(Box<Msg>)`, whose single handler clears `context_menu` before running the inner message. Individual handlers must **not** rely on (or re-implement) menu-closing. The only exception is the submenu-opening toggle (`Add to Album ▶` / `Merge into ▶`), which is dispatched raw so it keeps the menu open.
 
 **Context menu contents by entity type:**
 
 | Entity | Menu items |
 |---|---|
 | Folder | Sync Folder · (Remove Missing Files…, when orphans present) · — · Remove from Library… |
-| Manual album | Rename · Duplicate · Set/Clear Target Album · — · Delete… |
-| Smart album | Rename · Duplicate · Edit Criteria · — · Delete… |
-| Grid tile (single) | Open in Loupe · Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder / Locate… · Copy to Folder… · Move to Folder… |
-| Grid tile (multi-select) | Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder · Copy to Folder… · Move to Folder… |
+| Manual album | Rename · Duplicate · Set/Clear Target Album · Move to Shelf ▶ · Export Album… · — · Delete… |
+| Smart album | Rename · Duplicate · Edit Criteria · Move to Shelf ▶ · Export Album… · — · Delete… |
+| Shelf | Rename · — · Delete Shelf… (albums are kept) |
+| Grid tile (single) | Open in Loupe · Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder / Locate… · Copy to Folder… |
+| Grid tile (multi-select) | Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder · Copy to Folder… |
 | Person (face card) | Rename · Merge into ▶ |
 | Recent catalog item | Open · Remove from Recents |
 
@@ -441,7 +448,7 @@ Custom horizontal bar (height 26 px, `BG_STATUSBAR` background). Left side: cont
 |---|---|
 | Catalog | New Catalog… · Open Catalog… |
 | Edit | Undo · Redo · — · Delete Rejected Photos… |
-| Photo | Flag Pick/Reject/Unflag · — · Label … · — · Compare · Show in Finder · Copy/Move to Folder… · Import XMP · Write XMP Sidecars · Export Metadata (CSV)… · — · Delete · — · Find People · Re-cluster All Faces · New Smart Album from Filters… |
+| Photo | Flag Pick/Reject/Unflag · — · Label … · — · Compare · Show in Finder · Copy to Folder… · Import XMP · Write XMP Sidecars · Export Metadata (CSV)… · — · Delete · — · Find People · Re-cluster All Faces · New Smart Album from Filters… |
 | View | Toggle Info Panel · Preview · Loupe · People · — · Zoom In · Zoom Out · — · Hide Rejects |
 
 Every major selection action has a **menu path** (with its shortcut shown) so it's discoverable without memorising keys — the menu is the canonical "what can this app do?" surface. Right-click menus and the cull strip are faster paths to the same actions, not the only path.

@@ -242,11 +242,12 @@ impl App {
         if self.purge_pending.is_some() {
             layers.push(self.purge_confirm_overlay());
         }
-        let root: Element<Msg> = if layers.len() == 1 {
-            layers.remove(0)
-        } else {
-            stack(layers).into()
-        };
+        // Always wrap in a `stack`, even with a single layer. Adding/removing an
+        // overlay must not change the *type* of the root widget — if it flipped
+        // between `column` and `stack`, iced would rebuild the whole tree and the
+        // grid scrollable would lose its offset (jumping to the top whenever a
+        // context menu or other overlay opens).
+        let root: Element<Msg> = stack(layers).into();
 
         if resizing {
             mouse_area(root)
@@ -732,16 +733,16 @@ impl App {
             })
         };
 
-        let main_col: Element<Msg> =
-            column![top_bar, img_element, self.view_loupe_filmstrip(idx), bottom_bar].into();
-        let hud_overlay: Element<Msg> = container(
-            column![Space::new().height(Length::Fill), hud_bar],
-        )
-        .width(Length::Fill)
-        .height(Length::Fill)
+        let main_col: Element<Msg> = column![
+            top_bar,
+            img_element,
+            hud_bar,
+            self.view_loupe_filmstrip(idx),
+            bottom_bar
+        ]
         .into();
 
-        container(stack([main_col, hud_overlay]))
+        container(main_col)
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {

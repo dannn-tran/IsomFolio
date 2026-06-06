@@ -18,7 +18,7 @@ use isomfolio_core::indexing::thumbnail::{
 use isomfolio_core::indexing::types::FileEvent;
 use isomfolio_core::indexing::watcher::{create_watcher, start_mount_watch, FileWatcher, MountWatch};
 use isomfolio_core::models::SearchQuery;
-use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, SortField, ThumbnailState};
+use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, Shelf, ShelfId, SortField, ThumbnailState};
 
 /// Platform name for the OS trash, used in user-facing delete copy.
 pub fn os_trash_name() -> &'static str {
@@ -168,6 +168,10 @@ pub struct App {
     pub add_folder_prompt: Option<AddFolderPrompt>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
+    /// Shelves (containers grouping albums), ordered for display.
+    pub shelves: Vec<Shelf>,
+    /// Shelf ids whose album list is collapsed in the sidebar.
+    pub collapsed_shelves: HashSet<ShelfId>,
     /// Album that the `B` quick-add key drops the selection into, if set.
     pub target_album: Option<AlbumId>,
     pub selected_item: SidebarItem,
@@ -240,6 +244,11 @@ pub struct App {
     pub create_album_input: Option<String>,
     pub rename_album_id: Option<AlbumId>,
     pub rename_album_input: String,
+    /// Inline "new shelf" name input (Some while the field is shown).
+    pub create_shelf_input: Option<String>,
+    pub rename_shelf_id: Option<ShelfId>,
+    pub rename_shelf_input: String,
+    pub shelf_pending_delete: Option<ShelfId>,
 
     pub sort_by: SortField,
     pub sort_asc: bool,
@@ -507,6 +516,8 @@ impl App {
             add_folder_prompt: None,
             albums: Vec::new(),
             album_counts: HashMap::new(),
+            shelves: Vec::new(),
+            collapsed_shelves: HashSet::new(),
             target_album: None,
             selected_item: SidebarItem::AllFiles,
             files: Vec::new(),
@@ -551,6 +562,10 @@ impl App {
             create_album_input: None,
             rename_album_id: None,
             rename_album_input: String::new(),
+            create_shelf_input: None,
+            rename_shelf_id: None,
+            rename_shelf_input: String::new(),
+            shelf_pending_delete: None,
             sort_by: SortField::Name,
             sort_asc: true,
             grid_layout: GridLayout::Grid,
@@ -1008,6 +1023,7 @@ impl App {
                 let library_roots = cat.list_library_roots().unwrap_or_default();
                 let cameras = cat.distinct_camera_models().unwrap_or_default();
                 let albums = cat.get_all_albums().unwrap_or_default();
+                let shelves = cat.get_all_shelves().unwrap_or_default();
                 let album_counts = cat.get_all_album_file_counts().unwrap_or_default();
                 let deleted_count = cat.count_deleted().unwrap_or(0);
                 let import_batches = cat.get_import_batches(None).unwrap_or_default();
@@ -1037,9 +1053,9 @@ impl App {
                     .filter(|r| !std::path::Path::new(&r.path).is_dir())
                     .map(|r| r.path.clone())
                     .collect();
-                (folders, folder_tree, library_roots, offline_roots, cameras, albums, album_counts, deleted_count, import_batches)
+                (folders, folder_tree, library_roots, offline_roots, cameras, albums, shelves, album_counts, deleted_count, import_batches)
             },
-            |(folders, folder_tree, library_roots, offline_roots, cameras, albums, album_counts, deleted_count, import_batches)| {
+            |(folders, folder_tree, library_roots, offline_roots, cameras, albums, shelves, album_counts, deleted_count, import_batches)| {
                 Msg::SidebarLoaded {
                     folders,
                     folder_tree,
@@ -1047,6 +1063,7 @@ impl App {
                     offline_roots,
                     cameras,
                     albums,
+                    shelves,
                     album_counts,
                     deleted_count,
                     import_batches,

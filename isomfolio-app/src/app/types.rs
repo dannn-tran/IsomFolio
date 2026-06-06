@@ -7,7 +7,7 @@ use iced::{keyboard, widget, Point};
 pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
 use isomfolio_core::extension::ExtensionManifest;
 use isomfolio_core::folder_tree::FolderNode;
-use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, SortField};
+use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, Shelf, ShelfId, SortField};
 use isomfolio_core::LibraryRoot;
 
 #[derive(Debug, Clone)]
@@ -17,6 +17,7 @@ pub enum ContextMenuTarget {
     SmartAlbum(AlbumId),
     GridTiles,
     FaceCluster(String),
+    Shelf(ShelfId),
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +212,7 @@ pub enum Msg {
         offline_roots: std::collections::HashSet<String>,
         cameras: Vec<String>,
         albums: Vec<Album>,
+        shelves: Vec<Shelf>,
         album_counts: HashMap<String, usize>,
         deleted_count: usize,
         import_batches: Vec<isomfolio_core::models::ImportBatch>,
@@ -508,6 +510,31 @@ pub enum Msg {
     /// Ctrl held → open the context menu, otherwise → select/navigate.
     SidebarEntityPressed(SidebarItem),
     ToggleAddToAlbumSubmenu,
+
+    // — shelves (containers that group albums) —
+    StartCreateShelf,
+    CreateShelfInputChanged(String),
+    ConfirmCreateShelf,
+    ShelfCreated,
+    StartRenameShelf(ShelfId),
+    RenameShelfInputChanged(String),
+    ConfirmRenameShelf,
+    ShelfRenamed,
+    RequestDeleteShelf(ShelfId),
+    CancelDeleteShelf,
+    DeleteShelf(ShelfId),
+    ShelfDeleted,
+    ToggleShelfCollapsed(ShelfId),
+    /// Right-click / Ctrl+Click on a shelf header opens its context menu.
+    OpenShelfMenu(ShelfId),
+    /// File an album under a shelf, or `None` to ungroup it.
+    MoveAlbumToShelf { album_id: AlbumId, shelf_id: Option<ShelfId> },
+    AlbumMovedToShelf,
+
+    /// Wraps a context-menu leaf action: closes the menu, then dispatches the
+    /// inner message. Every clickable menu item routes through this, so closing
+    /// is handled in exactly one place (no per-handler `context_menu = None`).
+    MenuAction(Box<Msg>),
     LoupeFullResLoaded { idx: usize, handle: iced::widget::image::Handle },
     LoupeHiresLoaded { idx: usize, handle: iced::widget::image::Handle },
     LoupePrefetchLoaded { idx: usize, handle: iced::widget::image::Handle },
@@ -546,6 +573,8 @@ pub enum Msg {
     ExportMetadataDest { ids: Vec<String>, dest: Option<String> },
     MetadataExported,
     ExportSelectionToDialog(ExportMode),
+    /// Copy every (present) file in an album to a folder the user picks.
+    ExportAlbumToDialog(String),
     ExportDestPicked { paths: Vec<String>, dest: Option<String>, mode: ExportMode },
     ExportDone { task_id: BgTaskId, result: Result<(), String> },
 }
@@ -553,7 +582,6 @@ pub enum Msg {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExportMode {
     Copy,
-    Move,
 }
 
 use isomfolio_core::models::FlagSelection;
