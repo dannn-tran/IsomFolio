@@ -151,7 +151,32 @@ pub fn read_last_session() -> Option<Session> {
     serde_json::from_str(&text).ok()
 }
 
+/// Persist the session off the UI thread. Sends to a single background writer
+/// that coalesces bursts (rapid sidebar navigation) and writes only the latest —
+/// so a folder/album switch never blocks render on disk I/O, and because one
+/// thread does every write they can't race or land out of order.
 pub fn save_session(s: &Session) {
+    use std::sync::mpsc::{channel, Sender};
+    use std::sync::OnceLock;
+    static WRITER: OnceLock<Sender<Session>> = OnceLock::new();
+    let tx = WRITER.get_or_init(|| {
+        let (tx, rx) = channel::<Session>();
+        std::thread::spawn(move || {
+            while let Ok(mut latest) = rx.recv() {
+                // Drain any saves that piled up while we were writing; only the
+                // newest selection matters.
+                while let Ok(newer) = rx.try_recv() {
+                    latest = newer;
+                }
+                write_session_to_disk(&latest);
+            }
+        });
+        tx
+    });
+    let _ = tx.send(s.clone());
+}
+
+fn write_session_to_disk(s: &Session) {
     let path = session_file_path();
     let _ = std::fs::create_dir_all(path.parent().unwrap());
     if let Ok(data) = serde_json::to_string(s) {
