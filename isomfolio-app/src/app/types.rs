@@ -562,7 +562,7 @@ pub enum Msg {
     RequestPurgeAll,
     ConfirmPurge,
     CancelPurge,
-    Purged,
+    Purged(usize),
     LocateFile(String),
     FileLocated { file_id: String, new_path: std::path::PathBuf },
 

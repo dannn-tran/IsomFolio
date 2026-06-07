@@ -397,11 +397,14 @@ impl App {
     }
 
     fn import_external_metadata_for_selection(&mut self, xmp: bool, apple: bool) -> Task<Msg> {
+        // Real-cased disk paths: `import_external_metadata` reads XMP sidecars /
+        // Apple Finder tags off disk, which the folded `path` can't open on a
+        // case-sensitive volume. (See AssetFile::disk_path.)
         let paths: Vec<String> = self
             .grid_selected
             .iter()
             .filter_map(|id| self.files.iter().find(|f| &f.id == id))
-            .map(|f| f.path.clone())
+            .map(|f| f.disk_path())
             .collect();
         if paths.is_empty() {
             return Task::none();
@@ -493,11 +496,14 @@ impl App {
             }
 
             Msg::RequestPurgeSelected => {
+                // Real-cased `disk_path()`, not the folded `path` — the latter only
+                // resolves on case-insensitive volumes, so trashing a file on an
+                // external case-sensitive drive would fail. (See AssetFile::disk_path.)
                 let targets: Vec<(String, String)> = self
                     .files
                     .iter()
                     .filter(|f| self.grid_selected.contains(&f.id))
-                    .map(|f| (f.id.clone(), f.path.clone()))
+                    .map(|f| (f.id.clone(), f.disk_path()))
                     .collect();
                 if !targets.is_empty() {
                     self.purge_pending = Some(targets);
@@ -508,7 +514,7 @@ impl App {
 
             Msg::RequestPurgeAll => {
                 let targets: Vec<(String, String)> =
-                    self.files.iter().map(|f| (f.id.clone(), f.path.clone())).collect();
+                    self.files.iter().map(|f| (f.id.clone(), f.disk_path())).collect();
                 if !targets.is_empty() {
                     self.purge_pending = Some(targets);
                 }
@@ -525,27 +531,36 @@ impl App {
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let count = targets.len();
                 self.grid_selected.clear();
-                self.status = format!("Moved {count} photo(s) to {}", crate::app::os_trash_name());
+                let trash_name = crate::app::os_trash_name();
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
                             // The one delete path that touches disk: move files to the
                             // OS Trash / Recycle Bin (recoverable there), then drop the
-                            // catalog rows. Their catalog edits do not survive.
+                            // catalog rows. If the trash move fails, keep the catalog
+                            // rows so the photos don't silently vanish while the files
+                            // are still on disk — surface the error instead.
                             let paths: Vec<String> =
                                 targets.iter().map(|(_, p)| p.clone()).collect();
-                            let _ = trash::delete_all(&paths);
+                            trash::delete_all(&paths).map_err(|e| e.to_string())?;
                             let ids: Vec<String> = targets.into_iter().map(|(id, _)| id).collect();
-                            let _ = conn.lock_unwrap().delete_files(&ids);
+                            conn.lock_unwrap().delete_files(&ids).map_err(|e| e.to_string())?;
+                            Ok::<usize, String>(count)
                         })
                         .await
-                        .ok();
+                        .unwrap_or_else(|e| Err(e.to_string()))
                     },
-                    |()| Msg::Purged,
+                    move |res| match res {
+                        Ok(n) => Msg::Purged(n),
+                        Err(e) => Msg::DbError(format!("Move to {trash_name} failed: {e}")),
+                    },
                 )
             }
 
-            Msg::Purged => Task::batch([self.load_sidebar_task(), self.load_files_task()]),
+            Msg::Purged(count) => {
+                self.status = format!("Moved {count} photo(s) to {}", crate::app::os_trash_name());
+                Task::batch([self.load_sidebar_task(), self.load_files_task()])
+            }
 
             Msg::ConfirmRemoveMissing => {
                 let Some(folder) = self.remove_missing_folder.take() else {
@@ -566,11 +581,13 @@ impl App {
             }
 
             Msg::LocateFile(file_id) => {
+                // Real-cased path so the picker opens in the file's actual folder
+                // (the folded path's parent may not exist on a case-sensitive volume).
                 let original_path = self
                     .files
                     .iter()
                     .find(|f| f.id == file_id)
-                    .map(|f| f.path.clone())
+                    .map(|f| f.disk_path())
                     .unwrap_or_default();
                 let start_dir = std::path::Path::new(&original_path)
                     .parent()

@@ -93,7 +93,7 @@ impl App {
             | Msg::RequestPurgeAll
             | Msg::ConfirmPurge
             | Msg::CancelPurge
-            | Msg::Purged
+            | Msg::Purged(_)
             | Msg::LocateFile(_)
             | Msg::FileLocated { .. } => self.handle_missing_msg(msg),
 
