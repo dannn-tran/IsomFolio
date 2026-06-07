@@ -1,6 +1,5 @@
 pub mod input_ids;
 pub mod keybinds;
-pub mod loupe;
 mod types;
 mod update;
 

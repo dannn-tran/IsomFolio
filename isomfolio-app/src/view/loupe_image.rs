@@ -1,32 +1,27 @@
 //! Zoomable / pannable loupe image.
 //!
 //! Unlike iced's built-in `image::Viewer`, the zoom/pan state lives in the
-//! application (`LoupeState`), not inside the widget. This widget only
-//! *classifies* raw input into a [`LoupeIntent`] and applies it through the
-//! shared [`LoupeGeometry`] reducer (`crate::app::loupe`), emitting the result
-//! via `on_change`. The zoom buttons and keyboard shortcuts feed the very same
-//! reducer in `update`, so there is one anchoring formula, not two.
+//! application (`LoupeState`), not inside the widget. That lets the same state
+//! be driven by *both* trackpad/scroll gestures (handled here, emitted as
+//! `on_change`) and the on-screen zoom buttons (handled in `update`). The
+//! widget is otherwise a thin port of `Viewer`'s geometry + drawing.
 
 use iced::advanced::image::{self, FilterMethod, Image};
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer;
 use iced::advanced::widget::{tree, Tree};
 use iced::advanced::{mouse, Clipboard, Shell, Widget};
-use iced::{border, Element, Event, Length, Point, Radians, Rectangle, Size, Vector};
-
-use crate::app::loupe::{
-    click_action, ClickAction, LoupeGeometry, LoupeIntent, LoupeZoom, ZoomLevel, ZOOM_MIN,
-    ZOOM_STEP,
+use iced::{
+    border, ContentFit, Element, Event, Length, Point, Radians, Rectangle, Size, Vector,
 };
-
-/// Pixels the cursor must travel after press before it counts as a drag (pan)
-/// rather than a click (zoom toggle).
-const CLICK_SLOP: f32 = 3.0;
 
 pub struct LoupeImage<'a, Message, Handle> {
     handle: Handle,
     scale: f32,
     offset: Vector,
+    min_scale: f32,
+    max_scale: f32,
+    scale_step: f32,
     on_change: Box<dyn Fn(f32, Vector) -> Message + 'a>,
     /// Reports `(viewport_size, native_image_size)` on interaction, so the app
     /// can compute the exact "1:1" (actual-pixel) zoom factor.
@@ -45,57 +40,19 @@ impl<'a, Message, Handle> LoupeImage<'a, Message, Handle> {
             handle,
             scale,
             offset,
+            min_scale: 1.0,
+            max_scale: 8.0,
+            scale_step: 0.10,
             on_change: Box::new(on_change),
             on_geometry: Box::new(on_geometry),
         }
     }
 }
 
-/// A left-button press in progress. `moved` flips once the cursor passes
-/// `CLICK_SLOP`, distinguishing a pan-drag from a click.
-struct Press {
-    /// Absolute cursor position at press, and the pan offset at that moment.
-    origin: Point,
-    start_offset: Vector,
-    moved: bool,
-}
-
 #[derive(Default)]
 struct State {
-    press: Option<Press>,
-}
-
-impl<'a, Message, Handle> LoupeImage<'a, Message, Handle> {
-    /// Live geometry from the current layout and the image's native size. The
-    /// native size is `0×0` until the renderer can measure the image — callers
-    /// must still draw (a zero-size draw is what triggers the upload that makes
-    /// the *next* measurement succeed), so this never refuses to produce a value.
-    fn geometry<Renderer>(&self, renderer: &Renderer, bounds: Rectangle) -> LoupeGeometry
-    where
-        Renderer: image::Renderer<Handle = Handle>,
-    {
-        let raw = renderer.measure_image(&self.handle).unwrap_or_default();
-        LoupeGeometry {
-            viewport: bounds.size(),
-            native: Size::new(raw.width as f32, raw.height as f32),
-        }
-    }
-
-    /// Whether the image has been measured yet (native size known).
-    fn measured(&self, geo: &LoupeGeometry) -> bool {
-        geo.native.width > 0.0 && geo.viewport.width > 0.0
-    }
-
-    /// Reduce `intent` against the current zoom/pan and publish the result.
-    fn emit(&self, geo: &LoupeGeometry, shell: &mut Shell<'_, Message>, intent: LoupeIntent) {
-        let cur = LoupeZoom { zoom: self.scale, offset: self.offset };
-        let next = geo.apply(cur, intent);
-        if next != cur {
-            shell.publish((self.on_change)(next.zoom, next.offset));
-            shell.request_redraw();
-        }
-        shell.capture_event();
-    }
+    /// Cursor position where a pan-drag began, plus the offset at that moment.
+    grabbed: Option<(Point, Vector)>,
 }
 
 impl<'a, Message, Theme, Renderer, Handle> Widget<Message, Theme, Renderer>
@@ -137,17 +94,23 @@ where
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        let geo = self.geometry(renderer, bounds);
+        let fit = fitted_size(renderer, &self.handle, bounds.size());
 
         // Keep the app's view of (viewport, native) fresh while the cursor is
         // over the image, so the "1:1" button can compute actual-pixel zoom.
-        if matches!(event, Event::Mouse(_)) && cursor.is_over(bounds) && self.measured(&geo) {
-            shell.publish((self.on_geometry)(geo.viewport, geo.native));
+        if matches!(event, Event::Mouse(_)) && cursor.is_over(bounds) {
+            let raw = renderer.measure_image(&self.handle).unwrap_or_default();
+            if raw.width > 0 && bounds.width > 0.0 {
+                let native = Size::new(raw.width as f32, raw.height as f32);
+                shell.publish((self.on_geometry)(bounds.size(), native));
+            }
         }
 
         match event {
             Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
-                let Some(pos) = cursor.position_over(bounds) else { return };
+                let Some(cursor_position) = cursor.position_over(bounds) else {
+                    return;
+                };
                 let y = match *delta {
                     mouse::ScrollDelta::Lines { y, .. }
                     | mouse::ScrollDelta::Pixels { y, .. } => y,
@@ -155,43 +118,58 @@ where
                 if y == 0.0 {
                     return;
                 }
-                let factor = if y > 0.0 { 1.0 + ZOOM_STEP } else { 1.0 / (1.0 + ZOOM_STEP) };
-                let anchor = Point::new(pos.x - bounds.x, pos.y - bounds.y);
-                self.emit(&geo, shell, LoupeIntent::ZoomAround { anchor, factor });
+                let previous = self.scale;
+                let next = if y > 0.0 {
+                    self.scale * (1.0 + self.scale_step)
+                } else {
+                    self.scale / (1.0 + self.scale_step)
+                }
+                .clamp(self.min_scale, self.max_scale);
+                if next == previous {
+                    return;
+                }
+
+                // Keep the point under the cursor stationary while zooming.
+                let factor = next / previous - 1.0;
+                let cursor_to_center = cursor_position - bounds.center();
+                let adjustment = cursor_to_center * factor + self.offset * factor;
+                let scaled = Size::new(fit.width * next, fit.height * next);
+                let new_offset = clamp_offset(
+                    Vector::new(
+                        if scaled.width > bounds.width { self.offset.x + adjustment.x } else { 0.0 },
+                        if scaled.height > bounds.height { self.offset.y + adjustment.y } else { 0.0 },
+                    ),
+                    bounds.size(),
+                    scaled,
+                );
+                shell.publish((self.on_change)(next, new_offset));
+                shell.capture_event();
+                shell.request_redraw();
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                let Some(pos) = cursor.position_over(bounds) else { return };
-                tree.state.downcast_mut::<State>().press =
-                    Some(Press { origin: pos, start_offset: self.offset, moved: false });
+                let Some(cursor_position) = cursor.position_over(bounds) else {
+                    return;
+                };
+                if self.scale <= self.min_scale {
+                    return;
+                }
+                tree.state.downcast_mut::<State>().grabbed = Some((cursor_position, self.offset));
                 shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                tree.state.downcast_mut::<State>().grabbed = None;
             }
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
                 let state = tree.state.downcast_mut::<State>();
-                let Some(press) = state.press.as_mut() else { return };
-                let delta = *position - press.origin;
-                if !press.moved && delta.x.hypot(delta.y) > CLICK_SLOP {
-                    press.moved = true;
+                if let Some((origin, starting)) = state.grabbed {
+                    let scaled = Size::new(fit.width * self.scale, fit.height * self.scale);
+                    let delta = *position - origin;
+                    let new_offset =
+                        clamp_offset(starting - delta, bounds.size(), scaled);
+                    shell.publish((self.on_change)(self.scale, new_offset));
+                    shell.capture_event();
+                    shell.request_redraw();
                 }
-                // Only a zoomed-in image can pan; at fit a drag does nothing.
-                let pan = (press.moved && self.scale > ZOOM_MIN)
-                    .then(|| press.start_offset - delta);
-                if let Some(offset) = pan {
-                    self.emit(&geo, shell, LoupeIntent::PanTo(offset));
-                }
-            }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                let Some(press) = tree.state.downcast_mut::<State>().press.take() else { return };
-                if press.moved {
-                    return; // It was a pan; nothing to do on release.
-                }
-                // A click: toggle 1:1 (anchored at the click) ↔ fit. This is the
-                // behaviour the magnifier cursor has always advertised.
-                let anchor = Point::new(press.origin.x - bounds.x, press.origin.y - bounds.y);
-                let intent = match click_action(self.scale) {
-                    ClickAction::ZoomIn => LoupeIntent::ZoomTo { level: ZoomLevel::Actual, anchor },
-                    ClickAction::ZoomOut => LoupeIntent::ZoomTo { level: ZoomLevel::Fit, anchor },
-                };
-                self.emit(&geo, shell, intent);
             }
             _ => {}
         }
@@ -206,21 +184,15 @@ where
         _renderer: &Renderer,
     ) -> mouse::Interaction {
         let bounds = layout.bounds();
-        let dragging = tree
-            .state
-            .downcast_ref::<State>()
-            .press
-            .as_ref()
-            .is_some_and(|p| p.moved);
-        if dragging && self.scale > ZOOM_MIN {
+        if tree.state.downcast_ref::<State>().grabbed.is_some() {
             mouse::Interaction::Grabbing
         } else if !cursor.is_over(bounds) {
             mouse::Interaction::None
-        } else if self.scale > ZOOM_MIN {
-            // Zoomed in: drag to pan; a click zooms back to fit.
+        } else if self.scale > self.min_scale {
+            // Zoomed in: the image can be dragged to pan.
             mouse::Interaction::Grab
         } else {
-            // At fit: a click (or scroll) zooms in — and now actually does.
+            // At fit: signal that scrolling here zooms.
             mouse::Interaction::ZoomIn
         }
     }
@@ -236,13 +208,10 @@ where
         viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        // Always draw, even before the first successful measurement: the draw
-        // itself uploads the texture, which is what lets the *next* measurement
-        // (and therefore zoom/pan) work. Bailing here would deadlock.
-        let geo = self.geometry(renderer, bounds);
-        let scaled = geo.scaled(self.scale);
+        let fit = fitted_size(renderer, &self.handle, bounds.size());
+        let scaled = Size::new(fit.width * self.scale, fit.height * self.scale);
 
-        let offset = geo.clamp_offset(self.offset, self.scale);
+        let offset = clamp_offset(self.offset, bounds.size(), scaled);
         let centered = Vector::new(
             (bounds.width - scaled.width) / 2.0,
             (bounds.height - scaled.height) / 2.0,
@@ -266,6 +235,65 @@ where
                 );
             });
         });
+    }
+}
+
+fn fitted_size<Renderer, Handle>(renderer: &Renderer, handle: &Handle, bounds: Size) -> Size
+where
+    Renderer: image::Renderer<Handle = Handle>,
+{
+    let raw = renderer.measure_image(handle).unwrap_or_default();
+    let image_size = Size::new(raw.width as f32, raw.height as f32);
+    ContentFit::Contain.fit(image_size, bounds)
+}
+
+/// Clamp the pan offset so the image can't be dragged past its own edges.
+fn clamp_offset(offset: Vector, bounds: Size, scaled: Size) -> Vector {
+    let hidden_w = ((scaled.width - bounds.width) / 2.0).max(0.0);
+    let hidden_h = ((scaled.height - bounds.height) / 2.0).max(0.0);
+    Vector::new(
+        offset.x.clamp(-hidden_w, hidden_w),
+        offset.y.clamp(-hidden_h, hidden_h),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod clamp_offset {
+        use super::*;
+
+        #[test]
+        fn image_smaller_or_equal_to_bounds_is_pinned_centre() {
+            let got = clamp_offset(
+                Vector::new(50.0, 50.0),
+                Size::new(800.0, 600.0),
+                Size::new(800.0, 600.0),
+            );
+            assert_eq!(got, Vector::new(0.0, 0.0));
+        }
+
+        #[test]
+        fn offset_clamped_to_half_the_hidden_overflow() {
+            // 1000-wide image in an 800 viewport hides 200px → ±100 of pan.
+            let got = clamp_offset(
+                Vector::new(500.0, 0.0),
+                Size::new(800.0, 600.0),
+                Size::new(1000.0, 600.0),
+            );
+            assert_eq!(got.x, 100.0);
+        }
+
+        #[test]
+        fn within_range_offset_is_unchanged() {
+            let got = clamp_offset(
+                Vector::new(-40.0, 30.0),
+                Size::new(800.0, 600.0),
+                Size::new(1000.0, 800.0),
+            );
+            assert_eq!(got, Vector::new(-40.0, 30.0));
+        }
     }
 }
 
