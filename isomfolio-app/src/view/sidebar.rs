@@ -265,24 +265,37 @@ impl App {
         }
 
         if !albums_collapsed {
+            // While an album is mid-drag the whole expanded shelf block — header
+            // *and* its nested album rows — is the drop target, so a release
+            // anywhere over the shelf files the album there (not just the header).
+            let album_drag = self.drag.album.as_ref().map_or(false, |d| d.active);
             // Shelves first, each with its filed albums nested beneath; then the
             // ungrouped albums at the top level.
             for shelf in &self.shelves {
-                content = content.push(self.render_shelf_header(shelf, max_chars));
+                let mut block = column![self.render_shelf_header(shelf, max_chars)];
                 if !self.collapsed_shelves.contains(&shelf.id) {
                     for album in self.albums.iter().filter(|a| a.shelf_id.as_deref() == Some(shelf.id.as_str())) {
-                        content = content.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, true));
+                        block = block.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, true));
                     }
                     // A new album being created under this shelf: its inline input
                     // sits where the album will land (indented like its siblings).
                     if self.pending_album_shelf.as_deref() == Some(shelf.id.as_str()) {
                         if let Some(ref input_val) = self.create_album_input {
-                            content = content.push(
+                            block = block.push(
                                 row![Space::new().width(CHEVRON_W), create_album_input_row(input_val)],
                             );
                         }
                     }
                 }
+                let block_el: Element<Msg> = if album_drag {
+                    mouse_area(block)
+                        .on_enter(Msg::HoverShelfStart(shelf.id.clone()))
+                        .on_exit(Msg::HoverShelfEnd(shelf.id.clone()))
+                        .into()
+                } else {
+                    block.into()
+                };
+                content = content.push(block_el);
             }
             for album in self.albums.iter().filter(|a| a.shelf_id.is_none()) {
                 content = content.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, false));
@@ -589,9 +602,10 @@ impl App {
             .width(Length::Fill),
         )
         .on_press(Msg::ShelfHeaderPressed(shelf.id.clone()))
-        .on_enter(Msg::HoverShelfStart(shelf.id.clone()))
-        .on_exit(Msg::HoverShelfEnd(shelf.id.clone()))
         .on_right_press(Msg::OpenShelfMenu(shelf.id.clone()));
+        // Drop-target hover (HoverShelfStart/End) is owned by the whole expanded
+        // shelf block during an album drag (see the Albums-section loop), not the
+        // header alone — so a release anywhere over the shelf files the album.
 
         let inner = container(
             row![chevron, label_area].align_y(Alignment::Center),
