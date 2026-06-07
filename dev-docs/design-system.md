@@ -410,6 +410,8 @@ Bindings defined declaratively in `keybinds.rs` — the help panel iterates the 
 
 Inline, near the cause. Use `ERR` colour. Short copy. No modal for validation errors.
 
+**Surface failures with a resolution action, never a silent broken state.** When an operation fails in a way the user can fix, the message must (1) say what failed in plain language, (2) say *why*, and (3) offer the concrete next step — a button to the place the fix lives, not just prose. The canonical case is the **loupe full-res load failure**: when the original file can't be decoded (commonly a macOS permission denial on a protected folder like `~/Downloads`), the loupe would otherwise fall back to a silently pixelated thumbnail with no zoom. Instead it overlays an explanatory card (see *Non-happy states*) carrying the reason and the fix: an **Open Privacy Settings** primary button (`active_chip_style`, macOS deep-link to Full Disk Access) when the cause is permission, plus **Show in Finder** to locate the file. The failure reason is classified (permission / missing / unsupported), not a raw error string. A blocked or unreadable file must never present as merely "blurry".
+
 ### Non-happy states
 
 Every content area must define what it shows when it isn't full of content. Named patterns:
@@ -420,6 +422,7 @@ Every content area must define what it shows when it isn't full of content. Name
 | **Empty — filtered/album** | Quiet single line: "No photos in this view" (`TEXT_BASE`/`FG_DIM`). The user created this state, so no CTA. |
 | **Loading — thumbnails** | Tile placeholder (`BG_TILE_LOADING`) per tile until ready; aggregate progress in the task panel. Never block the grid. |
 | **Capability absent** | When a feature needs an uninstalled extension (e.g. People with no engine), the view explains it and links to where to enable it (Settings → Extensions) rather than showing an empty or broken control. |
+| **Content can't load (loupe)** | When the loupe's full-res decode fails, a centred card (`BG_MODAL`, 1 px `BORDER`, 10 px radius) overlays the image area: `⚠` (`WARN`) · heading "Can't open this photo" (`TEXT_BASE`/`FG`) · filename + reason (`TEXT_SM`/`FG_DIM`) · an action row. Permission denials show **Open Privacy Settings** (`active_chip_style`); all failures show **Show in Finder**. Never leave a failed decode as a silent pixelated thumbnail (→ *Error display*). |
 
 The distinction matters: an *empty library* is a dead end the app must help the user out of (CTA); an *empty filter result* is an expected, user-created state (quiet line, no nag).
 

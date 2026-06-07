@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use iced::{Point, Task};
 
 use super::super::{
-    loupe, App, ContextMenuState, ContextMenuTarget, DragState, LoupeState, Msg, SidebarItem,
-    ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, TILE_SIZE_MAX,
-    TILE_SIZE_MIN, TILE_SIZE_STEP,
+    loupe, App, ContextMenuState, ContextMenuTarget, DragState, LoupeLoadError, LoupeState, Msg,
+    SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
+    TILE_SIZE_MAX, TILE_SIZE_MIN, TILE_SIZE_STEP,
 };
 
 impl App {
@@ -48,6 +48,7 @@ impl App {
                     let new_idx =
                         (self.loupe.idx as i32 + delta).rem_euclid(total as i32) as usize;
                     self.loupe.idx = new_idx;
+                    self.loupe.load_error = None;
                     if self.loupe.lock_zoom {
                         // Keep zoom+pan; the new photo still needs its own hi-res
                         // decode if we're zoomed in.
@@ -165,6 +166,7 @@ impl App {
                 }
                 self.loupe.idx = idx;
                 self.loupe.reset_zoom();
+                self.loupe.load_error = None;
                 self.loupe.prefetch.retain(|&k, _| {
                     (k as i32 - idx as i32).unsigned_abs() as usize <= 2
                 });
@@ -240,6 +242,7 @@ impl App {
                                 self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
                             self.loupe.idx = idx;
                             self.loupe.reset_zoom();
+                            self.loupe.load_error = None;
                             self.view_mode = ViewMode::Loupe;
                             if let Some(handle) = self.loupe.prefetch.remove(&idx) {
                                 self.loupe.full_res = Some((idx, handle));
@@ -654,7 +657,22 @@ impl App {
             Msg::LoupeFullResLoaded { idx, handle } => {
                 if self.loupe.idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
                     self.loupe.full_res = Some((idx, handle));
+                    if matches!(&self.loupe.load_error, Some((e, _)) if *e == idx) {
+                        self.loupe.load_error = None;
+                    }
                 }
+                Task::none()
+            }
+
+            Msg::LoupeFullResFailed { idx, error } => {
+                if self.loupe.idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
+                    self.loupe.load_error = Some((idx, error));
+                }
+                Task::none()
+            }
+
+            Msg::OpenPrivacySettings => {
+                open_privacy_settings();
                 Task::none()
             }
 
@@ -737,16 +755,26 @@ impl App {
         let idx = self.loupe.idx;
         let Some(file) = self.files.get(idx) else { return Task::none() };
         let path = file.disk_path();
+        let filename = file.name.clone();
+        let fallback_name = filename.clone();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
-                    .await
-                    .ok()
-                    .flatten()
+                tokio::task::spawn_blocking(move || match decode_image_for_display(&path, false) {
+                    Some(handle) => Ok(handle),
+                    None => Err(diagnose_load_failure(&path, &filename)),
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    Err(LoupeLoadError {
+                        filename: fallback_name,
+                        message: "Decoding the image crashed.".into(),
+                        permission: false,
+                    })
+                })
             },
-            move |handle_opt| match handle_opt {
-                Some(handle) => Msg::LoupeFullResLoaded { idx, handle },
-                None => Msg::NoOp,
+            move |result| match result {
+                Ok(handle) => Msg::LoupeFullResLoaded { idx, handle },
+                Err(error) => Msg::LoupeFullResFailed { idx, error },
             },
         )
     }
@@ -1049,6 +1077,41 @@ fn decode_image_for_display(path: &str, prefer_full: bool) -> Option<iced::widge
     Some(iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
 }
 
+/// Classify why a full-res decode produced nothing, into a user-facing reason +
+/// a `permission` flag that drives the resolution action. Distinguishes a
+/// permission denial (macOS TCC on a protected folder) from a missing file or an
+/// unsupported/corrupt image by probing the raw file open.
+fn diagnose_load_failure(path: &str, filename: &str) -> LoupeLoadError {
+    use std::io::ErrorKind;
+    let (message, permission) = match std::fs::File::open(path) {
+        Err(e) if e.kind() == ErrorKind::PermissionDenied => (
+            "macOS blocked access to this file. It's in a protected folder \
+             (Downloads, Desktop, Documents). Grant the app Full Disk Access, \
+             then reopen the photo."
+                .to_string(),
+            true,
+        ),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            ("The file is no longer at its expected location.".to_string(), false)
+        }
+        Err(e) => (format!("Couldn't open the file: {e}."), false),
+        // Opened fine, so the decoder rejected the contents.
+        Ok(_) => ("The image data is unsupported or corrupt.".to_string(), false),
+    };
+    LoupeLoadError { filename: filename.to_string(), message, permission }
+}
+
+/// Open the OS privacy pane where file-access is granted. macOS deep-links to
+/// Full Disk Access; other platforms have no equivalent one-click target.
+fn open_privacy_settings() {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+            .spawn();
+    }
+}
+
 /// Decode an image for on-screen display. For RAW, `prefer_full = false` returns
 /// the embedded preview first (fast — used for fit-to-window browsing and
 /// prefetch), and only falls back to a full demosaic if no preview exists.
@@ -1141,6 +1204,57 @@ fn reveal_in_file_manager(paths: &[String]) {
 mod tests {
     use super::*;
     use isomfolio_core::models::{Album, AlbumKind, SearchQuery};
+
+    mod diagnose_load_failure_fn {
+        use super::*;
+
+        fn temp_path(name: &str) -> std::path::PathBuf {
+            let p = std::env::temp_dir().join(format!(
+                "isomfolio-test-{}-{name}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            p
+        }
+
+        #[test]
+        fn missing_file_is_not_a_permission_error() {
+            let err = diagnose_load_failure("/no/such/file.jpg", "file.jpg");
+            assert!(!err.permission);
+            assert_eq!(err.filename, "file.jpg");
+            assert!(err.message.to_lowercase().contains("location"));
+        }
+
+        #[test]
+        fn readable_but_undecodable_file_reports_corrupt_not_permission() {
+            let path = temp_path("corrupt.jpg");
+            std::fs::write(&path, b"definitely not an image").unwrap();
+            let err = diagnose_load_failure(path.to_str().unwrap(), "x.jpg");
+            let _ = std::fs::remove_file(&path);
+            assert!(!err.permission);
+            let m = err.message.to_lowercase();
+            assert!(m.contains("unsupported") || m.contains("corrupt"), "got: {}", err.message);
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn unreadable_file_is_flagged_as_permission() {
+            use std::os::unix::fs::PermissionsExt;
+            let path = temp_path("denied.jpg");
+            std::fs::write(&path, b"x").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+            // Running as root bypasses the mode bits; only assert when truly denied.
+            let denied = std::fs::File::open(&path).is_err();
+            let err = diagnose_load_failure(path.to_str().unwrap(), "x.jpg");
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+            let _ = std::fs::remove_file(&path);
+            if denied {
+                assert!(err.permission, "expected permission flag, got: {}", err.message);
+            }
+        }
+    }
 
     mod grid_step_nav {
         use super::*;

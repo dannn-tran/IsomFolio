@@ -57,6 +57,20 @@ pub struct LoupeState {
     /// (focus-checking the same spot across a burst). A *mode*, so `reset_zoom`
     /// (which fires on navigate) leaves it alone.
     pub lock_zoom: bool,
+    /// Why the full-res decode for `(idx)` failed, if it did — surfaced as an
+    /// explanatory overlay so a permission-blocked photo isn't a silent pixelated
+    /// fallback. Keyed by idx so it self-clears on navigate.
+    pub load_error: Option<(usize, LoupeLoadError)>,
+}
+
+/// A full-resolution load failure, with enough to explain it and offer a fix.
+#[derive(Debug, Clone)]
+pub struct LoupeLoadError {
+    pub filename: String,
+    pub message: String,
+    /// The OS denied read access (e.g. macOS TCC on ~/Downloads) — when true the
+    /// overlay offers the privacy-settings shortcut as the resolution action.
+    pub permission: bool,
 }
 
 pub const LOUPE_ZOOM_MIN: f32 = 1.0;
@@ -83,6 +97,7 @@ impl Default for LoupeState {
             viewport: None,
             native: None,
             lock_zoom: false,
+            load_error: None,
         }
     }
 }

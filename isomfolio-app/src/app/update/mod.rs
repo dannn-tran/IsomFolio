@@ -167,6 +167,8 @@ impl App {
             | Msg::HoverMenuTab(_)
             | Msg::CloseMenuDropdown
             | Msg::LoupeFullResLoaded { .. }
+            | Msg::LoupeFullResFailed { .. }
+            | Msg::OpenPrivacySettings
             | Msg::LoupeHiresLoaded { .. }
             | Msg::LoupePrefetchLoaded { .. }
             | Msg::SelectAll

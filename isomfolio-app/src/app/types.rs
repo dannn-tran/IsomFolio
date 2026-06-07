@@ -555,6 +555,10 @@ pub enum Msg {
     /// is handled in exactly one place (no per-handler `context_menu = None`).
     MenuAction(Box<Msg>),
     LoupeFullResLoaded { idx: usize, handle: iced::widget::image::Handle },
+    /// Full-res decode failed for `idx` — surface the reason in the loupe.
+    LoupeFullResFailed { idx: usize, error: crate::app::LoupeLoadError },
+    /// Open the OS privacy settings so the user can grant file access (macOS).
+    OpenPrivacySettings,
     LoupeHiresLoaded { idx: usize, handle: iced::widget::image::Handle },
     LoupePrefetchLoaded { idx: usize, handle: iced::widget::image::Handle },
     ThumbnailCompleted { file_id: String, path: String },

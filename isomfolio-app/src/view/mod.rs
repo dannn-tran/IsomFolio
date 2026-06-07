@@ -21,7 +21,7 @@ use styles::{
     BG_MODAL, BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
     OVERLAY_HEAVY, OVERLAY_LIGHT, OVERLAY_MEDIUM, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2,
     SPACE_2_5, SPACE_3, SPACE_4, SPACE_6, STAR_GOLD, TEXT_BASE, TEXT_LG, TEXT_MD, TEXT_SM,
-    TEXT_STAR, TEXT_TITLE, TEXT_XS,
+    TEXT_STAR, TEXT_TITLE, TEXT_XS, WARN,
 };
 
 impl App {
@@ -733,9 +733,27 @@ impl App {
             })
         };
 
+        // When the full-res decode failed for this photo, explain why over the
+        // (pixelated thumbnail) fallback instead of leaving it silently broken.
+        let middle: Element<Msg> = match self.loupe.load_error.as_ref().filter(|(e, _)| *e == idx) {
+            Some((_, err)) => {
+                let path = self.files.get(idx).map(|f| f.disk_path());
+                stack![
+                    img_element,
+                    container(self.loupe_error_card(err, path))
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center),
+                ]
+                .into()
+            }
+            None => img_element,
+        };
+
         let main_col: Element<Msg> = column![
             top_bar,
-            img_element,
+            middle,
             hud_bar,
             self.view_loupe_filmstrip(idx),
             bottom_bar
@@ -752,6 +770,51 @@ impl App {
                     b: 0.03,
                     a: 1.0,
                 })),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// Explanatory card shown over the loupe when the full-res decode failed —
+    /// states the reason and offers concrete resolution actions (open privacy
+    /// settings for a permission denial, reveal the file in Finder).
+    fn loupe_error_card<'a>(
+        &self,
+        err: &crate::app::LoupeLoadError,
+        path: Option<String>,
+    ) -> Element<'a, Msg> {
+        let mut col = column![
+            text("⚠").size(TEXT_TITLE).color(WARN),
+            text("Can't open this photo").size(TEXT_BASE).color(FG),
+            text(err.filename.clone()).size(TEXT_SM).color(FG_DIM),
+            text(err.message.clone()).size(TEXT_SM).color(FG_DIM),
+        ]
+        .spacing(SPACE_2)
+        .align_x(Alignment::Center);
+
+        let mut actions = row![].spacing(SPACE_2).align_y(Alignment::Center);
+        if err.permission {
+            actions = actions.push(
+                button(text("Open Privacy Settings").size(TEXT_MD))
+                    .on_press(Msg::OpenPrivacySettings)
+                    .style(active_chip_style),
+            );
+        }
+        if let Some(p) = path {
+            actions = actions.push(
+                button(text("Show in Finder").size(TEXT_MD))
+                    .on_press(Msg::ShowInFinder(vec![p]))
+                    .style(ghost_btn_style),
+            );
+        }
+        col = col.push(actions);
+
+        container(col)
+            .width(Length::Fixed(360.0))
+            .padding(SPACE_6)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_MODAL)),
+                border: Border { color: BORDER, width: 1.0, radius: 10.0.into() },
                 ..Default::default()
             })
             .into()

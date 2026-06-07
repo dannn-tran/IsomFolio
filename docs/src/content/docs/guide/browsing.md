@@ -39,9 +39,13 @@ In Loupe:
 - `1`–`5` — set rating
 - The Info panel (`I`) remains available on the right
 
-**Zoom in to inspect detail:** scroll or use a two-finger trackpad gesture over the photo to zoom toward the pointer, press the **`+`** / **`−`** keys, or use the magnifier **zoom-out / zoom-in / 1:1 / Fit** buttons at the bottom. **`Z`** toggles between Fit and **1:1** (actual pixels) for a precise focus check. When zoomed in, drag the photo to pan. Zoom resets to fit each time you move to another photo — unless you enable the **🔒 lock** button, which keeps the zoom and pan position as you move through photos (ideal for checking focus on the same spot across a burst). The **⛶** button toggles fullscreen.
+**Zoom in to inspect detail:** scroll or use a two-finger trackpad gesture over the photo to zoom toward the pointer, **click the photo** to jump to 1:1 at the spot you clicked (click again to return to Fit), press the **`+`** / **`−`** keys, or use the magnifier **zoom-out / zoom-in / 1:1 / Fit** buttons at the bottom. **`Z`** toggles between Fit and **1:1** (actual pixels) for a precise focus check. When zoomed in, drag the photo to pan. Zoom resets to fit each time you move to another photo — unless you enable the **🔒 lock** button, which keeps the zoom and pan position as you move through photos (ideal for checking focus on the same spot across a burst). The **⛶** button toggles fullscreen.
 
 For RAW files, the fit view uses the camera's fast embedded preview so browsing stays instant; the slower full decode is done only when you zoom in, so a 100% focus check is still pixel-accurate.
+
+<Aside type="caution" title="“Can’t open this photo” in the loupe">
+If the loupe shows a card saying it can’t open the photo, IsomFolio could read the cached thumbnail (so the grid looks fine) but not the original file. On macOS this is almost always a **privacy permission**: photos in `~/Downloads`, `~/Desktop`, or `~/Documents` are protected folders. Click **Open Privacy Settings** on the card and grant IsomFolio **Full Disk Access**, then reopen the photo — or move your library to an unprotected folder.
+</Aside>
 
 A **filmstrip** of neighbouring photos runs under the image — the current photo is ringed; click any thumbnail to jump to it.
 
