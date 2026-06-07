@@ -178,6 +178,18 @@ impl Catalog {
         db::load_face_centroids(&self.conn)
     }
 
+    pub fn files_needing_phash(&self) -> Result<Vec<String>, AppError> {
+        db::files_needing_phash(&self.conn)
+    }
+
+    pub fn store_phashes(&self, rows: &[(String, u64, f64, i64)]) -> Result<(), AppError> {
+        db::store_phashes(&self.conn, rows)
+    }
+
+    pub fn detect_and_store_stacks_all(&self, threshold: u32, window_secs: i64) -> Result<(), AppError> {
+        db::detect_and_store_stacks_all(&self.conn, threshold, window_secs)
+    }
+
 
     // Tags
 

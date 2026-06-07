@@ -1000,47 +1000,106 @@ pub fn get_metadata(conn: &Connection, file_id: &str) -> Result<Option<EmbeddedM
     Ok(Some(EmbeddedMetadata { xmp, apple, exif_tech }))
 }
 
-// Burst detection
+// Content-based stacking (perceptual hash)
 
-pub fn detect_and_store_bursts(conn: &Connection, folder: &str) -> Result<(), AppError> {
+/// Files whose perceptual hash hasn't been computed yet. The hash is derived
+/// from the cached thumbnail (app-side), so callers decode each id's thumbnail,
+/// compute the hash, and write it back via `store_phashes`.
+pub fn files_needing_phash(conn: &Connection) -> Result<Vec<String>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, COALESCE(exif_date_unix, modified_time) AS t \
-         FROM files WHERE folder = ?1 AND is_orphaned = 0 ORDER BY t",
+        "SELECT id FROM files WHERE phash IS NULL AND is_orphaned = 0 AND is_deleted = 0",
     )?;
-    let rows: Vec<(String, i64)> = stmt
-        .query_map([folder], |r| Ok((r.get(0)?, r.get(1)?)))?
+    let ids = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    Ok(ids)
+}
+
+/// Persist computed perceptual hashes. Each tuple is `(file_id, hash, sharpness,
+/// thumb_mtime)`; the hash is stored as i64 (SQLite has no u64), reinterpreted on
+/// read. `thumb_mtime` records the thumbnail the hash was derived from.
+pub fn store_phashes(conn: &Connection, rows: &[(String, u64, f64, i64)]) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "UPDATE files SET phash = ?1, phash_sharpness = ?2, phash_mtime = ?3 WHERE id = ?4",
+        )?;
+        for (id, hash, sharp, mtime) in rows {
+            stmt.execute(rusqlite::params![*hash as i64, sharp, mtime, id])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Re-derive stacks for every folder that has hashed files. Grouping is strictly
+/// per-folder (see `detect_and_store_stacks`).
+pub fn detect_and_store_stacks_all(
+    conn: &Connection,
+    threshold: u32,
+    window_secs: i64,
+) -> Result<(), AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT folder FROM files \
+         WHERE phash IS NOT NULL AND is_orphaned = 0 AND is_deleted = 0",
+    )?;
+    let folders = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    for folder in folders {
+        detect_and_store_stacks(conn, &folder, threshold, window_secs)?;
+    }
+    Ok(())
+}
+
+/// Re-derive stacks for one folder from stored perceptual hashes and capture
+/// times, writing the grouping into `burst_id` (the existing stack identifier).
+/// Files without a phash are left unstacked. Grouping is per-folder only.
+pub fn detect_and_store_stacks(
+    conn: &Connection,
+    folder: &str,
+    threshold: u32,
+    window_secs: i64,
+) -> Result<(), AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, phash, COALESCE(exif_date_unix, modified_time) AS t \
+         FROM files WHERE folder = ?1 AND is_orphaned = 0 AND is_deleted = 0 AND phash IS NOT NULL",
+    )?;
+    let rows: Vec<(String, u64, i64)> = stmt
+        .query_map([folder], |r| {
+            let id: String = r.get(0)?;
+            let hash: i64 = r.get(1)?;
+            let t: i64 = r.get(2)?;
+            Ok((id, hash as u64, t))
+        })?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| AppError::Db(e.to_string()))?;
 
-    let mut groups: Vec<Vec<String>> = Vec::new();
-    let mut current: Vec<(String, i64)> = Vec::new();
-
-    for (id, t) in rows {
-        let same_burst = current.last().map_or(true, |(_, last_t)| (t - last_t).abs() <= 3);
-        if !same_burst {
-            groups.push(current.drain(..).map(|(id, _)| id).collect());
-        }
-        current.push((id, t));
-    }
-    if !current.is_empty() {
-        groups.push(current.into_iter().map(|(id, _)| id).collect());
-    }
+    let items: Vec<crate::phash::HashedFile> = rows
+        .iter()
+        .map(|(_, hash, t)| crate::phash::HashedFile { hash: *hash, time: *t })
+        .collect();
+    let groups = crate::phash::group_stacks(&items, threshold, window_secs);
 
     let tx = conn.unchecked_transaction()?;
+    // Clear any prior stacking for this folder, then assign fresh ids.
+    tx.execute(
+        "UPDATE files SET burst_id = NULL WHERE folder = ?1",
+        [folder],
+    )?;
     for group in &groups {
-        let burst_id: Option<String> = if group.len() >= 2 {
-            use sha2::{Sha256, Digest};
-            let mut h = Sha256::new();
-            for id in group { h.update(id.as_bytes()); }
-            let hex: String = h.finalize().iter().take(6).map(|b| format!("{b:02x}")).collect();
-            Some(hex)
-        } else {
-            None
-        };
-        for id in group {
-            conn.execute(
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        for &idx in group {
+            h.update(rows[idx].0.as_bytes());
+        }
+        let burst_id: String = h.finalize().iter().take(6).map(|b| format!("{b:02x}")).collect();
+        for &idx in group {
+            tx.execute(
                 "UPDATE files SET burst_id = ?1 WHERE id = ?2",
-                rusqlite::params![burst_id, id],
+                rusqlite::params![burst_id, rows[idx].0],
             )?;
         }
     }
@@ -1672,6 +1731,89 @@ mod tests {
             exif_date_unix: None,
             gps_lat: None,
             gps_lon: None,
+        }
+    }
+
+    mod stacking {
+        use super::*;
+
+        fn file_in(id: &str, folder: &str, exif: i64) -> AssetFile {
+            let mut f = make_file(id, &format!("{folder}/{id}.jpg"));
+            f.folder = folder.to_string();
+            f.folder_display = folder.to_string();
+            f.exif_date_unix = Some(exif);
+            f
+        }
+
+        #[test]
+        fn stores_phash_and_groups_near_dupes_per_folder() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[
+                file_in("a1", "/A", 100),
+                file_in("a2", "/A", 101),
+                file_in("a3", "/A", 500), // far in time → own stack
+                file_in("b1", "/B", 100), // same hash+time as A but other folder
+                file_in("b2", "/B", 101),
+            ]).unwrap();
+
+            // a1/a2 near-identical hashes; a3 distinct; b1/b2 near-identical.
+            store_phashes(&conn, &[
+                ("a1".into(), 0b0000, 9.0, 0),
+                ("a2".into(), 0b0001, 5.0, 0),
+                ("a3".into(), 0b1111_1111, 5.0, 0),
+                ("b1".into(), 0b0000, 5.0, 0),
+                ("b2".into(), 0b0001, 5.0, 0),
+            ]).unwrap();
+
+            detect_and_store_stacks_all(&conn, 2, 10).unwrap();
+
+            let sizes = get_burst_sizes_for(
+                &conn,
+                &["a1".into(), "a2".into(), "a3".into(), "b1".into(), "b2".into()],
+            ).unwrap();
+            // a1+a2 form a stack of 2; a3 is solo (no badge).
+            assert_eq!(sizes.get("a1"), Some(&2));
+            assert_eq!(sizes.get("a2"), Some(&2));
+            assert_eq!(sizes.get("a3"), None);
+
+            // Cross-folder identity does NOT merge: A's stack ≠ B's stack.
+            let bid_a1: Option<String> = conn
+                .query_row("SELECT burst_id FROM files WHERE id='a1'", [], |r| r.get(0))
+                .unwrap();
+            let bid_b1: Option<String> = conn
+                .query_row("SELECT burst_id FROM files WHERE id='b1'", [], |r| r.get(0))
+                .unwrap();
+            assert!(bid_a1.is_some() && bid_b1.is_some());
+            assert_ne!(bid_a1, bid_b1);
+        }
+
+        #[test]
+        fn files_without_phash_are_skipped_and_listed_as_needing() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[file_in("x1", "/A", 100), file_in("x2", "/A", 101)]).unwrap();
+            store_phashes(&conn, &[("x1".into(), 0b0, 5.0, 0)]).unwrap();
+
+            assert_eq!(files_needing_phash(&conn).unwrap(), vec!["x2".to_string()]);
+
+            // x2 has no phash → cannot stack with x1 (option A: unstacked).
+            detect_and_store_stacks_all(&conn, 2, 10).unwrap();
+            let sizes = get_burst_sizes_for(&conn, &["x1".into(), "x2".into()]).unwrap();
+            assert_eq!(sizes.get("x1"), None);
+            assert_eq!(sizes.get("x2"), None);
+        }
+
+        #[test]
+        fn rerun_clears_stale_stacks() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[file_in("a1", "/A", 100), file_in("a2", "/A", 101)]).unwrap();
+            store_phashes(&conn, &[("a1".into(), 0b0, 5.0, 0), ("a2".into(), 0b0, 5.0, 0)]).unwrap();
+            detect_and_store_stacks_all(&conn, 2, 10).unwrap();
+            assert_eq!(get_burst_sizes_for(&conn, &["a1".into()]).unwrap().get("a1"), Some(&2));
+
+            // Push a2 far in time, re-run: the stack must dissolve.
+            conn.execute("UPDATE files SET exif_date_unix = 9999 WHERE id='a2'", []).unwrap();
+            detect_and_store_stacks_all(&conn, 2, 10).unwrap();
+            assert_eq!(get_burst_sizes_for(&conn, &["a1".into()]).unwrap().get("a1"), None);
         }
     }
 

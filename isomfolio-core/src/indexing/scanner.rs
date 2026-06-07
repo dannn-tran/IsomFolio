@@ -223,9 +223,8 @@ pub fn sync_folder(
         }
     }
 
-    if let Err(e) = db::detect_and_store_bursts(conn, &folder_key) {
-        eprintln!("[db] detect_and_store_bursts failed: {e}");
-    }
+    // Stacking is content-based now (perceptual hash over cached thumbnails) and
+    // runs app-side after thumbnails exist; the scanner no longer detects bursts.
     Ok(SyncResult { total_count: total, new_file_ids })
 }
 

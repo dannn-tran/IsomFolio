@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS files (
     gps_lat         REAL,
     gps_lon         REAL,
     burst_id        TEXT,
+    phash           INTEGER,
+    phash_mtime     INTEGER,
+    phash_sharpness REAL,
     is_deleted      INTEGER NOT NULL DEFAULT 0,
     import_batch_id INTEGER
 );
@@ -247,6 +250,12 @@ pub const MIGRATIONS: &[&str] = &[
         source_folder   TEXT,
         count           INTEGER NOT NULL
     )",
+    // Content-based stacking: perceptual hash + sharpness computed per file from
+    // its cached thumbnail; stacks are inferred from pixels (replaces time-only
+    // burst detection). phash_mtime guards recompute against thumbnail changes.
+    "ALTER TABLE files ADD COLUMN phash INTEGER",
+    "ALTER TABLE files ADD COLUMN phash_mtime INTEGER",
+    "ALTER TABLE files ADD COLUMN phash_sharpness REAL",
 ];
 
 pub const ALL_DDL: &[&str] = &[

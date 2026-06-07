@@ -89,6 +89,15 @@ pub struct AppSettings {
     /// Minimum faces required to form a person cluster.
     #[serde(default = "default_face_min_pts")]
     pub face_min_pts: u32,
+    /// Automatically stack near-duplicate frames (perceptual hash) after thumbnails exist.
+    #[serde(default = "default_true")]
+    pub auto_stack: bool,
+    /// Max Hamming distance (0–64) for two frames to count as the same shot — lower is stricter.
+    #[serde(default = "default_stack_threshold")]
+    pub stack_threshold: u32,
+    /// Max seconds between consecutive frames of one stack.
+    #[serde(default = "default_stack_window")]
+    pub stack_window_secs: i64,
 }
 
 impl Default for AppSettings {
@@ -102,6 +111,9 @@ impl Default for AppSettings {
             inference_port: default_inference_port(),
             face_eps: default_face_eps(),
             face_min_pts: default_face_min_pts(),
+            auto_stack: true,
+            stack_threshold: default_stack_threshold(),
+            stack_window_secs: default_stack_window(),
         }
     }
 }
@@ -110,6 +122,8 @@ fn default_true() -> bool { true }
 fn default_inference_port() -> u16 { 45876 }
 fn default_face_eps() -> f32 { 0.4 }
 fn default_face_min_pts() -> u32 { 2 }
+fn default_stack_threshold() -> u32 { 8 }
+fn default_stack_window() -> i64 { 10 }
 
 fn settings_path() -> PathBuf {
     app_data_root().join("settings.json")

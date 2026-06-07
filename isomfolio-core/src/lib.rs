@@ -8,6 +8,7 @@ pub mod folder_tree;
 pub mod indexing;
 pub mod metadata;
 pub mod models;
+pub mod phash;
 pub mod path_utils;
 pub mod search;
 pub mod storage;
