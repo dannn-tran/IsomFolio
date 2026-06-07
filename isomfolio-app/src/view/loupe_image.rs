@@ -66,20 +66,24 @@ struct State {
 }
 
 impl<'a, Message, Handle> LoupeImage<'a, Message, Handle> {
-    /// Build the live geometry from the current layout and the image's native
-    /// size. `None` until the renderer can measure the image.
-    fn geometry<Renderer>(&self, renderer: &Renderer, bounds: Rectangle) -> Option<LoupeGeometry>
+    /// Live geometry from the current layout and the image's native size. The
+    /// native size is `0×0` until the renderer can measure the image — callers
+    /// must still draw (a zero-size draw is what triggers the upload that makes
+    /// the *next* measurement succeed), so this never refuses to produce a value.
+    fn geometry<Renderer>(&self, renderer: &Renderer, bounds: Rectangle) -> LoupeGeometry
     where
         Renderer: image::Renderer<Handle = Handle>,
     {
         let raw = renderer.measure_image(&self.handle).unwrap_or_default();
-        if raw.width == 0 || bounds.width <= 0.0 {
-            return None;
-        }
-        Some(LoupeGeometry {
+        LoupeGeometry {
             viewport: bounds.size(),
             native: Size::new(raw.width as f32, raw.height as f32),
-        })
+        }
+    }
+
+    /// Whether the image has been measured yet (native size known).
+    fn measured(&self, geo: &LoupeGeometry) -> bool {
+        geo.native.width > 0.0 && geo.viewport.width > 0.0
     }
 
     /// Reduce `intent` against the current zoom/pan and publish the result.
@@ -133,13 +137,11 @@ where
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        let Some(geo) = self.geometry(renderer, bounds) else {
-            return;
-        };
+        let geo = self.geometry(renderer, bounds);
 
         // Keep the app's view of (viewport, native) fresh while the cursor is
         // over the image, so the "1:1" button can compute actual-pixel zoom.
-        if matches!(event, Event::Mouse(_)) && cursor.is_over(bounds) {
+        if matches!(event, Event::Mouse(_)) && cursor.is_over(bounds) && self.measured(&geo) {
             shell.publish((self.on_geometry)(geo.viewport, geo.native));
         }
 
@@ -234,9 +236,10 @@ where
         viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        let Some(geo) = self.geometry(renderer, bounds) else {
-            return;
-        };
+        // Always draw, even before the first successful measurement: the draw
+        // itself uploads the texture, which is what lets the *next* measurement
+        // (and therefore zoom/pan) work. Bailing here would deadlock.
+        let geo = self.geometry(renderer, bounds);
         let scaled = geo.scaled(self.scale);
 
         let offset = geo.clamp_offset(self.offset, self.scale);
