@@ -88,4 +88,4 @@ The undo history is preserved for the current session.
 
 ## Batch culling
 
-Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selection) and apply a flag or rating — it applies to all selected photos simultaneously. This is useful for quickly flagging an entire burst as rejected.
+Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selection) and apply a flag or rating — it applies to all selected photos simultaneously. This is useful for quickly flagging an entire stack as rejected.

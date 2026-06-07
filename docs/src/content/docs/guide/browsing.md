@@ -17,7 +17,7 @@ Sort options (accessible from the toolbar or sort button):
 - **Rating** — highest first
 - Toggle ascending / descending with the sort direction button
 
-**Bursts.** Shots taken in quick succession (within ~3 seconds) are detected as a burst and marked with a `⧉ N` badge. The **⧉ Stack** toggle in the toolbar collapses each burst to a single representative tile so you can scan a shoot quickly; toggle it off to pick the best frame within a burst.
+**Stacks.** Near-identical frames shot seconds apart — bracketing, motor-drive bursts, or just several tries at one shot — are grouped into a **stack** and marked with a `⧉ N` badge. Grouping is inferred from the pixels (a perceptual hash), not camera burst metadata, so it works on any source; frames only stack when they both look alike *and* were taken close together, and only within the same folder. The **⧉ Stack** toggle in the toolbar collapses each stack to a single representative tile — the **sharpest** frame — so you can scan a shoot quickly; toggle it off to compare frames within a stack and pick the keeper. Tune the sensitivity and time window, or turn auto-stacking off, under **Settings → General → Stacking**.
 
 ## Grid and List views
 

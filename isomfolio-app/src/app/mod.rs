@@ -310,6 +310,10 @@ pub struct App {
     /// gates the "Find people" UI.
     pub inference_manifest: Option<isomfolio_core::extension::ExtensionManifest>,
 
+    /// True while a background perceptual-hash/stacking pass is running, so
+    /// repeated triggers (sync, thumbnail-batch drains) don't pile up.
+    pub stacking_in_flight: bool,
+
     pub undo_stack: Vec<UndoOp>,
     pub redo_stack: Vec<UndoOp>,
 
@@ -619,6 +623,7 @@ impl App {
             faces: FaceState::default(),
             inference: None,
             inference_manifest: None,
+            stacking_in_flight: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             compare: CompareState::default(),

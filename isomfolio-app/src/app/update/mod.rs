@@ -7,6 +7,7 @@ mod navigation;
 mod shelves;
 mod sync;
 mod settings;
+mod stacking;
 mod tag_browser;
 
 use iced::Task;
@@ -174,6 +175,9 @@ impl App {
             | Msg::CompareFullResLoaded { .. }
             | Msg::ShowInFinder(_)
             | Msg::SidebarScrolled(_) => self.handle_navigation_msg(msg),
+
+            // — content-based stacking —
+            Msg::RunStacking | Msg::StacksUpdated => self.handle_stacking_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);
@@ -527,7 +531,10 @@ impl App {
             | Msg::FaceMinPtsChanged(_)
             | Msg::ToggleImportXmpTags
             | Msg::ToggleImportAppleTags
-            | Msg::ToggleAutoAdvanceOnFlag => self.handle_settings(msg),
+            | Msg::ToggleAutoAdvanceOnFlag
+            | Msg::ToggleAutoStack
+            | Msg::StackThresholdChanged(_)
+            | Msg::StackWindowChanged(_) => self.handle_settings(msg),
 
             // — tag browser —
             Msg::OpenTagBrowser
@@ -820,7 +827,7 @@ impl App {
         self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
         if self.thumb_ctx.pending == 0 && self.thumb_ctx.total > 0 {
             let gen = self.thumb_ctx.done_gen;
-            Task::perform(
+            let clear = Task::perform(
                 async move {
                     tokio::task::spawn_blocking(move || {
                         std::thread::sleep(std::time::Duration::from_secs(2));
@@ -830,7 +837,13 @@ impl App {
                     .unwrap_or(gen)
                 },
                 Msg::ClearThumbnailProgress,
-            )
+            );
+            // Newly-cached thumbnails are now hashable — refresh stacks.
+            if self.app_settings.auto_stack {
+                Task::batch([clear, Task::done(Msg::RunStacking)])
+            } else {
+                clear
+            }
         } else {
             Task::none()
         }

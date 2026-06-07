@@ -946,7 +946,49 @@ impl App {
         }
 
         col = col.push(Space::new().height(SPACE_3));
+        col = col.push(self.stacking_section());
+
+        col = col.push(Space::new().height(SPACE_3));
         col = col.push(self.inference_engine_section());
+
+        col.into()
+    }
+
+    /// Content-based stacking: group near-duplicate frames (perceptual hash)
+    /// shot close together, per folder. Threshold = pixel tolerance, window =
+    /// max gap between frames of one stack.
+    fn stacking_section(&self) -> Element<'_, Msg> {
+        let header = column![
+            text("Stacking").size(TEXT_BASE).color(FG),
+            text("Group near-identical frames shot seconds apart into one stack, inferred from pixels.")
+                .size(TEXT_SM)
+                .color(FG_DIM),
+        ]
+        .spacing(SPACE_0_5);
+
+        let mut col = column![header].spacing(SPACE_2).width(Length::Fill);
+
+        col = col.push(self.toggle_row(
+            "Auto-stack near-duplicates",
+            "Stack as thumbnails are generated and after each sync.",
+            self.app_settings.auto_stack,
+            Msg::ToggleAutoStack,
+        ));
+        col = col.push(self.labeled_input(
+            "Similarity threshold (lower = stricter, 0–64)",
+            &self.app_settings.stack_threshold.to_string(),
+            Msg::StackThresholdChanged,
+        ));
+        col = col.push(self.labeled_input(
+            "Max gap between frames (seconds)",
+            &self.app_settings.stack_window_secs.to_string(),
+            Msg::StackWindowChanged,
+        ));
+        col = col.push(
+            button(text("Re-stack now").size(TEXT_MD))
+                .on_press(Msg::RunStacking)
+                .style(ghost_btn_style),
+        );
 
         col.into()
     }

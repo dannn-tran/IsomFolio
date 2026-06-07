@@ -125,7 +125,7 @@ impl App {
                         let on = self.collapse_bursts;
                         move |t: &Theme, s| if on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
                     }),
-                "Collapse bursts to one tile",
+                "Collapse stacks to one tile",
                 super::styles::TipPos::Bottom,
             ),
             filter_indicator,

@@ -455,6 +455,9 @@ pub enum Msg {
     ToggleImportXmpTags,
     ToggleImportAppleTags,
     ToggleAutoAdvanceOnFlag,
+    ToggleAutoStack,
+    StackThresholdChanged(String),
+    StackWindowChanged(String),
     SettingsConfigChanged { extension_name: String, key: String, value: String },
     SaveSettings,
     InstallExtensionPickFile,
@@ -462,6 +465,12 @@ pub enum Msg {
     EngineInstalled(ExtensionManifest),
     ExtensionInstallFailed(String),
     UninstallExtension(String),
+
+    /// Recompute perceptual hashes for any unhashed files (from cached
+    /// thumbnails) and re-derive per-folder stacks. Runs in the background.
+    RunStacking,
+    /// Stacking finished writing `burst_id`s; refresh badges / collapsed view.
+    StacksUpdated,
 
     RunFaceClustering { force_full: bool },
     FaceClusterProgress { files_done: usize, total: usize, percent: u8 },
