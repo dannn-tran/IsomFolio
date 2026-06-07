@@ -485,7 +485,24 @@ impl App {
 
                 let loupe_task: Option<Task<Msg>> =
                     if !was_drag_active && matches!(self.view_mode, ViewMode::Browse) {
-                        if self.tile_index_at(self.cursor).is_some() {
+                        if let Some(idx) = self.tile_index_at(self.cursor) {
+                            // Plain click (no drag) on a tile that's part of a
+                            // multi-selection collapses to just that tile. Deferred
+                            // to release — a press-and-drag in between keeps the
+                            // whole group so it can be dragged (Finder/Lightroom).
+                            let mods = self.modifiers;
+                            if !mods.command() && !mods.shift() && !mods.control() {
+                                if let Some(id) = self.files.get(idx).map(|f| f.id.clone()) {
+                                    if let Some(sel) =
+                                        plain_release_collapse(&self.grid_selected, &id)
+                                    {
+                                        self.grid_selected = sel;
+                                        self.selection_base.clear();
+                                        self.anchor_idx = Some(idx);
+                                        self.select_lead = Some(idx);
+                                    }
+                                }
+                            }
                             if self
                                 .last_click_time
                                 .map_or(false, |t| t.elapsed().as_millis() < 300)
@@ -903,8 +920,10 @@ fn range_select(ids: &[&str], anchor: usize, lead: usize, base: &HashSet<String>
 /// Compute the new grid selection for a click on tile `idx`.
 ///
 /// - **Plain** click on an unselected tile selects only it (fresh anchor, empty
-///   base). Plain click on an already-selected tile returns `None` (no change —
-///   keeps the multi-selection so a drag can start).
+///   base). Plain click on an already-selected tile returns `None` (no change at
+///   press time — keeps the multi-selection so a press-and-drag can move the
+///   whole group). If no drag follows, `MouseReleased` collapses the selection to
+///   just the clicked tile.
 /// - **Cmd** click toggles the tile and makes it the new pivot; the resulting
 ///   selection becomes the base, so a following Shift range preserves it.
 /// - **Shift** click selects `base ∪ [anchor..=idx]`, replacing the previous
@@ -947,6 +966,19 @@ fn apply_grid_click(
                 })
             }
         }
+    }
+}
+
+/// On a plain-click release (no drag, no modifier) over a tile, collapse a
+/// multi-selection down to just that tile. Returns the new single-tile selection,
+/// or `None` to leave the selection unchanged — when the tile isn't selected, or
+/// is already the sole selection (so a plain click that didn't change anything
+/// doesn't churn state).
+fn plain_release_collapse(selected: &HashSet<String>, id: &str) -> Option<HashSet<String>> {
+    if selected.len() > 1 && selected.contains(id) {
+        Some(std::iter::once(id.to_string()).collect())
+    } else {
+        None
     }
 }
 
@@ -1174,6 +1206,33 @@ mod tests {
             let out = click(3, ClickKind::Shift, &HashSet::new(), None, &HashSet::new());
             assert_eq!(out.selected, set(&["d"]));
             assert_eq!(out.anchor, Some(3));
+        }
+
+        mod release_collapse {
+            use super::*;
+
+            #[test]
+            fn collapses_multi_selection_to_the_clicked_tile() {
+                let got = plain_release_collapse(&set(&["a", "b", "c"]), "b");
+                assert_eq!(got, Some(set(&["b"])));
+            }
+
+            #[test]
+            fn no_change_when_clicked_tile_is_already_the_sole_selection() {
+                assert!(plain_release_collapse(&set(&["b"]), "b").is_none());
+            }
+
+            #[test]
+            fn no_change_when_clicked_tile_is_not_selected() {
+                // A plain click on an unselected tile is handled at press time;
+                // release must not touch the selection.
+                assert!(plain_release_collapse(&set(&["a", "b"]), "c").is_none());
+            }
+
+            #[test]
+            fn no_change_on_empty_selection() {
+                assert!(plain_release_collapse(&HashSet::new(), "a").is_none());
+            }
         }
     }
 
