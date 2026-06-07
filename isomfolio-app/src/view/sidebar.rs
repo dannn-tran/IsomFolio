@@ -278,7 +278,7 @@ impl App {
                     if self.pending_album_shelf.as_deref() == Some(shelf.id.as_str()) {
                         if let Some(ref input_val) = self.create_album_input {
                             content = content.push(
-                                row![Space::new().width(SPACE_3), create_album_input_row(input_val)],
+                                row![Space::new().width(CHEVRON_W), create_album_input_row(input_val)],
                             );
                         }
                     }
@@ -506,7 +506,10 @@ impl App {
         };
 
         if indent {
-            row![Space::new().width(SPACE_3), el].into()
+            // One disclosure column (CHEVRON_W) of indent puts the album label
+            // directly under its shelf's glyph — the chevron-column nesting the
+            // folder tree uses.
+            row![Space::new().width(CHEVRON_W), el].into()
         } else {
             el
         }
@@ -552,10 +555,15 @@ impl App {
         let album_count = self.albums.iter().filter(|a| a.shelf_id.as_deref() == Some(shelf.id.as_str())).count();
         let (display_label, was_truncated) = truncate_label(&shelf.name, max_chars);
 
+        // Same fixed chevron slot as the folder tree (CHEVRON_W) so a shelf header
+        // and a folder row share one disclosure column — narrower than ICON_BTN,
+        // which kept the shelf glyph from lining up with its nested albums.
         let chevron = super::styles::icon_btn_svg(
             if collapsed { Icon::ChevronRight } else { Icon::ChevronDown },
             Msg::ToggleShelfCollapsed(shelf.id.clone()),
-        );
+        )
+        .width(Length::Fixed(CHEVRON_W))
+        .height(Length::Fixed(ALBUM_ITEM_HEIGHT));
 
         // Highlight as a drop target while an album is being dragged over it.
         let drop_target = self.drag.album.as_ref().map_or(false, |d| d.active)
@@ -586,7 +594,7 @@ impl App {
         .on_right_press(Msg::OpenShelfMenu(shelf.id.clone()));
 
         let inner = container(
-            row![chevron, label_area].spacing(SPACE_1).align_y(Alignment::Center),
+            row![chevron, label_area].align_y(Alignment::Center),
         )
         .height(ALBUM_ITEM_HEIGHT)
         .align_y(Alignment::Center)
