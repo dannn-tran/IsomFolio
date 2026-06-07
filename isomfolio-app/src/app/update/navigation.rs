@@ -765,11 +765,6 @@ impl App {
         let idx = self.loupe.idx;
         let Some(file) = self.files.get(idx) else { return Task::none() };
         let path = file.disk_path();
-        eprintln!(
-            "[loupe-debug] load full-res idx={idx} folded_path={} disk_path={path} exists={}",
-            file.path,
-            std::path::Path::new(&path).exists()
-        );
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
@@ -779,10 +774,7 @@ impl App {
             },
             move |handle_opt| match handle_opt {
                 Some(handle) => Msg::LoupeFullResLoaded { idx, handle },
-                None => {
-                    eprintln!("[loupe-debug] full-res decode returned None for idx={idx}");
-                    Msg::NoOp
-                }
+                None => Msg::NoOp,
             },
         )
     }
@@ -1043,7 +1035,11 @@ fn open_image(path: &str, prefer_full: bool) -> Option<image::DynamicImage> {
     match image::open(path) {
         Ok(img) => Some(img),
         Err(e) => {
-            eprintln!("[loupe-debug] image::open failed for {path}: {e}");
+            // Common cause on macOS: the file is in a TCC-protected folder
+            // (~/Downloads, ~/Desktop, ~/Documents) the app lacks access to —
+            // the read fails with "Operation not permitted". The loupe then
+            // falls back to the cached thumbnail (looks pixelated) and can't zoom.
+            eprintln!("[loupe] cannot read {path}: {e}");
             None
         }
     }
