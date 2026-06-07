@@ -242,6 +242,16 @@ pub struct ImportBatch {
     pub count: usize,
 }
 
+/// At-rest summary of perceptual-hash stacking, for the Settings panel and the
+/// completion status line. `stacks`/`stacked_frames` count only real groups of
+/// ≥2 non-deleted members (matching the `⧉` badge gate), not stale singletons.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct StackStats {
+    pub hashed: usize,
+    pub stacks: usize,
+    pub stacked_frames: usize,
+}
+
 impl Default for SearchQuery {
     fn default() -> Self {
         Self {

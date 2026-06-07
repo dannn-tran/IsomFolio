@@ -182,7 +182,9 @@ impl App {
 
             // — content-based stacking —
             Msg::RunStacking
+            | Msg::RestackNow
             | Msg::StacksUpdated
+            | Msg::StackStatsLoaded(_)
             | Msg::StackKeepOnly(_)
             | Msg::StackRejectAll(_)
             | Msg::ToggleStackExpanded(_)

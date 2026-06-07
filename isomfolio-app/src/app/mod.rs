@@ -350,6 +350,11 @@ pub struct App {
     /// True while a background perceptual-hash/stacking pass is running, so
     /// repeated triggers (sync, thumbnail-batch drains) don't pile up.
     pub stacking_in_flight: bool,
+    /// Set when the user clicks "Re-stack now" so the next completion announces
+    /// its result on the status line (auto passes stay silent).
+    pub stacking_manual: bool,
+    /// At-rest stacking summary shown in Settings; refreshed after each pass.
+    pub stack_stats: isomfolio_core::models::StackStats,
 
     pub undo_stack: Vec<UndoOp>,
     pub redo_stack: Vec<UndoOp>,
@@ -689,6 +694,8 @@ impl App {
             inference: None,
             inference_manifest: None,
             stacking_in_flight: false,
+            stacking_manual: false,
+            stack_stats: isomfolio_core::models::StackStats::default(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             compare: CompareState::default(),

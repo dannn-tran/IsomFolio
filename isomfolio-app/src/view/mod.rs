@@ -1072,11 +1072,35 @@ impl App {
             &self.app_settings.stack_window_secs.to_string(),
             Msg::StackWindowChanged,
         ));
-        col = col.push(
+
+        let s = &self.stack_stats;
+        let stats_line = if self.stacking_in_flight {
+            "Stacking…".to_string()
+        } else if s.hashed == 0 {
+            "Not yet stacked — run a sync or press Re-stack now.".to_string()
+        } else if s.stacks == 0 {
+            format!("{} frames hashed · no near-duplicate stacks", s.hashed)
+        } else {
+            format!(
+                "{} frames hashed · {} stack{} across {} frames",
+                s.hashed,
+                s.stacks,
+                if s.stacks == 1 { "" } else { "s" },
+                s.stacked_frames,
+            )
+        };
+        col = col.push(text(stats_line).size(TEXT_SM).color(FG_DIM));
+
+        // Disabled (no on_press) while a pass is running, so the button doubles
+        // as an in-flight indicator.
+        let restack_btn = if self.stacking_in_flight {
+            button(text("Stacking…").size(TEXT_MD)).style(ghost_btn_style)
+        } else {
             button(text("Re-stack now").size(TEXT_MD))
-                .on_press(Msg::RunStacking)
-                .style(ghost_btn_style),
-        );
+                .on_press(Msg::RestackNow)
+                .style(ghost_btn_style)
+        };
+        col = col.push(restack_btn);
 
         col.into()
     }

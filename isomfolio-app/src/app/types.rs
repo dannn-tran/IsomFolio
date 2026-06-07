@@ -8,7 +8,7 @@ pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::u
 pub static SIDEBAR_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
 use isomfolio_core::extension::ExtensionManifest;
 use isomfolio_core::folder_tree::FolderNode;
-use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, Shelf, ShelfId, SortField};
+use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, Shelf, ShelfId, SortField, StackStats};
 use isomfolio_core::LibraryRoot;
 
 #[derive(Debug, Clone)]
@@ -510,8 +510,13 @@ pub enum Msg {
     /// Recompute perceptual hashes for any unhashed files (from cached
     /// thumbnails) and re-derive per-folder stacks. Runs in the background.
     RunStacking,
+    /// User-triggered "Re-stack now" — like `RunStacking` but announces the
+    /// result on the status line when it finishes.
+    RestackNow,
     /// Stacking finished writing `burst_id`s; refresh badges / collapsed view.
     StacksUpdated,
+    /// At-rest stacking summary loaded (Settings panel + completion announce).
+    StackStatsLoaded(StackStats),
 
     RunFaceClustering { force_full: bool },
     FaceClusterProgress { files_done: usize, total: usize, percent: u8 },

@@ -367,6 +367,10 @@ impl Catalog {
         db::get_stack_membership(&self.conn, file_ids)
     }
 
+    pub fn stack_stats(&self) -> Result<crate::models::StackStats, AppError> {
+        db::stack_stats(&self.conn)
+    }
+
     /// Cull a whole stack: keep `anchor` (Pick) and reject the rest, or reject
     /// all. Returns prior flags for undo. See `db::set_stack_flags`.
     pub fn set_stack_flags(&self, anchor: &str, keep_one: bool) -> Result<Vec<(String, crate::models::Flag)>, AppError> {

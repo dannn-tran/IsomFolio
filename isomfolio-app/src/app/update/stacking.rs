@@ -15,15 +15,40 @@ impl App {
         match msg {
             Msg::RunStacking => self.run_stacking_task(),
 
+            Msg::RestackNow => {
+                self.stacking_manual = true;
+                self.run_stacking_task()
+            }
+
             Msg::StacksUpdated => {
                 self.stacking_in_flight = false;
                 // When collapsed, the visible file set changes (one tile per
                 // stack), so the list must reload; otherwise only the ⧉ badges do.
-                if self.collapse_bursts {
+                let refresh = if self.collapse_bursts {
                     self.load_files_task()
                 } else {
                     self.load_file_side_data_task()
+                };
+                Task::batch([refresh, self.load_stack_stats_task()])
+            }
+
+            Msg::StackStatsLoaded(stats) => {
+                self.stack_stats = stats;
+                // Only a user-initiated re-stack announces; auto passes (which
+                // fire repeatedly during import) update the count silently.
+                if std::mem::take(&mut self.stacking_manual) {
+                    self.status = if stats.stacks > 0 {
+                        format!(
+                            "Stacking complete — {} stack{} across {} frames",
+                            stats.stacks,
+                            if stats.stacks == 1 { "" } else { "s" },
+                            stats.stacked_frames,
+                        )
+                    } else {
+                        "Stacking complete — no near-duplicate stacks found".to_string()
+                    };
                 }
+                Task::none()
             }
 
             Msg::StackKeepOnly(anchor) => self.cull_stack(anchor, true),
@@ -99,6 +124,21 @@ impl App {
 
             _ => Task::none(),
         }
+    }
+
+    /// Load the at-rest stacking summary for the Settings panel. Cheap (three
+    /// COUNT queries); fired after each pass and on catalog open.
+    pub(crate) fn load_stack_stats_task(&self) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                g.stack_stats().unwrap_or_default()
+            },
+            Msg::StackStatsLoaded,
+        )
     }
 
     /// Build the review queue: every multi-frame stack in the current view, in

@@ -416,6 +416,36 @@ pub fn get_burst_ids_for(conn: &Connection, file_ids: &[String]) -> Result<std::
     Ok(out)
 }
 
+/// At-rest stacking summary: how many files carry a perceptual hash, and how
+/// many real stacks (groups of ≥2 live members) those form. Matches the `⧉`
+/// badge gate, so a stack whose siblings were all deleted is not counted.
+pub fn stack_stats(conn: &Connection) -> Result<StackStats, AppError> {
+    let hashed: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM files WHERE phash IS NOT NULL AND is_deleted = 0 AND is_orphaned = 0",
+        [],
+        |r| r.get(0),
+    )?;
+    let stacks: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (SELECT burst_id FROM files \
+         WHERE burst_id IS NOT NULL AND is_deleted = 0 AND is_orphaned = 0 \
+         GROUP BY burst_id HAVING COUNT(*) >= 2)",
+        [],
+        |r| r.get(0),
+    )?;
+    let stacked_frames: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(c), 0) FROM (SELECT COUNT(*) AS c FROM files \
+         WHERE burst_id IS NOT NULL AND is_deleted = 0 AND is_orphaned = 0 \
+         GROUP BY burst_id HAVING COUNT(*) >= 2)",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(StackStats {
+        hashed: hashed as usize,
+        stacks: stacks as usize,
+        stacked_frames: stacked_frames as usize,
+    })
+}
+
 /// For each of `file_ids` that is stacked, its `(burst_id, sharpness)` — enough
 /// to both group files into stacks and pick each stack's sharpest representative.
 pub fn get_stack_membership(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, (String, f64)>, AppError> {
@@ -1958,6 +1988,30 @@ mod tests {
             upsert_files(&conn, &[file_in("solo", "/A", 100)]).unwrap();
             assert!(set_stack_flags(&conn, "solo", true).unwrap().is_empty());
             assert_eq!(flag_of(&conn, "solo"), Flag::Unflagged);
+        }
+
+        #[test]
+        fn stack_stats_counts_hashed_and_real_groups_only() {
+            let (conn, _f) = three_frame_stack(); // a1,a2,a3 → one stack of 3
+            upsert_files(&conn, &[file_in("solo", "/A", 500)]).unwrap();
+            store_phashes(&conn, &[("solo".into(), 0b1111_1111, 5.0, 0)]).unwrap();
+            detect_and_store_stacks_all(&conn, 2, 10).unwrap();
+
+            let s = stack_stats(&conn).unwrap();
+            assert_eq!(s.hashed, 4); // a1,a2,a3,solo all hashed
+            assert_eq!(s.stacks, 1); // only the a-group is a real stack
+            assert_eq!(s.stacked_frames, 3);
+        }
+
+        #[test]
+        fn stack_stats_ignores_stale_singletons() {
+            let (conn, _f) = three_frame_stack();
+            set_files_deleted(&conn, &["a2".into(), "a3".into()], true).unwrap();
+            // a1 keeps its burst_id but is now the only live member.
+            let s = stack_stats(&conn).unwrap();
+            assert_eq!(s.stacks, 0);
+            assert_eq!(s.stacked_frames, 0);
+            assert_eq!(s.hashed, 1);
         }
     }
 
