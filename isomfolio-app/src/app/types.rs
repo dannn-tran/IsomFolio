@@ -425,6 +425,7 @@ pub enum Msg {
     ToggleCollapseBursts,
     FlagsApplied,
     RatingsApplied,
+    LabelsApplied,
     ToggleHideRejects,
     ToggleFlagFilter(Flag),
     SetRatingFilter(isomfolio_core::models::RatingFilter),

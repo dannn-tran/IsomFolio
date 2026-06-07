@@ -148,7 +148,10 @@ impl App {
                 self.load_sidebar_task()
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_shelf_msg received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 }

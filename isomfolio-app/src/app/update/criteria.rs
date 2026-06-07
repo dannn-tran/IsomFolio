@@ -176,7 +176,10 @@ impl App {
                 self.load_files_task()
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_filters received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 }

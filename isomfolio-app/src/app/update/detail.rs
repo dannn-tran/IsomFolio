@@ -195,15 +195,7 @@ impl App {
             }
 
             Msg::SetFlag(flag) => {
-                let ids: Vec<String> =
-                    if matches!(self.view_mode, super::super::ViewMode::Loupe) {
-                        self.files
-                            .get(self.loupe.idx)
-                            .map(|f| vec![f.id.clone()])
-                            .unwrap_or_default()
-                    } else {
-                        self.grid_selected.iter().cloned().collect()
-                    };
+                let ids = self.selection_target_ids();
                 if ids.is_empty() {
                     return Task::none();
                 }
@@ -246,15 +238,7 @@ impl App {
             }
 
             Msg::SetRating(rating) => {
-                let ids: Vec<String> =
-                    if matches!(self.view_mode, super::super::ViewMode::Loupe) {
-                        self.files
-                            .get(self.loupe.idx)
-                            .map(|f| vec![f.id.clone()])
-                            .unwrap_or_default()
-                    } else {
-                        self.grid_selected.iter().cloned().collect()
-                    };
+                let ids = self.selection_target_ids();
                 if ids.is_empty() {
                     return Task::none();
                 }
@@ -299,12 +283,7 @@ impl App {
             }
 
             Msg::SetColorLabel(color) => {
-                let ids: Vec<String> =
-                    if matches!(self.view_mode, super::super::ViewMode::Loupe) {
-                        self.files.get(self.loupe.idx).map(|f| vec![f.id.clone()]).unwrap_or_default()
-                    } else {
-                        self.grid_selected.iter().cloned().collect()
-                    };
+                let ids = self.selection_target_ids();
                 if ids.is_empty() {
                     return Task::none();
                 }
@@ -327,19 +306,20 @@ impl App {
                 self.redo_stack.clear();
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let label_owned = effective.clone();
-                let reload = self.filters.color.is_some();
-                let save = Task::perform(
+                Task::perform(
                     async move {
                         let g = conn.lock_unwrap();
                         g.set_files_label(&ids, label_owned.as_deref()).err().map(|e| e.to_string())
                     },
-                    |e| match e { Some(err) => Msg::DbError(err), None => Msg::NoOp },
-                );
-                if reload {
-                    Task::batch([save, self.load_files_task()])
-                } else {
-                    save
-                }
+                    |e| e.map_or(Msg::LabelsApplied, Msg::DbError),
+                )
+                // Reload (if the colour filter is active) is sequenced in the
+                // `LabelsApplied` callback — never batched concurrently with the
+                // write, which would race the re-query against the label commit.
+            }
+
+            Msg::LabelsApplied => {
+                if self.filters.color.is_some() { self.load_files_task() } else { Task::none() }
             }
 
             Msg::ToggleHideRejects => {
@@ -400,7 +380,10 @@ impl App {
                 Task::batch([t1, t2, t3])
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_detail_msg received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 

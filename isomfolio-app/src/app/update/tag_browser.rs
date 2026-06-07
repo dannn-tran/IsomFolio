@@ -130,7 +130,10 @@ impl App {
                 Task::batch([t1, t2, t3])
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_tag_browser received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 }

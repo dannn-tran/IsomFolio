@@ -339,7 +339,10 @@ impl App {
 
             Msg::SyncAppleTagsForSelection => self.import_external_metadata_for_selection(false, true),
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_sync_msg received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 
@@ -609,7 +612,10 @@ impl App {
                 )
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_missing_msg received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 

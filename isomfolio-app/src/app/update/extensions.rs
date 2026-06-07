@@ -299,7 +299,10 @@ impl App {
                 )
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_extension_msg received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 

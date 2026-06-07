@@ -117,6 +117,7 @@ impl App {
             | Msg::SetRating(_)
             | Msg::RatingsApplied
             | Msg::SetColorLabel(_)
+            | Msg::LabelsApplied
             | Msg::FileSideDataLoaded { .. }
             | Msg::ToggleHideRejects
             | Msg::ToggleFlagFilter(_)
@@ -708,48 +709,16 @@ impl App {
             }
 
             // — inline: thumbnails —
+            // The JPEG is on disk; mark Ready and let the renderer decode it by
+            // path on demand (no in-app decode/handle cache).
             Msg::ThumbnailCompleted { file_id, path } => {
-                // The JPEG is on disk; mark Ready and let the renderer decode it
-                // by path on demand (no in-app decode/handle cache).
                 self.thumbnails.insert(file_id, ThumbnailState::Ready(path));
-                self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
-                if self.thumb_ctx.pending == 0 && self.thumb_ctx.total > 0 {
-                    let gen = self.thumb_ctx.done_gen;
-                    Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                std::thread::sleep(std::time::Duration::from_secs(2));
-                                gen
-                            })
-                            .await
-                            .unwrap_or(gen)
-                        },
-                        Msg::ClearThumbnailProgress,
-                    )
-                } else {
-                    Task::none()
-                }
+                self.thumb_settled()
             }
 
             Msg::ThumbnailFailed { file_id } => {
                 self.thumbnails.insert(file_id, ThumbnailState::Failed(0));
-                self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
-                if self.thumb_ctx.pending == 0 && self.thumb_ctx.total > 0 {
-                    let gen = self.thumb_ctx.done_gen;
-                    Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                std::thread::sleep(std::time::Duration::from_secs(2));
-                                gen
-                            })
-                            .await
-                            .unwrap_or(gen)
-                        },
-                        Msg::ClearThumbnailProgress,
-                    )
-                } else {
-                    Task::none()
-                }
+                self.thumb_settled()
             }
 
             Msg::ClearThumbnailProgress(gen) => {
@@ -788,6 +757,44 @@ impl App {
     pub(super) fn mark_smart_dirty(&mut self) {
         if self.current_album_is_smart() {
             self.smart_album_dirty = true;
+        }
+    }
+
+    /// Decrement the in-flight thumbnail count after one settles (ready or
+    /// failed). When the batch drains, schedule the 2-second lingering-progress
+    /// clear so the progress chip doesn't vanish the instant the last tile lands.
+    fn thumb_settled(&mut self) -> Task<Msg> {
+        self.thumb_ctx.pending = self.thumb_ctx.pending.saturating_sub(1);
+        if self.thumb_ctx.pending == 0 && self.thumb_ctx.total > 0 {
+            let gen = self.thumb_ctx.done_gen;
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        gen
+                    })
+                    .await
+                    .unwrap_or(gen)
+                },
+                Msg::ClearThumbnailProgress,
+            )
+        } else {
+            Task::none()
+        }
+    }
+
+    /// File ids an edit (flag/rating/colour/delete) acts on: in the loupe that is
+    /// the single photo on display (`loupe.idx`), otherwise the grid selection.
+    /// The loupe target is *not* the grid selection — that may lag behind loupe
+    /// navigation — so callers must use this rather than reading `grid_selected`.
+    pub(super) fn selection_target_ids(&self) -> Vec<String> {
+        if matches!(self.view_mode, super::ViewMode::Loupe) {
+            self.files
+                .get(self.loupe.idx)
+                .map(|f| vec![f.id.clone()])
+                .unwrap_or_default()
+        } else {
+            self.grid_selected.iter().cloned().collect()
         }
     }
 }

@@ -42,7 +42,11 @@ impl App {
                     Task::perform(
                         async move {
                             let _ = tokio::task::spawn_blocking(move || {
-                                let _ = conn.lock_unwrap().sweep_caches(&dir);
+                                // Best-effort maintenance: a failed sweep must not
+                                // surface to the user, but shouldn't vanish silently.
+                                if let Err(e) = conn.lock_unwrap().sweep_caches(&dir) {
+                                    eprintln!("cache sweep failed: {e}");
+                                }
                             })
                             .await;
                         },
@@ -213,7 +217,10 @@ impl App {
                 )
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_catalog_msg received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 }

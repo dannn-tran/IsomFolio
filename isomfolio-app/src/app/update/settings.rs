@@ -273,7 +273,10 @@ impl App {
                 Task::none()
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_settings received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 }

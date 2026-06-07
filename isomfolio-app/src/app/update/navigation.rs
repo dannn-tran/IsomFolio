@@ -725,7 +725,10 @@ impl App {
                 Task::none()
             }
 
-            _ => Task::none(),
+            other => {
+                debug_assert!(false, "handle_navigation_msg received misrouted message: {other:?}");
+                Task::none()
+            }
         }
     }
 
