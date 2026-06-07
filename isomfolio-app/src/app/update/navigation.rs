@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
-use iced::Task;
+use iced::{Point, Task};
 
 use super::super::{
-    App, ContextMenuState, ContextMenuTarget, DragState, LoupeState, Msg, SidebarItem, ViewMode,
-    SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, TILE_SIZE_MAX, TILE_SIZE_MIN,
-    TILE_SIZE_STEP,
+    loupe, App, ContextMenuState, ContextMenuTarget, DragState, LoupeState, Msg, SidebarItem,
+    ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, TILE_SIZE_MAX,
+    TILE_SIZE_MIN, TILE_SIZE_STEP,
 };
 
 impl App {
@@ -128,6 +128,9 @@ impl App {
                 Task::batch([scroll, detail])
             }
 
+            // The widget already reduced this through `LoupeGeometry::apply`
+            // (it owns the live geometry); the app just stores the result and
+            // loads the hi-res decode if we ended up zoomed in.
             Msg::LoupeZoomChanged { scale, pan } => {
                 self.loupe.zoom = scale.clamp(
                     super::super::LOUPE_ZOOM_MIN,
@@ -145,29 +148,11 @@ impl App {
             }
 
             Msg::LoupeZoomBy(factor) => {
-                let prev = self.loupe.zoom;
-                let next = (prev * factor).clamp(
-                    super::super::LOUPE_ZOOM_MIN,
-                    super::super::LOUPE_ZOOM_MAX,
-                );
-                self.loupe.zoom = next;
-                // Zoom toward the centre: scale the existing pan; the widget
-                // clamps it to the image edges on the next draw.
-                self.loupe.pan = if next <= super::super::LOUPE_ZOOM_MIN {
-                    iced::Vector::ZERO
-                } else {
-                    self.loupe.pan * (next / prev)
-                };
-                if next > super::super::LOUPE_ZOOM_MIN {
-                    return self.load_loupe_hires();
-                }
-                Task::none()
+                let anchor = self.loupe_center();
+                self.apply_loupe_intent(loupe::LoupeIntent::ZoomAround { anchor, factor })
             }
 
-            Msg::LoupeZoomReset => {
-                self.loupe.reset_zoom();
-                Task::none()
-            }
+            Msg::LoupeZoomReset => self.apply_loupe_intent(loupe::LoupeIntent::Reset),
 
             Msg::ToggleLoupeZoomLock => {
                 self.loupe.lock_zoom = !self.loupe.lock_zoom;
@@ -201,29 +186,16 @@ impl App {
             }
 
             Msg::LoupeZoomActual => {
-                // Toggle between fit and 1:1 (Lightroom-style). 1:1 = one image
-                // pixel per screen pixel; since zoom is relative to fit, the
-                // factor is native/fitted = max(native_w/vp_w, native_h/vp_h).
-                // Fall back to 2× if geometry hasn't been reported yet.
-                if self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
-                    self.loupe.reset_zoom();
-                    return Task::none();
-                }
-                let target = match (self.loupe.viewport, self.loupe.native) {
-                    (Some(vp), Some(nat)) if vp.width > 0.0 && vp.height > 0.0 => {
-                        (nat.width / vp.width).max(nat.height / vp.height)
+                // Toggle between fit and 1:1 (Lightroom-style). Centre-anchored.
+                let intent = if self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
+                    loupe::LoupeIntent::Reset
+                } else {
+                    loupe::LoupeIntent::ZoomTo {
+                        level: loupe::ZoomLevel::Actual,
+                        anchor: self.loupe_center(),
                     }
-                    _ => 2.0,
                 };
-                self.loupe.zoom = target.clamp(
-                    super::super::LOUPE_ZOOM_MIN,
-                    super::super::LOUPE_ZOOM_MAX,
-                );
-                self.loupe.pan = iced::Vector::ZERO;
-                if self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
-                    return self.load_loupe_hires();
-                }
-                Task::none()
+                self.apply_loupe_intent(intent)
             }
 
             Msg::ToggleFullscreen => {
@@ -782,6 +754,47 @@ impl App {
     /// Full-demosaic decode for the current RAW, swapped in when the user zooms
     /// to 100% so the focus check is pixel-accurate. No-op for non-RAW (already
     /// full quality) or once already loaded for this photo.
+    /// Live loupe geometry from the last hover-reported sizes, if known. Used
+    /// for centre-anchored button/key zoom; the widget builds its own from the
+    /// current layout for pointer-anchored gestures.
+    fn loupe_geometry(&self) -> Option<loupe::LoupeGeometry> {
+        match (self.loupe.viewport, self.loupe.native) {
+            (Some(viewport), Some(native))
+                if viewport.width > 0.0 && viewport.height > 0.0 && native.width > 0.0 =>
+            {
+                Some(loupe::LoupeGeometry { viewport, native })
+            }
+            _ => None,
+        }
+    }
+
+    fn loupe_center(&self) -> Point {
+        self.loupe_geometry().map(|g| g.center()).unwrap_or(Point::ORIGIN)
+    }
+
+    /// Apply a loupe intent app-side (buttons / keys) through the shared reducer,
+    /// then load the hi-res decode if we ended up zoomed in. When geometry isn't
+    /// known yet, falls back to a geometry-free approximation the widget will
+    /// re-clamp on its next draw.
+    fn apply_loupe_intent(&mut self, intent: loupe::LoupeIntent) -> Task<Msg> {
+        let prev = self.loupe.zoom;
+        let cur = loupe::LoupeZoom { zoom: self.loupe.zoom, offset: self.loupe.pan };
+        let next = match self.loupe_geometry() {
+            Some(geo) => geo.apply(cur, intent),
+            None => fallback_apply(cur, intent),
+        };
+        self.loupe.zoom = next.zoom;
+        self.loupe.pan = next.offset;
+        if next.zoom <= super::super::LOUPE_ZOOM_MIN {
+            // Back at fit: the next zoom-in must re-decode the hi-res image.
+            self.loupe.hires_loaded = false;
+        }
+        if next.zoom > super::super::LOUPE_ZOOM_MIN && next.zoom != prev {
+            return self.load_loupe_hires();
+        }
+        Task::none()
+    }
+
     pub(crate) fn load_loupe_hires(&self) -> Task<Msg> {
         if self.loupe.hires_loaded {
             return Task::none();
@@ -908,6 +921,33 @@ pub(crate) struct SelOutcome {
 /// (and left off the start lands on the previous row's last tile) — Finder /
 /// Lightroom behaviour. Vertical moves (`dy`) stay columnar, keeping the column
 /// and clamping at the top/bottom rows. `total` is assumed > 0.
+/// Geometry-free intent application for the brief window after the loupe opens
+/// but before the widget has reported its size. Anchoring is impossible without
+/// geometry, so this only sets the zoom and scales the pan toward centre; the
+/// widget re-clamps to the image edges on its next draw.
+fn fallback_apply(cur: loupe::LoupeZoom, intent: loupe::LoupeIntent) -> loupe::LoupeZoom {
+    use loupe::{LoupeIntent, LoupeZoom, ZoomLevel, ZOOM_MAX, ZOOM_MIN};
+    let scale_to = |to: f32, cur: LoupeZoom| {
+        let to = to.clamp(ZOOM_MIN, ZOOM_MAX);
+        if to <= ZOOM_MIN {
+            LoupeZoom { zoom: ZOOM_MIN, offset: iced::Vector::ZERO }
+        } else {
+            LoupeZoom { zoom: to, offset: cur.offset * (to / cur.zoom) }
+        }
+    };
+    match intent {
+        LoupeIntent::ZoomAround { factor, .. } => scale_to(cur.zoom * factor, cur),
+        // No geometry → no true 1:1; fall back to 2× (matches the old behaviour).
+        LoupeIntent::ZoomTo { level: ZoomLevel::Actual, .. } => {
+            LoupeZoom { zoom: 2.0_f32.clamp(ZOOM_MIN, ZOOM_MAX), offset: iced::Vector::ZERO }
+        }
+        LoupeIntent::ZoomTo { level: ZoomLevel::Fit, .. } | LoupeIntent::Reset => {
+            LoupeZoom { zoom: ZOOM_MIN, offset: iced::Vector::ZERO }
+        }
+        LoupeIntent::PanTo(offset) => LoupeZoom { zoom: cur.zoom, offset },
+    }
+}
+
 fn grid_step(current: i32, dx: i32, dy: i32, cols: i32, total: i32) -> i32 {
     if dx != 0 {
         (current + dx).clamp(0, total - 1)
