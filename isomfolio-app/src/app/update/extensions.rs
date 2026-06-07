@@ -496,15 +496,25 @@ fn face_cluster_stream(
                 let eps = s.eps;
                 let min_pts = s.min_pts;
                 let summaries = tokio::task::spawn_blocking(move || {
-                    let g = conn.lock_unwrap();
-                    let rows = g.load_all_face_embeddings().unwrap_or_default();
-                    if rows.is_empty() {
-                        return g.get_face_cluster_summaries().unwrap_or_default();
-                    }
-                    let centroids = g.load_face_centroids().unwrap_or_default();
+                    // Load embeddings under the lock, then RELEASE it before the
+                    // minutes-long DBSCAN. Holding the catalog mutex across the
+                    // whole computation serialises every other catalog op behind
+                    // it (indexing, thumbnail writes, metadata loads); those pile
+                    // up parked on the mutex and exhaust the blocking-thread pool,
+                    // freezing even non-catalog work like file copies.
+                    let (rows, centroids) = {
+                        let g = conn.lock_unwrap();
+                        let rows = g.load_all_face_embeddings().unwrap_or_default();
+                        if rows.is_empty() {
+                            return g.get_face_cluster_summaries().unwrap_or_default();
+                        }
+                        let centroids = g.load_face_centroids().unwrap_or_default();
+                        (rows, centroids)
+                    };
 
-                    // Incremental: keep known people, discover new ones among the
-                    // leftovers. Full: rediscover everything via DBSCAN.
+                    // Pure CPU, no lock held: incremental keeps known people and
+                    // discovers new ones among the leftovers; full rediscovers
+                    // everything via DBSCAN.
                     let assembly = if !force_full && !centroids.is_empty() {
                         clustering::cluster_incremental(&rows, &centroids, eps, min_pts)
                     } else {
@@ -514,6 +524,7 @@ fn face_cluster_stream(
                         clustering::assemble_clusters(&rows, &labels)
                     };
 
+                    let g = conn.lock_unwrap();
                     if let Err(e) = g.save_face_clusters(&assembly.members) {
                         eprintln!("[db] save_face_clusters failed: {e}");
                     }
