@@ -98,6 +98,10 @@ pub struct AppSettings {
     /// Max seconds between consecutive frames of one stack.
     #[serde(default = "default_stack_window")]
     pub stack_window_secs: i64,
+    /// Whether the one-time "delete is virtual, files on disk untouched" reassurance
+    /// has been shown. Set true after the first soft-delete so it never repeats.
+    #[serde(default)]
+    pub seen_delete_hint: bool,
 }
 
 impl Default for AppSettings {
@@ -114,6 +118,7 @@ impl Default for AppSettings {
             auto_stack: true,
             stack_threshold: default_stack_threshold(),
             stack_window_secs: default_stack_window(),
+            seen_delete_hint: false,
         }
     }
 }

@@ -649,7 +649,15 @@ impl App {
         let count = ids.len();
         self.grid_selected.clear();
         self.status = if deleted {
-            format!("Moved {count} photo(s) to Deleted")
+            // First-ever soft-delete: spell out that this is virtual and the files
+            // on disk are untouched, then never repeat it (persisted flag).
+            if !self.app_settings.seen_delete_hint {
+                self.app_settings.seen_delete_hint = true;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                format!("Moved {count} to Deleted — your files on disk are untouched")
+            } else {
+                format!("Moved {count} photo(s) to Deleted")
+            }
         } else {
             format!("Restored {count} photo(s)")
         };

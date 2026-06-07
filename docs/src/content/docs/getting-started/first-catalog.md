@@ -36,7 +36,7 @@ A **catalog** is how IsomFolio organises your photos. Think of it as a project f
 </Steps>
 
 <Aside type="tip">
-You can add multiple folders. Each appears in the **Folders** sidebar, where subfolders nest under their parent — click the chevron to expand or collapse, and click a folder to see its photos (including everything in its subfolders). IsomFolio watches added folders and marks one with a dot when files change on disk — sync it (`Cmd+R`) to apply.
+You can add multiple folders. Each appears in the **Folders** sidebar, where subfolders nest under their parent — click the chevron to expand or collapse, and click a folder to see its photos (including everything in its subfolders). IsomFolio watches added folders and marks one with a dot when files change on disk — **click the dot** to sync that folder (or `Cmd+R`, or right-click → **Sync Folder**) to apply.
 </Aside>
 
 ## What you'll see

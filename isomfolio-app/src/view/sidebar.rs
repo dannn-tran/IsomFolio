@@ -1105,6 +1105,21 @@ fn folder_tree_row<'a>(
         );
     }
 
+    // The dirty `●` doubles as a one-click sync trigger for this folder (the
+    // watcher only flags changes; this resolves them without hunting for the
+    // right-click "Sync Folder"). It is a status dot first, action second — see
+    // design-system "No action buttons on entity rows" for why this is the one
+    // sanctioned inline trigger.
+    let dirty_el: Element<Msg> = if dirty {
+        let dot: Element<Msg> = mouse_area(text("●").size(TEXT_SM).color(ACCENT))
+            .on_press(Msg::SyncFolder(path.clone()))
+            .interaction(iced::mouse::Interaction::Pointer)
+            .into();
+        tooltip(dot, label_tooltip("Click to sync new files".to_string()), tooltip::Position::Left).into()
+    } else {
+        text("").size(TEXT_SM).color(FG_MUTED).into()
+    };
+
     let label = row![
         container(crumbs).width(Length::Fill).clip(true),
         // Eject glyph marks a root whose drive is unplugged.
@@ -1113,11 +1128,7 @@ fn folder_tree_row<'a>(
         } else {
             text("").size(TEXT_SM).color(FG_MUTED)
         },
-        if dirty {
-            text("●").size(TEXT_SM).color(ACCENT)
-        } else {
-            text("").size(TEXT_SM).color(FG_MUTED)
-        },
+        dirty_el,
         if count > 0 {
             text(format!(" {count}")).size(TEXT_SM).color(FG_MUTED)
         } else {
