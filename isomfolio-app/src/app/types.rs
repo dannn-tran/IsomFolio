@@ -575,15 +575,28 @@ pub enum Msg {
     ExportMetadataDest { ids: Vec<String>, dest: Option<String> },
     MetadataExported,
     ExportSelectionToDialog(ExportMode),
-    /// Copy every (present) file in an album to a folder the user picks.
+    /// Copy every (present) file in an album into a sub-folder named after the
+    /// album, under a destination the user picks.
     ExportAlbumToDialog(String),
-    ExportDestPicked { paths: Vec<String>, dest: Option<String>, mode: ExportMode },
+    /// Copy every album on a shelf, mirroring the structure as
+    /// `<dest>/<shelf>/<album>/…`.
+    ExportShelfToDialog(ShelfId),
+    ExportDestPicked { entries: Vec<CopyEntry>, dest: Option<String>, mode: ExportMode },
     ExportDone { task_id: BgTaskId, result: Result<(), String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExportMode {
     Copy,
+}
+
+/// One file to copy plus the (already-sanitised) sub-folder path it should land
+/// in, relative to the chosen destination root. `rel` empty = straight into the
+/// destination; `["Shelf", "Album"]` = `<dest>/Shelf/Album/<file>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyEntry {
+    pub rel: Vec<String>,
+    pub src: String,
 }
 
 use isomfolio_core::models::FlagSelection;

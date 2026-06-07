@@ -3,6 +3,7 @@ pub mod app_paths;
 pub mod catalog;
 pub mod clustering;
 pub mod file_index;
+pub mod fileops;
 pub mod folder_tree;
 pub mod indexing;
 pub mod metadata;

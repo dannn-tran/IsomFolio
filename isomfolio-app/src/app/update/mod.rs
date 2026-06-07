@@ -10,10 +10,10 @@ mod settings;
 mod tag_browser;
 
 use iced::Task;
-use isomfolio_core::models::{SearchQuery, ThumbnailState};
+use isomfolio_core::models::{Album, SearchQuery, ThumbnailState};
 
 use super::{
-    unix_to_date_str, AlbumKind, App, ExportMode, Msg, SidebarItem,
+    unix_to_date_str, AlbumKind, App, CopyEntry, ExportMode, Msg, SidebarItem,
 };
 
 pub(super) use super::LockUnwrap;
@@ -277,14 +277,15 @@ impl App {
             Msg::MetadataExported => Task::none(),
 
             Msg::ExportSelectionToDialog(mode) => {
-                let paths: Vec<String> = self
+                // Loose photos copy straight into the chosen folder (rel empty).
+                let entries: Vec<CopyEntry> = self
                     .grid_selected
                     .iter()
                     .filter_map(|id| self.files.iter().find(|f| &f.id == id))
                     .filter(|f| !f.is_orphaned)
-                    .map(export_source_path)
+                    .map(|f| CopyEntry { rel: Vec::new(), src: export_source_path(f) })
                     .collect();
-                if paths.is_empty() {
+                if entries.is_empty() {
                     return Task::none();
                 }
                 self.context_menu = None;
@@ -298,50 +299,96 @@ impl App {
                             .pick_folder()
                             .await
                             .map(|h| h.path().to_string_lossy().to_string());
-                        (paths, dest, mode)
+                        (entries, dest, mode)
                     },
-                    |(paths, dest, mode)| Msg::ExportDestPicked { paths, dest, mode },
+                    |(entries, dest, mode)| Msg::ExportDestPicked { entries, dest, mode },
                 )
             }
 
             Msg::ExportAlbumToDialog(album_id) => {
                 let Some(catalog) = self.catalog.clone() else { return Task::none() };
                 self.context_menu = None;
-                let kind = self.albums.iter().find(|a| a.id == album_id).map(|a| a.kind.clone());
+                let Some(album) = self.albums.iter().find(|a| a.id == album_id).cloned() else {
+                    return Task::none();
+                };
+                // Each album becomes its own sub-folder named after the album.
+                let folder = isomfolio_core::fileops::sanitize_component(&album.name);
                 Task::perform(
                     async move {
-                        let paths: Vec<String> = {
+                        let entries: Vec<CopyEntry> = {
                             let cat = catalog.lock_unwrap();
-                            let files = match kind {
-                                Some(AlbumKind::Smart(q)) => cat.search(&q).unwrap_or_default(),
-                                _ => cat
-                                    .search_manual_album(&album_id, &SearchQuery::default())
-                                    .unwrap_or_default(),
-                            };
-                            files.iter().filter(|f| !f.is_orphaned).map(export_source_path).collect()
+                            album_source_paths(&cat, &album)
+                                .into_iter()
+                                .map(|src| CopyEntry { rel: vec![folder.clone()], src })
+                                .collect()
                         };
-                        let dest = if paths.is_empty() {
+                        let dest = if entries.is_empty() {
                             None
                         } else {
                             rfd::AsyncFileDialog::new()
-                                .set_title("Export album to…")
+                                .set_title("Copy album to…")
                                 .pick_folder()
                                 .await
                                 .map(|h| h.path().to_string_lossy().to_string())
                         };
-                        (paths, dest)
+                        (entries, dest)
                     },
-                    |(paths, dest)| Msg::ExportDestPicked { paths, dest, mode: ExportMode::Copy },
+                    |(entries, dest)| Msg::ExportDestPicked { entries, dest, mode: ExportMode::Copy },
                 )
             }
 
-            Msg::ExportDestPicked { paths, dest: None, .. } => {
-                let _ = paths;
+            Msg::ExportShelfToDialog(shelf_id) => {
+                let Some(catalog) = self.catalog.clone() else { return Task::none() };
+                self.context_menu = None;
+                let Some(shelf) = self.shelves.iter().find(|s| s.id == shelf_id).cloned() else {
+                    return Task::none();
+                };
+                let shelf_folder = isomfolio_core::fileops::sanitize_component(&shelf.name);
+                // Mirror the shelf's albums as <shelf>/<album>/… sub-folders.
+                let albums: Vec<Album> = self
+                    .albums
+                    .iter()
+                    .filter(|a| a.shelf_id.as_deref() == Some(shelf_id.as_str()))
+                    .cloned()
+                    .collect();
+                Task::perform(
+                    async move {
+                        let entries: Vec<CopyEntry> = {
+                            let cat = catalog.lock_unwrap();
+                            albums
+                                .iter()
+                                .flat_map(|album| {
+                                    let album_folder =
+                                        isomfolio_core::fileops::sanitize_component(&album.name);
+                                    let rel = vec![shelf_folder.clone(), album_folder];
+                                    album_source_paths(&cat, album)
+                                        .into_iter()
+                                        .map(move |src| CopyEntry { rel: rel.clone(), src })
+                                })
+                                .collect()
+                        };
+                        let dest = if entries.is_empty() {
+                            None
+                        } else {
+                            rfd::AsyncFileDialog::new()
+                                .set_title("Copy shelf to…")
+                                .pick_folder()
+                                .await
+                                .map(|h| h.path().to_string_lossy().to_string())
+                        };
+                        (entries, dest)
+                    },
+                    |(entries, dest)| Msg::ExportDestPicked { entries, dest, mode: ExportMode::Copy },
+                )
+            }
+
+            Msg::ExportDestPicked { entries, dest: None, .. } => {
+                let _ = entries;
                 Task::none()
             }
 
-            Msg::ExportDestPicked { paths, dest: Some(dest), mode } => {
-                let n = paths.len();
+            Msg::ExportDestPicked { entries, dest: Some(dest), mode } => {
+                let n = entries.len();
                 let dest_name = std::path::Path::new(&dest)
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -356,15 +403,19 @@ impl App {
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            for src in &paths {
-                                let filename = std::path::Path::new(src)
-                                    .file_name()
-                                    .ok_or_else(|| format!("invalid path: {src}"))?;
-                                let dst = std::path::Path::new(&dest).join(filename);
+                            let root = std::path::Path::new(&dest);
+                            for entry in &entries {
+                                let mut dir = root.to_path_buf();
+                                for component in &entry.rel {
+                                    dir.push(component);
+                                }
                                 match mode {
                                     ExportMode::Copy => {
-                                        std::fs::copy(src, &dst)
-                                            .map_err(|e| format!("copy {src}: {e}"))?;
+                                        isomfolio_core::fileops::copy_into_dir(
+                                            std::path::Path::new(&entry.src),
+                                            &dir,
+                                        )
+                                        .map_err(|e| format!("copy {}: {e}", entry.src))?;
                                     }
                                 }
                             }
@@ -804,6 +855,18 @@ impl App {
 /// a lower-cased destination filename.
 fn export_source_path(f: &isomfolio_core::models::AssetFile) -> String {
     f.disk_path()
+}
+
+/// Real-cased disk paths of every present (non-orphaned) file in an album —
+/// smart albums resolve their query, manual albums list their membership.
+fn album_source_paths(cat: &isomfolio_core::Catalog, album: &Album) -> Vec<String> {
+    let files = match &album.kind {
+        AlbumKind::Smart(q) => cat.search(q).unwrap_or_default(),
+        _ => cat
+            .search_manual_album(&album.id, &SearchQuery::default())
+            .unwrap_or_default(),
+    };
+    files.iter().filter(|f| !f.is_orphaned).map(export_source_path).collect()
 }
 
 /// Real-cased path of a library root for disk stat (`is_dir`). Like
