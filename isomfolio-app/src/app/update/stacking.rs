@@ -23,8 +23,62 @@ impl App {
                 }
             }
 
+            Msg::StackKeepOnly(anchor) => self.cull_stack(anchor, true),
+            Msg::StackRejectAll(anchor) => self.cull_stack(anchor, false),
+
+            Msg::ToggleStackExpanded(file_id) => {
+                self.context_menu = None;
+                let Some(burst) = self.file_burst_ids.get(&file_id).cloned() else {
+                    return Task::none();
+                };
+                if !self.expanded_bursts.remove(&burst) {
+                    self.expanded_bursts.insert(burst);
+                }
+                self.load_files_task()
+            }
+
+            Msg::StackFlagsApplied { before, kept } => {
+                if before.is_empty() {
+                    return Task::none();
+                }
+                let total = before.len();
+                self.undo_stack.push(crate::app::UndoOp::SetFlags { before });
+                self.redo_stack.clear();
+                self.status = if kept > 0 {
+                    format!("Kept {kept}, rejected {} in stack", total - kept)
+                } else {
+                    format!("Rejected {total} in stack")
+                };
+                // Reload so the rep badge (and any expanded members) reflect the
+                // new flags; the undo snapshot already covers hidden siblings.
+                self.load_files_task()
+            }
+
             _ => Task::none(),
         }
+    }
+
+    /// Cull a whole stack from its anchor frame: `keep_one` keeps the anchor as a
+    /// Pick and rejects the rest; otherwise every member is rejected. The flag
+    /// write (and the prior-flag snapshot for undo) runs off the UI thread.
+    fn cull_stack(&mut self, anchor: String, keep_one: bool) -> Task<Msg> {
+        self.context_menu = None;
+        let Some(conn) = self.catalog.clone() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                g.set_stack_flags(&anchor, keep_one).map_err(|e| e.to_string())
+            },
+            move |res| match res {
+                Ok(before) => Msg::StackFlagsApplied {
+                    before,
+                    kept: if keep_one { 1 } else { 0 },
+                },
+                Err(e) => Msg::DbError(e),
+            },
+        )
     }
 
     /// Hash any not-yet-hashed files from their cached thumbnails, then re-derive

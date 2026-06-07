@@ -181,7 +181,12 @@ impl App {
             | Msg::SidebarScrolled(_) => self.handle_navigation_msg(msg),
 
             // — content-based stacking —
-            Msg::RunStacking | Msg::StacksUpdated => self.handle_stacking_msg(msg),
+            Msg::RunStacking
+            | Msg::StacksUpdated
+            | Msg::StackKeepOnly(_)
+            | Msg::StackRejectAll(_)
+            | Msg::ToggleStackExpanded(_)
+            | Msg::StackFlagsApplied { .. } => self.handle_stacking_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);

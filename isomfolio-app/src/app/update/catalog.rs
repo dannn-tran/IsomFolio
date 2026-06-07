@@ -83,6 +83,8 @@ impl App {
                 self.drag.ids.clear();
                 self.drag.album = None;
                 self.hovered_shelf = None;
+                self.expanded_bursts.clear();
+                self.file_burst_ids.clear();
                 self.search_debounce_id += 1;
                 self.search_text.clear();
                 self.filters = FilterState::default();

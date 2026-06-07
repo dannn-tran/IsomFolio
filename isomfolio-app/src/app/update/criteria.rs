@@ -56,6 +56,9 @@ impl App {
 
             Msg::ToggleCollapseBursts => {
                 self.collapse_bursts = !self.collapse_bursts;
+                // Per-stack expands only mean something while collapsed; reset
+                // them whenever the global toggle flips so state can't go stale.
+                self.expanded_bursts.clear();
                 self.load_files_task()
             }
 

@@ -275,10 +275,11 @@ impl App {
                 if self.filters.rating.is_active() { self.load_files_task() } else { Task::none() }
             }
 
-            Msg::FileSideDataLoaded { ratings, labels, bursts } => {
+            Msg::FileSideDataLoaded { ratings, labels, bursts, burst_ids } => {
                 self.file_ratings = ratings;
                 self.file_labels = labels;
                 self.file_burst_sizes = bursts;
+                self.file_burst_ids = burst_ids;
                 Task::none()
             }
 

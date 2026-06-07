@@ -211,8 +211,13 @@ pub struct App {
     pub file_labels: HashMap<String, String>,
     /// file_id → burst size, for the ⧉ badge (only files in a burst).
     pub file_burst_sizes: HashMap<String, usize>,
+    /// file_id → burst_id, so a tile can be mapped to its stack for inline
+    /// expand/collapse.
+    pub file_burst_ids: HashMap<String, String>,
     /// When set, a burst shows as one representative tile.
     pub collapse_bursts: bool,
+    /// Burst ids the user has expanded inline while `collapse_bursts` is on.
+    pub expanded_bursts: HashSet<String>,
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
@@ -564,7 +569,9 @@ impl App {
             file_ratings: HashMap::new(),
             file_labels: HashMap::new(),
             file_burst_sizes: HashMap::new(),
+            file_burst_ids: HashMap::new(),
             collapse_bursts: false,
+            expanded_bursts: HashSet::new(),
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
@@ -877,6 +884,7 @@ impl App {
             added_within_days: self.filters.added_within_days,
             include_orphaned: self.search_text.is_empty() && !self.has_active_filters(),
             collapse_bursts: self.collapse_bursts,
+            expanded_bursts: self.expanded_bursts.iter().cloned().collect(),
             ..Default::default()
         }
     }
@@ -1220,6 +1228,7 @@ impl App {
                 ratings: HashMap::new(),
                 labels: HashMap::new(),
                 bursts: HashMap::new(),
+                burst_ids: HashMap::new(),
             });
         }
         Task::perform(
@@ -1228,9 +1237,10 @@ impl App {
                 let ratings = cat.get_ratings_for(&file_ids).unwrap_or_default();
                 let labels = cat.get_file_labels(&file_ids).unwrap_or_default();
                 let bursts = cat.get_burst_sizes_for(&file_ids).unwrap_or_default();
-                (ratings, labels, bursts)
+                let burst_ids = cat.get_burst_ids_for(&file_ids).unwrap_or_default();
+                (ratings, labels, bursts, burst_ids)
             },
-            |(ratings, labels, bursts)| Msg::FileSideDataLoaded { ratings, labels, bursts },
+            |(ratings, labels, bursts, burst_ids)| Msg::FileSideDataLoaded { ratings, labels, bursts, burst_ids },
         )
     }
 

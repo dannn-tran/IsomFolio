@@ -395,6 +395,65 @@ pub fn get_burst_sizes_for(conn: &Connection, file_ids: &[String]) -> Result<std
     Ok(out)
 }
 
+/// For each of `file_ids` that is stacked, its `burst_id` — maps a visible tile
+/// back to its stack so the UI can expand/collapse that one stack inline.
+pub fn get_burst_ids_for(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, String>, AppError> {
+    let mut out = std::collections::HashMap::new();
+    for chunk in file_ids.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT id, burst_id FROM files WHERE burst_id IS NOT NULL AND id IN ({})",
+            placeholders(chunk.len()),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, burst) = row?;
+            out.insert(id, burst);
+        }
+    }
+    Ok(out)
+}
+
+/// Apply a one-shot culling decision to the whole stack that `anchor` belongs to.
+/// `keep_one`: when true the anchor frame is flagged `Pick` and every other
+/// member `Reject` ("keep this, reject rest"); when false every member (anchor
+/// included) is flagged `Reject`. Returns the prior `(id, flag)` of each affected
+/// member so the action is undoable. Empty if `anchor` is not stacked.
+pub fn set_stack_flags(
+    conn: &Connection,
+    anchor: &str,
+    keep_one: bool,
+) -> Result<Vec<(String, Flag)>, AppError> {
+    let burst: Option<String> = {
+        let mut stmt = conn.prepare("SELECT burst_id FROM files WHERE id = ?1")?;
+        let r = stmt
+            .query_map([anchor], |r| r.get::<_, Option<String>>(0))?
+            .next()
+            .transpose()?
+            .flatten();
+        r
+    };
+    let Some(burst) = burst else { return Ok(Vec::new()) };
+
+    let mut stmt = conn.prepare(
+        "SELECT id, flag FROM files WHERE burst_id = ?1 AND is_deleted = 0 \
+         ORDER BY COALESCE(exif_date_unix, modified_time), id",
+    )?;
+    let before: Vec<(String, Flag)> = stmt
+        .query_map([&burst], |r| Ok((r.get::<_, String>(0)?, Flag::from_i64(r.get::<_, i64>(1)?))))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let tx = conn.unchecked_transaction()?;
+    for (id, _) in &before {
+        let new = if keep_one && id == anchor { Flag::Pick } else { Flag::Reject };
+        tx.execute("UPDATE files SET flag = ?1 WHERE id = ?2", params![new as i64, id])?;
+    }
+    tx.commit()?;
+    Ok(before)
+}
+
 /// Ratings (1–5) for the given files, in one batched query per chunk — reads only
 /// the `rating` column instead of decoding each file's whole metadata row.
 pub fn get_ratings_for(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, i32>, AppError> {
@@ -1814,6 +1873,69 @@ mod tests {
             conn.execute("UPDATE files SET exif_date_unix = 9999 WHERE id='a2'", []).unwrap();
             detect_and_store_stacks_all(&conn, 2, 10).unwrap();
             assert_eq!(get_burst_sizes_for(&conn, &["a1".into()]).unwrap().get("a1"), None);
+        }
+
+        fn three_frame_stack() -> (Connection, NamedTempFile) {
+            let (conn, f) = open_temp();
+            upsert_files(&conn, &[
+                file_in("a1", "/A", 100),
+                file_in("a2", "/A", 101),
+                file_in("a3", "/A", 102),
+            ]).unwrap();
+            store_phashes(&conn, &[
+                ("a1".into(), 0b0000, 5.0, 0),
+                ("a2".into(), 0b0001, 9.0, 0), // sharpest
+                ("a3".into(), 0b0011, 1.0, 0),
+            ]).unwrap();
+            detect_and_store_stacks_all(&conn, 2, 10).unwrap();
+            (conn, f)
+        }
+
+        fn flag_of(conn: &Connection, id: &str) -> Flag {
+            Flag::from_i64(
+                conn.query_row("SELECT flag FROM files WHERE id=?1", [id], |r| r.get(0)).unwrap(),
+            )
+        }
+
+        #[test]
+        fn get_burst_ids_for_maps_stacked_files_only() {
+            let (conn, _f) = three_frame_stack();
+            upsert_files(&conn, &[file_in("solo", "/A", 500)]).unwrap();
+            store_phashes(&conn, &[("solo".into(), 0b1111_1111, 5.0, 0)]).unwrap();
+            detect_and_store_stacks_all(&conn, 2, 10).unwrap();
+
+            let ids = get_burst_ids_for(&conn, &["a1".into(), "a2".into(), "solo".into()]).unwrap();
+            assert_eq!(ids.get("a1"), ids.get("a2")); // same stack
+            assert!(ids.get("a1").is_some());
+            assert_eq!(ids.get("solo"), None);
+        }
+
+        #[test]
+        fn set_stack_flags_keep_one_picks_anchor_rejects_rest() {
+            let (conn, _f) = three_frame_stack();
+            let before = set_stack_flags(&conn, "a2", true).unwrap();
+            assert_eq!(before.len(), 3);
+            assert_eq!(flag_of(&conn, "a2"), Flag::Pick);
+            assert_eq!(flag_of(&conn, "a1"), Flag::Reject);
+            assert_eq!(flag_of(&conn, "a3"), Flag::Reject);
+        }
+
+        #[test]
+        fn set_stack_flags_reject_all_rejects_every_member() {
+            let (conn, _f) = three_frame_stack();
+            let before = set_stack_flags(&conn, "a1", false).unwrap();
+            assert_eq!(before.iter().map(|(_, f)| *f).collect::<Vec<_>>(), vec![Flag::Unflagged; 3]);
+            for id in ["a1", "a2", "a3"] {
+                assert_eq!(flag_of(&conn, id), Flag::Reject);
+            }
+        }
+
+        #[test]
+        fn set_stack_flags_on_unstacked_file_is_a_noop() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[file_in("solo", "/A", 100)]).unwrap();
+            assert!(set_stack_flags(&conn, "solo", true).unwrap().is_empty());
+            assert_eq!(flag_of(&conn, "solo"), Flag::Unflagged);
         }
     }
 

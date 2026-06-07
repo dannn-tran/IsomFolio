@@ -145,13 +145,29 @@ fn execute_query_inner(
     }
 
     // Stack collapse: keep one representative — the sharpest frame — per stack.
+    // Stacks the user has explicitly expanded keep all their members.
     if query.collapse_bursts {
-        sql.push_str(
+        let mut clause = String::from(
             " AND (f.burst_id IS NULL OR f.id = (\
                  SELECT b.id FROM files b \
                  WHERE b.burst_id = f.burst_id AND b.is_deleted = 0 \
-                 ORDER BY b.phash_sharpness DESC, b.exif_date_unix, b.id LIMIT 1))",
+                 ORDER BY b.phash_sharpness DESC, b.exif_date_unix, b.id LIMIT 1)",
         );
+        if !query.expanded_bursts.is_empty() {
+            let placeholders: Vec<String> = query
+                .expanded_bursts
+                .iter()
+                .map(|id| {
+                    let p = format!("?{param_idx}");
+                    params.push(Box::new(id.clone()));
+                    param_idx += 1;
+                    p
+                })
+                .collect();
+            clause.push_str(&format!(" OR f.burst_id IN ({})", placeholders.join(",")));
+        }
+        clause.push(')');
+        sql.push_str(&clause);
     }
 
     if let Some(ids) = &fts_ids {
@@ -701,6 +717,31 @@ mod tests {
             let sizes = db::get_burst_sizes_for(&conn, &["b2".into(), "solo".into()]).unwrap();
             assert_eq!(sizes.get("b2"), Some(&3));
             assert_eq!(sizes.get("solo"), None);
+        }
+
+        #[test]
+        fn expanded_burst_shows_all_members_while_others_stay_collapsed() {
+            let (conn, _f) = open_temp();
+            for (i, id) in ["b1", "b2", "b3"].iter().enumerate() {
+                insert(&conn, id, &format!("{id}.jpg"), "/p", "jpg", 10 + i as i64);
+            }
+            for (i, id) in ["c1", "c2"].iter().enumerate() {
+                insert(&conn, id, &format!("{id}.jpg"), "/p", "jpg", 30 + i as i64);
+            }
+            conn.execute("UPDATE files SET burst_id = 'B1' WHERE id IN ('b1','b2','b3')", []).unwrap();
+            conn.execute("UPDATE files SET burst_id = 'C1' WHERE id IN ('c1','c2')", []).unwrap();
+            conn.execute("UPDATE files SET phash_sharpness = 9.0 WHERE id='b2'", []).unwrap();
+            conn.execute("UPDATE files SET phash_sharpness = 9.0 WHERE id='c1'", []).unwrap();
+
+            // Expand only B1: its three members show; C1 stays one rep.
+            let q = SearchQuery {
+                collapse_bursts: true,
+                expanded_bursts: vec!["B1".into()],
+                sort_by: SortField::Date,
+                ..Default::default()
+            };
+            let ids: Vec<String> = execute_search(&conn, &q).unwrap().into_iter().map(|f| f.id).collect();
+            assert_eq!(ids, vec!["b1", "b2", "b3", "c1"]);
         }
     }
 

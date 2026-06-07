@@ -17,7 +17,12 @@ Sort options (accessible from the toolbar or sort button):
 - **Rating** — highest first
 - Toggle ascending / descending with the sort direction button
 
-**Stacks.** Near-identical frames shot seconds apart — bracketing, motor-drive bursts, or just several tries at one shot — are grouped into a **stack** and marked with a `⧉ N` badge. Grouping is inferred from the pixels (a perceptual hash), not camera burst metadata, so it works on any source; frames only stack when they both look alike *and* were taken close together, and only within the same folder. The **⧉ Stack** toggle in the toolbar collapses each stack to a single representative tile — the **sharpest** frame — so you can scan a shoot quickly; toggle it off to compare frames within a stack and pick the keeper. Tune the sensitivity and time window, or turn auto-stacking off, under **Settings → General → Stacking**.
+**Stacks.** Near-identical frames shot seconds apart — bracketing, motor-drive bursts, or just several tries at one shot — are grouped into a **stack** and marked with a `⧉ N` badge. Grouping is inferred from the pixels (a perceptual hash), not camera burst metadata, so it works on any source; frames only stack when they both look alike *and* were taken close together, and only within the same folder. The **⧉ Stack** toggle in the toolbar collapses each stack to a single representative tile — the **sharpest** frame — so you can scan a shoot quickly. Tune the sensitivity and time window, or turn auto-stacking off, under **Settings → General → Stacking**.
+
+**Working a collapsed stack.** While stacks are collapsed you don't have to toggle everything off to get into one:
+
+- **Expand just that stack** — click its `⧉ N` badge (the arrow shows `▸` collapsed, `▾` open). Its frames fan out inline as normal tiles, so you can select, flag, rate, and step through them in the loupe; click the badge again to collapse it back. Toggling the toolbar **⧉ Stack** off re-collapses every stack.
+- **Cull in one click** — right-click the stack tile for **Keep this, reject rest** (flags the frame you clicked as a Pick and every other frame in the stack as a Reject — the keep-the-best-of-a-burst decision in a single action) or **Reject whole stack**. Both are undoable with `Cmd+Z`.
 
 ## Grid and List views
 

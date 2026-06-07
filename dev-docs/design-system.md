@@ -59,6 +59,9 @@ Every significant action must have at least one discoverable path beyond right-c
 | Export Metadata (CSV) | — | Photo → Export Metadata (CSV)… | — | — |
 | Open in Loupe | Tile | View → Loupe | `Space` · double-click | — |
 | Compare | — | Photo → Compare | `C` | — |
+| Keep this, reject rest (stack) | Tile (single, stacked) | — | — | Picks the clicked frame, rejects its stack-mates |
+| Reject whole stack | Tile (single, stacked) | — | — | Rejects every frame in the stack |
+| Expand / Collapse stack | Tile (single, stacked, while collapsed) | — | — | Click the tile's `⧉ N` badge |
 | Delete (soft) | — | Edit → Delete | `Del` / `Backspace` | — |
 | Restore from Deleted | Deleted-view tile | — | — | — |
 | Move to Trash… | Deleted-view tile | — | — | — |
@@ -285,7 +288,7 @@ Implemented as a `stack` overlay anchored to the cursor position. No scrim — c
 | Manual album | Rename · Duplicate · Set/Clear Target Album · Move to Shelf ▶ · Copy to Folder… · — · Delete… |
 | Smart album | Rename · Duplicate · Edit Criteria · Move to Shelf ▶ · Copy to Folder… · — · Delete… |
 | Shelf | New Album · (Select Albums, when non-empty) · — · Rename · Copy to Folder… · — · Delete Shelf… (albums are kept) |
-| Grid tile (single) | Open in Loupe · Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder / Locate… · Copy to Folder… |
+| Grid tile (single) | Open in Loupe · Add to Album ▶ · Delete · _(if stacked:)_ — · Keep this, reject rest · Reject whole stack · (Expand/Collapse stack, while collapsed) · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder / Locate… · Copy to Folder… |
 | Grid tile (multi-select) | Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder · Copy to Folder… |
 | Person (face card) | Rename · Merge into ▶ |
 | Recent catalog item | Open · Remove from Recents |
@@ -320,6 +323,8 @@ Use a translucent `ACCENT` overlay (α ≈ 0.22–0.28) for selected items. Do n
 **Cmd+A expands an album selection to its siblings** (Finder-within-a-folder semantics). While `selected_albums` is non-empty and no text input is focused, `Cmd/Ctrl+A` selects every album sharing a container — shelf, or the ungrouped top level — with anything already selected (`album_siblings`; a selection spanning two shelves grabs both). With no album selection, `Cmd+A` keeps its normal meaning (select all grid tiles). A shelf's **Select Albums** context-menu item is the discoverable, no-modifier equivalent (selects exactly that shelf's albums).
 
 **Create-in-place under a shelf.** A shelf's **New Album** context item opens the inline name input **nested under that shelf** (indented like its siblings, the shelf auto-expanded), and the album is filed there on confirm (`pending_album_shelf`) — mirroring "New Folder inside this folder." The top-level **+ → New Album** still creates an ungrouped album, and its input renders at the top of the Albums list. The two never both show: the top input is suppressed whenever `pending_album_shelf` is set.
+
+**Stack collapse, expand & cull.** The toolbar **⧉ Stack** toggle is the *global* collapse (one sharpest-rep tile per stack, `collapse_bursts`). On top of that, each stack is independently expandable in place via `expanded_bursts` (session state; threaded into the query as `SearchQuery::expanded_bursts`, never persisted). The affordance is the tile's **`⧉ N` badge itself** — while collapsed it gains a `▸`/`▾` arrow and becomes a click target (its own `mouse_area` captures the press so the tile underneath is *not* selected). This is the one sanctioned case of a status glyph doubling as a control: it stays in place, costs no extra chrome, and only activates while collapsed. Expanded members are **real tiles** — full selection, flags, ratings, and loupe step-through — so reviewing a burst never requires turning the global toggle off. Flipping the global toggle clears all per-stack expands. Resolving a stack is a one-click context action on the rep tile: **Keep this, reject rest** (anchor → Pick, the rest → Reject) or **Reject whole stack**, both written atomically in core (`set_stack_flags`) and undoable — the undo snapshot covers hidden siblings even though they aren't in the visible list.
 
 ### Reject display (dim, don't remove)
 

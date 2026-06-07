@@ -434,8 +434,20 @@ pub enum Msg {
         ratings: HashMap<String, i32>,
         labels: HashMap<String, String>,
         bursts: HashMap<String, usize>,
+        burst_ids: HashMap<String, String>,
     },
     ToggleCollapseBursts,
+    /// Stack cull from the collapsed rep tile: keep the clicked frame (Pick) and
+    /// reject the rest of its stack.
+    StackKeepOnly(String),
+    /// Reject every frame in the clicked tile's stack.
+    StackRejectAll(String),
+    /// Expand or collapse one stack inline (only meaningful while the global
+    /// Stack collapse is on) — show all its members instead of one rep.
+    ToggleStackExpanded(String),
+    /// Stack flags written; carries prior `(id, flag)` (for undo) and how many
+    /// frames were kept, so the status line can report the cull.
+    StackFlagsApplied { before: Vec<(String, Flag)>, kept: usize },
     FlagsApplied,
     RatingsApplied,
     LabelsApplied,

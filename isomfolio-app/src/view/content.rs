@@ -359,12 +359,29 @@ impl App {
                 );
             }
             if let Some(n) = burst {
-                badge_col.push(
-                    container(text(format!("⧉ {n}")).size(TEXT_SM).color(FG))
-                        .padding([2.0, 4.0])
-                        .style(badge_style)
-                        .into(),
-                );
+                // While the global Stack collapse is on, the badge is the inline
+                // expand/collapse control for that one stack (▸ collapsed, ▾ open);
+                // its own mouse_area captures the press so the tile isn't selected.
+                let glyph = if self.collapse_bursts {
+                    let expanded = self
+                        .file_burst_ids
+                        .get(&file.id)
+                        .is_some_and(|b| self.expanded_bursts.contains(b));
+                    format!("⧉ {n} {}", if expanded { "▾" } else { "▸" })
+                } else {
+                    format!("⧉ {n}")
+                };
+                let badge: Element<Msg> = container(text(glyph).size(TEXT_SM).color(FG))
+                    .padding([2.0, 4.0])
+                    .style(badge_style)
+                    .into();
+                badge_col.push(if self.collapse_bursts {
+                    mouse_area(badge)
+                        .on_press(Msg::ToggleStackExpanded(file.id.clone()))
+                        .into()
+                } else {
+                    badge
+                });
             }
             badge_col.push(Space::new().height(Length::Fill).into());
             if rating > 0 {

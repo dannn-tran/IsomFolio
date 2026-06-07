@@ -359,6 +359,16 @@ impl Catalog {
         db::get_burst_sizes_for(&self.conn, file_ids)
     }
 
+    pub fn get_burst_ids_for(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, String>, AppError> {
+        db::get_burst_ids_for(&self.conn, file_ids)
+    }
+
+    /// Cull a whole stack: keep `anchor` (Pick) and reject the rest, or reject
+    /// all. Returns prior flags for undo. See `db::set_stack_flags`.
+    pub fn set_stack_flags(&self, anchor: &str, keep_one: bool) -> Result<Vec<(String, crate::models::Flag)>, AppError> {
+        db::set_stack_flags(&self.conn, anchor, keep_one)
+    }
+
     pub fn update_smart_album_query(&self, album_id: &str, query: &SearchQuery) -> Result<(), AppError> {
         db::update_smart_album_query(&self.conn, album_id, query)
     }

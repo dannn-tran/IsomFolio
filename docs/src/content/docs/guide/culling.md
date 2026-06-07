@@ -88,4 +88,13 @@ The undo history is preserved for the current session.
 
 ## Batch culling
 
-Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selection) and apply a flag or rating — it applies to all selected photos simultaneously. This is useful for quickly flagging an entire stack as rejected.
+Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selection) and apply a flag or rating — it applies to all selected photos simultaneously.
+
+## Culling stacks
+
+When you've shot several near-identical frames, IsomFolio groups them into a **stack** (see [Browsing → Stacks](/guide/browsing/)). With the toolbar **⧉ Stack** collapse on, you don't have to expand a burst to resolve it:
+
+- **Keep this, reject rest** — right-click the stack's tile. The frame you clicked is flagged **Pick** and every other frame in the stack is flagged **Reject** — the keep-the-best-of-a-burst decision in one action. (The collapsed tile defaults to the *sharpest* frame; expand the stack first by clicking its `⧉ N` badge if you want to keep a different one.)
+- **Reject whole stack** — flags every frame in the stack as a Reject (e.g. the whole burst missed).
+
+Both are undoable with `Cmd+Z`, and they apply to every frame in the stack even the ones hidden behind the collapsed tile.
