@@ -161,7 +161,9 @@ impl App {
             | Msg::HoverSidebarEntityStart(_)
             | Msg::HoverSidebarEntityEnd(_)
             | Msg::OpenSidebarEntityMenu(_)
-            | Msg::SidebarEntityPressed(_)
+            | Msg::AlbumPressed(_)
+            | Msg::HoverShelfStart(_)
+            | Msg::HoverShelfEnd(_)
             | Msg::ToggleShortcutHelp
             | Msg::OpenMenuDropdown(_)
             | Msg::HoverMenuTab(_)
@@ -489,7 +491,8 @@ impl App {
             | Msg::ToggleShelfCollapsed(_)
             | Msg::ShelfHeaderPressed(_)
             | Msg::OpenShelfMenu(_)
-            | Msg::MoveAlbumToShelf { .. }
+            | Msg::MoveAlbumsToShelf { .. }
+            | Msg::StartCreateShelfFor(_)
             | Msg::AlbumMovedToShelf => self.handle_shelf_msg(msg),
 
             // — search & filter criteria —
@@ -555,6 +558,11 @@ impl App {
 
             // — inline: sidebar & file loading —
             Msg::SidebarItemClicked(item) => {
+                // Navigating away abandons any album multi-selection (the highlight
+                // would otherwise linger over an unrelated view).
+                if !matches!(item, SidebarItem::Album(_)) {
+                    self.selected_albums.clear();
+                }
                 if let SidebarItem::Album(ref id) = item {
                     if let Some(album) = self.albums.iter().find(|a| &a.id == id) {
                         if let AlbumKind::Smart(ref q) = album.kind {

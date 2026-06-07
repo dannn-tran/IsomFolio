@@ -22,22 +22,38 @@ impl App {
             Msg::ConfirmCreateShelf => {
                 let name = self.create_shelf_input.take().unwrap_or_default();
                 let name = name.trim().to_string();
+                let pending = std::mem::take(&mut self.pending_shelf_albums);
                 if name.is_empty() {
                     return Task::none();
                 }
                 if self.shelves.iter().any(|s| s.name.to_lowercase() == name.to_lowercase()) {
                     self.status = format!("A shelf named \u{201C}{name}\u{201D} already exists");
                     self.create_shelf_input = Some(name);
+                    self.pending_shelf_albums = pending;
                     return Task::none();
                 }
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 let shelf = Shelf { id: new_shelf_id(), name, sort_order: 0 };
+                if !pending.is_empty() {
+                    self.selected_albums.clear();
+                    self.status = format!(
+                        "Filed {} album(s) under \u{201C}{}\u{201D}",
+                        pending.len(),
+                        shelf.name
+                    );
+                }
                 Task::perform(
                     async move {
                         let guard = conn.lock_unwrap();
-                        guard.create_shelf(&shelf).err().map(|e| e.to_string())
+                        if let Err(e) = guard.create_shelf(&shelf) {
+                            return Some(e.to_string());
+                        }
+                        pending
+                            .iter()
+                            .find_map(|aid| guard.set_album_shelf(aid, Some(&shelf.id)).err())
+                            .map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::ShelfCreated, Msg::DbError),
                 )
@@ -134,21 +150,41 @@ impl App {
                 Task::none()
             }
 
-            Msg::MoveAlbumToShelf { album_id, shelf_id } => {
+            Msg::MoveAlbumsToShelf { album_ids, shelf_id } => {
                 self.context_menu = None;
+                self.selected_albums.clear();
+                if album_ids.is_empty() {
+                    return Task::none();
+                }
+                let count = album_ids.len();
+                let dest = shelf_id
+                    .as_deref()
+                    .and_then(|sid| self.shelves.iter().find(|s| s.id == sid))
+                    .map(|s| format!("\u{201C}{}\u{201D}", s.name))
+                    .unwrap_or_else(|| "Ungrouped".to_string());
+                self.status = format!("Moved {count} album(s) to {dest}");
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
                 Task::perform(
                     async move {
                         let guard = conn.lock_unwrap();
-                        guard
-                            .set_album_shelf(&album_id, shelf_id.as_deref())
-                            .err()
+                        album_ids
+                            .iter()
+                            .find_map(|aid| {
+                                guard.set_album_shelf(aid, shelf_id.as_deref()).err()
+                            })
                             .map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::AlbumMovedToShelf, Msg::DbError),
                 )
+            }
+
+            Msg::StartCreateShelfFor(album_ids) => {
+                self.context_menu = None;
+                self.pending_shelf_albums = album_ids;
+                self.create_shelf_input = Some(String::new());
+                iced::widget::operation::focus(crate::app::input_ids::create_shelf())
             }
 
             Msg::ShelfCreated | Msg::ShelfRenamed | Msg::ShelfDeleted | Msg::AlbumMovedToShelf => {

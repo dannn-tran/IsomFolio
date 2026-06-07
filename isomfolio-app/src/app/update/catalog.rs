@@ -78,8 +78,11 @@ impl App {
                 self.albums.clear();
                 self.album_counts.clear();
                 self.grid_selected.clear();
+                self.selected_albums.clear();
                 self.drag.state = None;
                 self.drag.ids.clear();
+                self.drag.album = None;
+                self.hovered_shelf = None;
                 self.search_debounce_id += 1;
                 self.search_text.clear();
                 self.filters = FilterState::default();

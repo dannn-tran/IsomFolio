@@ -282,8 +282,8 @@ Implemented as a `stack` overlay anchored to the cursor position. No scrim — c
 | Entity | Menu items |
 |---|---|
 | Folder | Sync Folder · (Remove Missing Files…, when orphans present) · — · Remove from Library… |
-| Manual album | Rename · Duplicate · Set/Clear Target Album · Move to Shelf ▶ · Export Album… · — · Delete… |
-| Smart album | Rename · Duplicate · Edit Criteria · Move to Shelf ▶ · Export Album… · — · Delete… |
+| Manual album | Rename · Duplicate · Set/Clear Target Album · Move to Shelf ▶ · Copy to Folder… · — · Delete… |
+| Smart album | Rename · Duplicate · Edit Criteria · Move to Shelf ▶ · Copy to Folder… · — · Delete… |
 | Shelf | Rename · — · Delete Shelf… (albums are kept) |
 | Grid tile (single) | Open in Loupe · Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder / Locate… · Copy to Folder… |
 | Grid tile (multi-select) | Add to Album ▶ · — · Import XMP metadata · (Import Apple Finder tags, macOS) · Show in Finder · Copy to Folder… |
@@ -307,11 +307,15 @@ Ellipsis (…) in a menu item label signals the action has a secondary step (ren
 
 **Submenus (Add to Album ▶):** render as a second context menu panel to the right of the parent item. List all manual albums by name. Selecting one adds the dragged/selected files immediately (safe, no confirm). If no albums exist, show a disabled "No albums yet" item.
 
+**Submenus (Move to Shelf ▶):** the album-row submenu lists **Ungrouped** (lift to top level) · every shelf by name · **New Shelf…** (opens the inline create-shelf input and files the album(s) into the shelf the moment it's confirmed). A `✓` marks the album's current shelf — *only* when acting on a single album; with a multi-selection the marker is omitted (the albums may sit on different shelves). When `selected_albums` holds more than one and the clicked album is a member, the parent item pluralises to **"Move N albums to Shelf ▶"** and the chosen shelf applies to the whole group; otherwise it acts on the clicked album alone. All moves are safe (catalog-only, reversible), so no confirm.
+
 ### Selection states
 
 Use a translucent `ACCENT` overlay (α ≈ 0.22–0.28) for selected items. Do not change text colour on selection unless contrast demands it. Use a 3 px `ACCENT` ring for grid tiles. Use a rounded background fill for list items (sidebar albums, recent catalogs).
 
 **Grid tile selection (Finder / Lightroom semantics).** A **plain** click selects only the clicked tile; **Cmd/Ctrl**-click toggles a tile in/out (disjoint multi-select); **Shift**-click selects the contiguous range from the anchor (clicking back toward the anchor shrinks it). The one non-obvious rule is the **plain click on a tile that's already part of a multi-selection**: it must **collapse the selection to just that tile** — but the collapse is **deferred to mouse-up**, and only when *no drag happened in between*. This keeps press-and-drag of the whole group working (drag N selected tiles onto an album) while still letting a plain click cancel a multi-selection down to one. Doing the collapse on mouse-*down* would break group drag; never not collapsing at all leaves a stale multi-selection (the bug this rule fixes). Modifiers held at release (Cmd/Shift/Ctrl) suppress the collapse.
+
+**Album multi-select & drag-to-shelf (sidebar).** Albums carry a *second* selection axis, separate from `selected_item` (the one navigated view): `selected_albums`, built by **Cmd-click** on album rows (each highlights with the same `ACCENT` fill + ring as a navigated album). This exists only to file several albums onto a shelf at once. Because an album row needs **press-down** to start a drag, the row is a bare `mouse_area` (no inner `button`) whose `on_press` captures the press; click-vs-drag is then resolved on the **global `MouseReleased`** (the same press-defer pattern as grid tiles): a release that never moved past `DRAG_THRESHOLD` **navigates** to the album and clears `selected_albums`; a release that travelled and ended over a **shelf header** files the dragged set there. The dragged set follows the grid rule — **the whole `selected_albums` group if you grabbed a member, otherwise just the pressed album** (`dragged_albums` / `shelf_move_targets`). `Cmd`-click toggles membership without navigating; `Ctrl`-click still opens the context menu; `Esc` or navigating away clears the selection. Shelf headers are the **only** drop target (highlighted `ALBUM_HOVER` + `ACCENT` border while hovered during a drag, tracked by `hovered_shelf`); releasing off any shelf cancels and keeps the selection. Both manual and smart albums participate.
 
 ### Reject display (dim, don't remove)
 

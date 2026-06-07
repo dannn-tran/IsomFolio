@@ -3,10 +3,11 @@ use std::collections::HashSet;
 use iced::{Point, Task};
 
 use super::super::{
-    loupe, App, ContextMenuState, ContextMenuTarget, DragState, LoupeLoadError, LoupeState, Msg,
-    SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
-    TILE_SIZE_MAX, TILE_SIZE_MIN, TILE_SIZE_STEP,
+    loupe, AlbumDragState, App, ContextMenuState, ContextMenuTarget, DragState, LoupeLoadError,
+    LoupeState, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX,
+    SIDEBAR_WIDTH_MIN, TILE_SIZE_MAX, TILE_SIZE_MIN, TILE_SIZE_STEP,
 };
+use isomfolio_core::models::AlbumId;
 
 impl App {
     pub(super) fn handle_navigation_msg(&mut self, msg: Msg) -> Task<Msg> {
@@ -323,6 +324,16 @@ impl App {
                         }
                     }
                 }
+                if let Some(ref mut d) = self.drag.album {
+                    d.cursor = pos;
+                    if !d.active {
+                        let dx = pos.x - d.start.x;
+                        let dy = pos.y - d.start.y;
+                        if (dx * dx + dy * dy).sqrt() > super::super::DRAG_THRESHOLD {
+                            d.active = true;
+                        }
+                    }
+                }
                 self.recompute_drag_hover();
                 Task::none()
             }
@@ -448,6 +459,26 @@ impl App {
                 if self.list_resize.take().is_some() {
                     return Task::none();
                 }
+                // An album drag/click resolves here: the press was captured by the
+                // album row's `mouse_area`, so this global release is where we know
+                // whether it travelled (drop on a shelf) or stayed put (navigate).
+                if let Some(d) = self.drag.album.take() {
+                    let shelf = self.hovered_shelf.take();
+                    if d.active {
+                        if let Some(shelf_id) = shelf {
+                            let ids = dragged_albums(&d.album_id, &self.selected_albums);
+                            return Task::done(Msg::MoveAlbumsToShelf {
+                                album_ids: ids,
+                                shelf_id: Some(shelf_id),
+                            });
+                        }
+                        // Released off any shelf — cancel, keep the selection intact.
+                        return Task::none();
+                    }
+                    // A plain click: navigate to the album and collapse the selection.
+                    self.selected_albums.clear();
+                    return Task::done(Msg::SidebarItemClicked(SidebarItem::Album(d.album_id)));
+                }
                 let was_drag_active = self.drag.state.as_ref().map_or(false, |d| d.active);
                 let drop_task = if was_drag_active {
                     self.drag.hover_album.clone().map(|id| {
@@ -553,9 +584,14 @@ impl App {
                     self.view_mode = ViewMode::Browse;
                     return self.restore_sidebar_scroll();
                 }
+                if !self.selected_albums.is_empty() {
+                    self.selected_albums.clear();
+                    return Task::none();
+                }
                 self.create_album_input = None;
                 self.rename_album_id = None;
                 self.create_shelf_input = None;
+                self.pending_shelf_albums.clear();
                 self.rename_shelf_id = None;
                 self.shelf_pending_delete = None;
                 self.faces.rename_cluster_id = None;
@@ -608,13 +644,40 @@ impl App {
                 return self.handle_navigation_msg(Msg::MouseRightClicked);
             }
 
-            Msg::SidebarEntityPressed(item) => {
-                // The name button captured this left-press, so the global
-                // Ctrl+Click→menu path (in MousePressed) never ran — honour Ctrl here.
+            Msg::AlbumPressed(id) => {
+                // Press-down on an album row (the row's `mouse_area` captured it).
+                // Ctrl → menu, Cmd → toggle the multi-selection, plain → begin a
+                // drag candidate whose click/drop is resolved on `MouseReleased`.
+                self.context_menu = None;
                 if self.modifiers.control() {
-                    return self.handle_navigation_msg(Msg::OpenSidebarEntityMenu(item));
+                    return self
+                        .handle_navigation_msg(Msg::OpenSidebarEntityMenu(SidebarItem::Album(id)));
                 }
-                return Task::done(Msg::SidebarItemClicked(item));
+                if self.modifiers.command() {
+                    if !self.selected_albums.remove(&id) {
+                        self.selected_albums.insert(id);
+                    }
+                    return Task::none();
+                }
+                self.drag.album = Some(AlbumDragState {
+                    album_id: id,
+                    start: self.cursor,
+                    cursor: self.cursor,
+                    active: false,
+                });
+                Task::none()
+            }
+
+            Msg::HoverShelfStart(id) => {
+                self.hovered_shelf = Some(id);
+                Task::none()
+            }
+
+            Msg::HoverShelfEnd(id) => {
+                if self.hovered_shelf.as_ref() == Some(&id) {
+                    self.hovered_shelf = None;
+                }
+                Task::none()
             }
 
             Msg::HoverSidebarEntityStart(item) => {
@@ -908,6 +971,17 @@ impl App {
         }
         self.drag.hover_album =
             drop_album_for(self.hovered_sidebar_entity.as_ref(), &self.albums);
+    }
+}
+
+/// The albums a shelf drop applies to: the whole multi-selection when the
+/// pressed album is part of it, otherwise just the pressed album. Mirrors the
+/// grid's "drag the group if you grabbed a selected tile" rule.
+pub(crate) fn dragged_albums(pressed: &str, selected: &HashSet<AlbumId>) -> Vec<AlbumId> {
+    if selected.len() > 1 && selected.contains(pressed) {
+        selected.iter().cloned().collect()
+    } else {
+        vec![pressed.to_string()]
     }
 }
 
@@ -1294,6 +1368,40 @@ mod tests {
         fn down_into_short_last_row_clamps_to_last_tile() {
             // 5 items, 3 cols: [0 1 2 / 3 4]; down from col 2 has no tile, clamp.
             assert_eq!(grid_step(2, 0, 1, 3, 5), 4);
+        }
+    }
+
+    mod dragged_albums_fn {
+        use super::*;
+
+        fn set(items: &[&str]) -> HashSet<AlbumId> {
+            items.iter().map(|s| s.to_string()).collect()
+        }
+
+        #[test]
+        fn unselected_album_drags_only_itself() {
+            let got = dragged_albums("a", &set(&["b", "c"]));
+            assert_eq!(got, vec!["a".to_string()]);
+        }
+
+        #[test]
+        fn lone_selection_drags_only_the_pressed_album() {
+            // A single-album "selection" is just that album, not a group.
+            let got = dragged_albums("a", &set(&["a"]));
+            assert_eq!(got, vec!["a".to_string()]);
+        }
+
+        #[test]
+        fn pressing_a_member_drags_the_whole_selection() {
+            let mut got = dragged_albums("a", &set(&["a", "b", "c"]));
+            got.sort();
+            assert_eq!(got, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        }
+
+        #[test]
+        fn pressing_a_non_member_drags_only_it_even_with_a_selection() {
+            let got = dragged_albums("z", &set(&["a", "b"]));
+            assert_eq!(got, vec!["z".to_string()]);
         }
     }
 

@@ -39,8 +39,28 @@ impl App {
         }
 
         let dragging = self.drag.state.as_ref().map(|d| d.active).unwrap_or(false);
+        let album_dragging = self.drag.album.as_ref().map_or(false, |d| d.active);
         let drag_hover = self.drag.hover_album.clone();
-        let status = if dragging {
+        let status = if album_dragging {
+            let count = self
+                .drag
+                .album
+                .as_ref()
+                .map(|d| {
+                    if self.selected_albums.len() > 1 && self.selected_albums.contains(&d.album_id) {
+                        self.selected_albums.len()
+                    } else {
+                        1
+                    }
+                })
+                .unwrap_or(1);
+            match self.hovered_shelf.as_deref().and_then(|sid| {
+                self.shelves.iter().find(|s| s.id == sid).map(|s| s.name.as_str())
+            }) {
+                Some(name) => format!("Dragging {count} album(s) — drop on \"{name}\""),
+                None => format!("Dragging {count} album(s) — drop on a shelf"),
+            }
+        } else if dragging {
             let count = self.drag.ids.len();
             match &drag_hover {
                 Some(id) => {

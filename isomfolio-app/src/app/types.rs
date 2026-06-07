@@ -194,6 +194,16 @@ pub struct DragState {
     pub active: bool,
 }
 
+/// An album being dragged from the sidebar toward a shelf. `active` flips once
+/// the cursor passes the drag threshold (so a plain click still navigates).
+#[derive(Debug, Clone)]
+pub struct AlbumDragState {
+    pub album_id: AlbumId,
+    pub start: Point,
+    pub cursor: Point,
+    pub active: bool,
+}
+
 #[derive(Debug)]
 pub enum ThumbnailEvent {
     Ready(String, String),
@@ -521,10 +531,13 @@ pub enum Msg {
     /// Right-click on a sidebar entity row — opens its context menu directly,
     /// without relying on hover state + the global uncaptured-right-click path.
     OpenSidebarEntityMenu(SidebarItem),
-    /// Left-press on a sidebar entity row's name button. The button captures the
-    /// press (so the global Ctrl+Click→menu path never sees it); this routes it:
-    /// Ctrl held → open the context menu, otherwise → select/navigate.
-    SidebarEntityPressed(SidebarItem),
+    /// Press-down on an album row's `mouse_area`. Begins a drag candidate (plain
+    /// press), toggles the multi-selection (Cmd), or opens the menu (Ctrl). The
+    /// actual navigate/drop is resolved on `MouseReleased`.
+    AlbumPressed(AlbumId),
+    /// Cursor entered / left a shelf header — tracks the album-drag drop target.
+    HoverShelfStart(ShelfId),
+    HoverShelfEnd(ShelfId),
     ToggleAddToAlbumSubmenu,
 
     // — shelves (containers that group albums) —
@@ -546,8 +559,11 @@ pub enum Msg {
     ShelfHeaderPressed(ShelfId),
     /// Right-click / Ctrl+Click on a shelf header opens its context menu.
     OpenShelfMenu(ShelfId),
-    /// File an album under a shelf, or `None` to ungroup it.
-    MoveAlbumToShelf { album_id: AlbumId, shelf_id: Option<ShelfId> },
+    /// File several albums at once (multi-select / drag), or `None` to ungroup.
+    MoveAlbumsToShelf { album_ids: Vec<AlbumId>, shelf_id: Option<ShelfId> },
+    /// Open the inline create-shelf input, filing `album_ids` into the new shelf
+    /// once it's confirmed ("New Shelf…" chosen for a selection).
+    StartCreateShelfFor(Vec<AlbumId>),
     AlbumMovedToShelf,
 
     /// Wraps a context-menu leaf action: closes the menu, then dispatches the

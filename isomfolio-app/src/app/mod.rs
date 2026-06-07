@@ -117,11 +117,15 @@ pub struct DragContext {
     pub state: Option<DragState>,
     pub ids: HashSet<String>,
     pub hover_album: Option<AlbumId>,
+    /// An album being dragged from the sidebar onto a shelf (separate from the
+    /// photo-tile drag in `state`). Carries the album the press started on; the
+    /// dropped set is resolved against `selected_albums` on release.
+    pub album: Option<AlbumDragState>,
 }
 
 impl Default for DragContext {
     fn default() -> Self {
-        Self { state: None, ids: HashSet::new(), hover_album: None }
+        Self { state: None, ids: HashSet::new(), hover_album: None, album: None }
     }
 }
 
@@ -189,6 +193,12 @@ pub struct App {
     pub shelves: Vec<Shelf>,
     /// Shelf ids whose album list is collapsed in the sidebar.
     pub collapsed_shelves: HashSet<ShelfId>,
+    /// Albums Cmd-clicked into a multi-selection (for filing several into a shelf
+    /// at once). Distinct from `selected_item`, which is the one navigated view.
+    pub selected_albums: HashSet<AlbumId>,
+    /// Albums to file into a shelf the moment it's created (set when "New Shelf…"
+    /// is chosen for a selection, consumed by `ConfirmCreateShelf`).
+    pub pending_shelf_albums: Vec<AlbumId>,
     /// Album that the `B` quick-add key drops the selection into, if set.
     pub target_album: Option<AlbumId>,
     pub selected_item: SidebarItem,
@@ -309,6 +319,9 @@ pub struct App {
     pub smart_album_dirty: bool,
     pub context_menu: Option<ContextMenuState>,
     pub hovered_sidebar_entity: Option<SidebarItem>,
+    /// Shelf header currently under the cursor — the drop target while an album
+    /// is being dragged. Kept fresh by each shelf header's `mouse_area`.
+    pub hovered_shelf: Option<ShelfId>,
     pub tag_browser: Option<TagBrowserState>,
 
     pub sidebar_width: f32,
@@ -539,6 +552,8 @@ impl App {
             album_counts: HashMap::new(),
             shelves: Vec::new(),
             collapsed_shelves: HashSet::new(),
+            selected_albums: HashSet::new(),
+            pending_shelf_albums: Vec::new(),
             target_album: None,
             selected_item: SidebarItem::AllFiles,
             files: Vec::new(),
@@ -631,6 +646,7 @@ impl App {
             smart_album_dirty: false,
             context_menu: None,
             hovered_sidebar_entity: None,
+            hovered_shelf: None,
             tag_browser: None,
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_resizing: false,

@@ -48,7 +48,13 @@ Click the `+` button in the **Albums** section header and choose **New Shelf**, 
 
 ### File an album under a shelf
 
-Right-click an album and choose **Move to Shelf →**, then pick a shelf — or **Ungrouped** to lift it back to the top of the list. Both manual and smart albums can live on a shelf. Duplicating an album keeps it on the same shelf as the original.
+There are three ways to file albums:
+
+- **Drag** — press an album in the sidebar and drag it onto a shelf header; the shelf highlights as you hover, and the album drops in when you release. The quickest way to organise one at a time.
+- **Context menu** — right-click an album and choose **Move to Shelf →**, then pick a shelf — or **Ungrouped** to lift it back to the top of the list, or **New Shelf…** to create one and file it in a single step.
+- **Several at once** — **Cmd-click** (⌘) albums in the sidebar to build a multi-selection (each highlights), then drag any one of them onto a shelf to move the whole group, or right-click and use **Move N albums to Shelf →** (which also offers **New Shelf…**). Drag, click elsewhere, or press `Esc` to clear the selection.
+
+Both manual and smart albums can live on a shelf. Duplicating an album keeps it on the same shelf as the original.
 
 ### Copy a shelf to a folder
 

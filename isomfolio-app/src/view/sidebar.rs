@@ -496,12 +496,14 @@ impl App {
         } else {
             let dirty = sel && is_smart && self.smart_album_dirty;
             let is_target = self.target_album.as_deref() == Some(album.id.as_str());
+            let multi = self.selected_albums.contains(&album.id);
             album_sidebar_row(
                 album.name.clone(),
                 album.id.clone(),
                 count,
                 sel,
                 hovered,
+                multi,
                 is_smart,
                 dirty,
                 is_target,
@@ -561,13 +563,17 @@ impl App {
             Msg::ToggleShelfCollapsed(shelf.id.clone()),
         );
 
+        // Highlight as a drop target while an album is being dragged over it.
+        let drop_target = self.drag.album.as_ref().map_or(false, |d| d.active)
+            && self.hovered_shelf.as_deref() == Some(shelf.id.as_str());
+
         let label_area = mouse_area(
             row![
-                super::icons::icon(Icon::Shelf, FG_DIM),
+                super::icons::icon(Icon::Shelf, if drop_target { ACCENT } else { FG_DIM }),
                 container(
                     text(display_label)
                         .size(TEXT_BASE)
-                        .color(FG)
+                        .color(if drop_target { Color::WHITE } else { FG })
                         .wrapping(iced::widget::text::Wrapping::None),
                 )
                 .width(Length::Fill)
@@ -581,6 +587,8 @@ impl App {
             .width(Length::Fill),
         )
         .on_press(Msg::ShelfHeaderPressed(shelf.id.clone()))
+        .on_enter(Msg::HoverShelfStart(shelf.id.clone()))
+        .on_exit(Msg::HoverShelfEnd(shelf.id.clone()))
         .on_right_press(Msg::OpenShelfMenu(shelf.id.clone()));
 
         let inner = container(
@@ -588,7 +596,16 @@ impl App {
         )
         .height(ALBUM_ITEM_HEIGHT)
         .align_y(Alignment::Center)
-        .padding([0.0, SPACE_1]);
+        .padding([0.0, SPACE_1])
+        .style(move |_: &Theme| container::Style {
+            background: Some(Background::Color(if drop_target { ALBUM_HOVER } else { Color::TRANSPARENT })),
+            border: Border {
+                color: if drop_target { ACCENT } else { Color::TRANSPARENT },
+                width: if drop_target { 2.0 } else { 0.0 },
+                radius: 6.0.into(),
+            },
+            ..Default::default()
+        });
 
         if was_truncated {
             tooltip(inner, label_tooltip(shelf.name.clone()), tooltip::Position::Right).into()
@@ -1096,25 +1113,27 @@ fn folder_tree_row<'a>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn album_sidebar_row<'a>(
     label: String,
     album_id: String,
     count: usize,
     selected: bool,
     drop_hover: bool,
+    multi_selected: bool,
     is_smart: bool,
     dirty: bool,
     is_target: bool,
     max_chars: usize,
 ) -> Element<'a, Msg> {
-    let text_color = if selected || drop_hover {
+    let text_color = if selected || drop_hover || multi_selected {
         Color::WHITE
     } else {
         FG
     };
     let bg = if drop_hover {
         ALBUM_HOVER
-    } else if selected {
+    } else if selected || multi_selected {
         Color {
             r: ACCENT.r * 0.6,
             g: ACCENT.g * 0.6,
@@ -1124,7 +1143,7 @@ fn album_sidebar_row<'a>(
     } else {
         Color::TRANSPARENT
     };
-    let border_color = if drop_hover || selected {
+    let border_color = if drop_hover || selected || multi_selected {
         ACCENT
     } else {
         Color::TRANSPARENT
@@ -1135,7 +1154,11 @@ fn album_sidebar_row<'a>(
     let (display_label, was_truncated) = truncate_label(&label, max_chars);
     let dirty_dot = if dirty { " ●" } else { "" };
     let count_str = if count > 0 { format!("{dirty_dot} {count}") } else { dirty_dot.to_string() };
-    let name_btn = button(
+
+    // The whole row is the press target (no inner button) so its `mouse_area` can
+    // capture press-down — needed to start an album→shelf drag. Click vs drag is
+    // resolved on release in the update loop (see `Msg::AlbumPressed`).
+    let inner = container(
         row![
             container(
                 text(format!("{target_indicator}{smart_indicator}{display_label}"))
@@ -1149,34 +1172,23 @@ fn album_sidebar_row<'a>(
         ]
         .align_y(Alignment::Center),
     )
-    .on_press(Msg::SidebarEntityPressed(SidebarItem::Album(
-        album_id.clone(),
-    )))
+    .height(ALBUM_ITEM_HEIGHT)
+    .align_y(Alignment::Center)
+    .padding([0.0, SPACE_1])
     .width(Length::Fill)
-    .style(|_: &Theme, _| button::Style {
-        background: Some(Background::Color(Color::TRANSPARENT)),
-        text_color: FG,
-        border: Border::default(),
-        shadow: iced::Shadow::default(),
-        snap: false,
+    .style(move |_: &Theme| container::Style {
+        background: Some(Background::Color(bg)),
+        border: Border {
+            color: border_color,
+            width: if drop_hover { 2.0 } else { 0.0 },
+            radius: 6.0.into(),
+        },
+        ..Default::default()
     });
-
-    let inner = container(name_btn)
-        .height(ALBUM_ITEM_HEIGHT)
-        .align_y(Alignment::Center)
-        .padding([0.0, SPACE_1])
-        .style(move |_: &Theme| container::Style {
-            background: Some(Background::Color(bg)),
-            border: Border {
-                color: border_color,
-                width: if drop_hover { 2.0 } else { 0.0 },
-                radius: 6.0.into(),
-            },
-            ..Default::default()
-        });
 
     let entity = SidebarItem::Album(album_id.clone());
     let row_el = mouse_area(inner)
+        .on_press(Msg::AlbumPressed(album_id))
         .on_enter(Msg::HoverSidebarEntityStart(entity.clone()))
         .on_right_press(Msg::OpenSidebarEntityMenu(entity.clone()))
         .on_exit(Msg::HoverSidebarEntityEnd(entity));
