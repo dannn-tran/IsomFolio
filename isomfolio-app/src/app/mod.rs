@@ -1,3 +1,4 @@
+pub mod input_ids;
 pub mod keybinds;
 mod types;
 mod update;

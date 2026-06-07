@@ -19,6 +19,9 @@ pub enum ContextMenuTarget {
     GridTiles,
     FaceCluster(String),
     Shelf(ShelfId),
+    /// The Albums section's "+" affordance: a small menu to create a new album
+    /// or a new shelf. Replaces two near-identical add glyphs in the header.
+    AlbumsAdd,
 }
 
 #[derive(Debug, Clone)]
@@ -485,6 +488,8 @@ pub enum Msg {
     SelectAll,
     DeselectAll,
     OpenFaceClusterMenu(String),
+    /// Open the Albums "+" menu (New Album / New Shelf) at the cursor.
+    OpenAlbumsAddMenu,
     Undo,
     Redo,
     UndoApplied,
@@ -527,6 +532,9 @@ pub enum Msg {
     DeleteShelf(ShelfId),
     ShelfDeleted,
     ToggleShelfCollapsed(ShelfId),
+    /// Left-press on a shelf header: Ctrl held → open its context menu (the
+    /// right-click alias), otherwise toggle the shelf collapsed.
+    ShelfHeaderPressed(ShelfId),
     /// Right-click / Ctrl+Click on a shelf header opens its context menu.
     OpenShelfMenu(ShelfId),
     /// File an album under a shelf, or `None` to ungroup it.

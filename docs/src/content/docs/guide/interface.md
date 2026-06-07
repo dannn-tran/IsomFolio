@@ -24,9 +24,10 @@ Right-click any sidebar item to access actions: rename, delete, remove folder, e
 
 The main content area shows photos as thumbnails. Key interactions:
 
-- **Click** — select a photo
+- **Click** — select a photo (clicking one photo in a multi-selection narrows back to just that photo)
 - **Cmd+Click** — add to selection (multi-select)
-- **Click and drag** — drag selected photos to an album in the sidebar
+- **Shift+Click** — select a range from the last-clicked photo
+- **Click and drag** — drag selected photos to an album in the sidebar (a plain click only narrows the selection if you *don't* drag)
 - **Right-click** — open the context menu (add to album, show in Finder, etc.)
 - **Cmd+A** — select all
 - **Cmd+Shift+A** — deselect all

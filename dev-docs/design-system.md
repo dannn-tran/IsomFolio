@@ -227,7 +227,11 @@ Two row height constants exist to express the hierarchy between containers and i
 
 Folder rows are intentionally more compact. Do not normalise them to `ALBUM_ITEM_HEIGHT`.
 
-**Shelves** (containers grouping albums) sit inside the Albums list. A shelf header row uses `ALBUM_ITEM_HEIGHT` — it reads as a peer of the album rows it groups, not a folder. Anatomy: collapse chevron · shelf glyph (Lucide `library`) · name · right-aligned album count. Its albums render one indent level (`SPACE_3`) beneath it; ungrouped albums follow at the top level. The header toggles collapse on click; right-click / Ctrl+Click opens its context menu. The Albums section header carries two add controls: a `library`-plus glyph (**New shelf**) and `+` (**New album**).
+**Shelves** (containers grouping albums) sit inside the Albums list. A shelf header row uses `ALBUM_ITEM_HEIGHT` — it reads as a peer of the album rows it groups, not a folder. Anatomy: collapse chevron · shelf glyph (Lucide `library`) · name · right-aligned album count. Its albums render one indent level (`SPACE_3`) beneath it; ungrouped albums follow at the top level. **Plain click** (or `Ctrl`-less left-press) toggles collapse; **right-click / Ctrl+Click** opens its context menu (Rename / Delete Shelf). Both press paths route through one message so Ctrl+Click is a true right-click alias, never a stray collapse.
+
+The Albums section header carries **one** add control: a single `+` glyph opening a small **New Album / New Shelf** menu (`ContextMenuTarget::AlbumsAdd`). Two near-identical plus glyphs (the former `library`-plus + `+`) read as ambiguous — and a folder-flavoured glyph mislabels a shelf as a folder. A single labelled menu is unambiguous and is the standard collections-"+" pattern. The `+` is a real button, so its left-press is *captured* (never fires the global `MousePressed` that dismisses menus), letting it open the menu the same way right-click entity menus do.
+
+**Sidebar confirm rows** (inline Delete confirmation for an album or shelf) put the prompt in a `Fill`+`clip` container so the **Cancel / Confirm buttons stay pinned and on-screen** in the narrow (220 px) sidebar. A bare prompt + `Space::Fill` let a long string push Confirm off the right edge where it couldn't be clicked — keep confirm prompts short (`Delete "Name"?`), not sentences.
 
 ### Sidebar row classes
 
@@ -290,6 +294,15 @@ Each of these also has an off-row path (Photo / Catalog menus) or is listed in t
 
 Ellipsis (…) in a menu item label signals the action has a secondary step (rename → inline input; delete → inline confirm; add to album → submenu). Items without ellipsis execute immediately.
 
+**"Copy" vs "Export".** Plain file-to-folder duplication is labelled **"Copy to Folder…"** — for a single photo, a multi-selection, an album, *and* a shelf. It copies the bytes verbatim with no re-encoding or transform, so "Export" (which implies processing) would mislead. Reserve **"Export"** for actions that genuinely produce a derived artefact, e.g. "Export Metadata (CSV)…".
+
+**Copy-to-Folder structure & safety.** All four entry points feed one structured copy (`CopyEntry { rel, src }` → `fileops::copy_into_dir`):
+- **Loose photos** (grid selection) copy flat into the chosen folder (`rel` empty).
+- **An album** copies into a sub-folder named after the album (`<dest>/<album>/…`).
+- **A shelf** mirrors its structure: `<dest>/<shelf>/<album>/…`, one sub-folder per album — this is the multi-album copy.
+- Folder names are run through `fileops::sanitize_component` (illegal chars → `-`, empty → `Untitled`).
+- **Always non-destructive:** existing directories are merged into, never cleared; a name collision never overwrites — `copy_into_dir` adds a numeric suffix (`photo.jpg` → `photo (1).jpg`). Never reintroduce a bare `std::fs::copy` into a fixed destination path for these flows.
+
 **Confirmation from context menu:** destructive items (Remove from Library…, Delete…) close the context menu and replace the entity row with `confirm_action_row` inline. The confirm pattern itself is unchanged — only the trigger mechanism moves from an embedded button to the menu.
 
 **Submenus (Add to Album ▶):** render as a second context menu panel to the right of the parent item. List all manual albums by name. Selecting one adds the dragged/selected files immediately (safe, no confirm). If no albums exist, show a disabled "No albums yet" item.
@@ -297,6 +310,8 @@ Ellipsis (…) in a menu item label signals the action has a secondary step (ren
 ### Selection states
 
 Use a translucent `ACCENT` overlay (α ≈ 0.22–0.28) for selected items. Do not change text colour on selection unless contrast demands it. Use a 3 px `ACCENT` ring for grid tiles. Use a rounded background fill for list items (sidebar albums, recent catalogs).
+
+**Grid tile selection (Finder / Lightroom semantics).** A **plain** click selects only the clicked tile; **Cmd/Ctrl**-click toggles a tile in/out (disjoint multi-select); **Shift**-click selects the contiguous range from the anchor (clicking back toward the anchor shrinks it). The one non-obvious rule is the **plain click on a tile that's already part of a multi-selection**: it must **collapse the selection to just that tile** — but the collapse is **deferred to mouse-up**, and only when *no drag happened in between*. This keeps press-and-drag of the whole group working (drag N selected tiles onto an album) while still letting a plain click cancel a multi-selection down to one. Doing the collapse on mouse-*down* would break group drag; never not collapsing at all leaves a stale multi-selection (the bug this rule fixes). Modifiers held at release (Cmd/Shift/Ctrl) suppress the collapse.
 
 ### Reject display (dim, don't remove)
 
@@ -540,9 +555,10 @@ All non-search query controls live in **one collapsible Filters panel** (`view_s
 | Right-click on grid tile | Open context menu |
 | Ctrl+Click on grid tile | Open context menu (macOS convention) |
 | Drag tile to album | Immediate drop target highlight; adds on release |
-| Rename (from context menu) | Inline input replaces row, pre-filled; Enter confirms, Escape cancels |
+| Rename (from context menu) | Inline input replaces row, pre-filled and **auto-focused** (cursor lands in it — no second click); Enter confirms, Escape cancels |
+| Create album / shelf | `+` menu → inline input appears **auto-focused**. Confirming creates the entity in the sidebar but does **not** navigate to it — the current view (e.g. a folder mid-cull) is left undisturbed; a status line confirms creation. *(Duplicate, by contrast, does select the copy.)* |
 | Album delete / folder remove | Context menu item → two-step inline confirm replaces row |
-| Smart album save | Name input appears inline in the sidebar Filters section, confirmed with Save |
+| Smart album save | Name input appears inline in the sidebar Filters section, **auto-focused**, confirmed with Save |
 | Smart album "Edit Criteria" | Selects album, expands the sidebar Filters section |
 | `.` key (grid) | Repeat last tag — applies most recent tag to current selection |
 | `B` key | Add selection to the **target album** (set one via an album's context menu → "Set as Target Album"; marked `◎` in the sidebar). Mirrors Lightroom's quick-collection add for fast keeper-gathering. |

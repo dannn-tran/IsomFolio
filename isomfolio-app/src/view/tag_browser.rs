@@ -184,6 +184,7 @@ impl App {
                 row![
                     Space::new().width(indent),
                     text_input("New name…", input)
+                        .id(crate::app::input_ids::rename_tag())
                         .on_input(Msg::TagBrowserRenameChanged)
                         .on_submit(Msg::TagBrowserRenameConfirm)
                         .padding([SPACE_0_5, SPACE_1])

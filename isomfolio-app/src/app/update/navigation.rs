@@ -607,6 +607,18 @@ impl App {
                 Task::none()
             }
 
+            Msg::OpenAlbumsAddMenu => {
+                // The "+" is a real button, so its left-press is captured and never
+                // produces the global `MousePressed` that would clear the menu —
+                // setting `context_menu` here is safe.
+                self.context_menu = Some(ContextMenuState {
+                    position: self.cursor,
+                    target: ContextMenuTarget::AlbumsAdd,
+                    submenu_open: false,
+                });
+                Task::none()
+            }
+
             Msg::ToggleAddToAlbumSubmenu => {
                 if let Some(ref mut cm) = self.context_menu {
                     cm.submenu_open = !cm.submenu_open;

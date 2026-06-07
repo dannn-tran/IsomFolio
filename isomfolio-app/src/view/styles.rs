@@ -399,13 +399,23 @@ pub fn confirm_action_row<'a>(
     cancel_msg: Msg,
 ) -> Element<'a, Msg> {
     use crate::app::ALBUM_ITEM_HEIGHT;
-    use iced::widget::{button, container, row, text, Space};
+    use iced::widget::{button, container, row, text};
     use iced::Alignment;
 
     container(
         row![
-            text(prompt).size(TEXT_SM).color(ERR),
-            Space::new().width(Length::Fill),
+            // The prompt takes the *remaining* width and clips — the Cancel/Confirm
+            // buttons stay pinned and on-screen even in the narrow sidebar. (A bare
+            // `text` + `Space::Fill` let a long prompt push Confirm off the right
+            // edge, where it couldn't be clicked — e.g. shelf deletion.)
+            container(
+                text(prompt)
+                    .size(TEXT_SM)
+                    .color(ERR)
+                    .wrapping(iced::widget::text::Wrapping::None),
+            )
+            .width(Length::Fill)
+            .clip(true),
             button(text("Cancel").size(TEXT_SM))
                 .on_press(cancel_msg)
                 .style(ghost_btn_style),

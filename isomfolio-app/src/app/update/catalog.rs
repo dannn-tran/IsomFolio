@@ -162,7 +162,7 @@ impl App {
                 self.welcome.show_new_catalog_modal = true;
                 self.welcome.new_catalog_dir = None;
                 self.welcome.new_catalog_name.clear();
-                Task::none()
+                iced::widget::operation::focus(crate::app::input_ids::new_catalog())
             }
 
             Msg::HideNewCatalogModal => {

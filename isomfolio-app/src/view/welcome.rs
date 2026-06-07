@@ -152,6 +152,7 @@ impl App {
                 text("Catalog name").size(TEXT_MD).color(FG_DIM),
                 Space::new().height(SPACE_1_5),
                 text_input("My Photos", &self.welcome.new_catalog_name)
+                    .id(crate::app::input_ids::new_catalog())
                     .on_input(Msg::NewCatalogNameChanged)
                     .on_submit(Msg::ConfirmNewCatalog)
                     .padding([SPACE_2, SPACE_2_5])

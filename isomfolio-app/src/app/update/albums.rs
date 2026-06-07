@@ -157,7 +157,7 @@ impl App {
 
             Msg::StartCreateAlbum => {
                 self.create_album_input = Some(String::new());
-                Task::none()
+                iced::widget::operation::focus(crate::app::input_ids::create_album())
             }
 
             Msg::CreateAlbumInputChanged(s) => {
@@ -180,7 +180,9 @@ impl App {
                     return Task::none();
                 };
                 let album = Album { id: new_album_id(), name, kind: AlbumKind::Manual, sort_order: 0, shelf_id: None };
-                self.pending_album_select = Some(album.id.clone());
+                // Don't yank the user out of their current view (e.g. mid-cull in a
+                // folder) — the new album just appears in the sidebar to fill later.
+                self.status = format!("Created album \u{201C}{}\u{201D}", album.name);
                 Task::perform(
                     async move {
                         let guard = conn.lock_unwrap();
@@ -205,7 +207,7 @@ impl App {
                     .unwrap_or_default();
                 self.rename_album_id = Some(album_id);
                 self.rename_album_input = current_name;
-                Task::none()
+                iced::widget::operation::focus(crate::app::input_ids::rename_album())
             }
 
             Msg::RenameAlbumInputChanged(s) => {
@@ -346,7 +348,7 @@ impl App {
                 // visible (e.g. when triggered from the Photo menu with it shut).
                 self.collapsed_sections.remove(&crate::app::SidebarSection::Filters);
                 self.filters.save_smart_input = Some(String::new());
-                Task::none()
+                iced::widget::operation::focus(crate::app::input_ids::save_smart_album())
             }
 
             Msg::SmartAlbumNameChanged(s) => {

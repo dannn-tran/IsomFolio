@@ -155,6 +155,7 @@ impl App {
             | Msg::EscapePressed
             | Msg::Scrolled { .. }
             | Msg::OpenFaceClusterMenu(_)
+            | Msg::OpenAlbumsAddMenu
             | Msg::ToggleAddToAlbumSubmenu
             | Msg::HoverSidebarEntityStart(_)
             | Msg::HoverSidebarEntityEnd(_)
@@ -480,6 +481,7 @@ impl App {
             | Msg::DeleteShelf(_)
             | Msg::ShelfDeleted
             | Msg::ToggleShelfCollapsed(_)
+            | Msg::ShelfHeaderPressed(_)
             | Msg::OpenShelfMenu(_)
             | Msg::MoveAlbumToShelf { .. }
             | Msg::AlbumMovedToShelf => self.handle_shelf_msg(msg),

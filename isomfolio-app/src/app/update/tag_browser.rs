@@ -35,7 +35,7 @@ impl App {
                     tb.rename = Some((tag.clone(), tag));
                     tb.delete_armed = None;
                 }
-                Task::none()
+                iced::widget::operation::focus(crate::app::input_ids::rename_tag())
             }
 
             Msg::TagBrowserRenameChanged(s) => {

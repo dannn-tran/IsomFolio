@@ -11,7 +11,7 @@ impl App {
         match msg {
             Msg::StartCreateShelf => {
                 self.create_shelf_input = Some(String::new());
-                Task::none()
+                iced::widget::operation::focus(crate::app::input_ids::create_shelf())
             }
 
             Msg::CreateShelfInputChanged(s) => {
@@ -53,7 +53,7 @@ impl App {
                     .unwrap_or_default();
                 self.rename_shelf_id = Some(shelf_id);
                 self.rename_shelf_input = current;
-                Task::none()
+                iced::widget::operation::focus(crate::app::input_ids::rename_shelf())
             }
 
             Msg::RenameShelfInputChanged(s) => {
@@ -116,6 +116,13 @@ impl App {
                     self.collapsed_shelves.insert(shelf_id);
                 }
                 Task::none()
+            }
+
+            Msg::ShelfHeaderPressed(shelf_id) => {
+                if self.modifiers.control() {
+                    return Task::done(Msg::OpenShelfMenu(shelf_id));
+                }
+                Task::done(Msg::ToggleShelfCollapsed(shelf_id))
             }
 
             Msg::OpenShelfMenu(shelf_id) => {

@@ -186,6 +186,7 @@ impl App {
         let label: Element<Msg> = if is_renaming {
             row![
                 text_input("Name…", &self.faces.rename_input)
+                    .id(crate::app::input_ids::rename_face())
                     .on_input(Msg::RenameFaceClusterInputChanged)
                     .on_submit(Msg::ConfirmRenameFaceCluster)
                     .padding([SPACE_1, SPACE_1_5])

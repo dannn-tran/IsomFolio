@@ -163,7 +163,7 @@ impl App {
                     .unwrap_or_default();
                 self.faces.rename_cluster_id = Some(cluster_id);
                 self.faces.rename_input = current_name;
-                Task::none()
+                iced::widget::operation::focus(crate::app::input_ids::rename_face())
             }
 
             Msg::RenameFaceClusterInputChanged(s) => {

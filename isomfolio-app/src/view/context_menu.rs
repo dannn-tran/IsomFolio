@@ -179,7 +179,7 @@ impl App {
                     Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),
                     Some((target_label.into(), Msg::SetTargetAlbum(id.clone()), false)),
                     Some(("Move to Shelf ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)),
-                    Some(("Export Album…".into(), Msg::ExportAlbumToDialog(id.clone()), false)),
+                    Some(("Copy to Folder…".into(), Msg::ExportAlbumToDialog(id.clone()), false)),
                     None,
                     Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
                 ]
@@ -193,14 +193,19 @@ impl App {
                     false,
                 )),
                 Some(("Move to Shelf ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)),
-                Some(("Export Album…".into(), Msg::ExportAlbumToDialog(id.clone()), false)),
+                Some(("Copy to Folder…".into(), Msg::ExportAlbumToDialog(id.clone()), false)),
                 None,
                 Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
             ],
             ContextMenuTarget::Shelf(id) => vec![
                 Some(("Rename".into(), Msg::StartRenameShelf(id.clone()), false)),
+                Some(("Copy to Folder…".into(), Msg::ExportShelfToDialog(id.clone()), false)),
                 None,
                 Some(("Delete Shelf…".into(), Msg::RequestDeleteShelf(id.clone()), true)),
+            ],
+            ContextMenuTarget::AlbumsAdd => vec![
+                Some(("New Album".into(), Msg::StartCreateAlbum, false)),
+                Some(("New Shelf".into(), Msg::StartCreateShelf, false)),
             ],
             ContextMenuTarget::FaceCluster(cluster_id) => {
                 let id = cluster_id.clone();

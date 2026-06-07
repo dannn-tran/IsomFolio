@@ -148,14 +148,12 @@ impl App {
             albums_collapsed,
             SidebarSection::Albums,
             vec![
+                // One add affordance → a small menu (New Album / New Shelf). Two
+                // near-identical plus glyphs read as ambiguous; a single labelled
+                // menu is unambiguous and the standard collections pattern.
                 super::styles::tip(
-                    super::styles::icon_btn_svg(Icon::ShelfPlus, Msg::StartCreateShelf),
-                    "New shelf",
-                    super::styles::TipPos::Bottom,
-                ),
-                super::styles::tip(
-                    super::styles::icon_btn_svg(Icon::Plus, Msg::StartCreateAlbum),
-                    "New album",
+                    super::styles::icon_btn_svg(Icon::Plus, Msg::OpenAlbumsAddMenu),
+                    "Add album or shelf",
                     super::styles::TipPos::Bottom,
                 ),
             ],
@@ -239,6 +237,7 @@ impl App {
                 container(
                     row![
                         text_input("Album name…", input_val)
+                            .id(crate::app::input_ids::create_album())
                             .on_input(Msg::CreateAlbumInputChanged)
                             .on_submit(Msg::ConfirmCreateAlbum)
                             .padding([SPACE_1_5, SPACE_2])
@@ -262,6 +261,7 @@ impl App {
                     row![
                         super::icons::icon(Icon::Shelf, FG_DIM),
                         text_input("Shelf name…", input_val)
+                            .id(crate::app::input_ids::create_shelf())
                             .on_input(Msg::CreateShelfInputChanged)
                             .on_submit(Msg::ConfirmCreateShelf)
                             .padding([SPACE_1_5, SPACE_2])
@@ -477,6 +477,7 @@ impl App {
             container(
                 row![
                     text_input(&album.name, &self.rename_album_input)
+                        .id(crate::app::input_ids::rename_album())
                         .on_input(Msg::RenameAlbumInputChanged)
                         .on_submit(Msg::ConfirmRenameAlbum)
                         .padding([SPACE_1_5, SPACE_2])
@@ -520,8 +521,11 @@ impl App {
     /// its context menu (rename / delete). Renders inline rename / delete states.
     fn render_shelf_header<'a>(&'a self, shelf: &'a Shelf, max_chars: usize) -> Element<'a, Msg> {
         if self.shelf_pending_delete.as_deref() == Some(shelf.id.as_str()) {
+            // Albums are kept (rehomed to Ungrouped) — `delete_shelf` sets their
+            // shelf_id NULL, it doesn't cascade. Prompt stays short so it fits the
+            // narrow sidebar alongside the buttons.
             return confirm_action_row(
-                format!("Delete shelf \"{}\"? (albums are kept)", shelf.name),
+                format!("Delete shelf \u{201C}{}\u{201D}?", shelf.name),
                 Msg::DeleteShelf(shelf.id.clone()),
                 Msg::CancelDeleteShelf,
             );
@@ -530,6 +534,7 @@ impl App {
             return container(
                 row![
                     text_input(&shelf.name, &self.rename_shelf_input)
+                        .id(crate::app::input_ids::rename_shelf())
                         .on_input(Msg::RenameShelfInputChanged)
                         .on_submit(Msg::ConfirmRenameShelf)
                         .padding([SPACE_1_5, SPACE_2])
@@ -575,7 +580,7 @@ impl App {
             .align_y(Alignment::Center)
             .width(Length::Fill),
         )
-        .on_press(Msg::ToggleShelfCollapsed(shelf.id.clone()))
+        .on_press(Msg::ShelfHeaderPressed(shelf.id.clone()))
         .on_right_press(Msg::OpenShelfMenu(shelf.id.clone()));
 
         let inner = container(
@@ -790,6 +795,7 @@ impl App {
                 actions = actions
                     .push(
                         text_input("Album name…", name_input)
+                            .id(crate::app::input_ids::save_smart_album())
                             .on_input(Msg::SmartAlbumNameChanged)
                             .on_submit(Msg::ConfirmSmartAlbum)
                             .padding([SPACE_0_5, SPACE_1_5])
