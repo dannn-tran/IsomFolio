@@ -30,6 +30,7 @@ Press `?` at any time to open the in-app shortcut help panel.
 | `E` | Toggle Preview mode |
 | `I` | Toggle Info panel |
 | `C` | Compare (requires exactly 2 photos selected) |
+| `R` | Review Stacks (guided pass over every stack in the view) |
 | `+` / `Cmd++` | Zoom in — larger grid thumbnails, or zoom the loupe image |
 | `-` / `Cmd+-` | Zoom out — smaller grid thumbnails, or zoom the loupe image |
 | `Z` | In the loupe: toggle 1:1 (actual pixels) / Fit |

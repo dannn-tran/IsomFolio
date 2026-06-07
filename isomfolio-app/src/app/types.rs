@@ -125,6 +125,8 @@ pub enum ViewMode {
     Loupe,
     People,
     Compare,
+    /// Guided, full-bleed pass through every stack in the current view.
+    ResolveStacks,
     Settings,
 }
 
@@ -448,6 +450,23 @@ pub enum Msg {
     /// Stack flags written; carries prior `(id, flag)` (for undo) and how many
     /// frames were kept, so the status line can report the cull.
     StackFlagsApplied { before: Vec<(String, Flag)>, kept: usize },
+    /// Enter the resolve-stacks review mode for the stacks in the current view.
+    OpenResolveStacks,
+    /// The review queue finished building (capture-ordered stacks of ≥2 frames).
+    ResolveStacksLoaded(Vec<crate::app::StackReview>),
+    /// Full-res for one frame of the stack currently under review arrived.
+    ResolveFrameLoaded { stack_idx: usize, frame_idx: usize, handle: iced::widget::image::Handle },
+    /// Toggle a frame's keeper mark in the current stack.
+    ToggleResolveKeeper(String),
+    /// Apply the current stack's decision (keepers → Pick, rest → Reject) and
+    /// advance to the next stack (or finish).
+    ResolveApplyAndNext,
+    /// Leave the current stack untouched and advance.
+    ResolveSkipStack,
+    /// Step back to the previous stack without changing anything.
+    ResolvePrevStack,
+    /// The final stack's flags finished writing — exit the review and refresh.
+    ResolveFinished,
     FlagsApplied,
     RatingsApplied,
     LabelsApplied,

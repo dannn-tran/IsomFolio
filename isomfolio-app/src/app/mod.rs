@@ -355,6 +355,7 @@ pub struct App {
     pub redo_stack: Vec<UndoOp>,
 
     pub compare: CompareState,
+    pub resolve: ResolveState,
 
     pub bg_tasks: Vec<crate::app::types::BgTask>,
     /// Recently-finished tasks, shown with a ✓ until they expire (`COMPLETED_TTL`).
@@ -376,6 +377,27 @@ impl Default for CompareState {
     fn default() -> Self {
         Self { files: [None, None], handles: [None, None] }
     }
+}
+
+/// One stack queued for review in the resolve-stacks mode: its frames (in
+/// capture order) and the id of its sharpest frame (the default keeper).
+#[derive(Debug, Clone)]
+pub struct StackReview {
+    pub frames: Vec<isomfolio_core::models::AssetFile>,
+    pub rep_id: String,
+}
+
+/// State for the resolve-stacks view — a guided, full-bleed pass through every
+/// multi-frame stack in the current view, one at a time.
+#[derive(Default)]
+pub struct ResolveState {
+    pub stacks: Vec<StackReview>,
+    /// Index of the stack currently shown.
+    pub idx: usize,
+    /// Ids of frames in the current stack marked as keepers (→ Pick on resolve).
+    pub keepers: HashSet<String>,
+    /// Full-res handles for the current stack's frames, keyed by frame index.
+    pub handles: HashMap<usize, iced::widget::image::Handle>,
 }
 
 struct ThumbnailRecipe {
@@ -670,6 +692,7 @@ impl App {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             compare: CompareState::default(),
+            resolve: ResolveState::default(),
             bg_tasks: Vec::new(),
             completed_tasks: Vec::new(),
             next_bg_task_id: 0,

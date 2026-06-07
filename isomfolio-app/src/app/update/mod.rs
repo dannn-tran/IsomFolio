@@ -186,7 +186,15 @@ impl App {
             | Msg::StackKeepOnly(_)
             | Msg::StackRejectAll(_)
             | Msg::ToggleStackExpanded(_)
-            | Msg::StackFlagsApplied { .. } => self.handle_stacking_msg(msg),
+            | Msg::StackFlagsApplied { .. }
+            | Msg::OpenResolveStacks
+            | Msg::ResolveStacksLoaded(_)
+            | Msg::ResolveFrameLoaded { .. }
+            | Msg::ToggleResolveKeeper(_)
+            | Msg::ResolveApplyAndNext
+            | Msg::ResolveSkipStack
+            | Msg::ResolvePrevStack
+            | Msg::ResolveFinished => self.handle_stacking_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);

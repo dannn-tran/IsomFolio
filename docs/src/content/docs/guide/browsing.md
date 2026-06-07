@@ -23,6 +23,7 @@ Sort options (accessible from the toolbar or sort button):
 
 - **Expand just that stack** — click its `⧉ N` badge (the arrow shows `▸` collapsed, `▾` open). Its frames fan out inline as normal tiles, so you can select, flag, rate, and step through them in the loupe; click the badge again to collapse it back. Toggling the toolbar **⧉ Stack** off re-collapses every stack.
 - **Cull in one click** — right-click the stack tile for **Keep this, reject rest** (flags the frame you clicked as a Pick and every other frame in the stack as a Reject — the keep-the-best-of-a-burst decision in a single action) or **Reject whole stack**. Both are undoable with `Cmd+Z`.
+- **Work every stack in turn** — press **`R`** (**View → Review Stacks**) to step through all the stacks in the current view one at a time, full-screen, picking a keeper for each. See [Culling → Review Stacks](/guide/culling/).
 
 ## Grid and List views
 

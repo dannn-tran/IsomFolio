@@ -256,7 +256,10 @@ impl App {
                             ]);
                         }
                     }
-                    ViewMode::People | ViewMode::Compare | ViewMode::Settings => {}
+                    ViewMode::People
+                    | ViewMode::Compare
+                    | ViewMode::ResolveStacks
+                    | ViewMode::Settings => {}
                 }
                 Task::none()
             }
@@ -579,6 +582,9 @@ impl App {
                         self.scroll_to_index(self.loupe.idx),
                         self.restore_sidebar_scroll(),
                     ]);
+                }
+                if matches!(self.view_mode, ViewMode::ResolveStacks) {
+                    return self.exit_resolve(false);
                 }
                 if matches!(self.view_mode, ViewMode::Compare | ViewMode::Settings) {
                     self.view_mode = ViewMode::Browse;
@@ -1173,7 +1179,7 @@ pub(crate) fn is_raw_path(path: &str) -> bool {
     isomfolio_core::indexing::thumbnail::is_raw_extension(ext)
 }
 
-fn decode_image_for_display(path: &str, prefer_full: bool) -> Option<iced::widget::image::Handle> {
+pub(crate) fn decode_image_for_display(path: &str, prefer_full: bool) -> Option<iced::widget::image::Handle> {
     let img = open_image(path, prefer_full)?;
     let rgba = img.into_rgba8();
     let (w, h) = (rgba.width(), rgba.height());

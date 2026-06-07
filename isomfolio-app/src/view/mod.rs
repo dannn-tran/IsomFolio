@@ -5,6 +5,7 @@ mod icons;
 mod loupe_image;
 mod menu_bar;
 mod people;
+mod resolve;
 mod sidebar;
 pub mod styles;
 mod tag_browser;
@@ -36,6 +37,10 @@ impl App {
 
         if matches!(self.view_mode, ViewMode::Compare) {
             return self.view_compare();
+        }
+
+        if matches!(self.view_mode, ViewMode::ResolveStacks) {
+            return self.view_resolve();
         }
 
         let dragging = self.drag.state.as_ref().map(|d| d.active).unwrap_or(false);

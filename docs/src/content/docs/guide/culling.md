@@ -98,3 +98,13 @@ When you've shot several near-identical frames, IsomFolio groups them into a **s
 - **Reject whole stack** — flags every frame in the stack as a Reject (e.g. the whole burst missed).
 
 Both are undoable with `Cmd+Z`, and they apply to every frame in the stack even the ones hidden behind the collapsed tile.
+
+### Review Stacks — a guided pass
+
+When a shoot has *many* bursts, press **`R`** (or **View → Review Stacks**) to step through them one at a time. This opens a full-screen review — the same kind of focused view as the loupe — showing one stack's frames large, side by side, so you can actually judge focus, eyes, and expression:
+
+1. The **sharpest** frame is pre-marked as the keeper. Click any frame to toggle whether it's kept — kept frames get a blue ring and **✓ Keep**, the rest show **✕ Reject**.
+2. Click **Keep selected & Next ›** to flag your choice (keepers → Pick, the rest → Reject) and jump to the next stack. **Skip** moves on without changing anything; **‹ Previous** steps back.
+3. When you've worked through every stack — or press **Esc** to stop early — you're returned to the grid.
+
+Everything you do here is undoable with `Cmd+Z`. It's the fastest way to cull a shoot full of bursts down to one keeper each.

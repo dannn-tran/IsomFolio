@@ -416,6 +416,28 @@ pub fn get_burst_ids_for(conn: &Connection, file_ids: &[String]) -> Result<std::
     Ok(out)
 }
 
+/// For each of `file_ids` that is stacked, its `(burst_id, sharpness)` — enough
+/// to both group files into stacks and pick each stack's sharpest representative.
+pub fn get_stack_membership(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, (String, f64)>, AppError> {
+    let mut out = std::collections::HashMap::new();
+    for chunk in file_ids.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT id, burst_id, COALESCE(phash_sharpness, 0.0) \
+             FROM files WHERE burst_id IS NOT NULL AND id IN ({})",
+            placeholders(chunk.len()),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, f64>(2)?))
+        })?;
+        for row in rows {
+            let (id, burst, sharpness) = row?;
+            out.insert(id, (burst, sharpness));
+        }
+    }
+    Ok(out)
+}
+
 /// Apply a one-shot culling decision to the whole stack that `anchor` belongs to.
 /// `keep_one`: when true the anchor frame is flagged `Pick` and every other
 /// member `Reject` ("keep this, reject rest"); when false every member (anchor
