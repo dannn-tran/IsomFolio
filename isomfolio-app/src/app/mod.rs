@@ -891,7 +891,7 @@ impl App {
                 self.thumbnails.insert(file.id.clone(), ThumbnailState::Ready(cache));
             } else {
                 self.thumbnails.insert(file.id.clone(), ThumbnailState::Pending);
-                pool.enqueue(&file.id, &file.path, priority as i32);
+                pool.enqueue(&file.id, &file.disk_path(), priority as i32);
                 newly_enqueued += 1;
             }
         }
@@ -1056,11 +1056,15 @@ impl App {
                 let folder_tree =
                     isomfolio_core::Catalog::folder_tree_from(raw_folders, &library_roots, &discovered);
                 // A library root whose path isn't a directory right now is offline
-                // (unplugged drive). Cheap — roots are few; the key path resolves
-                // on case-insensitive filesystems.
+                // (unplugged drive). Stat the *real-cased* path — the folded key
+                // won't resolve on a case-sensitive volume — but key the set by the
+                // folded `path` so it matches `file.folder` in `is_offline_path`.
                 let offline_roots: HashSet<String> = library_roots
                     .iter()
-                    .filter(|r| !std::path::Path::new(&r.path).is_dir())
+                    .filter(|r| {
+                        let disk = if r.path_display.is_empty() { &r.path } else { &r.path_display };
+                        !std::path::Path::new(disk).is_dir()
+                    })
                     .map(|r| r.path.clone())
                     .collect();
                 (folders, folder_tree, library_roots, offline_roots, cameras, albums, shelves, album_counts, deleted_count, import_batches)

@@ -732,7 +732,7 @@ impl App {
     pub(crate) fn load_loupe_full_res(&self) -> Task<Msg> {
         let idx = self.loupe.idx;
         let Some(file) = self.files.get(idx) else { return Task::none() };
-        let path = file.path.clone();
+        let path = file.disk_path();
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
@@ -759,7 +759,7 @@ impl App {
         if !is_raw_path(&file.path) {
             return Task::none();
         }
-        let path = file.path.clone();
+        let path = file.disk_path();
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || decode_image_for_display(&path, true))
@@ -776,7 +776,7 @@ impl App {
 
     pub(crate) fn load_compare_slot(&self, slot: usize) -> Task<Msg> {
         let Some(file) = self.compare.files[slot].as_ref() else { return Task::none() };
-        let path = file.path.clone();
+        let path = file.disk_path();
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
@@ -807,7 +807,7 @@ impl App {
                 continue;
             }
             if let Some(file) = self.files.get(idx) {
-                let path = file.path.clone();
+                let path = file.disk_path();
                 tasks.push(Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))

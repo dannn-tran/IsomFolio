@@ -252,7 +252,7 @@ impl App {
                         if f.is_orphaned {
                             items.push(Some(("Locate…".into(), Msg::LocateFile(f.id.clone()), false)));
                         } else {
-                            items.push(Some((REVEAL_LABEL.into(), Msg::ShowInFinder(vec![f.path.clone()]), false)));
+                            items.push(Some((REVEAL_LABEL.into(), Msg::ShowInFinder(vec![f.disk_path()]), false)));
                         }
                     }
                 } else if has_non_orphaned {
@@ -261,7 +261,7 @@ impl App {
                         .iter()
                         .filter_map(|id| self.files.iter().find(|f| &f.id == id))
                         .filter(|f| !f.is_orphaned)
-                        .map(|f| f.path.clone())
+                        .map(|f| f.disk_path())
                         .collect();
                     items.push(Some((REVEAL_LABEL.into(), Msg::ShowInFinder(paths), false)));
                 }

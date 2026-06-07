@@ -54,6 +54,24 @@ pub struct AssetFile {
     pub gps_lon: Option<f64>,
 }
 
+impl AssetFile {
+    /// Real-cased absolute path for **disk I/O** (reads, thumbnails, reveal,
+    /// export). The stored `path`/`folder` are case-folded — the identity/match
+    /// key — and only resolve on case-insensitive volumes (internal Mac disk).
+    /// On a case-sensitive volume (many external drives) the folded path fails to
+    /// open; this rebuilds the original casing from `folder_display` + `name`.
+    /// Falls back to the folded `path` when no display folder was recorded.
+    pub fn disk_path(&self) -> String {
+        if self.folder_display.is_empty() {
+            return self.path.clone();
+        }
+        std::path::Path::new(&self.folder_display)
+            .join(&self.name)
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ThumbnailState {
     NotRequested,

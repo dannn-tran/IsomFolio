@@ -188,7 +188,7 @@ impl App {
                     .grid_selected
                     .iter()
                     .filter_map(|id| self.files.iter().find(|f| &f.id == id))
-                    .map(|f| (f.id.clone(), f.path.clone()))
+                    .map(|f| (f.id.clone(), f.disk_path()))
                     .collect();
                 if items.is_empty() {
                     return Task::none();
@@ -620,18 +620,25 @@ impl App {
 
             Msg::RecheckOfflineRoots => {
                 // Stat the roots off-thread (a dead mount can block) and report
-                // which are offline; the UI thread only diffs the result.
-                let paths: Vec<String> =
-                    self.library_roots.iter().map(|r| r.path.clone()).collect();
-                if paths.is_empty() {
+                // which are offline; the UI thread only diffs the result. Stat the
+                // *real-cased* path (folded won't resolve on case-sensitive
+                // volumes), but key the result by the folded `path` so it matches
+                // `file.folder` in `is_offline_path`.
+                let pairs: Vec<(String, String)> = self
+                    .library_roots
+                    .iter()
+                    .map(|r| (r.path.clone(), root_disk_path(r)))
+                    .collect();
+                if pairs.is_empty() {
                     return Task::none();
                 }
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            paths
+                            pairs
                                 .into_iter()
-                                .filter(|p| !std::path::Path::new(p).is_dir())
+                                .filter(|(_, disk)| !std::path::Path::new(disk).is_dir())
+                                .map(|(key, _)| key)
                                 .collect::<std::collections::HashSet<String>>()
                         })
                         .await
@@ -785,13 +792,20 @@ impl App {
     }
 }
 
-/// Real-cased on-disk path for export: the stored `path` is case-folded (the
-/// matching/identity key), so copying from it and taking its basename yields a
-/// lower-cased filename. Rebuild from `folder_display` + `name`, both of which
-/// preserve the original casing, so the exported copy keeps the exact filename.
+/// Real-cased on-disk path for export — see [`AssetFile::disk_path`]. Copying
+/// from the folded `path` would both fail on case-sensitive volumes and produce
+/// a lower-cased destination filename.
 fn export_source_path(f: &isomfolio_core::models::AssetFile) -> String {
-    std::path::Path::new(&f.folder_display)
-        .join(&f.name)
-        .to_string_lossy()
-        .into_owned()
+    f.disk_path()
+}
+
+/// Real-cased path of a library root for disk stat (`is_dir`). Like
+/// [`AssetFile::disk_path`], the folded `path` only resolves on case-insensitive
+/// volumes; use `path_display` (falls back to `path` when unset).
+fn root_disk_path(r: &isomfolio_core::LibraryRoot) -> String {
+    if r.path_display.is_empty() {
+        r.path.clone()
+    } else {
+        r.path_display.clone()
+    }
 }
