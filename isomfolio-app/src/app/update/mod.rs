@@ -493,6 +493,8 @@ impl App {
             | Msg::OpenShelfMenu(_)
             | Msg::MoveAlbumsToShelf { .. }
             | Msg::StartCreateShelfFor(_)
+            | Msg::StartCreateAlbumIn(_)
+            | Msg::SelectShelfAlbums(_)
             | Msg::AlbumMovedToShelf => self.handle_shelf_msg(msg),
 
             // — search & filter criteria —

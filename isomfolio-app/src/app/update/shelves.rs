@@ -187,6 +187,26 @@ impl App {
                 iced::widget::operation::focus(crate::app::input_ids::create_shelf())
             }
 
+            Msg::StartCreateAlbumIn(shelf_id) => {
+                self.context_menu = None;
+                // Reveal the shelf so the inline input appears inside it.
+                self.collapsed_shelves.remove(&shelf_id);
+                self.pending_album_shelf = Some(shelf_id);
+                self.create_album_input = Some(String::new());
+                iced::widget::operation::focus(crate::app::input_ids::create_album())
+            }
+
+            Msg::SelectShelfAlbums(shelf_id) => {
+                self.context_menu = None;
+                self.selected_albums = self
+                    .albums
+                    .iter()
+                    .filter(|a| a.shelf_id.as_deref() == Some(shelf_id.as_str()))
+                    .map(|a| a.id.clone())
+                    .collect();
+                Task::none()
+            }
+
             Msg::ShelfCreated | Msg::ShelfRenamed | Msg::ShelfDeleted | Msg::AlbumMovedToShelf => {
                 self.load_sidebar_task()
             }

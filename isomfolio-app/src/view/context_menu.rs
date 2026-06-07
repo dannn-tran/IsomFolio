@@ -233,12 +233,26 @@ impl App {
                 None,
                 Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
             ],
-            ContextMenuTarget::Shelf(id) => vec![
-                Some(("Rename".into(), Msg::StartRenameShelf(id.clone()), false)),
-                Some(("Copy to Folder…".into(), Msg::ExportShelfToDialog(id.clone()), false)),
-                None,
-                Some(("Delete Shelf…".into(), Msg::RequestDeleteShelf(id.clone()), true)),
-            ],
+            ContextMenuTarget::Shelf(id) => {
+                let has_albums = self
+                    .albums
+                    .iter()
+                    .any(|a| a.shelf_id.as_deref() == Some(id.as_str()));
+                let mut items = vec![
+                    Some(("New Album".into(), Msg::StartCreateAlbumIn(id.clone()), false)),
+                ];
+                if has_albums {
+                    items.push(Some(("Select Albums".into(), Msg::SelectShelfAlbums(id.clone()), false)));
+                }
+                items.extend([
+                    None,
+                    Some(("Rename".into(), Msg::StartRenameShelf(id.clone()), false)),
+                    Some(("Copy to Folder…".into(), Msg::ExportShelfToDialog(id.clone()), false)),
+                    None,
+                    Some(("Delete Shelf…".into(), Msg::RequestDeleteShelf(id.clone()), true)),
+                ]);
+                items
+            }
             ContextMenuTarget::AlbumsAdd => vec![
                 Some(("New Album".into(), Msg::StartCreateAlbum, false)),
                 Some(("New Shelf".into(), Msg::StartCreateShelf, false)),

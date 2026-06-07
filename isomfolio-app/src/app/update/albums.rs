@@ -156,6 +156,9 @@ impl App {
             }
 
             Msg::StartCreateAlbum => {
+                // The top-level "+ → New Album" creates ungrouped; only a shelf's
+                // own "New Album" sets a target shelf.
+                self.pending_album_shelf = None;
                 self.create_album_input = Some(String::new());
                 iced::widget::operation::focus(crate::app::input_ids::create_album())
             }
@@ -168,18 +171,20 @@ impl App {
             Msg::ConfirmCreateAlbum => {
                 let name = self.create_album_input.take().unwrap_or_default();
                 let name = name.trim().to_string();
+                let shelf_id = self.pending_album_shelf.take();
                 if name.is_empty() {
                     return Task::none();
                 }
                 if self.albums.iter().any(|a| a.name.to_lowercase() == name.to_lowercase()) {
                     self.status = format!("An album named \u{201C}{name}\u{201D} already exists");
                     self.create_album_input = Some(name);
+                    self.pending_album_shelf = shelf_id;
                     return Task::none();
                 }
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
-                let album = Album { id: new_album_id(), name, kind: AlbumKind::Manual, sort_order: 0, shelf_id: None };
+                let album = Album { id: new_album_id(), name, kind: AlbumKind::Manual, sort_order: 0, shelf_id };
                 // Don't yank the user out of their current view (e.g. mid-cull in a
                 // folder) — the new album just appears in the sidebar to fill later.
                 self.status = format!("Created album \u{201C}{}\u{201D}", album.name);

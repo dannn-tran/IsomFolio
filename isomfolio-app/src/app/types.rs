@@ -564,6 +564,12 @@ pub enum Msg {
     /// Open the inline create-shelf input, filing `album_ids` into the new shelf
     /// once it's confirmed ("New Shelf…" chosen for a selection).
     StartCreateShelfFor(Vec<AlbumId>),
+    /// Open the inline create-album input directly under a shelf, filing the new
+    /// album there on confirm ("New Album" from a shelf's context menu).
+    StartCreateAlbumIn(ShelfId),
+    /// Select every album filed under a shelf (the shelf menu's "Select Albums",
+    /// and what `Cmd+A` expands to when an album in that shelf is selected).
+    SelectShelfAlbums(ShelfId),
     AlbumMovedToShelf,
 
     /// Wraps a context-menu leaf action: closes the menu, then dispatches the

@@ -199,6 +199,9 @@ pub struct App {
     /// Albums to file into a shelf the moment it's created (set when "New Shelf…"
     /// is chosen for a selection, consumed by `ConfirmCreateShelf`).
     pub pending_shelf_albums: Vec<AlbumId>,
+    /// Shelf the in-progress new album should be filed under (set by a shelf's
+    /// "New Album", consumed by `ConfirmCreateAlbum`); `None` = ungrouped.
+    pub pending_album_shelf: Option<ShelfId>,
     /// Album that the `B` quick-add key drops the selection into, if set.
     pub target_album: Option<AlbumId>,
     pub selected_item: SidebarItem,
@@ -554,6 +557,7 @@ impl App {
             collapsed_shelves: HashSet::new(),
             selected_albums: HashSet::new(),
             pending_shelf_albums: Vec::new(),
+            pending_album_shelf: None,
             target_album: None,
             selected_item: SidebarItem::AllFiles,
             files: Vec::new(),

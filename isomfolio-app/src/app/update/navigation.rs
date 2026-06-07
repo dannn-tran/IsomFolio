@@ -589,6 +589,7 @@ impl App {
                     return Task::none();
                 }
                 self.create_album_input = None;
+                self.pending_album_shelf = None;
                 self.rename_album_id = None;
                 self.create_shelf_input = None;
                 self.pending_shelf_albums.clear();
@@ -758,6 +759,14 @@ impl App {
             }
 
             Msg::SelectAll => {
+                // While an album multi-selection is active, Cmd+A expands it to all
+                // sibling albums — every album sharing a shelf (or the ungrouped
+                // top level) with something already selected, like Cmd+A within a
+                // Finder folder. Otherwise it selects the whole grid.
+                if !self.selected_albums.is_empty() {
+                    self.selected_albums = album_siblings(&self.albums, &self.selected_albums);
+                    return Task::none();
+                }
                 self.grid_selected = self.files.iter().map(|f| f.id.clone()).collect();
                 self.selection_base = self.grid_selected.clone();
                 if self.anchor_idx.is_none() && !self.files.is_empty() {
@@ -972,6 +981,26 @@ impl App {
         self.drag.hover_album =
             drop_album_for(self.hovered_sidebar_entity.as_ref(), &self.albums);
     }
+}
+
+/// Every album sharing a shelf (or the ungrouped top level) with something
+/// already selected — what `Cmd+A` expands an album selection to, like Cmd+A
+/// within a Finder folder. The set of "containers" is derived from the current
+/// selection, then every album in those containers is selected.
+pub(crate) fn album_siblings(
+    albums: &[isomfolio_core::models::Album],
+    selected: &HashSet<AlbumId>,
+) -> HashSet<AlbumId> {
+    let shelves: HashSet<Option<String>> = albums
+        .iter()
+        .filter(|a| selected.contains(&a.id))
+        .map(|a| a.shelf_id.clone())
+        .collect();
+    albums
+        .iter()
+        .filter(|a| shelves.contains(&a.shelf_id))
+        .map(|a| a.id.clone())
+        .collect()
 }
 
 /// The albums a shelf drop applies to: the whole multi-selection when the
@@ -1402,6 +1431,64 @@ mod tests {
         fn pressing_a_non_member_drags_only_it_even_with_a_selection() {
             let got = dragged_albums("z", &set(&["a", "b"]));
             assert_eq!(got, vec!["z".to_string()]);
+        }
+    }
+
+    mod album_siblings_fn {
+        use super::*;
+        use isomfolio_core::models::AlbumKind;
+
+        fn album(id: &str, shelf: Option<&str>) -> Album {
+            Album {
+                id: id.to_string(),
+                name: id.to_string(),
+                kind: AlbumKind::Manual,
+                sort_order: 0,
+                shelf_id: shelf.map(|s| s.to_string()),
+            }
+        }
+
+        fn set(items: &[&str]) -> HashSet<AlbumId> {
+            items.iter().map(|s| s.to_string()).collect()
+        }
+
+        #[test]
+        fn selecting_one_album_expands_to_its_whole_shelf() {
+            let albums = vec![
+                album("a", Some("s1")),
+                album("b", Some("s1")),
+                album("c", Some("s2")),
+                album("d", None),
+            ];
+            let mut got: Vec<_> = album_siblings(&albums, &set(&["a"])).into_iter().collect();
+            got.sort();
+            assert_eq!(got, vec!["a".to_string(), "b".to_string()]);
+        }
+
+        #[test]
+        fn ungrouped_selection_expands_to_all_ungrouped_albums() {
+            let albums = vec![
+                album("a", Some("s1")),
+                album("d", None),
+                album("e", None),
+            ];
+            let mut got: Vec<_> = album_siblings(&albums, &set(&["d"])).into_iter().collect();
+            got.sort();
+            assert_eq!(got, vec!["d".to_string(), "e".to_string()]);
+        }
+
+        #[test]
+        fn selection_spanning_two_shelves_expands_to_both() {
+            let albums = vec![
+                album("a", Some("s1")),
+                album("b", Some("s1")),
+                album("c", Some("s2")),
+                album("d", Some("s3")),
+            ];
+            let mut got: Vec<_> =
+                album_siblings(&albums, &set(&["a", "c"])).into_iter().collect();
+            got.sort();
+            assert_eq!(got, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
         }
     }
 

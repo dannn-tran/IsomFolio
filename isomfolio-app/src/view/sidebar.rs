@@ -232,27 +232,12 @@ impl App {
             .push(Space::new().height(SPACE_2))
             .push(albums_header);
 
-        if let Some(ref input_val) = self.create_album_input {
-            content = content.push(
-                container(
-                    row![
-                        text_input("Album name…", input_val)
-                            .id(crate::app::input_ids::create_album())
-                            .on_input(Msg::CreateAlbumInputChanged)
-                            .on_submit(Msg::ConfirmCreateAlbum)
-                            .padding([SPACE_1_5, SPACE_2])
-                            .size(TEXT_BASE)
-                            .width(Length::Fill),
-                        super::styles::icon_btn("✓", Msg::ConfirmCreateAlbum),
-                        super::styles::icon_btn("✕", Msg::EscapePressed),
-                    ]
-                    .spacing(SPACE_1)
-                    .align_y(Alignment::Center),
-                )
-                .height(ALBUM_ITEM_HEIGHT)
-                .align_y(Alignment::Center)
-                .padding([0.0, SPACE_1]),
-            );
+        // The new-album input renders at the top only for an ungrouped album;
+        // when a shelf is the target it appears nested under that shelf (below).
+        if self.pending_album_shelf.is_none() {
+            if let Some(ref input_val) = self.create_album_input {
+                content = content.push(create_album_input_row(input_val));
+            }
         }
 
         if let Some(ref input_val) = self.create_shelf_input {
@@ -287,6 +272,15 @@ impl App {
                 if !self.collapsed_shelves.contains(&shelf.id) {
                     for album in self.albums.iter().filter(|a| a.shelf_id.as_deref() == Some(shelf.id.as_str())) {
                         content = content.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, true));
+                    }
+                    // A new album being created under this shelf: its inline input
+                    // sits where the album will land (indented like its siblings).
+                    if self.pending_album_shelf.as_deref() == Some(shelf.id.as_str()) {
+                        if let Some(ref input_val) = self.create_album_input {
+                            content = content.push(
+                                row![Space::new().width(SPACE_3), create_album_input_row(input_val)],
+                            );
+                        }
                     }
                 }
             }
@@ -880,6 +874,30 @@ impl App {
             .iter()
             .any(|d| d == path || d.starts_with(&prefix))
     }
+}
+
+/// The inline "new album" name input row (name field + confirm / cancel), used
+/// both at the top level (ungrouped) and nested under a target shelf.
+fn create_album_input_row<'a>(input_val: &str) -> Element<'a, Msg> {
+    container(
+        row![
+            text_input("Album name…", input_val)
+                .id(crate::app::input_ids::create_album())
+                .on_input(Msg::CreateAlbumInputChanged)
+                .on_submit(Msg::ConfirmCreateAlbum)
+                .padding([SPACE_1_5, SPACE_2])
+                .size(TEXT_BASE)
+                .width(Length::Fill),
+            super::styles::icon_btn("✓", Msg::ConfirmCreateAlbum),
+            super::styles::icon_btn("✕", Msg::EscapePressed),
+        ]
+        .spacing(SPACE_1)
+        .align_y(Alignment::Center),
+    )
+    .height(ALBUM_ITEM_HEIGHT)
+    .align_y(Alignment::Center)
+    .padding([0.0, SPACE_1])
+    .into()
 }
 
 fn truncate_label(s: &str, max: usize) -> (String, bool) {
