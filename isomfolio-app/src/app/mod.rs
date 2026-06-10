@@ -274,6 +274,10 @@ pub struct App {
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
+    /// First grid row whose thumbnails were last pushed to the front of the
+    /// generation queue. Tracked so a scroll only re-prioritises when the visible
+    /// row window actually shifts, not on every scroll pixel. `usize::MAX` = none.
+    pub thumb_priority_row: usize,
     pub anchor_idx: Option<usize>,
     /// Moving end of a range-selection (Shift+Arrow / Shift+click). `anchor_idx`
     /// is the fixed end; the selection spans the two.
@@ -653,6 +657,7 @@ impl App {
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
+            thumb_priority_row: usize::MAX,
             anchor_idx: None,
             select_lead: None,
             selection_base: HashSet::new(),
@@ -825,6 +830,27 @@ impl App {
             GridLayout::List => LIST_ROW_HEIGHT,
             GridLayout::Grid => self.tile_px + TILE_GAP,
         }
+    }
+
+    /// File ids in the current grid viewport — the exact same row window the
+    /// renderer mounts (including its `BUFFER_ROWS` over-scan), in display order.
+    /// Used to bias thumbnail generation toward what's actually on screen as the
+    /// user scrolls, so newly-revealed rows don't wait behind the whole backlog.
+    pub fn visible_file_ids(&self) -> Vec<String> {
+        let cols = self.cols().max(1);
+        let step = self.row_step();
+        if step <= 0.0 || self.files.is_empty() {
+            return Vec::new();
+        }
+        let total = self.files.len();
+        let total_rows = total.div_ceil(cols);
+        let first_row = (((self.scroll_y - GRID_PADDING) / step) as usize)
+            .saturating_sub(BUFFER_ROWS);
+        let visible_rows = (self.viewport_height / step) as usize + 1 + BUFFER_ROWS * 2;
+        let last_row = (first_row + visible_rows).min(total_rows);
+        let start = (first_row * cols).min(total);
+        let end = (last_row * cols).min(total);
+        self.files[start..end].iter().map(|f| f.id.clone()).collect()
     }
 
     pub fn cols(&self) -> usize {
@@ -1005,6 +1031,10 @@ impl App {
     }
 
     pub(crate) fn enqueue_thumbnails(&mut self) {
+        // A new view resets the scroll-priority gate so the next scroll always
+        // re-evaluates the visible window (the row index may coincide with a
+        // previous view's).
+        self.thumb_priority_row = usize::MAX;
         let Some(pool) = &self.thumb_ctx.pool else {
             return;
         };
@@ -1595,5 +1625,83 @@ mod layout_tests {
         assert_eq!(w.date, LIST_COL_MAX);
         w.set(ListCol::Name, 200.0);
         assert_eq!(w.get(ListCol::Name), 200.0);
+    }
+
+    mod visible_file_ids_fn {
+        use super::*;
+        use isomfolio_core::models::Flag;
+
+        fn file(id: &str) -> AssetFile {
+            AssetFile {
+                id: id.to_string(),
+                path: format!("/p/{id}.jpg"),
+                name: format!("{id}.jpg"),
+                folder: "/p".to_string(),
+                folder_display: "/p".to_string(),
+                ext: "jpg".to_string(),
+                size_bytes: 1,
+                mtime_unix: 0,
+                created_at_unix: 0,
+                is_orphaned: false,
+                orphaned_at: None,
+                flag: Flag::Unflagged,
+                exif_date_unix: Some(0),
+                gps_lat: None,
+                gps_lon: None,
+            }
+        }
+
+        /// A grid app with `n` files, a known column count, and a tile size whose
+        /// `row_step` is a round number so the row math in the test is exact.
+        fn grid(n: usize) -> App {
+            let mut a = App::new(None).0;
+            a.grid_layout = GridLayout::Grid;
+            a.detail.show = false;
+            a.sidebar_width = SIDEBAR_WIDTH;
+            a.tile_px = 100.0 - TILE_GAP; // row_step == 100
+            // Wide enough that cols() is comfortably > 1; exact value read back.
+            a.window_width = 2000.0;
+            a.files = (0..n).map(|i| file(&format!("f{i}"))).collect();
+            a
+        }
+
+        #[test]
+        fn empty_when_no_files() {
+            let a = grid(0);
+            assert!(a.visible_file_ids().is_empty());
+        }
+
+        #[test]
+        fn window_tracks_scroll_offset() {
+            let mut a = grid(1000);
+            let cols = a.cols();
+            let step = a.row_step();
+            a.viewport_height = step * 5.0; // five rows tall
+            a.scroll_y = 0.0;
+            let top = a.visible_file_ids();
+            // First id is f0 (top of the list, buffer clamps at row 0).
+            assert_eq!(top.first().unwrap(), "f0");
+
+            // Scroll down to exactly row 50 (adding GRID_PADDING cancels the
+            // renderer's top inset, so the row math is exact). The window must
+            // start past the top and no longer contain f0.
+            a.scroll_y = 50.0 * step + GRID_PADDING;
+            let lower = a.visible_file_ids();
+            assert!(!lower.contains(&"f0".to_string()), "scrolled window must drop the top rows");
+            // The window begins at row (50 - BUFFER_ROWS) of over-scan.
+            let expected_first = (50 - BUFFER_ROWS) * cols;
+            assert_eq!(lower.first().unwrap(), &format!("f{expected_first}"));
+        }
+
+        #[test]
+        fn window_clamps_to_file_count() {
+            let mut a = grid(20);
+            a.viewport_height = a.row_step() * 100.0; // taller than the content
+            a.scroll_y = 0.0;
+            // Never yields more ids than there are files, and stays in order.
+            let ids = a.visible_file_ids();
+            assert_eq!(ids.len(), 20);
+            assert_eq!(ids.last().unwrap(), "f19");
+        }
     }
 }

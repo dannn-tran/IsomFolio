@@ -625,6 +625,27 @@ impl App {
                 self.scroll_y = y;
                 self.viewport_height = height;
                 self.viewport_width = width;
+                // As the viewport moves, pull the now-visible rows to the front of
+                // the thumbnail queue so they generate ahead of the rest of the
+                // backlog (the "scroll, then wait forever" complaint). Gated to
+                // fire only when the visible row window actually shifts and work
+                // remains, so a flick-scroll doesn't spam the worker coordinator.
+                if self.thumb_ctx.pending > 0 {
+                    let step = self.row_step();
+                    let row = if step > 0.0 {
+                        (((self.scroll_y - crate::app::GRID_PADDING) / step) as usize)
+                            .saturating_sub(crate::app::BUFFER_ROWS)
+                    } else {
+                        0
+                    };
+                    if row != self.thumb_priority_row {
+                        self.thumb_priority_row = row;
+                        let ids = self.visible_file_ids();
+                        if let Some(pool) = &self.thumb_ctx.pool {
+                            pool.prioritize(&ids);
+                        }
+                    }
+                }
                 Task::none()
             }
 
