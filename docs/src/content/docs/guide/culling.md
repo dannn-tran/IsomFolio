@@ -108,3 +108,11 @@ When a shoot has *many* bursts, press **`R`** (or **View → Review Stacks**) to
 3. When you've worked through every stack — or press **Esc** to stop early — you're returned to the grid.
 
 Everything you do here is undoable with `Cmd+Z`. It's the fastest way to cull a shoot full of bursts down to one keeper each.
+
+### Review Scenes — looser groups by content
+
+Stacks are *tight*: near-identical frames shot seconds apart. **Scenes** are looser — "several tries at the same shot or subject" even when you reframed, zoomed, or recomposed between frames. Press **`⇧R`** (or **View → Review Scenes**) to step through them in the exact same guided, full-screen review as Review Stacks, picking a keeper for each.
+
+The difference is how the groups are formed. Stacks compare pixels (a perceptual hash); scenes compare **image content** (a whole-image embedding), so a group survives a pan or a tighter crop that would split a stack. Use **Review Stacks** for burst/bracketing cleanup, **Review Scenes** for "I tried this portrait twelve ways — show me the set so I can keep the best."
+
+Scene grouping runs in the background after a sync (like stacking), so it may lag fresh thumbnails for a moment. Tune it under **Settings → General → Scene grouping**: **Grouping looseness** (higher pulls more varied frames together), **Min neighbours** (1 lets a two-frame scene form), and an **Auto-embed** toggle. The panel shows how many frames have been embedded so far.

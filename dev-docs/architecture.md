@@ -264,6 +264,20 @@ A **stack** groups near-identical frames shot seconds apart — bracketing, moto
 
 ---
 
+## Scenes (embedding-based grouping)
+
+A **scene** is a *looser* group than a stack — "several tries at the same shot/subject" that survive reframing, zoom, or recomposition. This is a different **axis** from stacks, not a looser threshold on the same one: stacks compare luminance layout (dHash), scenes compare **image content** (a whole-image embedding), so cosine distance degrades gracefully where a widened Hamming threshold would collapse. Rationale and the rejected "just loosen dHash" alternative live in `dev-docs/stacking-permissive-clustering.md`.
+
+**Embedding source is pluggable.** `scene_embeddings(file_id, model, dim, mtime, vec)` keys on `(file_id, model)`, so a file can carry vectors from several models at once and clustering filters to the active one. Today's model is `SCENE_MODEL = "gist-lite-v1"` — an all-Rust, no-ML descriptor (`scene_embed.rs`): a spatial colour grid + global HSV histogram + gradient-orientation histogram, each L2-normalised then concatenated and L2-normalised again. A CLIP image-encoder could later be added under its own model id with no schema change (bump/swap the id; old vectors recompute via the `mtime` guard).
+
+**Reuses both halves we already own.** Clustering is `clustering::dbscan` (cosine, the same function faces use). The review UI is the **Review Stacks** mode unchanged: `scene_embed::group_scenes` clusters the current view's embeddings and emits the same `Vec<StackReview>` (groups of ≥2, sharpest frame first) that the dHash stacker produces, so `ResolveState`/`ViewMode::ResolveStacks` drive it with only a `scenes: bool` flag toggling the title. The one new piece is the queue-builder (`update/scenes.rs`).
+
+**Pass + lock discipline mirror stacking exactly:** `files_needing_scene_embedding(model)` (no current-mtime row) is read under the lock; thumbnails are decoded + embedded **unlocked**; `store_scene_embeddings` writes under the lock. Triggers: `Msg::RunSceneEmbedding` after a sync and on thumbnail-batch drain, gated by `auto_scene_embed`. Opening **Review Scenes** (`⇧R`) also embeds any stragglers in the view first, so the cluster is complete even if the background pass is mid-flight.
+
+**Settings:** `auto_scene_embed` (default on), `scene_eps` (cosine radius, default 0.12 — higher groups looser), `scene_min_pts` (DBSCAN core threshold, **default 1** so a two-frame scene can form; `group_scenes` drops singletons regardless).
+
+---
+
 ## Preferred extension per capability
 
 When multiple extensions claim the same capability (e.g., `classify`), the app uses a `HashMap<capability, extension_name>` preference stored in global app settings (not the catalog DB — preferences should be global, not per-catalog). Surfaced in Settings → Extensions as a chip selector when two or more extensions share a capability.
