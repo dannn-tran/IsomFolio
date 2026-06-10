@@ -13,6 +13,11 @@
 use image::imageops::FilterType;
 use image::DynamicImage;
 
+/// Identity of the current embedding source, stored in `scene_embeddings.model`.
+/// Bump the version when the descriptor changes so old vectors are recomputed;
+/// a future CLIP image-encoder would use its own id and coexist in the table.
+pub const SCENE_MODEL: &str = "gist-lite-v1";
+
 /// Working resolution the thumbnail is reduced to before descriptors are taken.
 /// Small enough to be cheap, large enough for a 2×2 orientation grid to mean
 /// something.

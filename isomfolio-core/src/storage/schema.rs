@@ -181,6 +181,26 @@ CREATE TABLE IF NOT EXISTS face_centroids (
 );
 ";
 
+// Whole-image embeddings for permissive *scene* grouping (distinct from
+// face_embeddings). `model` tags which embedding source produced the vector
+// ("gist-lite-v1" today; a CLIP image-encoder later) so the two can coexist and
+// clustering filters to the active model without a schema change. `dim` lets a
+// reader validate the blob; `mtime` guards recompute against thumbnail changes,
+// mirroring phash_mtime. PK (file_id, model) = one vector per file per model.
+pub const CREATE_SCENE_EMBEDDINGS: &str = "
+CREATE TABLE IF NOT EXISTS scene_embeddings (
+    file_id     TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    model       TEXT NOT NULL,
+    dim         INTEGER NOT NULL,
+    mtime       INTEGER NOT NULL,
+    vec         BLOB NOT NULL,
+    PRIMARY KEY (file_id, model)
+);
+";
+
+pub const CREATE_SCENE_EMBEDDINGS_IDX: &str =
+    "CREATE INDEX IF NOT EXISTS idx_se_model ON scene_embeddings(model);";
+
 pub const CREATE_LIBRARY_ROOTS: &str = "
 CREATE TABLE IF NOT EXISTS library_roots (
     path         TEXT PRIMARY KEY,
@@ -283,6 +303,8 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_FACE_EMBEDDINGS,
     CREATE_FACE_EMBEDDINGS_IDX,
     CREATE_FACE_CENTROIDS,
+    CREATE_SCENE_EMBEDDINGS,
+    CREATE_SCENE_EMBEDDINGS_IDX,
     CREATE_LIBRARY_ROOTS,
     CREATE_IMPORT_BATCHES,
 ];

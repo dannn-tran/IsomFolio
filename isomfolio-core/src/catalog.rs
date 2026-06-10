@@ -186,6 +186,22 @@ impl Catalog {
         db::store_phashes(&self.conn, rows)
     }
 
+    pub fn files_needing_scene_embedding(&self, model: &str) -> Result<Vec<(String, i64)>, AppError> {
+        db::files_needing_scene_embedding(&self.conn, model)
+    }
+
+    pub fn store_scene_embeddings(&self, model: &str, rows: &[(String, i64, Vec<f32>)]) -> Result<(), AppError> {
+        db::store_scene_embeddings(&self.conn, model, rows)
+    }
+
+    pub fn load_scene_embeddings(&self, model: &str, file_ids: &[String]) -> Result<Vec<(String, Vec<f32>)>, AppError> {
+        db::load_scene_embeddings(&self.conn, model, file_ids)
+    }
+
+    pub fn count_scene_embeddings(&self, model: &str) -> Result<i64, AppError> {
+        db::count_scene_embeddings(&self.conn, model)
+    }
+
     pub fn detect_and_store_stacks_all(&self, threshold: u32, window_secs: i64) -> Result<(), AppError> {
         db::detect_and_store_stacks_all(&self.conn, threshold, window_secs)
     }

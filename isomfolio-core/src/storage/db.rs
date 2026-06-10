@@ -1171,6 +1171,97 @@ pub fn store_phashes(conn: &Connection, rows: &[(String, u64, f64, i64)]) -> Res
     Ok(())
 }
 
+// Scene embeddings (permissive scene grouping — distinct from face_embeddings)
+
+/// Files that need a scene embedding computed for `model`: non-orphaned,
+/// non-deleted files with no row for that model at the file's current
+/// `modified_time` (so a re-imported/edited file re-embeds). Returns
+/// `(file_id, modified_time)`; like phash, the embedding derives from the cached
+/// thumbnail, so the caller skips ids whose thumbnail isn't generated yet.
+pub fn files_needing_scene_embedding(
+    conn: &Connection,
+    model: &str,
+) -> Result<Vec<(String, i64)>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.modified_time
+         FROM files f
+         LEFT JOIN scene_embeddings e
+           ON f.id = e.file_id AND e.model = ?1 AND f.modified_time = e.mtime
+         WHERE e.file_id IS NULL AND f.is_orphaned = 0 AND f.is_deleted = 0",
+    )?;
+    let rows = stmt
+        .query_map([model], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    Ok(rows)
+}
+
+/// Persist computed scene embeddings for `model`. Each tuple is `(file_id,
+/// mtime, vector)`; `dim` is taken from the vector length. Upsert on
+/// `(file_id, model)`, so recomputing at a new mtime replaces the old vector.
+pub fn store_scene_embeddings(
+    conn: &Connection,
+    model: &str,
+    rows: &[(String, i64, Vec<f32>)],
+) -> Result<(), AppError> {
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT OR REPLACE INTO scene_embeddings (file_id, model, dim, mtime, vec)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )?;
+        for (id, mtime, vec) in rows {
+            stmt.execute(params![id, model, vec.len() as i64, mtime, encode_vec(vec)])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Load `(file_id, vector)` for the given files under `model`. Ids without a
+/// stored embedding are simply absent. Used to cluster the current view.
+pub fn load_scene_embeddings(
+    conn: &Connection,
+    model: &str,
+    file_ids: &[String],
+) -> Result<Vec<(String, Vec<f32>)>, AppError> {
+    if file_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = std::iter::repeat("?").take(file_ids.len()).collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT file_id, vec FROM scene_embeddings WHERE model = ? AND file_id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(file_ids.len() + 1);
+    params.push(&model);
+    for id in file_ids {
+        params.push(id);
+    }
+    let rows = stmt.query_map(params.as_slice(), |r| {
+        Ok((r.get::<_, String>(0)?, decode_vec(&r.get::<_, Vec<u8>>(1)?)))
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// How many files have an embedding for `model` — for the settings readout.
+pub fn count_scene_embeddings(conn: &Connection, model: &str) -> Result<i64, AppError> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM scene_embeddings WHERE model = ?1",
+        [model],
+        |r| r.get(0),
+    )?)
+}
+
+/// Drop scene embeddings whose file is gone or orphaned. Cheap hygiene pass.
+pub fn sweep_scene_embeddings(conn: &Connection) -> Result<(), AppError> {
+    conn.execute(
+        "DELETE FROM scene_embeddings WHERE file_id NOT IN (SELECT id FROM files WHERE is_orphaned = 0)",
+        [],
+    )?;
+    Ok(())
+}
+
 /// Re-derive stacks for every folder that has hashed files. Grouping is strictly
 /// per-folder (see `detect_and_store_stacks`).
 pub fn detect_and_store_stacks_all(
@@ -2336,6 +2427,76 @@ mod tests {
             got.sort_by(|a, b| a.0.cmp(&b.0));
             assert_eq!(got.len(), 2);
             assert_eq!(got[0], ("c1".to_string(), vec![0.1f32, 0.2]));
+        }
+    }
+
+    mod scene_persistence {
+        use super::*;
+
+        const M: &str = "gist-lite-v1";
+
+        fn add(conn: &Connection, id: &str, mtime: i64) {
+            let mut f = make_file(id, &format!("/tmp/{id}.jpg"));
+            f.mtime_unix = mtime;
+            upsert_files(conn, &[f]).unwrap();
+        }
+
+        #[test]
+        fn store_and_load_roundtrip() {
+            let (conn, _f) = open_temp();
+            add(&conn, "a", 10);
+            add(&conn, "b", 10);
+            store_scene_embeddings(
+                &conn,
+                M,
+                &[("a".into(), 10, vec![1.0, 0.0, 0.5]), ("b".into(), 10, vec![0.0, 1.0, 0.0])],
+            )
+            .unwrap();
+
+            let got = load_scene_embeddings(&conn, M, &["a".into(), "b".into()]).unwrap();
+            assert_eq!(got.len(), 2);
+            let a = got.iter().find(|(id, _)| id == "a").unwrap();
+            assert_eq!(a.1, vec![1.0f32, 0.0, 0.5]);
+            assert_eq!(count_scene_embeddings(&conn, M).unwrap(), 2);
+        }
+
+        #[test]
+        fn needing_excludes_current_and_includes_stale_mtime() {
+            let (conn, _f) = open_temp();
+            add(&conn, "a", 10);
+            add(&conn, "b", 10);
+            store_scene_embeddings(&conn, M, &[("a".into(), 10, vec![1.0])]).unwrap();
+
+            // a is current → not needed; b has no embedding → needed.
+            let need = files_needing_scene_embedding(&conn, M).unwrap();
+            assert_eq!(need, vec![("b".to_string(), 10)]);
+
+            // Touch a's mtime → its stored embedding is now stale → needed again.
+            add(&conn, "a", 20);
+            let need2 = files_needing_scene_embedding(&conn, M).unwrap();
+            assert!(need2.contains(&("a".to_string(), 20)));
+        }
+
+        #[test]
+        fn models_are_independent() {
+            let (conn, _f) = open_temp();
+            add(&conn, "a", 10);
+            store_scene_embeddings(&conn, M, &[("a".into(), 10, vec![1.0])]).unwrap();
+            // A different model has no embedding for a → a still needs one there.
+            let need = files_needing_scene_embedding(&conn, "clip-v1").unwrap();
+            assert_eq!(need, vec![("a".to_string(), 10)]);
+            assert_eq!(count_scene_embeddings(&conn, "clip-v1").unwrap(), 0);
+        }
+
+        #[test]
+        fn upsert_replaces_vector_at_new_mtime() {
+            let (conn, _f) = open_temp();
+            add(&conn, "a", 10);
+            store_scene_embeddings(&conn, M, &[("a".into(), 10, vec![1.0, 1.0])]).unwrap();
+            store_scene_embeddings(&conn, M, &[("a".into(), 20, vec![9.0, 9.0])]).unwrap();
+            let got = load_scene_embeddings(&conn, M, &["a".into()]).unwrap();
+            assert_eq!(got.len(), 1);
+            assert_eq!(got[0].1, vec![9.0f32, 9.0]);
         }
     }
 
