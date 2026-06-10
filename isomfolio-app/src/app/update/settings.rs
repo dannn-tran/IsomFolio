@@ -302,6 +302,32 @@ impl App {
                 Task::none()
             }
 
+            Msg::ToggleAutoSceneEmbed => {
+                self.app_settings.auto_scene_embed = !self.app_settings.auto_scene_embed;
+                isomfolio_core::app_paths::save_settings(&self.app_settings);
+                Task::none()
+            }
+
+            Msg::SceneEpsChanged(s) => {
+                if let Ok(v) = s.trim().parse::<f32>() {
+                    if v > 0.0 && v < 1.0 {
+                        self.app_settings.scene_eps = v;
+                        isomfolio_core::app_paths::save_settings(&self.app_settings);
+                    }
+                }
+                Task::none()
+            }
+
+            Msg::SceneMinPtsChanged(s) => {
+                if let Ok(n) = s.trim().parse::<u32>() {
+                    if n >= 1 {
+                        self.app_settings.scene_min_pts = n;
+                        isomfolio_core::app_paths::save_settings(&self.app_settings);
+                    }
+                }
+                Task::none()
+            }
+
             other => {
                 debug_assert!(false, "handle_settings received misrouted message: {other:?}");
                 Task::none()

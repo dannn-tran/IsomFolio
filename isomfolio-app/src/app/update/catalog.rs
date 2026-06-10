@@ -55,7 +55,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([sidebar_task, extension_task, face_task, maint_task, self.load_stack_stats_task()])
+                Task::batch([sidebar_task, extension_task, face_task, maint_task, self.load_stack_stats_task(), self.load_scene_count_task()])
             }
 
             Msg::OpenCatalog(path) => {

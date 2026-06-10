@@ -570,7 +570,10 @@ impl App {
             | Msg::ToggleAutoAdvanceOnFlag
             | Msg::ToggleAutoStack
             | Msg::StackThresholdChanged(_)
-            | Msg::StackWindowChanged(_) => self.handle_settings(msg),
+            | Msg::StackWindowChanged(_)
+            | Msg::ToggleAutoSceneEmbed
+            | Msg::SceneEpsChanged(_)
+            | Msg::SceneMinPtsChanged(_) => self.handle_settings(msg),
 
             // — tag browser —
             Msg::OpenTagBrowser

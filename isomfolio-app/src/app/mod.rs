@@ -409,6 +409,9 @@ pub struct App {
     pub stacking_manual: bool,
     /// At-rest stacking summary shown in Settings; refreshed after each pass.
     pub stack_stats: isomfolio_core::models::StackStats,
+    /// Count of files with a scene embedding (current model); Settings readout,
+    /// refreshed after each scene-embedding pass and on catalog open.
+    pub scene_embed_count: usize,
 
     pub undo_stack: Vec<UndoOp>,
     pub redo_stack: Vec<UndoOp>,
@@ -774,6 +777,7 @@ impl App {
             stacking_in_flight: false,
             stacking_manual: false,
             stack_stats: isomfolio_core::models::StackStats::default(),
+            scene_embed_count: 0,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             compare: CompareState::default(),

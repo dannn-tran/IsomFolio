@@ -13,7 +13,10 @@ impl App {
         match msg {
             Msg::RunSceneEmbedding => self.run_scene_embedding_task(),
 
-            Msg::SceneEmbeddingDone(_n) => Task::none(),
+            Msg::SceneEmbeddingDone(total) => {
+                self.scene_embed_count = total;
+                Task::none()
+            }
 
             Msg::OpenResolveScenes => self.open_resolve_scenes_task(),
 
@@ -30,6 +33,21 @@ impl App {
 
             _ => Task::none(),
         }
+    }
+
+    /// Refresh the embedded-frame count for the Settings readout without running
+    /// a pass — cheap COUNT, fired on catalog open.
+    pub(crate) fn load_scene_count_task(&self) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                g.count_scene_embeddings(SCENE_MODEL).unwrap_or(0) as usize
+            },
+            Msg::SceneEmbeddingDone,
+        )
     }
 
     /// Compute scene embeddings for any file that lacks one (for the current

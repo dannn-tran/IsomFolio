@@ -1105,6 +1105,7 @@ impl App {
 
         col = col.push(Space::new().height(SPACE_3));
         col = col.push(self.stacking_section());
+        col = col.push(self.scene_section());
 
         col = col.push(Space::new().height(SPACE_3));
         col = col.push(self.inference_engine_section());
@@ -1171,6 +1172,44 @@ impl App {
                 .style(ghost_btn_style)
         };
         col = col.push(restack_btn);
+
+        col.into()
+    }
+
+    /// Scene grouping: cluster whole-image embeddings into looser "same scene /
+    /// several tries" groups for Review Scenes (⇧R). A different axis from
+    /// stacks — content similarity, not near-identical pixels.
+    fn scene_section(&self) -> Element<'_, Msg> {
+        let header = column![
+            text("Scene grouping").size(TEXT_BASE).color(FG),
+            text("Group looser \"same scene / several tries at one shot\" frames for Review Scenes (⇧R), from image content.")
+                .size(TEXT_SM)
+                .color(FG_DIM),
+        ]
+        .spacing(SPACE_0_5);
+
+        let mut col = column![header].spacing(SPACE_2).width(Length::Fill);
+
+        col = col.push(self.toggle_row(
+            "Auto-embed scenes",
+            "Compute scene embeddings as thumbnails are generated and after each sync.",
+            self.app_settings.auto_scene_embed,
+            Msg::ToggleAutoSceneEmbed,
+        ));
+        col = col.push(self.labeled_input(
+            "Grouping looseness (0–1, higher groups more)",
+            &self.app_settings.scene_eps.to_string(),
+            Msg::SceneEpsChanged,
+        ));
+        col = col.push(self.labeled_input(
+            "Min neighbours to form a scene (1 allows pairs)",
+            &self.app_settings.scene_min_pts.to_string(),
+            Msg::SceneMinPtsChanged,
+        ));
+
+        col = col.push(
+            text(format!("{} frames embedded", self.scene_embed_count)).size(TEXT_SM).color(FG_DIM),
+        );
 
         col.into()
     }
