@@ -10,9 +10,8 @@ impl App {
     pub(super) fn handle_album_msg(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::DroppedToAlbum(album_id, ids) => {
-                self.drag.state = None;
-                self.drag.ids.clear();
-                self.drag.hover_album = None;
+                self.drag.current = None;
+                self.drag.hover = None;
                 let name = self
                     .albums
                     .iter()

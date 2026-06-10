@@ -188,22 +188,39 @@ impl SidebarItem {
     }
 }
 
+/// One in-flight drag, whatever the payload. Press-down builds it as a
+/// *candidate* (`past_threshold = false`, still a click); once the cursor
+/// travels past `DRAG_THRESHOLD` it becomes a real drag. The `(payload, hover)`
+/// pair is resolved into an action on release (see `App::resolve_drop`).
 #[derive(Debug, Clone)]
-pub struct DragState {
-    pub origin_idx: usize,
+pub struct Drag {
+    pub payload: DragPayload,
     pub start: Point,
     pub cursor: Point,
-    pub active: bool,
+    pub past_threshold: bool,
 }
 
-/// An album being dragged from the sidebar toward a shelf. `active` flips once
-/// the cursor passes the drag threshold (so a plain click still navigates).
+/// What a drag is carrying. Each variant pairs with the `DropTarget`s it can
+/// land on; adding shelf-into-shelf (once nested shelves exist) is a new variant
+/// here plus one arm in `resolve_drop` and one drop-zone mount in the sidebar.
 #[derive(Debug, Clone)]
-pub struct AlbumDragState {
-    pub album_id: AlbumId,
-    pub start: Point,
-    pub cursor: Point,
-    pub active: bool,
+pub enum DragPayload {
+    /// Photo tiles from the grid. `ids` is the set being dragged (the whole
+    /// multi-selection if the grabbed tile was part of it, else just that tile),
+    /// snapshotted when the drag crosses the threshold.
+    Photos { origin_idx: usize, ids: HashSet<String> },
+    /// An album row from the sidebar. `pressed` is the grabbed album; the dropped
+    /// set resolves against `selected_albums` on release (`dragged_albums`).
+    Albums { pressed: AlbumId },
+}
+
+/// A sidebar entity a drag can be released onto. Pushed by the droppable
+/// widget's `mouse_area` via `Msg::HoverDrop`, validated against the payload at
+/// release. Folders are not drop targets; smart albums aren't either.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DropTarget {
+    Album(AlbumId),
+    Shelf(ShelfId),
 }
 
 #[derive(Debug)]
@@ -571,9 +588,10 @@ pub enum Msg {
     /// press), toggles the multi-selection (Cmd), or opens the menu (Ctrl). The
     /// actual navigate/drop is resolved on `MouseReleased`.
     AlbumPressed(AlbumId),
-    /// Cursor entered / left a shelf header — tracks the album-drag drop target.
-    HoverShelfStart(ShelfId),
-    HoverShelfEnd(ShelfId),
+    /// A droppable sidebar zone (album row, shelf block) reporting that the
+    /// cursor entered it (`Some(target)`) or left it (`None`) while a drag is in
+    /// flight. The single drop-hover signal for every drag payload.
+    HoverDrop(Option<DropTarget>),
     ToggleAddToAlbumSubmenu,
 
     // — shelves (containers that group albums) —

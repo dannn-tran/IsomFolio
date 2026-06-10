@@ -6,7 +6,7 @@ use isomfolio_core::extension::discover_extensions;
 use isomfolio_core::path_utils::CATALOG_EXT;
 
 use super::LockUnwrap;
-use super::super::{App, FilterState, DetailState, Msg, SidebarItem, ViewMode};
+use super::super::{App, DetailState, DragContext, FilterState, Msg, SidebarItem, ViewMode};
 
 impl App {
     pub(super) fn handle_catalog_msg(&mut self, msg: Msg) -> Task<Msg> {
@@ -79,10 +79,7 @@ impl App {
                 self.album_counts.clear();
                 self.grid_selected.clear();
                 self.selected_albums.clear();
-                self.drag.state = None;
-                self.drag.ids.clear();
-                self.drag.album = None;
-                self.hovered_shelf = None;
+                self.drag = DragContext::default();
                 self.expanded_bursts.clear();
                 self.file_burst_ids.clear();
                 self.search_debounce_id += 1;

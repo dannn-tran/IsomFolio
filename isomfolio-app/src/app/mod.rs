@@ -114,18 +114,51 @@ pub struct ThumbnailContext {
 }
 
 pub struct DragContext {
-    pub state: Option<DragState>,
-    pub ids: HashSet<String>,
-    pub hover_album: Option<AlbumId>,
-    /// An album being dragged from the sidebar onto a shelf (separate from the
-    /// photo-tile drag in `state`). Carries the album the press started on; the
-    /// dropped set is resolved against `selected_albums` on release.
-    pub album: Option<AlbumDragState>,
+    /// The single in-flight drag (any payload), or `None`. Built as a click
+    /// candidate on press, promoted to a real drag once it passes the threshold.
+    pub current: Option<Drag>,
+    /// The drop target the cursor is over, pushed by droppable sidebar zones.
+    pub hover: Option<DropTarget>,
 }
 
 impl Default for DragContext {
     fn default() -> Self {
-        Self { state: None, ids: HashSet::new(), hover_album: None, album: None }
+        Self { current: None, hover: None }
+    }
+}
+
+impl DragContext {
+    /// A real drag is in flight (past the threshold), as opposed to a press that
+    /// hasn't moved yet (still a click candidate).
+    pub fn is_active(&self) -> bool {
+        self.current.as_ref().map_or(false, |d| d.past_threshold)
+    }
+
+    /// The photo set being dragged, if the active payload is photos.
+    pub fn photo_ids(&self) -> Option<&HashSet<String>> {
+        match self.current.as_ref() {
+            Some(Drag { payload: DragPayload::Photos { ids, .. }, .. }) => Some(ids),
+            _ => None,
+        }
+    }
+
+    /// True while a photo drag is past the threshold (album rows light up).
+    pub fn dragging_photos(&self) -> bool {
+        matches!(
+            self.current.as_ref(),
+            Some(Drag { payload: DragPayload::Photos { .. }, past_threshold: true, .. })
+        )
+    }
+
+    /// The pressed album while an album drag is past the threshold (shelf blocks
+    /// light up), else `None`.
+    pub fn dragging_album(&self) -> Option<&AlbumId> {
+        match self.current.as_ref() {
+            Some(Drag { payload: DragPayload::Albums { pressed }, past_threshold: true, .. }) => {
+                Some(pressed)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -327,9 +360,6 @@ pub struct App {
     pub smart_album_dirty: bool,
     pub context_menu: Option<ContextMenuState>,
     pub hovered_sidebar_entity: Option<SidebarItem>,
-    /// Shelf header currently under the cursor — the drop target while an album
-    /// is being dragged. Kept fresh by each shelf header's `mouse_area`.
-    pub hovered_shelf: Option<ShelfId>,
     pub tag_browser: Option<TagBrowserState>,
 
     pub sidebar_width: f32,
@@ -684,7 +714,6 @@ impl App {
             smart_album_dirty: false,
             context_menu: None,
             hovered_sidebar_entity: None,
-            hovered_shelf: None,
             tag_browser: None,
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_resizing: false,

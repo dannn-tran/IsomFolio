@@ -162,8 +162,7 @@ impl App {
             | Msg::HoverSidebarEntityEnd(_)
             | Msg::OpenSidebarEntityMenu(_)
             | Msg::AlbumPressed(_)
-            | Msg::HoverShelfStart(_)
-            | Msg::HoverShelfEnd(_)
+            | Msg::HoverDrop(_)
             | Msg::ToggleShortcutHelp
             | Msg::OpenMenuDropdown(_)
             | Msg::HoverMenuTab(_)
@@ -625,8 +624,8 @@ impl App {
                 self.pending_restore_idx = restore_idx;
                 self.grid_selected.clear();
                 self.selection_base.clear();
-                self.drag.state = None;
-                self.drag.ids.clear();
+                self.drag.current = None;
+                self.drag.hover = None;
                 self.filters.save_smart_input = None;
                 self.detail.file_id = None;
                 self.remove_from_album_pending = false;

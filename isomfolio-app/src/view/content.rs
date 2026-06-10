@@ -245,7 +245,7 @@ impl App {
     pub(super) fn view_tile(&self, idx: usize) -> Element<'_, Msg> {
         let file = &self.files[idx];
         let selected = self.grid_selected.contains(&file.id);
-        let dragging = self.drag.ids.contains(&file.id);
+        let dragging = self.drag.photo_ids().map_or(false, |ids| ids.contains(&file.id));
 
         let thumb_state = self.thumbnails.get(&file.id);
 
@@ -536,7 +536,7 @@ impl App {
     pub(super) fn view_list_row(&self, idx: usize) -> Element<'_, Msg> {
         let file = &self.files[idx];
         let selected = self.grid_selected.contains(&file.id);
-        let dragging = self.drag.ids.contains(&file.id);
+        let dragging = self.drag.photo_ids().map_or(false, |ids| ids.contains(&file.id));
         let rejected = file.flag == Flag::Reject;
 
         let thumb_px = LIST_ROW_HEIGHT - 8.0;

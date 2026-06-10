@@ -14,9 +14,10 @@ use super::styles::{
 };
 use super::icons::{Icon, ICON_SIZE};
 use crate::app::{
-    parse_date_str, unix_to_date_str, App, DatePreset, Msg, RatingCmp, SidebarItem, SidebarSection,
-    ViewMode, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT,
+    parse_date_str, unix_to_date_str, App, DatePreset, DropTarget, Msg, RatingCmp, SidebarItem,
+    SidebarSection, ViewMode, ALBUM_ITEM_HEIGHT, FOLDER_ITEM_HEIGHT,
 };
+use isomfolio_core::models::AlbumId;
 
 /// How many recent import batches the sidebar shows before "Show all".
 const IMPORTS_COLLAPSED: usize = 10;
@@ -116,7 +117,12 @@ fn glyph_chip<'a>(glyph: &str, hint: String, active: bool, color: Color, msg: Ms
 
 impl App {
     pub(super) fn view_sidebar(&self) -> Element<'_, Msg> {
-        let drag_hover = self.drag.hover_album.clone();
+        // The album under the cursor as a drop target — only while a photo drag is
+        // live (album rows light up for photo drops, shelves for album drops).
+        let drag_hover: Option<AlbumId> = match &self.drag.hover {
+            Some(DropTarget::Album(id)) if self.drag.dragging_photos() => Some(id.clone()),
+            _ => None,
+        };
 
         let catalog_name = std::path::Path::new(&self.catalog_dir)
             .file_name()
@@ -268,7 +274,7 @@ impl App {
             // While an album is mid-drag the whole expanded shelf block — header
             // *and* its nested album rows — is the drop target, so a release
             // anywhere over the shelf files the album there (not just the header).
-            let album_drag = self.drag.album.as_ref().map_or(false, |d| d.active);
+            let album_drag = self.drag.dragging_album().is_some();
             // Shelves first, each with its filed albums nested beneath; then the
             // ungrouped albums at the top level.
             for shelf in &self.shelves {
@@ -289,8 +295,8 @@ impl App {
                 }
                 let block_el: Element<Msg> = if album_drag {
                     mouse_area(block)
-                        .on_enter(Msg::HoverShelfStart(shelf.id.clone()))
-                        .on_exit(Msg::HoverShelfEnd(shelf.id.clone()))
+                        .on_enter(Msg::HoverDrop(Some(DropTarget::Shelf(shelf.id.clone()))))
+                        .on_exit(Msg::HoverDrop(None))
                         .into()
                 } else {
                     block.into()
@@ -518,13 +524,26 @@ impl App {
             )
         };
 
-        if indent {
+        let row_el: Element<Msg> = if indent {
             // One disclosure column (CHEVRON_W) of indent puts the album label
             // directly under its shelf's glyph — the chevron-column nesting the
             // folder tree uses.
             row![Space::new().width(CHEVRON_W), el].into()
         } else {
             el
+        };
+
+        // Mount the photo drop-zone only while a photo drag is live and this is a
+        // manual album (smart albums are criteria-defined, never drop targets).
+        // Gating by payload means there's no cross-talk with album→shelf drags,
+        // which mount shelf drop-zones instead.
+        if self.drag.dragging_photos() && !is_smart {
+            mouse_area(row_el)
+                .on_enter(Msg::HoverDrop(Some(DropTarget::Album(album.id.clone()))))
+                .on_exit(Msg::HoverDrop(None))
+                .into()
+        } else {
+            row_el
         }
     }
 
@@ -579,8 +598,8 @@ impl App {
         .height(Length::Fixed(ALBUM_ITEM_HEIGHT));
 
         // Highlight as a drop target while an album is being dragged over it.
-        let drop_target = self.drag.album.as_ref().map_or(false, |d| d.active)
-            && self.hovered_shelf.as_deref() == Some(shelf.id.as_str());
+        let drop_target = self.drag.dragging_album().is_some()
+            && matches!(&self.drag.hover, Some(DropTarget::Shelf(id)) if id.as_str() == shelf.id.as_str());
 
         let label_area = mouse_area(
             row![
@@ -603,9 +622,9 @@ impl App {
         )
         .on_press(Msg::ShelfHeaderPressed(shelf.id.clone()))
         .on_right_press(Msg::OpenShelfMenu(shelf.id.clone()));
-        // Drop-target hover (HoverShelfStart/End) is owned by the whole expanded
-        // shelf block during an album drag (see the Albums-section loop), not the
-        // header alone — so a release anywhere over the shelf files the album.
+        // Drop-target hover (HoverDrop) is owned by the whole expanded shelf block
+        // during an album drag (see the Albums-section loop), not the header alone
+        // — so a release anywhere over the shelf files the album.
 
         let inner = container(
             row![chevron, label_area].align_y(Alignment::Center),

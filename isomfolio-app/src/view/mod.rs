@@ -16,7 +16,9 @@ use iced::{
     Alignment, Background, Border, Color, Element, Length, Shadow, Theme, Vector,
 };
 
-use crate::app::{App, Msg, SettingsTab, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH};
+use crate::app::{
+    App, DragPayload, DropTarget, Msg, SettingsTab, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH,
+};
 use styles::{
     active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_GRID,
     BG_MODAL, BG_PANEL, BG_PROGRESS_TRACK, BG_STATUSBAR, BORDER, ERR, FG, FG_DIM, FG_MUTED,
@@ -43,40 +45,32 @@ impl App {
             return self.view_resolve();
         }
 
-        let dragging = self.drag.state.as_ref().map(|d| d.active).unwrap_or(false);
-        let album_dragging = self.drag.album.as_ref().map_or(false, |d| d.active);
-        let drag_hover = self.drag.hover_album.clone();
-        let status = if album_dragging {
-            let count = self
-                .drag
-                .album
-                .as_ref()
-                .map(|d| {
-                    if self.selected_albums.len() > 1 && self.selected_albums.contains(&d.album_id) {
-                        self.selected_albums.len()
-                    } else {
-                        1
-                    }
-                })
-                .unwrap_or(1);
-            match self.hovered_shelf.as_deref().and_then(|sid| {
-                self.shelves.iter().find(|s| s.id == sid).map(|s| s.name.as_str())
-            }) {
+        let status = if let Some(pressed) = self.drag.dragging_album() {
+            let count = if self.selected_albums.len() > 1 && self.selected_albums.contains(pressed) {
+                self.selected_albums.len()
+            } else {
+                1
+            };
+            let target = match &self.drag.hover {
+                Some(DropTarget::Shelf(sid)) => {
+                    self.shelves.iter().find(|s| &s.id == sid).map(|s| s.name.as_str())
+                }
+                _ => None,
+            };
+            match target {
                 Some(name) => format!("Dragging {count} album(s) — drop on \"{name}\""),
                 None => format!("Dragging {count} album(s) — drop on a shelf"),
             }
-        } else if dragging {
-            let count = self.drag.ids.len();
-            match &drag_hover {
-                Some(id) => {
-                    let name = self
-                        .albums
-                        .iter()
-                        .find(|a| &a.id == id)
-                        .map(|a| a.name.as_str())
-                        .unwrap_or("?");
-                    format!("Dragging {count} — drop on \"{name}\"")
+        } else if self.drag.dragging_photos() {
+            let count = self.drag.photo_ids().map_or(0, |ids| ids.len());
+            let target = match &self.drag.hover {
+                Some(DropTarget::Album(id)) => {
+                    self.albums.iter().find(|a| &a.id == id).map(|a| a.name.as_str())
                 }
+                _ => None,
+            };
+            match target {
+                Some(name) => format!("Dragging {count} — drop on \"{name}\""),
                 None => format!("Dragging {count} photo(s)…"),
             }
         } else if !self.status.is_empty() {
@@ -267,6 +261,12 @@ impl App {
         if self.purge_pending.is_some() {
             layers.push(self.purge_confirm_overlay());
         }
+        // A small count pill that follows the cursor while a drag is in flight —
+        // the visual "something is being dragged" signal (iced has no native drag
+        // image), uniform across photo and album payloads.
+        if let Some(ghost) = self.drag_ghost() {
+            layers.push(ghost);
+        }
         // Always wrap in a `stack`, even with a single layer. Adding/removing an
         // overlay must not change the *type* of the root widget — if it flipped
         // between `column` and `stack`, iced would rebuild the whole tree and the
@@ -281,6 +281,52 @@ impl App {
         } else {
             root
         }
+    }
+
+    /// A count pill pinned just below-right of the cursor while a real drag is in
+    /// flight. iced has no native drag image, so this is faked as a passive
+    /// overlay layer positioned by padding (it has no `mouse_area`, so it never
+    /// captures events). One shape for every payload — photos or albums.
+    fn drag_ghost(&self) -> Option<Element<'_, Msg>> {
+        if !self.drag.is_active() {
+            return None;
+        }
+        let label = match &self.drag.current.as_ref()?.payload {
+            DragPayload::Photos { .. } => {
+                let n = self.drag.photo_ids().map_or(0, |ids| ids.len());
+                format!("{n} photo{}", if n == 1 { "" } else { "s" })
+            }
+            DragPayload::Albums { pressed } => {
+                let n = if self.selected_albums.len() > 1 && self.selected_albums.contains(pressed) {
+                    self.selected_albums.len()
+                } else {
+                    1
+                };
+                format!("{n} album{}", if n == 1 { "" } else { "s" })
+            }
+        };
+        let pill = container(text(label).size(TEXT_SM).color(Color::WHITE))
+            .padding([SPACE_0_5, SPACE_1_5])
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(ACCENT)),
+                border: Border { radius: 10.0.into(), ..Default::default() },
+                shadow: Shadow {
+                    color: Color { a: 0.4, ..Color::BLACK },
+                    offset: Vector::new(0.0, 1.0),
+                    blur_radius: 4.0,
+                },
+                ..Default::default()
+            });
+        // Offset from the hotspot so the pill trails the pointer, not under it.
+        let x = self.cursor.x + 14.0;
+        let y = self.cursor.y + 10.0;
+        Some(
+            column![
+                Space::new().height(Length::Fixed(y)),
+                row![Space::new().width(Length::Fixed(x)), pill],
+            ]
+            .into(),
+        )
     }
 
     /// Every long-running process, mapped to one uniform task shape. The task

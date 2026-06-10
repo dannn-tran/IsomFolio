@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use iced::{Point, Task};
 
 use super::super::{
-    loupe, AlbumDragState, App, ContextMenuState, ContextMenuTarget, DragState, LoupeLoadError,
+    loupe, App, ContextMenuState, ContextMenuTarget, Drag, DragPayload, DropTarget, LoupeLoadError,
     LoupeState, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX,
     SIDEBAR_WIDTH_MIN, TILE_SIZE_MAX, TILE_SIZE_MIN, TILE_SIZE_STEP,
 };
@@ -310,34 +310,27 @@ impl App {
                     self.list_col.set(r.col, r.start_w + (pos.x - r.start_x));
                     return Task::none();
                 }
-                if let Some(ref mut d) = self.drag.state {
+                if let Some(ref mut d) = self.drag.current {
                     d.cursor = pos;
-                    if !d.active {
+                    if !d.past_threshold {
                         let dx = pos.x - d.start.x;
                         let dy = pos.y - d.start.y;
                         if (dx * dx + dy * dy).sqrt() > super::super::DRAG_THRESHOLD {
-                            d.active = true;
-                            let origin_idx = d.origin_idx;
-                            let origin_id = self.files[origin_idx].id.clone();
-                            self.drag.ids = if self.grid_selected.contains(&origin_id) {
-                                self.grid_selected.clone()
-                            } else {
-                                [origin_id].into()
-                            };
+                            d.past_threshold = true;
+                            // Snapshot the dragged photo set on activation: the whole
+                            // multi-selection if the grabbed tile was part of it, else
+                            // just that tile.
+                            if let DragPayload::Photos { origin_idx, ids } = &mut d.payload {
+                                let origin_id = self.files[*origin_idx].id.clone();
+                                *ids = if self.grid_selected.contains(&origin_id) {
+                                    self.grid_selected.clone()
+                                } else {
+                                    [origin_id].into()
+                                };
+                            }
                         }
                     }
                 }
-                if let Some(ref mut d) = self.drag.album {
-                    d.cursor = pos;
-                    if !d.active {
-                        let dx = pos.x - d.start.x;
-                        let dy = pos.y - d.start.y;
-                        if (dx * dx + dy * dy).sqrt() > super::super::DRAG_THRESHOLD {
-                            d.active = true;
-                        }
-                    }
-                }
-                self.recompute_drag_hover();
                 Task::none()
             }
 
@@ -426,11 +419,14 @@ impl App {
                             self.select_lead = out.lead;
                             self.selection_base = out.base;
                         }
-                        self.drag.state = Some(DragState {
-                            origin_idx: idx,
+                        self.drag.current = Some(Drag {
+                            payload: DragPayload::Photos {
+                                origin_idx: idx,
+                                ids: HashSet::new(),
+                            },
                             start: pos,
                             cursor: pos,
-                            active: false,
+                            past_threshold: false,
                         });
                     } else if pos.x > self.sidebar_width + SIDEBAR_HANDLE_WIDTH {
                         let mods = self.modifiers;
@@ -462,34 +458,40 @@ impl App {
                 if self.list_resize.take().is_some() {
                     return Task::none();
                 }
-                // An album drag/click resolves here: the press was captured by the
-                // album row's `mouse_area`, so this global release is where we know
-                // whether it travelled (drop on a shelf) or stayed put (navigate).
-                if let Some(d) = self.drag.album.take() {
-                    let shelf = self.hovered_shelf.take();
-                    if d.active {
-                        if let Some(shelf_id) = shelf {
-                            let ids = dragged_albums(&d.album_id, &self.selected_albums);
-                            return Task::done(Msg::MoveAlbumsToShelf {
-                                album_ids: ids,
-                                shelf_id: Some(shelf_id),
-                            });
-                        }
-                        // Released off any shelf — cancel, keep the selection intact.
-                        return Task::none();
+                // Every drag/click resolves here: the press was captured either by a
+                // tile (global `MousePressed`) or a sidebar row's `mouse_area`, and
+                // this global release is where we know whether it travelled (a drop)
+                // or stayed put (a click).
+                let drag = self.drag.current.take();
+                let hover = self.drag.hover.take();
+
+                // A drag that didn't travel past the threshold is a plain click. For
+                // an album that means navigate to it (and collapse the selection);
+                // for a photo it falls through to the tile click/loupe handling.
+                if let Some(Drag { payload, past_threshold: false, .. }) = &drag {
+                    if let DragPayload::Albums { pressed } = payload {
+                        self.selected_albums.clear();
+                        return Task::done(Msg::SidebarItemClicked(SidebarItem::Album(pressed.clone())));
                     }
-                    // A plain click: navigate to the album and collapse the selection.
-                    self.selected_albums.clear();
-                    return Task::done(Msg::SidebarItemClicked(SidebarItem::Album(d.album_id)));
                 }
-                let was_drag_active = self.drag.state.as_ref().map_or(false, |d| d.active);
-                let drop_task = if was_drag_active {
-                    self.drag.hover_album.clone().map(|id| {
-                        let ids: Vec<String> = self.drag.ids.iter().cloned().collect();
-                        Task::done(Msg::DroppedToAlbum(id, ids))
-                    })
-                } else {
-                    None
+
+                // A real album drag resolves entirely here (drop on a shelf, or
+                // cancel and keep the selection if released off any target).
+                if let Some(Drag { payload: payload @ DragPayload::Albums { .. }, past_threshold: true, .. }) = &drag {
+                    return self.resolve_drop(payload, hover);
+                }
+
+                // Photo payload (or a release with no tracked press): drop on an
+                // album via the same matrix, else fall through to click/loupe.
+                let was_drag_active = matches!(
+                    &drag,
+                    Some(Drag { payload: DragPayload::Photos { .. }, past_threshold: true, .. })
+                );
+                let drop_task = match &drag {
+                    Some(Drag { payload, .. }) if was_drag_active => {
+                        Some(self.resolve_drop(payload, hover))
+                    }
+                    _ => None,
                 };
 
                 let loupe_task: Option<Task<Msg>> =
@@ -531,10 +533,7 @@ impl App {
                         None
                     };
 
-                self.drag.state = None;
-                self.drag.ids.clear();
-                self.drag.hover_album = None;
-
+                // `drag`/`hover` were already taken above.
                 let detail_task = self.maybe_load_detail();
                 Task::batch([drop_task, loupe_task, Some(detail_task)].into_iter().flatten())
             }
@@ -666,30 +665,28 @@ impl App {
                     }
                     return Task::none();
                 }
-                self.drag.album = Some(AlbumDragState {
-                    album_id: id,
+                self.drag.current = Some(Drag {
+                    payload: DragPayload::Albums { pressed: id },
                     start: self.cursor,
                     cursor: self.cursor,
-                    active: false,
+                    past_threshold: false,
                 });
                 Task::none()
             }
 
-            Msg::HoverShelfStart(id) => {
-                self.hovered_shelf = Some(id);
-                Task::none()
-            }
-
-            Msg::HoverShelfEnd(id) => {
-                if self.hovered_shelf.as_ref() == Some(&id) {
-                    self.hovered_shelf = None;
+            Msg::HoverDrop(target) => {
+                // A droppable sidebar zone reporting enter (`Some`) or exit
+                // (`None`). On exit we only clear if we're still pointing at the
+                // zone that left, so a stale exit can't wipe a fresher enter.
+                match target {
+                    Some(t) => self.drag.hover = Some(t),
+                    None => self.drag.hover = None,
                 }
                 Task::none()
             }
 
             Msg::HoverSidebarEntityStart(item) => {
                 self.hovered_sidebar_entity = Some(item);
-                self.recompute_drag_hover();
                 Task::none()
             }
 
@@ -697,7 +694,6 @@ impl App {
                 if self.hovered_sidebar_entity.as_ref() == Some(&item) {
                     self.hovered_sidebar_entity = None;
                 }
-                self.recompute_drag_hover();
                 Task::none()
             }
 
@@ -976,16 +972,24 @@ impl App {
         Task::batch(tasks)
     }
 
-    /// Resolve the album currently under the cursor as the drag drop-target,
-    /// using the real rendered rows (`hovered_sidebar_entity`, kept up to date
-    /// by each row's `mouse_area`) rather than hardcoded sidebar geometry — the
-    /// folder tree's variable row count/height makes manual hit-testing wrong.
-    pub(crate) fn recompute_drag_hover(&mut self) {
-        if !self.drag.state.as_ref().map_or(false, |d| d.active) {
-            return;
+    /// Turn a finished drag into its drop action, validated through the
+    /// `drop_allowed` matrix. Returns `Task::none()` when released off any
+    /// compatible target. The single dispatch point for every payload.
+    fn resolve_drop(&self, payload: &DragPayload, target: Option<DropTarget>) -> Task<Msg> {
+        let Some(target) = target else { return Task::none() };
+        if !drop_allowed(payload, &target) {
+            return Task::none();
         }
-        self.drag.hover_album =
-            drop_album_for(self.hovered_sidebar_entity.as_ref(), &self.albums);
+        match (payload, target) {
+            (DragPayload::Photos { ids, .. }, DropTarget::Album(album_id)) => {
+                Task::done(Msg::DroppedToAlbum(album_id, ids.iter().cloned().collect()))
+            }
+            (DragPayload::Albums { pressed }, DropTarget::Shelf(shelf_id)) => {
+                let album_ids = dragged_albums(pressed, &self.selected_albums);
+                Task::done(Msg::MoveAlbumsToShelf { album_ids, shelf_id: Some(shelf_id) })
+            }
+            _ => Task::none(),
+        }
     }
 }
 
@@ -1020,21 +1024,16 @@ pub(crate) fn dragged_albums(pressed: &str, selected: &HashSet<AlbumId>) -> Vec<
     }
 }
 
-/// The album a dragged selection would drop into, given the sidebar entity
-/// under the cursor. Only **manual** albums are drop targets (smart albums are
-/// criteria-defined; folders / People aren't album targets).
-fn drop_album_for(
-    hovered: Option<&SidebarItem>,
-    albums: &[isomfolio_core::models::Album],
-) -> Option<String> {
-    match hovered {
-        Some(SidebarItem::Album(id)) => albums
-            .iter()
-            .find(|a| &a.id == id)
-            .filter(|a| matches!(a.kind, isomfolio_core::models::AlbumKind::Manual))
-            .map(|a| a.id.clone()),
-        _ => None,
-    }
+/// The drop-compatibility matrix: which drag payloads may be released onto which
+/// targets. The single source of truth shared by the release handler and the
+/// sidebar's drop-zone mounting. Shelf-into-shelf (once nested shelves land)
+/// becomes one new arm here.
+pub(crate) fn drop_allowed(payload: &DragPayload, target: &DropTarget) -> bool {
+    matches!(
+        (payload, target),
+        (DragPayload::Photos { .. }, DropTarget::Album(_))
+            | (DragPayload::Albums { .. }, DropTarget::Shelf(_))
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1312,7 +1311,7 @@ fn reveal_in_file_manager(paths: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use isomfolio_core::models::{Album, AlbumKind, SearchQuery};
+    use isomfolio_core::models::Album;
 
     mod diagnose_load_failure_fn {
         use super::*;
@@ -1613,48 +1612,27 @@ mod tests {
         }
     }
 
-    mod drop_album_for {
+    mod drop_compat {
         use super::*;
+        use std::collections::HashSet;
 
-        fn manual(id: &str) -> Album {
-            Album { id: id.into(), name: id.into(), kind: AlbumKind::Manual, sort_order: 0, shelf_id: None }
+        fn photos() -> DragPayload {
+            DragPayload::Photos { origin_idx: 0, ids: HashSet::new() }
         }
-        fn smart(id: &str) -> Album {
-            Album {
-                id: id.into(),
-                name: id.into(),
-                kind: AlbumKind::Smart(SearchQuery::default()),
-                sort_order: 0,
-                shelf_id: None,
-            }
+        fn albums() -> DragPayload {
+            DragPayload::Albums { pressed: "a".into() }
         }
 
         #[test]
-        fn manual_album_under_cursor_is_the_drop_target() {
-            let albums = vec![manual("a"), manual("b")];
-            let hovered = SidebarItem::Album("b".into());
-            assert_eq!(drop_album_for(Some(&hovered), &albums), Some("b".into()));
+        fn photos_drop_onto_albums_only() {
+            assert!(drop_allowed(&photos(), &DropTarget::Album("a".into())));
+            assert!(!drop_allowed(&photos(), &DropTarget::Shelf("s".into())));
         }
 
         #[test]
-        fn smart_album_is_not_a_drop_target() {
-            let albums = vec![smart("s")];
-            let hovered = SidebarItem::Album("s".into());
-            assert_eq!(drop_album_for(Some(&hovered), &albums), None);
-        }
-
-        #[test]
-        fn folder_or_nothing_under_cursor_yields_no_target() {
-            let albums = vec![manual("a")];
-            assert_eq!(drop_album_for(Some(&SidebarItem::Folder("/x".into())), &albums), None);
-            assert_eq!(drop_album_for(None, &albums), None);
-        }
-
-        #[test]
-        fn unknown_album_id_yields_no_target() {
-            let albums = vec![manual("a")];
-            let hovered = SidebarItem::Album("ghost".into());
-            assert_eq!(drop_album_for(Some(&hovered), &albums), None);
+        fn albums_drop_onto_shelves_only() {
+            assert!(drop_allowed(&albums(), &DropTarget::Shelf("s".into())));
+            assert!(!drop_allowed(&albums(), &DropTarget::Album("a".into())));
         }
     }
 }
