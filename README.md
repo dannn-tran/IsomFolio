@@ -43,6 +43,21 @@ cargo test
 
 Tests in `isomfolio-core` use temporary SQLite databases for isolation. No fixtures or external services needed.
 
+## Benchmarks
+
+Profile thumbnail generation against a real photo folder (the folder is a CLI argument, so no private path is committed):
+
+```sh
+# Always --release — a debug decode is several times slower and misleading.
+cargo run --release -p isomfolio-core --bin bench-thumbnails -- /path/to/photos
+
+# Quick run on a subset, or pin a single thread count instead of the sweep
+cargo run --release -p isomfolio-core --bin bench-thumbnails -- /path/to/photos --limit 200
+cargo run --release -p isomfolio-core --bin bench-thumbnails -- /path/to/photos --concurrency 4
+```
+
+It reports a per-decode-path time breakdown (JPEG fast path vs RAW preview/full demosaic, decode vs resize) and a worker-thread concurrency sweep, writing thumbnails to a throwaway temp dir. Use it to find where time goes and whether more threads help.
+
 ## Project structure
 
 ```
