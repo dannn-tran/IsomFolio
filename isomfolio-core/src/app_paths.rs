@@ -102,6 +102,17 @@ pub struct AppSettings {
     /// has been shown. Set true after the first soft-delete so it never repeats.
     #[serde(default)]
     pub seen_delete_hint: bool,
+    /// Compute whole-image scene embeddings (for "Review Scenes" permissive
+    /// grouping) opportunistically after thumbnails exist, like auto_stack.
+    #[serde(default = "default_true")]
+    pub auto_scene_embed: bool,
+    /// DBSCAN cosine-distance radius for scene grouping — higher groups looser
+    /// (more reframed/varied shots together); lower keeps scenes tight.
+    #[serde(default = "default_scene_eps")]
+    pub scene_eps: f32,
+    /// Minimum frames required to form a scene group.
+    #[serde(default = "default_scene_min_pts")]
+    pub scene_min_pts: u32,
 }
 
 impl Default for AppSettings {
@@ -119,6 +130,9 @@ impl Default for AppSettings {
             stack_threshold: default_stack_threshold(),
             stack_window_secs: default_stack_window(),
             seen_delete_hint: false,
+            auto_scene_embed: true,
+            scene_eps: default_scene_eps(),
+            scene_min_pts: default_scene_min_pts(),
         }
     }
 }
@@ -129,6 +143,11 @@ fn default_face_eps() -> f32 { 0.4 }
 fn default_face_min_pts() -> u32 { 2 }
 fn default_stack_threshold() -> u32 { 8 }
 fn default_stack_window() -> i64 { 10 }
+fn default_scene_eps() -> f32 { 0.12 }
+// DBSCAN core threshold (neighbours, self excluded): 1 lets a two-frame scene
+// form (two tries at one shot), matching stacks' ≥2 minimum; group_scenes drops
+// singletons. Raise it to require denser clusters.
+fn default_scene_min_pts() -> u32 { 1 }
 
 fn settings_path() -> PathBuf {
     app_data_root().join("settings.json")

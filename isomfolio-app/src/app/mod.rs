@@ -476,6 +476,10 @@ pub struct ResolveState {
     pub keepers: HashSet<String>,
     /// Full-res handles for the current stack's frames, keyed by frame index.
     pub handles: HashMap<usize, iced::widget::image::Handle>,
+    /// True when the queue was built from embedding scene-clusters ("Review
+    /// Scenes") rather than dHash stacks — drives the title/status label only;
+    /// the keeper-picking flow is identical.
+    pub scenes: bool,
 }
 
 struct ThumbnailRecipe {

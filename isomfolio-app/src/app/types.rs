@@ -539,6 +539,17 @@ pub enum Msg {
     /// At-rest stacking summary loaded (Settings panel + completion announce).
     StackStatsLoaded(StackStats),
 
+    /// Compute whole-image scene embeddings for any file that lacks one (from its
+    /// cached thumbnail), persisting them for "Review Scenes". Background pass.
+    RunSceneEmbedding,
+    /// The scene-embedding pass finished writing; carries how many were computed.
+    SceneEmbeddingDone(usize),
+    /// Enter the review mode for embedding scene-clusters in the current view.
+    OpenResolveScenes,
+    /// The scene review queue finished building (clusters of ≥2 frames, sharpest
+    /// first). Feeds the same review mode as `ResolveStacksLoaded`.
+    ResolveScenesLoaded(Vec<crate::app::StackReview>),
+
     RunFaceClustering { force_full: bool },
     FaceClusterProgress { files_done: usize, total: usize, percent: u8 },
     InferenceEngineReady {

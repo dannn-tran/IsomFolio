@@ -240,6 +240,7 @@ impl App {
             MenuItem::Action("Preview", "E", Msg::TogglePreview),
             MenuItem::Action("Loupe", "Space", Msg::OpenLoupe),
             MenuItem::Action("Review Stacks", "R", Msg::OpenResolveStacks),
+            MenuItem::Action("Review Scenes", "⇧R", Msg::OpenResolveScenes),
             MenuItem::Action("People", "", Msg::OpenPeopleView),
             MenuItem::Action("Tag Browser", "", Msg::OpenTagBrowser),
             MenuItem::Separator,

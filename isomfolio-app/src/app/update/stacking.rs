@@ -186,7 +186,7 @@ impl App {
 
     /// Show stack `i`: reset keepers to its sharpest frame and kick off a full-res
     /// decode for each frame. Exits the mode if `i` is past the end.
-    fn enter_resolve_stack(&mut self, i: usize) -> Task<Msg> {
+    pub(crate) fn enter_resolve_stack(&mut self, i: usize) -> Task<Msg> {
         let Some(stack) = self.resolve.stacks.get(i) else {
             return self.exit_resolve(true);
         };
@@ -276,9 +276,10 @@ impl App {
     /// changes made during the pass are reflected.
     pub(crate) fn exit_resolve(&mut self, completed: bool) -> Task<Msg> {
         self.view_mode = ViewMode::Browse;
+        let was_scenes = self.resolve.scenes;
         self.resolve = ResolveState::default();
         if completed {
-            self.status = "Stack review complete".to_string();
+            self.status = if was_scenes { "Scene review complete" } else { "Stack review complete" }.to_string();
         }
         Task::batch([self.load_files_task(), self.restore_sidebar_scroll()])
     }

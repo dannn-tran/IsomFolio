@@ -108,6 +108,7 @@ pub fn default_bindings() -> Vec<KeyBind> {
         // Compare
         KeyBind { key: Char("c"), mods: Mods::NONE, when_ignored: true, action: || Msg::OpenCompare, label: "Compare (2 selected)", category: View },
         KeyBind { key: Char("r"), mods: Mods::NONE, when_ignored: true, action: || Msg::OpenResolveStacks, label: "Review Stacks", category: View },
+        KeyBind { key: Char("r"), mods: Mods::SHIFT, when_ignored: true, action: || Msg::OpenResolveScenes, label: "Review Scenes", category: View },
 
         // Tagging
         KeyBind { key: Char("."), mods: Mods::NONE, when_ignored: true, action: || Msg::RepeatLastTag, label: "Repeat Last Tag", category: Tagging },

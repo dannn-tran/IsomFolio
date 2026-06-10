@@ -176,7 +176,14 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([t_batch, t1, t_nav, t_faces, t_stack])
+                // Embed scenes from existing thumbnails too; like stacking, freshly
+                // generated thumbnails are embedded later via the batch drain.
+                let t_scene = if has_new && self.app_settings.auto_scene_embed {
+                    Task::done(Msg::RunSceneEmbedding)
+                } else {
+                    Task::none()
+                };
+                Task::batch([t_batch, t1, t_nav, t_faces, t_stack, t_scene])
             }
 
             Msg::RequestRemoveFolder(path) => {

@@ -29,11 +29,17 @@ impl App {
             row![
                 icon_btn("✕", Msg::EscapePressed),
                 Space::new().width(Length::Fill),
-                text("Review Stacks").size(TEXT_BASE).color(FG),
+                text(if self.resolve.scenes { "Review Scenes" } else { "Review Stacks" })
+                    .size(TEXT_BASE)
+                    .color(FG),
                 Space::new().width(Length::Fill),
-                text(format!("Stack {} of {total}", self.resolve.idx + 1))
-                    .size(TEXT_MD)
-                    .color(FG_DIM),
+                text(format!(
+                    "{} {} of {total}",
+                    if self.resolve.scenes { "Scene" } else { "Stack" },
+                    self.resolve.idx + 1
+                ))
+                .size(TEXT_MD)
+                .color(FG_DIM),
             ]
             .spacing(SPACE_2_5)
             .align_y(Alignment::Center),

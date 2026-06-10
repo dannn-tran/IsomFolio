@@ -7,6 +7,7 @@ mod navigation;
 mod groups;
 mod sync;
 mod settings;
+mod scenes;
 mod stacking;
 mod tag_browser;
 
@@ -196,6 +197,12 @@ impl App {
             | Msg::ResolveSkipStack
             | Msg::ResolvePrevStack
             | Msg::ResolveFinished => self.handle_stacking_msg(msg),
+
+            // — permissive scene grouping (embeddings) —
+            Msg::RunSceneEmbedding
+            | Msg::SceneEmbeddingDone(_)
+            | Msg::OpenResolveScenes
+            | Msg::ResolveScenesLoaded(_) => self.handle_scenes_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);
@@ -872,12 +879,15 @@ impl App {
                 },
                 Msg::ClearThumbnailProgress,
             );
-            // Newly-cached thumbnails are now hashable — refresh stacks.
+            // Newly-cached thumbnails are now hashable / embeddable — refresh.
+            let mut tasks = vec![clear];
             if self.app_settings.auto_stack {
-                Task::batch([clear, Task::done(Msg::RunStacking)])
-            } else {
-                clear
+                tasks.push(Task::done(Msg::RunStacking));
             }
+            if self.app_settings.auto_scene_embed {
+                tasks.push(Task::done(Msg::RunSceneEmbedding));
+            }
+            Task::batch(tasks)
         } else {
             Task::none()
         }
