@@ -10,6 +10,7 @@ pub mod metadata;
 pub mod models;
 pub mod phash;
 pub mod path_utils;
+pub mod scene_embed;
 pub mod search;
 pub mod storage;
 pub mod volume;
