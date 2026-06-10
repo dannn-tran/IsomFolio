@@ -35,7 +35,7 @@ fn resize_and_save(
     dest: &str,
     file_id: &str,
     target: u32,
-) -> Result<(), AppError> {
+) -> Result<(u32, u32), AppError> {
     let (w, h) = (img.width(), img.height());
     // Never upscale past the source — keeps a small original from bloating into
     // a larger-but-blurry cache file.
@@ -52,7 +52,8 @@ fn resize_and_save(
             .encode_image(&resized.to_rgb8())
             .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
     }
-    fs::rename(&tmp, dest).map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))
+    fs::rename(&tmp, dest).map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
+    Ok((new_w, new_h))
 }
 
 /// Decode a JPEG at a reduced DCT scale (1/8, 1/4, 1/2 of full) — the smallest
@@ -94,7 +95,29 @@ pub fn is_raw_extension(ext: &str) -> bool {
     )
 }
 
-fn decode_raw_preview(file_path: &str) -> Option<image::DynamicImage> {
+/// Which decode path produced the image — used by the thumbnail benchmark to
+/// attribute time (in particular, whether a RAW fell through to the slow
+/// full-demosaic path instead of the camera-embedded preview JPEG).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodeKind {
+    JpegScaled,
+    RawPreview,
+    RawThumbnail,
+    RawFull,
+    General,
+}
+
+/// Per-file timing + classification for one thumbnail generation.
+#[derive(Debug, Clone)]
+pub struct ThumbStats {
+    pub kind: DecodeKind,
+    pub decode_ms: f64,
+    pub resize_ms: f64,
+    pub in_bytes: u64,
+    pub out_dims: (u32, u32),
+}
+
+fn decode_raw_preview(file_path: &str) -> Option<(image::DynamicImage, DecodeKind)> {
     use rawler::decoders::RawDecodeParams;
     use rawler::rawsource::RawSource;
     let path = Path::new(file_path);
@@ -103,9 +126,9 @@ fn decode_raw_preview(file_path: &str) -> Option<image::DynamicImage> {
     let params = RawDecodeParams::default();
     // preview_image is the camera-embedded large JPEG — fastest and sufficient for culling.
     // Fall back through smaller thumbnail then full demosaic.
-    decoder.preview_image(&source, &params).ok().flatten()
-        .or_else(|| decoder.thumbnail_image(&source, &params).ok().flatten())
-        .or_else(|| decoder.full_image(&source, &params).ok().flatten())
+    decoder.preview_image(&source, &params).ok().flatten().map(|i| (i, DecodeKind::RawPreview))
+        .or_else(|| decoder.thumbnail_image(&source, &params).ok().flatten().map(|i| (i, DecodeKind::RawThumbnail)))
+        .or_else(|| decoder.full_image(&source, &params).ok().flatten().map(|i| (i, DecodeKind::RawFull)))
 }
 
 pub fn generate_thumbnail(
@@ -113,9 +136,26 @@ pub fn generate_thumbnail(
     file_id: &str,
     file_path: &str,
 ) -> Result<String, AppError> {
+    generate_thumbnail_instrumented(catalog_dir, file_id, file_path).map(|(path, _)| path)
+}
+
+/// Same as [`generate_thumbnail`] but returns timing + decode-path classification
+/// for benchmarking. Production code calls the wrapper above; the benchmark binary
+/// (`src/bin/bench-thumbnails.rs`) calls this to attribute where time goes.
+pub fn generate_thumbnail_instrumented(
+    catalog_dir: &str,
+    file_id: &str,
+    file_path: &str,
+) -> Result<(String, ThumbStats), AppError> {
+    use std::time::Instant;
+
     let dest = thumbnail_cache_path(catalog_dir, file_id);
+    let in_bytes = fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
     if Path::new(&dest).exists() {
-        return Ok(dest);
+        return Ok((
+            dest,
+            ThumbStats { kind: DecodeKind::General, decode_ms: 0.0, resize_ms: 0.0, in_bytes, out_dims: (0, 0) },
+        ));
     }
     ensure_directories(catalog_dir);
 
@@ -127,25 +167,38 @@ pub fn generate_thumbnail(
 
     // RAW files: extract embedded preview (camera-rendered JPEG, no demosaicing needed).
     if is_raw_extension(&ext) {
-        let img = decode_raw_preview(file_path)
+        let t0 = Instant::now();
+        let (img, kind) = decode_raw_preview(file_path)
             .ok_or_else(|| AppError::Thumbnail(file_id.to_string(), "no decodable preview in RAW file".into()))?;
-        resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
-        return Ok(dest);
+        let decode_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        let t1 = Instant::now();
+        let out_dims = resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
+        let resize_ms = t1.elapsed().as_secs_f64() * 1000.0;
+        return Ok((dest, ThumbStats { kind, decode_ms, resize_ms, in_bytes, out_dims }));
     }
 
     // Fast path for JPEG: decode at a reduced DCT scale instead of full-res.
     if matches!(ext.as_str(), "jpg" | "jpeg") {
-        if let Some(img) = decode_jpeg_scaled(file_path, TARGET_SIZE) {
-            resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
-            return Ok(dest);
+        let t0 = Instant::now();
+        let decoded = decode_jpeg_scaled(file_path, TARGET_SIZE);
+        let decode_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        if let Some(img) = decoded {
+            let t1 = Instant::now();
+            let out_dims = resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
+            let resize_ms = t1.elapsed().as_secs_f64() * 1000.0;
+            return Ok((dest, ThumbStats { kind: DecodeKind::JpegScaled, decode_ms, resize_ms, in_bytes, out_dims }));
         }
         // Fall through to the general decoder for CMYK / 16-bit / odd JPEGs.
     }
 
+    let t0 = Instant::now();
     let img = image::open(file_path)
         .map_err(|e| AppError::Thumbnail(file_id.to_string(), e.to_string()))?;
-    resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
-    Ok(dest)
+    let decode_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let t1 = Instant::now();
+    let out_dims = resize_and_save(img, &dest, file_id, TARGET_SIZE)?;
+    let resize_ms = t1.elapsed().as_secs_f64() * 1000.0;
+    Ok((dest, ThumbStats { kind: DecodeKind::General, decode_ms, resize_ms, in_bytes, out_dims }))
 }
 
 // Worker pool
@@ -489,6 +542,31 @@ mod tests {
             generate_thumbnail(cat.path().to_str().unwrap(), "fid", src_path.to_str().unwrap()).unwrap(),
             out
         );
+    }
+
+    #[test]
+    fn instrumented_classifies_jpeg_fast_path() {
+        let cat = TempDir::new().unwrap();
+        let src = TempDir::new().unwrap();
+        let src_path = src.path().join("big.jpg");
+        image::RgbImage::from_fn(2000, 1500, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        })
+        .save(&src_path)
+        .unwrap();
+
+        let (_, stats) = generate_thumbnail_instrumented(
+            cat.path().to_str().unwrap(),
+            "fid",
+            src_path.to_str().unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(stats.kind, DecodeKind::JpegScaled);
+        assert!(stats.decode_ms > 0.0);
+        assert!(stats.resize_ms > 0.0);
+        assert_eq!(stats.out_dims.0.max(stats.out_dims.1), TARGET_SIZE);
+        assert!(stats.in_bytes > 0);
     }
 
     #[test]
