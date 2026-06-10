@@ -159,6 +159,52 @@ fn rgb_to_hsv(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
     (hue, sat, max)
 }
 
+/// One file's scene-grouping inputs: its embedding and a sharpness score (used
+/// only to pick the group's default keeper — the sharpest frame).
+#[derive(Debug, Clone)]
+pub struct SceneItem {
+    pub embedding: Vec<f32>,
+    pub sharpness: f64,
+}
+
+/// Group files into *scenes* by clustering their embeddings (cosine distance,
+/// `eps` = cosine-distance radius) and dropping noise/singletons, mirroring the
+/// `phash::group_stacks` contract so the result drops into the same Review queue:
+/// each returned group is ≥ 2 indices into `items`, **sharpest frame first** as
+/// the default keeper. Pure — order of `items` is preserved within the sharpness
+/// tie-break. This is the embedding-based queue source behind "Review Scenes".
+pub fn group_scenes(items: &[SceneItem], eps: f32, min_pts: usize) -> Vec<Vec<usize>> {
+    use std::collections::BTreeMap;
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let embeddings: Vec<Vec<f32>> = items.iter().map(|i| i.embedding.clone()).collect();
+    let labels = crate::clustering::dbscan(&embeddings, eps, min_pts);
+
+    let mut by_label: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
+    for (idx, &label) in labels.iter().enumerate() {
+        if label >= 0 {
+            by_label.entry(label).or_default().push(idx);
+        }
+    }
+
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (_, mut members) in by_label {
+        if members.len() < 2 {
+            continue;
+        }
+        // Sharpest first = default keeper; stable on ties via the original index.
+        members.sort_by(|&a, &b| {
+            items[b].sharpness
+                .partial_cmp(&items[a].sharpness)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.cmp(&b))
+        });
+        groups.push(members);
+    }
+    groups
+}
+
 fn l2_normalize(v: &mut [f32]) {
     let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
     if norm > f32::EPSILON {
@@ -243,6 +289,56 @@ mod tests {
             let v = scene_embedding(&flat);
             assert_eq!(v.len(), SCENE_EMBED_DIM);
             assert!(v.iter().all(|x| x.is_finite()));
+        }
+    }
+
+    mod group_scenes_fn {
+        use super::*;
+
+        fn unit(v: [f32; 4]) -> Vec<f32> {
+            let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            v.iter().map(|x| x / n).collect()
+        }
+
+        fn item(emb: [f32; 4], sharpness: f64) -> SceneItem {
+            SceneItem { embedding: unit(emb), sharpness }
+        }
+
+        #[test]
+        fn clusters_scenes_dropping_noise_and_singletons() {
+            // Cluster A near e0, cluster B near e1, one outlier near e2.
+            let items = [
+                item([1.0, 0.05, 0.0, 0.0], 0.3), // A
+                item([1.0, 0.0, 0.05, 0.0], 0.9), // A
+                item([1.0, 0.03, 0.03, 0.0], 0.5), // A
+                item([0.05, 1.0, 0.0, 0.0], 0.4), // B
+                item([0.0, 1.0, 0.05, 0.0], 0.8), // B
+                item([0.03, 1.0, 0.03, 0.0], 0.6), // B
+                item([0.0, 0.0, 1.0, 0.0], 0.7), // outlier
+            ];
+            let groups = group_scenes(&items, 0.1, 2);
+            assert_eq!(groups.len(), 2);
+            let sizes: Vec<usize> = groups.iter().map(|g| g.len()).collect();
+            assert!(sizes.iter().all(|&s| s == 3), "got sizes {sizes:?}");
+            // Outlier index 6 appears in no group.
+            assert!(groups.iter().all(|g| !g.contains(&6)));
+        }
+
+        #[test]
+        fn keeper_is_sharpest_first() {
+            let items = [
+                item([1.0, 0.05, 0.0, 0.0], 0.3),
+                item([1.0, 0.0, 0.05, 0.0], 0.9), // sharpest
+                item([1.0, 0.03, 0.03, 0.0], 0.5),
+            ];
+            let groups = group_scenes(&items, 0.1, 2);
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0][0], 1, "sharpest frame must lead the group");
+        }
+
+        #[test]
+        fn empty_input_yields_no_groups() {
+            assert!(group_scenes(&[], 0.1, 2).is_empty());
         }
     }
 
