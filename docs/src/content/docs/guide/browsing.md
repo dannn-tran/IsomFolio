@@ -67,6 +67,8 @@ Press `E` to enter **Preview** — a single-photo view that keeps the sidebar an
 
 Select exactly **two photos** in the grid, then press `C`. Both photos display side by side at full resolution. Use this to decide between two similar shots.
 
+When IsomFolio has computed focus data for both frames, the sharper one is marked **◉ Sharper** in its caption strip — handy for picking the keeper from two near-identical frames. It's a *relative* comparison between the two shots on screen, not an absolute "in focus" verdict, so it only appears when the two differ clearly. (Focus data is computed alongside thumbnails/stacking, so it may be missing for a moment right after import.)
+
 Press `Esc` to return to the grid.
 
 ## Thumbnail zoom

@@ -446,6 +446,33 @@ pub fn stack_stats(conn: &Connection) -> Result<StackStats, AppError> {
     })
 }
 
+/// The computed sharpness (variance-of-Laplacian) for each of `file_ids` that
+/// has one. Ids whose `phash_sharpness` is still NULL (phash not yet computed)
+/// are simply absent from the map. Used by Compare to mark the sharper frame;
+/// the score is only meaningful *relative* to a similar frame, never absolute.
+pub fn sharpness_for(
+    conn: &Connection,
+    file_ids: &[String],
+) -> Result<std::collections::HashMap<String, f64>, AppError> {
+    let mut out = std::collections::HashMap::new();
+    for chunk in file_ids.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT id, phash_sharpness FROM files \
+             WHERE phash_sharpness IS NOT NULL AND id IN ({})",
+            placeholders(chunk.len()),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+        })?;
+        for row in rows {
+            let (id, sharpness) = row?;
+            out.insert(id, sharpness);
+        }
+    }
+    Ok(out)
+}
+
 /// For each of `file_ids` that is stacked, its `(burst_id, sharpness)` — enough
 /// to both group files into stacks and pick each stack's sharpest representative.
 pub fn get_stack_membership(conn: &Connection, file_ids: &[String]) -> Result<std::collections::HashMap<String, (String, f64)>, AppError> {
@@ -1887,6 +1914,22 @@ mod tests {
             exif_date_unix: None,
             gps_lat: None,
             gps_lon: None,
+        }
+    }
+
+    mod sharpness_for_fn {
+        use super::*;
+
+        #[test]
+        fn returns_only_files_with_computed_sharpness() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[make_file("a", "/p/a.jpg"), make_file("b", "/p/b.jpg")]).unwrap();
+            // Only `a` has a phash/sharpness computed; `b` stays NULL.
+            store_phashes(&conn, &[("a".into(), 0u64, 42.5, 0)]).unwrap();
+
+            let got = sharpness_for(&conn, &["a".into(), "b".into()]).unwrap();
+            assert_eq!(got.get("a"), Some(&42.5));
+            assert_eq!(got.get("b"), None, "uncomputed sharpness must be absent, not 0");
         }
     }
 

@@ -430,11 +430,30 @@ pub const COMPLETED_TTL: std::time::Duration = std::time::Duration::from_secs(4)
 pub struct CompareState {
     pub files: [Option<isomfolio_core::models::AssetFile>; 2],
     pub handles: [Option<iced::widget::image::Handle>; 2],
+    /// Computed sharpness (variance-of-Laplacian) per slot, when available.
+    /// Only compared *between* the two frames — never shown as an absolute value.
+    pub sharpness: [Option<f64>; 2],
 }
 
 impl Default for CompareState {
     fn default() -> Self {
-        Self { files: [None, None], handles: [None, None] }
+        Self { files: [None, None], handles: [None, None], sharpness: [None, None] }
+    }
+}
+
+impl CompareState {
+    /// The slot holding the sharper frame, when both sharpness values are known
+    /// and differ by a clear margin (so float noise / near-ties aren't called).
+    /// `None` when either value is missing or the two are effectively equal.
+    pub fn sharper_slot(&self) -> Option<usize> {
+        // Require the winner to exceed the other by ≥2% — enough to clear noise
+        // in the variance metric without hiding a real focus difference.
+        const MARGIN: f64 = 1.02;
+        match (self.sharpness[0], self.sharpness[1]) {
+            (Some(a), Some(b)) if a > b * MARGIN => Some(0),
+            (Some(a), Some(b)) if b > a * MARGIN => Some(1),
+            _ => None,
+        }
     }
 }
 
@@ -1625,6 +1644,34 @@ mod layout_tests {
         assert_eq!(w.date, LIST_COL_MAX);
         w.set(ListCol::Name, 200.0);
         assert_eq!(w.get(ListCol::Name), 200.0);
+    }
+
+    mod compare_sharper_fn {
+        use super::*;
+
+        fn cmp(a: Option<f64>, b: Option<f64>) -> CompareState {
+            CompareState { files: [None, None], handles: [None, None], sharpness: [a, b] }
+        }
+
+        #[test]
+        fn none_when_a_value_missing() {
+            assert_eq!(cmp(Some(100.0), None).sharper_slot(), None);
+            assert_eq!(cmp(None, Some(100.0)).sharper_slot(), None);
+            assert_eq!(cmp(None, None).sharper_slot(), None);
+        }
+
+        #[test]
+        fn none_when_within_margin() {
+            // <2% apart — treated as a tie, no winner claimed.
+            assert_eq!(cmp(Some(100.0), Some(101.0)).sharper_slot(), None);
+            assert_eq!(cmp(Some(101.0), Some(100.0)).sharper_slot(), None);
+        }
+
+        #[test]
+        fn picks_clearly_sharper_slot() {
+            assert_eq!(cmp(Some(200.0), Some(100.0)).sharper_slot(), Some(0));
+            assert_eq!(cmp(Some(100.0), Some(200.0)).sharper_slot(), Some(1));
+        }
     }
 
     mod visible_file_ids_fn {

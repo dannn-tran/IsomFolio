@@ -367,6 +367,12 @@ impl Catalog {
         db::get_stack_membership(&self.conn, file_ids)
     }
 
+    /// Computed sharpness per file id (absent when not yet computed). Only
+    /// meaningful relative to a similar frame — used by Compare.
+    pub fn sharpness_for(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, f64>, AppError> {
+        db::sharpness_for(&self.conn, file_ids)
+    }
+
     pub fn stack_stats(&self) -> Result<crate::models::StackStats, AppError> {
         db::stack_stats(&self.conn)
     }

@@ -7,6 +7,7 @@ use super::super::{
     LoupeState, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX,
     SIDEBAR_WIDTH_MIN, TILE_SIZE_MAX, TILE_SIZE_MIN, TILE_SIZE_STEP,
 };
+use super::LockUnwrap;
 use isomfolio_core::models::AlbumId;
 
 impl App {
@@ -829,7 +830,19 @@ impl App {
                 let id1 = sel.next().expect("grid_selected.len() == 2 checked above").clone();
                 let f0 = self.files.iter().find(|f| f.id == id0).cloned();
                 let f1 = self.files.iter().find(|f| f.id == id1).cloned();
-                self.compare = super::super::CompareState { files: [f0, f1], handles: [None, None] };
+                // Pull the two frames' computed sharpness (a small keyed read) so
+                // the panel can mark the sharper one. Absent values → no badge.
+                let sharpness = self
+                    .catalog
+                    .as_ref()
+                    .and_then(|c| c.lock_unwrap().sharpness_for(&[id0.clone(), id1.clone()]).ok())
+                    .map(|m| [m.get(&id0).copied(), m.get(&id1).copied()])
+                    .unwrap_or([None, None]);
+                self.compare = super::super::CompareState {
+                    files: [f0, f1],
+                    handles: [None, None],
+                    sharpness,
+                };
                 self.view_mode = ViewMode::Compare;
                 Task::batch([self.load_compare_slot(0), self.load_compare_slot(1)])
             }

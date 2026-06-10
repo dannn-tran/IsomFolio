@@ -100,6 +100,11 @@ impl App {
                 meta_row = meta_row
                     .push(text("★".repeat(rating as usize)).size(TEXT_SM).color(STAR_GOLD));
             }
+            // Mark the sharper of the two frames (relative, not an absolute focus
+            // verdict). Only shows when both scores exist and differ clearly.
+            if self.compare.sharper_slot() == Some(slot) {
+                meta_row = meta_row.push(text("\u{25c9} Sharper").size(TEXT_SM).color(ACCENT));
+            }
 
             container(
                 column![
