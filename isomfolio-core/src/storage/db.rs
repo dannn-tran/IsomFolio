@@ -1234,14 +1234,14 @@ fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
     let kind_str: String = row.get(2)?;
     let query_json: Option<String> = row.get(3)?;
     let sort_order: i32 = row.get(4)?;
-    let shelf_id: Option<String> = row.get(5)?;
+    let group_id: Option<String> = row.get(5)?;
     let kind = match kind_str.as_str() {
         "smart" => query_json
             .map(|j| AlbumKind::Smart(deserialize_query(&j)))
             .unwrap_or(AlbumKind::Manual),
         _ => AlbumKind::Manual,
     };
-    Ok(Album { id, name, kind, sort_order, shelf_id })
+    Ok(Album { id, name, kind, sort_order, group_id })
 }
 
 pub fn create_album(conn: &Connection, album: &Album) -> Result<(), AppError> {
@@ -1250,65 +1250,110 @@ pub fn create_album(conn: &Connection, album: &Album) -> Result<(), AppError> {
         AlbumKind::Manual => ("manual", None),
     };
     conn.execute(
-        "INSERT INTO albums (id, name, kind, query_json, sort_order, shelf_id) VALUES (?1,?2,?3,?4,?5,?6)",
-        params![album.id, album.name, kind_str, query_json, album.sort_order, album.shelf_id],
+        "INSERT INTO albums (id, name, kind, query_json, sort_order, group_id) VALUES (?1,?2,?3,?4,?5,?6)",
+        params![album.id, album.name, kind_str, query_json, album.sort_order, album.group_id],
     )?;
     Ok(())
 }
 
 pub fn get_all_albums(conn: &Connection) -> Result<Vec<Album>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, kind, query_json, sort_order, shelf_id FROM albums ORDER BY sort_order, name",
+        "SELECT id, name, kind, query_json, sort_order, group_id FROM albums ORDER BY sort_order, name",
     )?;
     let rows = stmt.query_map([], read_album)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-fn read_shelf(row: &rusqlite::Row<'_>) -> rusqlite::Result<Shelf> {
-    Ok(Shelf {
+fn read_group(row: &rusqlite::Row<'_>) -> rusqlite::Result<Group> {
+    Ok(Group {
         id: row.get(0)?,
         name: row.get(1)?,
         sort_order: row.get(2)?,
+        parent_id: row.get(3)?,
     })
 }
 
-pub fn create_shelf(conn: &Connection, shelf: &Shelf) -> Result<(), AppError> {
+pub fn create_group(conn: &Connection, group: &Group) -> Result<(), AppError> {
     conn.execute(
-        "INSERT INTO shelves (id, name, sort_order) VALUES (?1,?2,?3)",
-        params![shelf.id, shelf.name, shelf.sort_order],
+        "INSERT INTO album_groups (id, name, sort_order, parent_id) VALUES (?1,?2,?3,?4)",
+        params![group.id, group.name, group.sort_order, group.parent_id],
     )?;
     Ok(())
 }
 
-pub fn get_all_shelves(conn: &Connection) -> Result<Vec<Shelf>, AppError> {
-    let mut stmt =
-        conn.prepare("SELECT id, name, sort_order FROM shelves ORDER BY sort_order, name")?;
-    let rows = stmt.query_map([], read_shelf)?;
+pub fn get_all_groups(conn: &Connection) -> Result<Vec<Group>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, sort_order, parent_id FROM album_groups ORDER BY sort_order, name",
+    )?;
+    let rows = stmt.query_map([], read_group)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-pub fn rename_shelf(conn: &Connection, shelf_id: &str, new_name: &str) -> Result<(), AppError> {
-    conn.execute("UPDATE shelves SET name = ?1 WHERE id = ?2", params![new_name, shelf_id])?;
+pub fn rename_group(conn: &Connection, group_id: &str, new_name: &str) -> Result<(), AppError> {
+    conn.execute("UPDATE album_groups SET name = ?1 WHERE id = ?2", params![new_name, group_id])?;
     Ok(())
 }
 
-/// Delete a shelf. The `albums.shelf_id` FK is `ON DELETE SET NULL`, so its
-/// albums survive and become ungrouped — the container is removed, not its
-/// contents.
-pub fn delete_shelf(conn: &Connection, shelf_id: &str) -> Result<(), AppError> {
-    conn.execute("DELETE FROM shelves WHERE id = ?1", [shelf_id])?;
+/// Delete a group. Both the `albums.group_id` and the self-referential
+/// `album_groups.parent_id` FKs are `ON DELETE SET NULL`, so the group's albums
+/// and any child groups survive and re-home to the top level — the container is
+/// removed, never its contents.
+pub fn delete_group(conn: &Connection, group_id: &str) -> Result<(), AppError> {
+    conn.execute("DELETE FROM album_groups WHERE id = ?1", [group_id])?;
     Ok(())
 }
 
-/// File an album under a shelf, or pass `None` to ungroup it.
-pub fn set_album_shelf(
+/// File an album under a group, or pass `None` to ungroup it.
+pub fn set_album_group(
     conn: &Connection,
     album_id: &str,
-    shelf_id: Option<&str>,
+    group_id: Option<&str>,
 ) -> Result<(), AppError> {
     conn.execute(
-        "UPDATE albums SET shelf_id = ?1 WHERE id = ?2",
-        params![shelf_id, album_id],
+        "UPDATE albums SET group_id = ?1 WHERE id = ?2",
+        params![group_id, album_id],
+    )?;
+    Ok(())
+}
+
+/// True if `candidate` is `group_id` or one of its descendants — used to reject
+/// a move that would create a cycle (filing a group under its own subtree).
+pub fn group_is_descendant(
+    conn: &Connection,
+    candidate: &str,
+    group_id: &str,
+) -> Result<bool, AppError> {
+    let depth: i64 = conn.query_row(
+        "WITH RECURSIVE subtree(id) AS (
+             SELECT ?1
+             UNION
+             SELECT g.id FROM album_groups g JOIN subtree s ON g.parent_id = s.id
+         )
+         SELECT COUNT(*) FROM subtree WHERE id = ?2",
+        params![group_id, candidate],
+        |r| r.get(0),
+    )?;
+    Ok(depth > 0)
+}
+
+/// Re-parent a group under `parent_id`, or pass `None` to move it to the top
+/// level. Rejects a move that would form a cycle (parent within the group's own
+/// subtree), leaving the tree unchanged.
+pub fn set_group_parent(
+    conn: &Connection,
+    group_id: &str,
+    parent_id: Option<&str>,
+) -> Result<(), AppError> {
+    if let Some(p) = parent_id {
+        if p == group_id || group_is_descendant(conn, p, group_id)? {
+            return Err(AppError::Db(
+                "cannot move a group inside itself or its own descendant".to_string(),
+            ));
+        }
+    }
+    conn.execute(
+        "UPDATE album_groups SET parent_id = ?1 WHERE id = ?2",
+        params![parent_id, group_id],
     )?;
     Ok(())
 }
@@ -2259,7 +2304,7 @@ mod tests {
             name: "Favorites".to_string(),
             kind: AlbumKind::Manual,
             sort_order: 0,
-            shelf_id: None,
+            group_id: None,
         };
         create_album(&conn, &album).unwrap();
         let albums = get_all_albums(&conn).unwrap();
@@ -2272,59 +2317,118 @@ mod tests {
         assert!(get_all_albums(&conn).unwrap().is_empty());
     }
 
-    mod shelves {
+    mod groups {
         use super::*;
 
-        fn album(id: &str, shelf: Option<&str>) -> Album {
+        fn album(id: &str, group: Option<&str>) -> Album {
             Album {
                 id: id.to_string(),
                 name: id.to_string(),
                 kind: AlbumKind::Manual,
                 sort_order: 0,
-                shelf_id: shelf.map(str::to_string),
+                group_id: group.map(str::to_string),
             }
         }
 
-        fn shelf(id: &str) -> Shelf {
-            Shelf { id: id.to_string(), name: id.to_string(), sort_order: 0 }
+        fn group(id: &str) -> Group {
+            Group { id: id.to_string(), name: id.to_string(), sort_order: 0, parent_id: None }
+        }
+
+        fn child(id: &str, parent: &str) -> Group {
+            Group {
+                id: id.to_string(),
+                name: id.to_string(),
+                sort_order: 0,
+                parent_id: Some(parent.to_string()),
+            }
         }
 
         #[test]
         fn crud() {
             let (conn, _f) = open_temp();
-            create_shelf(&conn, &shelf("sh1")).unwrap();
-            assert_eq!(get_all_shelves(&conn).unwrap().len(), 1);
-            rename_shelf(&conn, "sh1", "Events").unwrap();
-            assert_eq!(get_all_shelves(&conn).unwrap()[0].name, "Events");
-            delete_shelf(&conn, "sh1").unwrap();
-            assert!(get_all_shelves(&conn).unwrap().is_empty());
+            create_group(&conn, &group("sh1")).unwrap();
+            assert_eq!(get_all_groups(&conn).unwrap().len(), 1);
+            rename_group(&conn, "sh1", "Events").unwrap();
+            assert_eq!(get_all_groups(&conn).unwrap()[0].name, "Events");
+            delete_group(&conn, "sh1").unwrap();
+            assert!(get_all_groups(&conn).unwrap().is_empty());
         }
 
         #[test]
-        fn set_album_shelf_files_and_ungroups() {
+        fn set_album_group_files_and_ungroups() {
             let (conn, _f) = open_temp();
-            create_shelf(&conn, &shelf("sh1")).unwrap();
+            create_group(&conn, &group("sh1")).unwrap();
             create_album(&conn, &album("al1", None)).unwrap();
-            assert_eq!(get_all_albums(&conn).unwrap()[0].shelf_id, None);
+            assert_eq!(get_all_albums(&conn).unwrap()[0].group_id, None);
 
-            set_album_shelf(&conn, "al1", Some("sh1")).unwrap();
-            assert_eq!(get_all_albums(&conn).unwrap()[0].shelf_id, Some("sh1".to_string()));
+            set_album_group(&conn, "al1", Some("sh1")).unwrap();
+            assert_eq!(get_all_albums(&conn).unwrap()[0].group_id, Some("sh1".to_string()));
 
-            set_album_shelf(&conn, "al1", None).unwrap();
-            assert_eq!(get_all_albums(&conn).unwrap()[0].shelf_id, None);
+            set_album_group(&conn, "al1", None).unwrap();
+            assert_eq!(get_all_albums(&conn).unwrap()[0].group_id, None);
         }
 
         #[test]
-        fn deleting_shelf_rehomes_its_albums_without_deleting_them() {
+        fn deleting_group_rehomes_its_albums_without_deleting_them() {
             let (conn, _f) = open_temp();
-            create_shelf(&conn, &shelf("sh1")).unwrap();
+            create_group(&conn, &group("sh1")).unwrap();
             create_album(&conn, &album("al1", Some("sh1"))).unwrap();
 
-            delete_shelf(&conn, "sh1").unwrap();
+            delete_group(&conn, "sh1").unwrap();
 
             let albums = get_all_albums(&conn).unwrap();
-            assert_eq!(albums.len(), 1, "album must survive shelf deletion");
-            assert_eq!(albums[0].shelf_id, None, "album must become ungrouped");
+            assert_eq!(albums.len(), 1, "album must survive group deletion");
+            assert_eq!(albums[0].group_id, None, "album must become ungrouped");
+        }
+
+        #[test]
+        fn nests_groups_via_parent_id() {
+            let (conn, _f) = open_temp();
+            create_group(&conn, &group("parent")).unwrap();
+            create_group(&conn, &child("kid", "parent")).unwrap();
+            let kid = get_all_groups(&conn).unwrap().into_iter().find(|g| g.id == "kid").unwrap();
+            assert_eq!(kid.parent_id, Some("parent".to_string()));
+        }
+
+        #[test]
+        fn set_group_parent_reparents_and_unnests() {
+            let (conn, _f) = open_temp();
+            create_group(&conn, &group("a")).unwrap();
+            create_group(&conn, &group("b")).unwrap();
+            set_group_parent(&conn, "b", Some("a")).unwrap();
+            let find = |id: &str| get_all_groups(&conn).unwrap().into_iter().find(|g| g.id == id).unwrap();
+            assert_eq!(find("b").parent_id, Some("a".to_string()));
+            set_group_parent(&conn, "b", None).unwrap();
+            assert_eq!(find("b").parent_id, None);
+        }
+
+        #[test]
+        fn deleting_parent_rehomes_child_groups_to_top_level() {
+            let (conn, _f) = open_temp();
+            create_group(&conn, &group("parent")).unwrap();
+            create_group(&conn, &child("kid", "parent")).unwrap();
+            delete_group(&conn, "parent").unwrap();
+            let groups = get_all_groups(&conn).unwrap();
+            assert_eq!(groups.len(), 1, "child group must survive parent deletion");
+            assert_eq!(groups[0].id, "kid");
+            assert_eq!(groups[0].parent_id, None, "child must re-home to top level");
+        }
+
+        #[test]
+        fn rejects_cycles() {
+            let (conn, _f) = open_temp();
+            create_group(&conn, &group("a")).unwrap();
+            create_group(&conn, &child("b", "a")).unwrap();
+            create_group(&conn, &child("c", "b")).unwrap();
+            // self
+            assert!(set_group_parent(&conn, "a", Some("a")).is_err());
+            // direct child
+            assert!(set_group_parent(&conn, "a", Some("b")).is_err());
+            // deeper descendant
+            assert!(set_group_parent(&conn, "a", Some("c")).is_err());
+            // a sibling/non-descendant is fine
+            create_group(&conn, &group("d")).unwrap();
+            assert!(set_group_parent(&conn, "a", Some("d")).is_ok());
         }
     }
 
@@ -2384,7 +2488,7 @@ mod tests {
             name: "A".to_string(),
             kind: AlbumKind::Manual,
             sort_order: 0,
-            shelf_id: None,
+            group_id: None,
         };
         create_album(&conn, &album).unwrap();
         add_file_to_album(&conn, "a1", "f1").unwrap();

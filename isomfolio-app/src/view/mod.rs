@@ -45,21 +45,39 @@ impl App {
             return self.view_resolve();
         }
 
-        let status = if let Some(pressed) = self.drag.dragging_album() {
+        let status = if let Some(pressed) = self.drag.dragging_group() {
+            let name = self
+                .groups
+                .iter()
+                .find(|g| &g.id == pressed)
+                .map(|g| g.name.as_str())
+                .unwrap_or("group");
+            // Target a different group as the new parent; hovering itself is a no-op.
+            let target = match &self.drag.hover {
+                Some(DropTarget::Group(gid)) if gid != pressed => {
+                    self.groups.iter().find(|g| &g.id == gid).map(|g| g.name.as_str())
+                }
+                _ => None,
+            };
+            match target {
+                Some(into) => format!("Nesting \"{name}\" inside \"{into}\""),
+                None => format!("Dragging \"{name}\" — drop on a group to nest, or release to keep"),
+            }
+        } else if let Some(pressed) = self.drag.dragging_album() {
             let count = if self.selected_albums.len() > 1 && self.selected_albums.contains(pressed) {
                 self.selected_albums.len()
             } else {
                 1
             };
             let target = match &self.drag.hover {
-                Some(DropTarget::Shelf(sid)) => {
-                    self.shelves.iter().find(|s| &s.id == sid).map(|s| s.name.as_str())
+                Some(DropTarget::Group(sid)) => {
+                    self.groups.iter().find(|s| &s.id == sid).map(|s| s.name.as_str())
                 }
                 _ => None,
             };
             match target {
                 Some(name) => format!("Dragging {count} album(s) — drop on \"{name}\""),
-                None => format!("Dragging {count} album(s) — drop on a shelf"),
+                None => format!("Dragging {count} album(s) — drop on a group"),
             }
         } else if self.drag.dragging_photos() {
             let count = self.drag.photo_ids().map_or(0, |ids| ids.len());
@@ -286,7 +304,7 @@ impl App {
     /// A count pill pinned just below-right of the cursor while a real drag is in
     /// flight. iced has no native drag image, so this is faked as a passive
     /// overlay layer positioned by padding (it has no `mouse_area`, so it never
-    /// captures events). One shape for every payload — photos or albums.
+    /// captures events). One shape for every payload — photos, albums, or a group.
     fn drag_ghost(&self) -> Option<Element<'_, Msg>> {
         if !self.drag.is_active() {
             return None;
@@ -304,6 +322,12 @@ impl App {
                 };
                 format!("{n} album{}", if n == 1 { "" } else { "s" })
             }
+            DragPayload::Group { pressed } => self
+                .groups
+                .iter()
+                .find(|g| g.id == *pressed)
+                .map(|g| g.name.clone())
+                .unwrap_or_else(|| "group".to_string()),
         };
         let pill = container(text(label).size(TEXT_SM).color(Color::WHITE))
             .padding([SPACE_0_5, SPACE_1_5])

@@ -38,35 +38,44 @@ Right-click an album and choose **Copy to Folder…**, then pick a destination. 
 
 Copies are **non-destructive**: an existing folder is merged into rather than replaced, and if a file of the same name is already there it's kept — the incoming copy gets a numeric suffix instead (`photo.jpg` → `photo (1).jpg`).
 
-## Shelves
+## Groups
 
-When you have lots of albums, group them onto **shelves**. A shelf is a named container that holds albums — think of it as a bookshelf your photo albums sit on (for example, a shelf per year or per client).
+When you have lots of albums, tidy them into **groups**. A group is a named container that holds albums *and other groups* — like a folder for your collections (for example, a group per year, with a group per shoot nested inside).
 
-### Create a shelf
+### Create a group
 
-Click the `+` button in the **Albums** section header and choose **New Shelf**, type a name, and press `Enter`. The shelf appears in the sidebar with a disclosure chevron; click its header to collapse or expand the albums beneath it.
+Click the `+` button in the **Albums** section header and choose **New Group**, type a name, and press `Enter`. The group appears in the sidebar with a disclosure chevron; click its header to collapse or expand its contents.
 
-### Create an album inside a shelf
+### Create things inside a group
 
-Right-click (or **Ctrl+Click**) a shelf header and choose **New Album**. The name input opens **inside** the shelf — type a name and press `Enter`, and the album is filed there straight away (no need to create it and move it afterwards). The top-level **+ → New Album** still creates an ungrouped album at the top of the list.
+Right-click (or **Ctrl+Click**) a group header and choose:
 
-### File an album under a shelf
+- **New Album** — the name input opens **inside** the group; type a name and press `Enter` and the album is filed there straight away.
+- **New Group inside** — the same, but creates a nested **sub-group**, so you can build a hierarchy (year → shoot → album).
+
+The top-level **+ → New Album** / **New Group** still create ungrouped entities at the top of the list.
+
+### File an album under a group
 
 There are three ways to file albums:
 
-- **Drag** — press an album in the sidebar and drag it onto a shelf header; the shelf highlights as you hover, and the album drops in when you release. The quickest way to organise one at a time.
-- **Context menu** — right-click an album and choose **Move to Shelf →**, then pick a shelf — or **Ungrouped** to lift it back to the top of the list, or **New Shelf…** to create one and file it in a single step.
-- **Several at once** — **Cmd-click** (⌘) albums in the sidebar to build a multi-selection (each highlights), then drag any one of them onto a shelf to move the whole group, or right-click and use **Move N albums to Shelf →** (which also offers **New Shelf…**). With a selection active, **Cmd+A** extends it to every album in the same shelf (or all ungrouped albums) — like Cmd+A inside a folder in Finder; right-clicking a shelf and choosing **Select Albums** does the same for that shelf in one click. Click elsewhere or press `Esc` to clear the selection.
+- **Drag** — press an album in the sidebar and drag it onto a group header; the group highlights as you hover, and the album drops in when you release. The quickest way to organise one at a time.
+- **Context menu** — right-click an album and choose **Move to Group →**, then pick a group — or **Ungrouped** to lift it back to the top of the list, or **New Group…** to create one and file it in a single step.
+- **Several at once** — **Cmd-click** (⌘) albums in the sidebar to build a multi-selection (each highlights), then drag any one of them onto a group to move the whole selection, or right-click and use **Move N albums to Group →** (which also offers **New Group…**). With a selection active, **Cmd+A** extends it to every album in the same group (or all ungrouped albums) — like Cmd+A inside a folder in Finder; right-clicking a group and choosing **Select Albums** does the same for that group in one click. Click elsewhere or press `Esc` to clear the selection.
 
-Both manual and smart albums can live on a shelf. Duplicating an album keeps it on the same shelf as the original.
+Both manual and smart albums can live in a group. Duplicating an album keeps it in the same group as the original.
 
-### Copy a shelf to a folder
+### Nest a group inside another
 
-Right-click (or **Ctrl+Click**) a shelf header and choose **Copy to Folder…**, then pick a destination. IsomFolio mirrors the shelf's structure on disk — it creates a folder named after the shelf, and inside it one sub-folder per album, each holding that album's photos (`<destination>/<shelf>/<album>/…`). This is the way to copy several albums at once while keeping them organised. The same non-destructive rules apply: existing folders are merged into, and colliding filenames get a numeric suffix.
+Groups nest, so you can build a shallow hierarchy (year → shoot → album). Drag a group's header onto another group to file it inside, or use **New Group inside** from a group's context menu to create one already nested. Drop a group away from any other group to lift it back to the top level. IsomFolio won't let you drop a group inside itself or one of its own descendants.
 
-### Rename or delete a shelf
+### Copy a group to a folder
 
-Right-click (or **Ctrl+Click**) a shelf header for **Rename** and **Delete Shelf**, then confirm. Deleting a shelf only removes the container — its albums are kept and simply become ungrouped again. Your photos are never affected.
+Right-click (or **Ctrl+Click**) a group header and choose **Copy to Folder…**, then pick a destination. IsomFolio mirrors the group's full structure on disk — a folder named after the group, one sub-folder per album, and **nested sub-groups become nested sub-folders** (`<destination>/<group>/<sub-group>/<album>/…`), so the hierarchy is preserved. This is the way to copy several albums at once while keeping them organised. The same non-destructive rules apply: existing folders are merged into, and colliding filenames get a numeric suffix.
+
+### Rename or delete a group
+
+Right-click (or **Ctrl+Click**) a group header for **Rename** and **Delete Group**, then confirm. Deleting a group only removes the container — its albums are kept and simply become ungrouped again. Your photos are never affected.
 
 ## Smart albums
 

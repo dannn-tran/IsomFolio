@@ -1,4 +1,4 @@
-//! Non-destructive file copy helpers used when exporting albums/shelves to a
+//! Non-destructive file copy helpers used when exporting albums/groups to a
 //! folder on disk. "Non-destructive" means: existing directories are merged
 //! into (never cleared), and a name collision never overwrites — a numeric
 //! suffix is added instead.
@@ -45,7 +45,7 @@ pub fn non_colliding_path(dir: &Path, file_name: &OsStr) -> PathBuf {
     unreachable!("exhausted u32 suffixes for {}", dir.display())
 }
 
-/// Sanitise an album/shelf name into a single safe folder-name component:
+/// Sanitise an album/group name into a single safe folder-name component:
 /// path separators and characters illegal on common filesystems are replaced
 /// with `-`, surrounding whitespace/dots trimmed, and an empty result falls
 /// back to `Untitled`.
@@ -132,7 +132,7 @@ mod tests {
             let root = tmpdir();
             let src = root.join("src.txt");
             fs::write(&src, b"hello").unwrap();
-            let nested = root.join("Shelf").join("Album");
+            let nested = root.join("Group").join("Album");
             let written = copy_into_dir(&src, &nested).unwrap();
             assert_eq!(written, nested.join("src.txt"));
             assert_eq!(fs::read(&written).unwrap(), b"hello");

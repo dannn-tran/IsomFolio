@@ -598,7 +598,7 @@ mod tests {
                 name: "A".into(),
                 kind: AlbumKind::Manual,
                 sort_order: 0,
-                shelf_id: None,
+                group_id: None,
             };
             db::create_album(&conn, &album).unwrap();
             db::add_file_to_album(&conn, "a1", "f1").unwrap();

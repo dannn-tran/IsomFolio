@@ -465,19 +465,31 @@ impl App {
                 let drag = self.drag.current.take();
                 let hover = self.drag.hover.take();
 
-                // A drag that didn't travel past the threshold is a plain click. For
-                // an album that means navigate to it (and collapse the selection);
-                // for a photo it falls through to the tile click/loupe handling.
+                // A drag that didn't travel past the threshold is a plain click.
+                // Album → navigate to it (and collapse the selection); group →
+                // toggle its collapsed state (the header's default action); photo
+                // falls through to the tile click/loupe handling.
                 if let Some(Drag { payload, past_threshold: false, .. }) = &drag {
-                    if let DragPayload::Albums { pressed } = payload {
-                        self.selected_albums.clear();
-                        return Task::done(Msg::SidebarItemClicked(SidebarItem::Album(pressed.clone())));
+                    match payload {
+                        DragPayload::Albums { pressed } => {
+                            self.selected_albums.clear();
+                            return Task::done(Msg::SidebarItemClicked(SidebarItem::Album(pressed.clone())));
+                        }
+                        DragPayload::Group { pressed } => {
+                            return Task::done(Msg::ToggleGroupCollapsed(pressed.clone()));
+                        }
+                        DragPayload::Photos { .. } => {}
                     }
                 }
 
-                // A real album drag resolves entirely here (drop on a shelf, or
-                // cancel and keep the selection if released off any target).
-                if let Some(Drag { payload: payload @ DragPayload::Albums { .. }, past_threshold: true, .. }) = &drag {
+                // A real album/group drag resolves entirely here (drop on a group,
+                // or cancel and keep state if released off any target).
+                if let Some(Drag {
+                    payload: payload @ (DragPayload::Albums { .. } | DragPayload::Group { .. }),
+                    past_threshold: true,
+                    ..
+                }) = &drag
+                {
                     return self.resolve_drop(payload, hover);
                 }
 
@@ -594,12 +606,13 @@ impl App {
                     return Task::none();
                 }
                 self.create_album_input = None;
-                self.pending_album_shelf = None;
+                self.pending_album_group = None;
                 self.rename_album_id = None;
-                self.create_shelf_input = None;
-                self.pending_shelf_albums.clear();
-                self.rename_shelf_id = None;
-                self.shelf_pending_delete = None;
+                self.create_group_input = None;
+                self.pending_group_albums.clear();
+                self.pending_group_parent = None;
+                self.rename_group_id = None;
+                self.group_pending_delete = None;
                 self.faces.rename_cluster_id = None;
                 self.filters.save_smart_input = None;
                 self.remove_from_album_pending = false;
@@ -762,7 +775,7 @@ impl App {
 
             Msg::SelectAll => {
                 // While an album multi-selection is active, Cmd+A expands it to all
-                // sibling albums — every album sharing a shelf (or the ungrouped
+                // sibling albums — every album sharing a group (or the ungrouped
                 // top level) with something already selected, like Cmd+A within a
                 // Finder folder. Otherwise it selects the whole grid.
                 if !self.selected_albums.is_empty() {
@@ -984,16 +997,27 @@ impl App {
             (DragPayload::Photos { ids, .. }, DropTarget::Album(album_id)) => {
                 Task::done(Msg::DroppedToAlbum(album_id, ids.iter().cloned().collect()))
             }
-            (DragPayload::Albums { pressed }, DropTarget::Shelf(shelf_id)) => {
+            (DragPayload::Albums { pressed }, DropTarget::Group(group_id)) => {
                 let album_ids = dragged_albums(pressed, &self.selected_albums);
-                Task::done(Msg::MoveAlbumsToShelf { album_ids, shelf_id: Some(shelf_id) })
+                Task::done(Msg::MoveAlbumsToGroup { album_ids, group_id: Some(group_id) })
+            }
+            (DragPayload::Group { pressed }, DropTarget::Group(group_id)) => {
+                // Dropping a group on itself is a no-op; deeper cycles are caught
+                // by the catalog's descendant check, which leaves the tree intact.
+                if pressed == &group_id {
+                    return Task::none();
+                }
+                Task::done(Msg::MoveGroupToParent {
+                    group_id: pressed.clone(),
+                    parent_id: Some(group_id),
+                })
             }
             _ => Task::none(),
         }
     }
 }
 
-/// Every album sharing a shelf (or the ungrouped top level) with something
+/// Every album sharing a group (or the ungrouped top level) with something
 /// already selected — what `Cmd+A` expands an album selection to, like Cmd+A
 /// within a Finder folder. The set of "containers" is derived from the current
 /// selection, then every album in those containers is selected.
@@ -1001,19 +1025,19 @@ pub(crate) fn album_siblings(
     albums: &[isomfolio_core::models::Album],
     selected: &HashSet<AlbumId>,
 ) -> HashSet<AlbumId> {
-    let shelves: HashSet<Option<String>> = albums
+    let groups: HashSet<Option<String>> = albums
         .iter()
         .filter(|a| selected.contains(&a.id))
-        .map(|a| a.shelf_id.clone())
+        .map(|a| a.group_id.clone())
         .collect();
     albums
         .iter()
-        .filter(|a| shelves.contains(&a.shelf_id))
+        .filter(|a| groups.contains(&a.group_id))
         .map(|a| a.id.clone())
         .collect()
 }
 
-/// The albums a shelf drop applies to: the whole multi-selection when the
+/// The albums a group drop applies to: the whole multi-selection when the
 /// pressed album is part of it, otherwise just the pressed album. Mirrors the
 /// grid's "drag the group if you grabbed a selected tile" rule.
 pub(crate) fn dragged_albums(pressed: &str, selected: &HashSet<AlbumId>) -> Vec<AlbumId> {
@@ -1026,13 +1050,14 @@ pub(crate) fn dragged_albums(pressed: &str, selected: &HashSet<AlbumId>) -> Vec<
 
 /// The drop-compatibility matrix: which drag payloads may be released onto which
 /// targets. The single source of truth shared by the release handler and the
-/// sidebar's drop-zone mounting. Shelf-into-shelf (once nested shelves land)
-/// becomes one new arm here.
+/// sidebar's drop-zone mounting: photos → albums, albums → groups, groups →
+/// groups (nesting).
 pub(crate) fn drop_allowed(payload: &DragPayload, target: &DropTarget) -> bool {
     matches!(
         (payload, target),
         (DragPayload::Photos { .. }, DropTarget::Album(_))
-            | (DragPayload::Albums { .. }, DropTarget::Shelf(_))
+            | (DragPayload::Albums { .. }, DropTarget::Group(_))
+            | (DragPayload::Group { .. }, DropTarget::Group(_))
     )
 }
 
@@ -1443,13 +1468,13 @@ mod tests {
         use super::*;
         use isomfolio_core::models::AlbumKind;
 
-        fn album(id: &str, shelf: Option<&str>) -> Album {
+        fn album(id: &str, group: Option<&str>) -> Album {
             Album {
                 id: id.to_string(),
                 name: id.to_string(),
                 kind: AlbumKind::Manual,
                 sort_order: 0,
-                shelf_id: shelf.map(|s| s.to_string()),
+                group_id: group.map(|s| s.to_string()),
             }
         }
 
@@ -1458,7 +1483,7 @@ mod tests {
         }
 
         #[test]
-        fn selecting_one_album_expands_to_its_whole_shelf() {
+        fn selecting_one_album_expands_to_its_whole_group() {
             let albums = vec![
                 album("a", Some("s1")),
                 album("b", Some("s1")),
@@ -1483,7 +1508,7 @@ mod tests {
         }
 
         #[test]
-        fn selection_spanning_two_shelves_expands_to_both() {
+        fn selection_spanning_two_groups_expands_to_both() {
             let albums = vec![
                 album("a", Some("s1")),
                 album("b", Some("s1")),
@@ -1622,17 +1647,26 @@ mod tests {
         fn albums() -> DragPayload {
             DragPayload::Albums { pressed: "a".into() }
         }
+        fn group() -> DragPayload {
+            DragPayload::Group { pressed: "g".into() }
+        }
 
         #[test]
         fn photos_drop_onto_albums_only() {
             assert!(drop_allowed(&photos(), &DropTarget::Album("a".into())));
-            assert!(!drop_allowed(&photos(), &DropTarget::Shelf("s".into())));
+            assert!(!drop_allowed(&photos(), &DropTarget::Group("s".into())));
         }
 
         #[test]
-        fn albums_drop_onto_shelves_only() {
-            assert!(drop_allowed(&albums(), &DropTarget::Shelf("s".into())));
+        fn albums_drop_onto_groups_only() {
+            assert!(drop_allowed(&albums(), &DropTarget::Group("s".into())));
             assert!(!drop_allowed(&albums(), &DropTarget::Album("a".into())));
+        }
+
+        #[test]
+        fn groups_drop_onto_groups_only() {
+            assert!(drop_allowed(&group(), &DropTarget::Group("s".into())));
+            assert!(!drop_allowed(&group(), &DropTarget::Album("a".into())));
         }
     }
 }

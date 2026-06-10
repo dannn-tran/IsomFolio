@@ -8,7 +8,7 @@ pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::u
 pub static SIDEBAR_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
 use isomfolio_core::extension::ExtensionManifest;
 use isomfolio_core::folder_tree::FolderNode;
-use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, Shelf, ShelfId, SortField, StackStats};
+use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, Group, GroupId, SortField, StackStats};
 use isomfolio_core::LibraryRoot;
 
 #[derive(Debug, Clone)]
@@ -18,9 +18,9 @@ pub enum ContextMenuTarget {
     SmartAlbum(AlbumId),
     GridTiles,
     FaceCluster(String),
-    Shelf(ShelfId),
+    Group(GroupId),
     /// The Albums section's "+" affordance: a small menu to create a new album
-    /// or a new shelf. Replaces two near-identical add glyphs in the header.
+    /// or a new group. Replaces two near-identical add glyphs in the header.
     AlbumsAdd,
 }
 
@@ -201,8 +201,8 @@ pub struct Drag {
 }
 
 /// What a drag is carrying. Each variant pairs with the `DropTarget`s it can
-/// land on; adding shelf-into-shelf (once nested shelves exist) is a new variant
-/// here plus one arm in `resolve_drop` and one drop-zone mount in the sidebar.
+/// land on (see `drop_allowed`): photos → albums, albums → groups, groups →
+/// groups (nesting).
 #[derive(Debug, Clone)]
 pub enum DragPayload {
     /// Photo tiles from the grid. `ids` is the set being dragged (the whole
@@ -212,6 +212,10 @@ pub enum DragPayload {
     /// An album row from the sidebar. `pressed` is the grabbed album; the dropped
     /// set resolves against `selected_albums` on release (`dragged_albums`).
     Albums { pressed: AlbumId },
+    /// A group header from the sidebar, dragged to nest it under another group
+    /// (or to the top level when released off any group). Cycles are rejected in
+    /// `resolve_drop` via the catalog's descendant check.
+    Group { pressed: GroupId },
 }
 
 /// A sidebar entity a drag can be released onto. Pushed by the droppable
@@ -220,7 +224,7 @@ pub enum DragPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DropTarget {
     Album(AlbumId),
-    Shelf(ShelfId),
+    Group(GroupId),
 }
 
 #[derive(Debug)]
@@ -245,7 +249,7 @@ pub enum Msg {
         offline_roots: std::collections::HashSet<String>,
         cameras: Vec<String>,
         albums: Vec<Album>,
-        shelves: Vec<Shelf>,
+        groups: Vec<Group>,
         album_counts: HashMap<String, usize>,
         deleted_count: usize,
         import_batches: Vec<isomfolio_core::models::ImportBatch>,
@@ -560,7 +564,7 @@ pub enum Msg {
     SelectAll,
     DeselectAll,
     OpenFaceClusterMenu(String),
-    /// Open the Albums "+" menu (New Album / New Shelf) at the cursor.
+    /// Open the Albums "+" menu (New Album / New Group) at the cursor.
     OpenAlbumsAddMenu,
     Undo,
     Redo,
@@ -588,43 +592,50 @@ pub enum Msg {
     /// press), toggles the multi-selection (Cmd), or opens the menu (Ctrl). The
     /// actual navigate/drop is resolved on `MouseReleased`.
     AlbumPressed(AlbumId),
-    /// A droppable sidebar zone (album row, shelf block) reporting that the
+    /// A droppable sidebar zone (album row, group block) reporting that the
     /// cursor entered it (`Some(target)`) or left it (`None`) while a drag is in
     /// flight. The single drop-hover signal for every drag payload.
     HoverDrop(Option<DropTarget>),
     ToggleAddToAlbumSubmenu,
 
-    // — shelves (containers that group albums) —
-    StartCreateShelf,
-    CreateShelfInputChanged(String),
-    ConfirmCreateShelf,
-    ShelfCreated,
-    StartRenameShelf(ShelfId),
-    RenameShelfInputChanged(String),
-    ConfirmRenameShelf,
-    ShelfRenamed,
-    RequestDeleteShelf(ShelfId),
-    CancelDeleteShelf,
-    DeleteShelf(ShelfId),
-    ShelfDeleted,
-    ToggleShelfCollapsed(ShelfId),
-    /// Left-press on a shelf header: Ctrl held → open its context menu (the
-    /// right-click alias), otherwise toggle the shelf collapsed.
-    ShelfHeaderPressed(ShelfId),
-    /// Right-click / Ctrl+Click on a shelf header opens its context menu.
-    OpenShelfMenu(ShelfId),
+    // — groups (containers that group albums) —
+    StartCreateGroup,
+    CreateGroupInputChanged(String),
+    ConfirmCreateGroup,
+    GroupCreated,
+    StartRenameGroup(GroupId),
+    RenameGroupInputChanged(String),
+    ConfirmRenameGroup,
+    GroupRenamed,
+    RequestDeleteGroup(GroupId),
+    CancelDeleteGroup,
+    DeleteGroup(GroupId),
+    GroupDeleted,
+    ToggleGroupCollapsed(GroupId),
+    /// Left-press on a group header: Ctrl held → open its context menu (the
+    /// right-click alias), otherwise toggle the group collapsed.
+    GroupHeaderPressed(GroupId),
+    /// Right-click / Ctrl+Click on a group header opens its context menu.
+    OpenGroupMenu(GroupId),
     /// File several albums at once (multi-select / drag), or `None` to ungroup.
-    MoveAlbumsToShelf { album_ids: Vec<AlbumId>, shelf_id: Option<ShelfId> },
-    /// Open the inline create-shelf input, filing `album_ids` into the new shelf
-    /// once it's confirmed ("New Shelf…" chosen for a selection).
-    StartCreateShelfFor(Vec<AlbumId>),
-    /// Open the inline create-album input directly under a shelf, filing the new
-    /// album there on confirm ("New Album" from a shelf's context menu).
-    StartCreateAlbumIn(ShelfId),
-    /// Select every album filed under a shelf (the shelf menu's "Select Albums",
-    /// and what `Cmd+A` expands to when an album in that shelf is selected).
-    SelectShelfAlbums(ShelfId),
-    AlbumMovedToShelf,
+    MoveAlbumsToGroup { album_ids: Vec<AlbumId>, group_id: Option<GroupId> },
+    /// Open the inline create-group input, filing `album_ids` into the new group
+    /// once it's confirmed ("New Group…" chosen for a selection).
+    StartCreateGroupFor(Vec<AlbumId>),
+    /// Open the inline create-group input nested under `GroupId`, so the new group
+    /// is created as its child ("New Group inside" from a group's context menu).
+    StartCreateGroupIn(GroupId),
+    /// Open the inline create-album input directly under a group, filing the new
+    /// album there on confirm ("New Album" from a group's context menu).
+    StartCreateAlbumIn(GroupId),
+    /// Select every album filed under a group (the group menu's "Select Albums",
+    /// and what `Cmd+A` expands to when an album in that group is selected).
+    SelectGroupAlbums(GroupId),
+    AlbumMovedToGroup,
+    /// Re-parent a group (drag a group onto another to nest it, or `None` to
+    /// move it back to the top level). Cycles are rejected by the catalog.
+    MoveGroupToParent { group_id: GroupId, parent_id: Option<GroupId> },
+    GroupMoved,
 
     /// Wraps a context-menu leaf action: closes the menu, then dispatches the
     /// inner message. Every clickable menu item routes through this, so closing
@@ -675,9 +686,9 @@ pub enum Msg {
     /// Copy every (present) file in an album into a sub-folder named after the
     /// album, under a destination the user picks.
     ExportAlbumToDialog(String),
-    /// Copy every album on a shelf, mirroring the structure as
-    /// `<dest>/<shelf>/<album>/…`.
-    ExportShelfToDialog(ShelfId),
+    /// Copy every album on a group, mirroring the structure as
+    /// `<dest>/<group>/<album>/…`.
+    ExportGroupToDialog(GroupId),
     ExportDestPicked { entries: Vec<CopyEntry>, dest: Option<String>, mode: ExportMode },
     ExportDone { task_id: BgTaskId, result: Result<(), String> },
 }
@@ -689,7 +700,7 @@ pub enum ExportMode {
 
 /// One file to copy plus the (already-sanitised) sub-folder path it should land
 /// in, relative to the chosen destination root. `rel` empty = straight into the
-/// destination; `["Shelf", "Album"]` = `<dest>/Shelf/Album/<file>`.
+/// destination; `["Group", "Album"]` = `<dest>/Group/Album/<file>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CopyEntry {
     pub rel: Vec<String>,

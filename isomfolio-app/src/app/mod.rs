@@ -20,7 +20,7 @@ use isomfolio_core::indexing::thumbnail::{
 use isomfolio_core::indexing::types::FileEvent;
 use isomfolio_core::indexing::watcher::{create_watcher, start_mount_watch, FileWatcher, MountWatch};
 use isomfolio_core::models::SearchQuery;
-use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, Shelf, ShelfId, SortField, ThumbnailState};
+use isomfolio_core::models::{Album, AlbumId, AlbumKind, AssetFile, Group, GroupId, SortField, ThumbnailState};
 
 /// Platform name for the OS trash, used in user-facing delete copy.
 pub fn os_trash_name() -> &'static str {
@@ -150,7 +150,7 @@ impl DragContext {
         )
     }
 
-    /// The pressed album while an album drag is past the threshold (shelf blocks
+    /// The pressed album while an album drag is past the threshold (group blocks
     /// light up), else `None`.
     pub fn dragging_album(&self) -> Option<&AlbumId> {
         match self.current.as_ref() {
@@ -159,6 +159,23 @@ impl DragContext {
             }
             _ => None,
         }
+    }
+
+    /// The pressed group while a group drag is past the threshold (group blocks
+    /// light up as nest targets), else `None`.
+    pub fn dragging_group(&self) -> Option<&GroupId> {
+        match self.current.as_ref() {
+            Some(Drag { payload: DragPayload::Group { pressed }, past_threshold: true, .. }) => {
+                Some(pressed)
+            }
+            _ => None,
+        }
+    }
+
+    /// True while any drag that targets a group is live (an album being filed, or
+    /// a group being nested) — used to mount group blocks as drop zones.
+    pub fn dragging_onto_group(&self) -> bool {
+        self.dragging_album().is_some() || self.dragging_group().is_some()
     }
 }
 
@@ -222,19 +239,22 @@ pub struct App {
     pub add_folder_prompt: Option<AddFolderPrompt>,
     pub albums: Vec<Album>,
     pub album_counts: HashMap<String, usize>,
-    /// Shelves (containers grouping albums), ordered for display.
-    pub shelves: Vec<Shelf>,
-    /// Shelf ids whose album list is collapsed in the sidebar.
-    pub collapsed_shelves: HashSet<ShelfId>,
-    /// Albums Cmd-clicked into a multi-selection (for filing several into a shelf
+    /// Groups (containers grouping albums), ordered for display.
+    pub groups: Vec<Group>,
+    /// Group ids whose album list is collapsed in the sidebar.
+    pub collapsed_groups: HashSet<GroupId>,
+    /// Albums Cmd-clicked into a multi-selection (for filing several into a group
     /// at once). Distinct from `selected_item`, which is the one navigated view.
     pub selected_albums: HashSet<AlbumId>,
-    /// Albums to file into a shelf the moment it's created (set when "New Shelf…"
-    /// is chosen for a selection, consumed by `ConfirmCreateShelf`).
-    pub pending_shelf_albums: Vec<AlbumId>,
-    /// Shelf the in-progress new album should be filed under (set by a shelf's
+    /// Albums to file into a group the moment it's created (set when "New Group…"
+    /// is chosen for a selection, consumed by `ConfirmCreateGroup`).
+    pub pending_group_albums: Vec<AlbumId>,
+    /// Group the in-progress new album should be filed under (set by a group's
     /// "New Album", consumed by `ConfirmCreateAlbum`); `None` = ungrouped.
-    pub pending_album_shelf: Option<ShelfId>,
+    pub pending_album_group: Option<GroupId>,
+    /// Parent group the in-progress new group should nest under (set by a group's
+    /// "New Group inside", consumed by `ConfirmCreateGroup`); `None` = top level.
+    pub pending_group_parent: Option<GroupId>,
     /// Album that the `B` quick-add key drops the selection into, if set.
     pub target_album: Option<AlbumId>,
     pub selected_item: SidebarItem,
@@ -312,11 +332,11 @@ pub struct App {
     pub create_album_input: Option<String>,
     pub rename_album_id: Option<AlbumId>,
     pub rename_album_input: String,
-    /// Inline "new shelf" name input (Some while the field is shown).
-    pub create_shelf_input: Option<String>,
-    pub rename_shelf_id: Option<ShelfId>,
-    pub rename_shelf_input: String,
-    pub shelf_pending_delete: Option<ShelfId>,
+    /// Inline "new group" name input (Some while the field is shown).
+    pub create_group_input: Option<String>,
+    pub rename_group_id: Option<GroupId>,
+    pub rename_group_input: String,
+    pub group_pending_delete: Option<GroupId>,
 
     pub sort_by: SortField,
     pub sort_asc: bool,
@@ -615,11 +635,12 @@ impl App {
             add_folder_prompt: None,
             albums: Vec::new(),
             album_counts: HashMap::new(),
-            shelves: Vec::new(),
-            collapsed_shelves: HashSet::new(),
+            groups: Vec::new(),
+            collapsed_groups: HashSet::new(),
             selected_albums: HashSet::new(),
-            pending_shelf_albums: Vec::new(),
-            pending_album_shelf: None,
+            pending_group_albums: Vec::new(),
+            pending_album_group: None,
+            pending_group_parent: None,
             target_album: None,
             selected_item: SidebarItem::AllFiles,
             files: Vec::new(),
@@ -666,10 +687,10 @@ impl App {
             create_album_input: None,
             rename_album_id: None,
             rename_album_input: String::new(),
-            create_shelf_input: None,
-            rename_shelf_id: None,
-            rename_shelf_input: String::new(),
-            shelf_pending_delete: None,
+            create_group_input: None,
+            rename_group_id: None,
+            rename_group_input: String::new(),
+            group_pending_delete: None,
             sort_by: SortField::Name,
             sort_asc: true,
             grid_layout: GridLayout::Grid,
@@ -1142,7 +1163,7 @@ impl App {
                 let library_roots = cat.list_library_roots().unwrap_or_default();
                 let cameras = cat.distinct_camera_models().unwrap_or_default();
                 let albums = cat.get_all_albums().unwrap_or_default();
-                let shelves = cat.get_all_shelves().unwrap_or_default();
+                let groups = cat.get_all_groups().unwrap_or_default();
                 let album_counts = cat.get_all_album_file_counts().unwrap_or_default();
                 let deleted_count = cat.count_deleted().unwrap_or(0);
                 let import_batches = cat.get_import_batches(None).unwrap_or_default();
@@ -1176,9 +1197,9 @@ impl App {
                     })
                     .map(|r| r.path.clone())
                     .collect();
-                (folders, folder_tree, library_roots, offline_roots, cameras, albums, shelves, album_counts, deleted_count, import_batches)
+                (folders, folder_tree, library_roots, offline_roots, cameras, albums, groups, album_counts, deleted_count, import_batches)
             },
-            |(folders, folder_tree, library_roots, offline_roots, cameras, albums, shelves, album_counts, deleted_count, import_batches)| {
+            |(folders, folder_tree, library_roots, offline_roots, cameras, albums, groups, album_counts, deleted_count, import_batches)| {
                 Msg::SidebarLoaded {
                     folders,
                     folder_tree,
@@ -1186,7 +1207,7 @@ impl App {
                     offline_roots,
                     cameras,
                     albums,
-                    shelves,
+                    groups,
                     album_counts,
                     deleted_count,
                     import_batches,

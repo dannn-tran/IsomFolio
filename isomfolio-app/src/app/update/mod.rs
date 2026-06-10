@@ -4,7 +4,7 @@ mod criteria;
 mod detail;
 mod extensions;
 mod navigation;
-mod shelves;
+mod groups;
 mod sync;
 mod settings;
 mod stacking;
@@ -360,30 +360,35 @@ impl App {
                 )
             }
 
-            Msg::ExportShelfToDialog(shelf_id) => {
+            Msg::ExportGroupToDialog(group_id) => {
                 let Some(catalog) = self.catalog.clone() else { return Task::none() };
                 self.context_menu = None;
-                let Some(shelf) = self.shelves.iter().find(|s| s.id == shelf_id).cloned() else {
+                if !self.groups.iter().any(|g| g.id == group_id) {
                     return Task::none();
-                };
-                let shelf_folder = isomfolio_core::fileops::sanitize_component(&shelf.name);
-                // Mirror the shelf's albums as <shelf>/<album>/… sub-folders.
-                let albums: Vec<Album> = self
+                }
+                // Mirror the group's whole subtree on disk: every album in this
+                // group *or any nested sub-group* becomes
+                // <group>/<sub-group>/…/<album>/…, recursing so nested albums
+                // aren't dropped. The rel prefix is the chain of group names from
+                // the exported root down to each album's immediate group.
+                let albums_with_rel: Vec<(Album, Vec<String>)> = self
                     .albums
                     .iter()
-                    .filter(|a| a.shelf_id.as_deref() == Some(shelf_id.as_str()))
-                    .cloned()
+                    .filter_map(|a| {
+                        let gid = a.group_id.as_deref()?;
+                        let mut rel = group_name_chain(&self.groups, &group_id, gid)?;
+                        rel.push(isomfolio_core::fileops::sanitize_component(&a.name));
+                        Some((a.clone(), rel))
+                    })
                     .collect();
                 Task::perform(
                     async move {
                         let entries: Vec<CopyEntry> = {
                             let cat = catalog.lock_unwrap();
-                            albums
+                            albums_with_rel
                                 .iter()
-                                .flat_map(|album| {
-                                    let album_folder =
-                                        isomfolio_core::fileops::sanitize_component(&album.name);
-                                    let rel = vec![shelf_folder.clone(), album_folder];
+                                .flat_map(|(album, rel)| {
+                                    let rel = rel.clone();
                                     album_source_paths(&cat, album)
                                         .into_iter()
                                         .map(move |src| CopyEntry { rel: rel.clone(), src })
@@ -394,7 +399,7 @@ impl App {
                             None
                         } else {
                             rfd::AsyncFileDialog::new()
-                                .set_title("Copy shelf to…")
+                                .set_title("Copy group to…")
                                 .pick_folder()
                                 .await
                                 .map(|h| h.path().to_string_lossy().to_string())
@@ -489,27 +494,30 @@ impl App {
             | Msg::SmartAlbumUpdated
             | Msg::UpdateSmartAlbum => self.handle_album_msg(msg),
 
-            // — shelves —
-            Msg::StartCreateShelf
-            | Msg::CreateShelfInputChanged(_)
-            | Msg::ConfirmCreateShelf
-            | Msg::ShelfCreated
-            | Msg::StartRenameShelf(_)
-            | Msg::RenameShelfInputChanged(_)
-            | Msg::ConfirmRenameShelf
-            | Msg::ShelfRenamed
-            | Msg::RequestDeleteShelf(_)
-            | Msg::CancelDeleteShelf
-            | Msg::DeleteShelf(_)
-            | Msg::ShelfDeleted
-            | Msg::ToggleShelfCollapsed(_)
-            | Msg::ShelfHeaderPressed(_)
-            | Msg::OpenShelfMenu(_)
-            | Msg::MoveAlbumsToShelf { .. }
-            | Msg::StartCreateShelfFor(_)
+            // — groups —
+            Msg::StartCreateGroup
+            | Msg::CreateGroupInputChanged(_)
+            | Msg::ConfirmCreateGroup
+            | Msg::GroupCreated
+            | Msg::StartRenameGroup(_)
+            | Msg::RenameGroupInputChanged(_)
+            | Msg::ConfirmRenameGroup
+            | Msg::GroupRenamed
+            | Msg::RequestDeleteGroup(_)
+            | Msg::CancelDeleteGroup
+            | Msg::DeleteGroup(_)
+            | Msg::GroupDeleted
+            | Msg::ToggleGroupCollapsed(_)
+            | Msg::GroupHeaderPressed(_)
+            | Msg::OpenGroupMenu(_)
+            | Msg::MoveAlbumsToGroup { .. }
+            | Msg::StartCreateGroupFor(_)
+            | Msg::StartCreateGroupIn(_)
             | Msg::StartCreateAlbumIn(_)
-            | Msg::SelectShelfAlbums(_)
-            | Msg::AlbumMovedToShelf => self.handle_shelf_msg(msg),
+            | Msg::SelectGroupAlbums(_)
+            | Msg::MoveGroupToParent { .. }
+            | Msg::GroupMoved
+            | Msg::AlbumMovedToGroup => self.handle_group_msg(msg),
 
             // — search & filter criteria —
             Msg::SortDirToggle
@@ -746,16 +754,16 @@ impl App {
                 self.load_sidebar_task()
             }
 
-            Msg::SidebarLoaded { folders, folder_tree, library_roots, offline_roots, cameras, albums, shelves, album_counts, deleted_count, import_batches } => {
+            Msg::SidebarLoaded { folders, folder_tree, library_roots, offline_roots, cameras, albums, groups, album_counts, deleted_count, import_batches } => {
                 self.folders = folders;
                 self.folder_tree = folder_tree;
                 self.library_roots = library_roots;
                 self.offline_roots = offline_roots;
                 self.cameras = cameras;
                 self.albums = albums;
-                self.shelves = shelves;
-                // Drop collapse state for shelves that no longer exist.
-                self.collapsed_shelves.retain(|id| self.shelves.iter().any(|s| &s.id == id));
+                self.groups = groups;
+                // Drop collapse state for groups that no longer exist.
+                self.collapsed_groups.retain(|id| self.groups.iter().any(|s| &s.id == id));
                 self.album_counts = album_counts;
                 self.deleted_count = deleted_count;
                 self.import_batches = import_batches;
@@ -900,6 +908,29 @@ fn export_source_path(f: &isomfolio_core::models::AssetFile) -> String {
 
 /// Real-cased disk paths of every present (non-orphaned) file in an album —
 /// smart albums resolve their query, manual albums list their membership.
+/// Sanitised group names from the exported root group down to `gid` (inclusive),
+/// or `None` when `gid` is not `root` or one of its descendants. Used to mirror a
+/// group's nesting as on-disk sub-folders when copying a group to a folder.
+fn group_name_chain(
+    groups: &[isomfolio_core::models::Group],
+    root: &str,
+    gid: &str,
+) -> Option<Vec<String>> {
+    let mut chain = Vec::new();
+    let mut cur = Some(gid.to_string());
+    loop {
+        let c = cur?;
+        let g = groups.iter().find(|g| g.id == c)?;
+        chain.push(isomfolio_core::fileops::sanitize_component(&g.name));
+        if c == root {
+            break;
+        }
+        cur = g.parent_id.clone();
+    }
+    chain.reverse();
+    Some(chain)
+}
+
 fn album_source_paths(cat: &isomfolio_core::Catalog, album: &Album) -> Vec<String> {
     let files = match &album.kind {
         AlbumKind::Smart(q) => cat.search(q).unwrap_or_default(),

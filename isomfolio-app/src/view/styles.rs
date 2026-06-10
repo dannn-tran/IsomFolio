@@ -407,7 +407,7 @@ pub fn confirm_action_row<'a>(
             // The prompt takes the *remaining* width and clips — the Cancel/Confirm
             // buttons stay pinned and on-screen even in the narrow sidebar. (A bare
             // `text` + `Space::Fill` let a long prompt push Confirm off the right
-            // edge, where it couldn't be clicked — e.g. shelf deletion.)
+            // edge, where it couldn't be clicked — e.g. group deletion.)
             container(
                 text(prompt)
                     .size(TEXT_SM)

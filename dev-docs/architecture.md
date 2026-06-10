@@ -150,16 +150,16 @@ The `tags` table stores `(file_id, tag)` pairs — no origin column, no confiden
 
 ---
 
-## Albums & shelves
+## Albums & groups
 
 Two collection entities, both purely organisational (they never touch files on disk):
 
 - **Album** — a manual collection (`album_files` membership) or a **smart album** (a stored `SearchQuery`, evaluated live). `AlbumKind` distinguishes them.
-- **Shelf** — a named container that *groups albums*. A shelf has no membership and no query; it only holds albums. `albums.shelf_id` (nullable) files an album under a shelf; `NULL` means ungrouped (shown at the top level of the Albums list).
+- **Group** — a named, **recursive** container that *groups albums and other groups*. A group has no membership and no query; it only organises. `albums.group_id` (nullable) files an album under a group; `album_groups.parent_id` (nullable, self-referential) nests a group under another. `NULL` on either means top level. The table is `album_groups` because `GROUP`/`GROUPS` are SQLite keywords; the in-code concept stays `Group`.
 
-**Invariant — a shelf groups, never owns.** The `albums.shelf_id` FK is `ON DELETE SET NULL`, so deleting a shelf re-files its albums as ungrouped — it never deletes the albums or their photos. This is enforced in the schema (FK action) and relied on by `delete_shelf`; `foreign_keys=ON` makes it fire. App code goes through `Catalog` (`create_shelf` / `get_all_shelves` / `rename_shelf` / `delete_shelf` / `set_album_shelf`), never `db::` directly. (Pre-release, the schema is defined only in `ALL_DDL` — `shelves` + `albums.shelf_id` — with no migration; catalogs start fresh.)
+**Invariant — a group groups, never owns.** Both the `albums.group_id` and the self-referential `album_groups.parent_id` FKs are `ON DELETE SET NULL`, so deleting a group re-homes its albums *and child groups* to the top level — it never deletes contents. Enforced in the schema (FK action, `foreign_keys=ON`) and relied on by `delete_group`. App code goes through `Catalog` (`create_group` / `get_all_groups` / `rename_group` / `delete_group` / `set_album_group` / `set_group_parent`), never `db::` directly. (Pre-release, the schema is defined only in `ALL_DDL` — `album_groups` + `albums.group_id` — with no migration; catalogs start fresh.)
 
-The shelf hierarchy is one level deep by design (shelves hold albums; shelves do not hold shelves) — keeps the sidebar tree shallow and the data model a single nullable FK rather than a recursive parent pointer.
+**Invariant — no cycles.** A group can't be filed inside itself or one of its descendants. `db::set_group_parent` rejects such a move via a recursive-CTE descendant check, leaving the tree unchanged; the UI also rejects it up front from the in-memory tree (`App::group_move_would_cycle`) so the user sees feedback, not a DB error. Nesting is arbitrarily deep but kept shallow in practice; the sidebar renders the tree recursively (`render_group_block`), and **Copy to Folder** mirrors the full subtree as nested sub-folders (`group_name_chain`).
 
 ---
 

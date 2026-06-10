@@ -99,11 +99,17 @@ CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
 END;
 ";
 
-pub const CREATE_SHELVES: &str = "
-CREATE TABLE IF NOT EXISTS shelves (
+// `GROUP`/`GROUPS` are SQLite keywords, so the table is `album_groups`; the
+// in-code concept stays "Group". `parent_id` makes groups recursive — a group
+// can sit inside another. ON DELETE SET NULL re-homes children to the top level
+// when their parent is deleted (mirrors albums re-homing on group delete), so a
+// delete never cascades away nested content.
+pub const CREATE_GROUPS: &str = "
+CREATE TABLE IF NOT EXISTS album_groups (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    parent_id  TEXT REFERENCES album_groups(id) ON DELETE SET NULL
 );
 ";
 
@@ -114,7 +120,7 @@ CREATE TABLE IF NOT EXISTS albums (
     kind       TEXT NOT NULL,
     query_json TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    shelf_id   TEXT REFERENCES shelves(id) ON DELETE SET NULL
+    group_id   TEXT REFERENCES album_groups(id) ON DELETE SET NULL
 );
 ";
 
@@ -267,7 +273,7 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_TRIGGER_INSERT,
     CREATE_TRIGGER_DELETE,
     CREATE_TRIGGER_UPDATE,
-    CREATE_SHELVES,
+    CREATE_GROUPS,
     CREATE_ALBUMS,
     CREATE_ALBUM_FILES,
     CREATE_ALBUM_FILES_INDEX,

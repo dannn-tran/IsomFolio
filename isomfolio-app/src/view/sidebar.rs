@@ -4,7 +4,7 @@ use iced::{
 };
 
 use isomfolio_core::folder_tree::FolderNode;
-use isomfolio_core::models::{Album, AlbumKind, Flag, RatingFilter, Shelf, TagMatch};
+use isomfolio_core::models::{Album, AlbumKind, Flag, RatingFilter, Group, TagMatch};
 
 use super::styles::{
     active_chip_style, color_label_swatch, confirm_action_row, danger_btn_style, ghost_btn_style,
@@ -118,7 +118,7 @@ fn glyph_chip<'a>(glyph: &str, hint: String, active: bool, color: Color, msg: Ms
 impl App {
     pub(super) fn view_sidebar(&self) -> Element<'_, Msg> {
         // The album under the cursor as a drop target — only while a photo drag is
-        // live (album rows light up for photo drops, shelves for album drops).
+        // live (album rows light up for photo drops, groups for album drops).
         let drag_hover: Option<AlbumId> = match &self.drag.hover {
             Some(DropTarget::Album(id)) if self.drag.dragging_photos() => Some(id.clone()),
             _ => None,
@@ -154,12 +154,12 @@ impl App {
             albums_collapsed,
             SidebarSection::Albums,
             vec![
-                // One add affordance → a small menu (New Album / New Shelf). Two
+                // One add affordance → a small menu (New Album / New Group). Two
                 // near-identical plus glyphs read as ambiguous; a single labelled
                 // menu is unambiguous and the standard collections pattern.
                 super::styles::tip(
                     super::styles::icon_btn_svg(Icon::Plus, Msg::OpenAlbumsAddMenu),
-                    "Add album or shelf",
+                    "Add album or group",
                     super::styles::TipPos::Bottom,
                 ),
             ],
@@ -239,72 +239,30 @@ impl App {
             .push(albums_header);
 
         // The new-album input renders at the top only for an ungrouped album;
-        // when a shelf is the target it appears nested under that shelf (below).
-        if self.pending_album_shelf.is_none() {
+        // when a group is the target it appears nested under that group (below).
+        if self.pending_album_group.is_none() {
             if let Some(ref input_val) = self.create_album_input {
                 content = content.push(create_album_input_row(input_val));
             }
         }
 
-        if let Some(ref input_val) = self.create_shelf_input {
-            content = content.push(
-                container(
-                    row![
-                        super::icons::icon(Icon::Shelf, FG_DIM),
-                        text_input("Shelf name…", input_val)
-                            .id(crate::app::input_ids::create_shelf())
-                            .on_input(Msg::CreateShelfInputChanged)
-                            .on_submit(Msg::ConfirmCreateShelf)
-                            .padding([SPACE_1_5, SPACE_2])
-                            .size(TEXT_BASE)
-                            .width(Length::Fill),
-                        super::styles::icon_btn("✓", Msg::ConfirmCreateShelf),
-                        super::styles::icon_btn("✕", Msg::EscapePressed),
-                    ]
-                    .spacing(SPACE_1)
-                    .align_y(Alignment::Center),
-                )
-                .height(ALBUM_ITEM_HEIGHT)
-                .align_y(Alignment::Center)
-                .padding([0.0, SPACE_1]),
-            );
+        // The new-group input renders at the top only for a top-level group; when
+        // a parent is the target it appears nested under that group (in
+        // `render_group_block`, mirroring nested album creation).
+        if self.pending_group_parent.is_none() {
+            if let Some(ref input_val) = self.create_group_input {
+                content = content.push(create_group_input_row(input_val));
+            }
         }
 
         if !albums_collapsed {
-            // While an album is mid-drag the whole expanded shelf block — header
-            // *and* its nested album rows — is the drop target, so a release
-            // anywhere over the shelf files the album there (not just the header).
-            let album_drag = self.drag.dragging_album().is_some();
-            // Shelves first, each with its filed albums nested beneath; then the
-            // ungrouped albums at the top level.
-            for shelf in &self.shelves {
-                let mut block = column![self.render_shelf_header(shelf, max_chars)];
-                if !self.collapsed_shelves.contains(&shelf.id) {
-                    for album in self.albums.iter().filter(|a| a.shelf_id.as_deref() == Some(shelf.id.as_str())) {
-                        block = block.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, true));
-                    }
-                    // A new album being created under this shelf: its inline input
-                    // sits where the album will land (indented like its siblings).
-                    if self.pending_album_shelf.as_deref() == Some(shelf.id.as_str()) {
-                        if let Some(ref input_val) = self.create_album_input {
-                            block = block.push(
-                                row![Space::new().width(CHEVRON_W), create_album_input_row(input_val)],
-                            );
-                        }
-                    }
-                }
-                let block_el: Element<Msg> = if album_drag {
-                    mouse_area(block)
-                        .on_enter(Msg::HoverDrop(Some(DropTarget::Shelf(shelf.id.clone()))))
-                        .on_exit(Msg::HoverDrop(None))
-                        .into()
-                } else {
-                    block.into()
-                };
-                content = content.push(block_el);
+            // Top-level groups first (each recursively rendering its child groups
+            // and albums), then the ungrouped albums at the very top level.
+            for group in self.groups.iter().filter(|g| g.parent_id.is_none()) {
+                content = content.push(self.render_group_block(group, drag_hover.as_deref(), max_chars, 0));
             }
-            for album in self.albums.iter().filter(|a| a.shelf_id.is_none()) {
-                content = content.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, false));
+            for album in self.albums.iter().filter(|a| a.group_id.is_none()) {
+                content = content.push(self.render_album_row(album, drag_hover.as_deref(), max_chars, 0));
             }
         }
 
@@ -467,13 +425,89 @@ impl App {
     }
 
     /// One album row in the Albums list, handling its inline delete-confirm and
-    /// rename states. `indent` nests it under a shelf header.
+    /// One group and (when expanded) its nested child groups and albums, rendered
+    /// recursively. `depth` is the nesting level (0 = top); each level indents by
+    /// one disclosure column so the tree reads like the folder tree. Child groups
+    /// list before this group's own albums (folder-tree order).
+    fn render_group_block<'a>(
+        &'a self,
+        group: &'a Group,
+        drag_hover: Option<&str>,
+        max_chars: usize,
+        depth: usize,
+    ) -> Element<'a, Msg> {
+        let header: Element<Msg> = if depth > 0 {
+            row![
+                Space::new().width(CHEVRON_W * depth as f32),
+                self.render_group_header(group, max_chars),
+            ]
+            .into()
+        } else {
+            self.render_group_header(group, max_chars)
+        };
+
+        let mut block = column![header];
+        if !self.collapsed_groups.contains(&group.id) {
+            for child in self
+                .groups
+                .iter()
+                .filter(|g| g.parent_id.as_deref() == Some(group.id.as_str()))
+            {
+                block = block.push(self.render_group_block(child, drag_hover, max_chars, depth + 1));
+            }
+            // A new group being created inside this one: its inline input nests
+            // among the child groups, indented one level deeper.
+            if self.pending_group_parent.as_deref() == Some(group.id.as_str()) {
+                if let Some(ref input_val) = self.create_group_input {
+                    block = block.push(row![
+                        Space::new().width(CHEVRON_W * (depth as f32 + 1.0)),
+                        create_group_input_row(input_val),
+                    ]);
+                }
+            }
+            for album in self
+                .albums
+                .iter()
+                .filter(|a| a.group_id.as_deref() == Some(group.id.as_str()))
+            {
+                block = block.push(self.render_album_row(album, drag_hover, max_chars, depth + 1));
+            }
+            // A new album being created under this group: its inline input sits
+            // where the album will land (indented like its siblings).
+            if self.pending_album_group.as_deref() == Some(group.id.as_str()) {
+                if let Some(ref input_val) = self.create_album_input {
+                    block = block.push(row![
+                        Space::new().width(CHEVRON_W * (depth as f32 + 1.0)),
+                        create_album_input_row(input_val),
+                    ]);
+                }
+            }
+        }
+
+        // While a drag that targets a group is live (album being filed, or group
+        // being nested), the whole expanded block is the drop zone — header and
+        // nested rows — so a release anywhere over it lands here. Nested child
+        // blocks mount their own zones inside this one; the deepest under the
+        // cursor wins `drag.hover` (the innermost `on_enter` fires last).
+        if self.drag.dragging_onto_group() {
+            mouse_area(block)
+                .on_enter(Msg::HoverDrop(Some(DropTarget::Group(group.id.clone()))))
+                .on_exit(Msg::HoverDrop(None))
+                .into()
+        } else {
+            block.into()
+        }
+    }
+
+    /// rename states. `depth` is the album's nesting level (0 = ungrouped top
+    /// level); each level indents by one disclosure column so the label sits
+    /// under its group's glyph.
     fn render_album_row<'a>(
         &'a self,
         album: &'a Album,
         drag_hover: Option<&str>,
         max_chars: usize,
-        indent: bool,
+        depth: usize,
     ) -> Element<'a, Msg> {
         let sel = self.selected_item == SidebarItem::Album(album.id.clone());
         let hovered = drag_hover == Some(album.id.as_str());
@@ -524,19 +558,19 @@ impl App {
             )
         };
 
-        let row_el: Element<Msg> = if indent {
-            // One disclosure column (CHEVRON_W) of indent puts the album label
-            // directly under its shelf's glyph — the chevron-column nesting the
+        let row_el: Element<Msg> = if depth > 0 {
+            // One disclosure column (CHEVRON_W) per nesting level puts the album
+            // label under its group's glyph — the chevron-column nesting the
             // folder tree uses.
-            row![Space::new().width(CHEVRON_W), el].into()
+            row![Space::new().width(CHEVRON_W * depth as f32), el].into()
         } else {
             el
         };
 
         // Mount the photo drop-zone only while a photo drag is live and this is a
         // manual album (smart albums are criteria-defined, never drop targets).
-        // Gating by payload means there's no cross-talk with album→shelf drags,
-        // which mount shelf drop-zones instead.
+        // Gating by payload means there's no cross-talk with album→group drags,
+        // which mount group drop-zones instead.
         if self.drag.dragging_photos() && !is_smart {
             mouse_area(row_el)
                 .on_enter(Msg::HoverDrop(Some(DropTarget::Album(album.id.clone()))))
@@ -547,31 +581,31 @@ impl App {
         }
     }
 
-    /// A shelf header row in the Albums list: a collapse chevron, the shelf glyph,
+    /// A group header row in the Albums list: a collapse chevron, the group glyph,
     /// its name, and the count of albums it holds. Right-click / Ctrl+Click opens
     /// its context menu (rename / delete). Renders inline rename / delete states.
-    fn render_shelf_header<'a>(&'a self, shelf: &'a Shelf, max_chars: usize) -> Element<'a, Msg> {
-        if self.shelf_pending_delete.as_deref() == Some(shelf.id.as_str()) {
-            // Albums are kept (rehomed to Ungrouped) — `delete_shelf` sets their
-            // shelf_id NULL, it doesn't cascade. Prompt stays short so it fits the
+    fn render_group_header<'a>(&'a self, group: &'a Group, max_chars: usize) -> Element<'a, Msg> {
+        if self.group_pending_delete.as_deref() == Some(group.id.as_str()) {
+            // Albums are kept (rehomed to Ungrouped) — `delete_group` sets their
+            // group_id NULL, it doesn't cascade. Prompt stays short so it fits the
             // narrow sidebar alongside the buttons.
             return confirm_action_row(
-                format!("Delete shelf \u{201C}{}\u{201D}?", shelf.name),
-                Msg::DeleteShelf(shelf.id.clone()),
-                Msg::CancelDeleteShelf,
+                format!("Delete group \u{201C}{}\u{201D}?", group.name),
+                Msg::DeleteGroup(group.id.clone()),
+                Msg::CancelDeleteGroup,
             );
         }
-        if self.rename_shelf_id.as_deref() == Some(shelf.id.as_str()) {
+        if self.rename_group_id.as_deref() == Some(group.id.as_str()) {
             return container(
                 row![
-                    text_input(&shelf.name, &self.rename_shelf_input)
-                        .id(crate::app::input_ids::rename_shelf())
-                        .on_input(Msg::RenameShelfInputChanged)
-                        .on_submit(Msg::ConfirmRenameShelf)
+                    text_input(&group.name, &self.rename_group_input)
+                        .id(crate::app::input_ids::rename_group())
+                        .on_input(Msg::RenameGroupInputChanged)
+                        .on_submit(Msg::ConfirmRenameGroup)
                         .padding([SPACE_1_5, SPACE_2])
                         .size(TEXT_BASE)
                         .width(Length::Fill),
-                    super::styles::icon_btn("✓", Msg::ConfirmRenameShelf),
+                    super::styles::icon_btn("✓", Msg::ConfirmRenameGroup),
                     super::styles::icon_btn("✕", Msg::EscapePressed),
                 ]
                 .spacing(SPACE_1)
@@ -583,27 +617,29 @@ impl App {
             .into();
         }
 
-        let collapsed = self.collapsed_shelves.contains(&shelf.id);
-        let album_count = self.albums.iter().filter(|a| a.shelf_id.as_deref() == Some(shelf.id.as_str())).count();
-        let (display_label, was_truncated) = truncate_label(&shelf.name, max_chars);
+        let collapsed = self.collapsed_groups.contains(&group.id);
+        let album_count = self.albums.iter().filter(|a| a.group_id.as_deref() == Some(group.id.as_str())).count();
+        let (display_label, was_truncated) = truncate_label(&group.name, max_chars);
 
-        // Same fixed chevron slot as the folder tree (CHEVRON_W) so a shelf header
+        // Same fixed chevron slot as the folder tree (CHEVRON_W) so a group header
         // and a folder row share one disclosure column — narrower than ICON_BTN,
-        // which kept the shelf glyph from lining up with its nested albums.
+        // which kept the group glyph from lining up with its nested albums.
         let chevron = super::styles::icon_btn_svg(
             if collapsed { Icon::ChevronRight } else { Icon::ChevronDown },
-            Msg::ToggleShelfCollapsed(shelf.id.clone()),
+            Msg::ToggleGroupCollapsed(group.id.clone()),
         )
         .width(Length::Fixed(CHEVRON_W))
         .height(Length::Fixed(ALBUM_ITEM_HEIGHT));
 
-        // Highlight as a drop target while an album is being dragged over it.
-        let drop_target = self.drag.dragging_album().is_some()
-            && matches!(&self.drag.hover, Some(DropTarget::Shelf(id)) if id.as_str() == shelf.id.as_str());
+        // Highlight as a drop target while an album or group is being dragged over
+        // it. A group dragged onto itself is excluded — that's a no-op, not a nest.
+        let drop_target = self.drag.dragging_onto_group()
+            && self.drag.dragging_group() != Some(&group.id)
+            && matches!(&self.drag.hover, Some(DropTarget::Group(id)) if id.as_str() == group.id.as_str());
 
         let label_area = mouse_area(
             row![
-                super::icons::icon(Icon::Shelf, if drop_target { ACCENT } else { FG_DIM }),
+                super::icons::icon(Icon::Group, if drop_target { ACCENT } else { FG_DIM }),
                 container(
                     text(display_label)
                         .size(TEXT_BASE)
@@ -620,11 +656,11 @@ impl App {
             .align_y(Alignment::Center)
             .width(Length::Fill),
         )
-        .on_press(Msg::ShelfHeaderPressed(shelf.id.clone()))
-        .on_right_press(Msg::OpenShelfMenu(shelf.id.clone()));
-        // Drop-target hover (HoverDrop) is owned by the whole expanded shelf block
+        .on_press(Msg::GroupHeaderPressed(group.id.clone()))
+        .on_right_press(Msg::OpenGroupMenu(group.id.clone()));
+        // Drop-target hover (HoverDrop) is owned by the whole expanded group block
         // during an album drag (see the Albums-section loop), not the header alone
-        // — so a release anywhere over the shelf files the album.
+        // — so a release anywhere over the group files the album.
 
         let inner = container(
             row![chevron, label_area].align_y(Alignment::Center),
@@ -643,7 +679,7 @@ impl App {
         });
 
         if was_truncated {
-            tooltip(inner, label_tooltip(shelf.name.clone()), tooltip::Position::Right).into()
+            tooltip(inner, label_tooltip(group.name.clone()), tooltip::Position::Right).into()
         } else {
             inner.into()
         }
@@ -918,7 +954,7 @@ impl App {
 }
 
 /// The inline "new album" name input row (name field + confirm / cancel), used
-/// both at the top level (ungrouped) and nested under a target shelf.
+/// both at the top level (ungrouped) and nested under a target group.
 fn create_album_input_row<'a>(input_val: &str) -> Element<'a, Msg> {
     container(
         row![
@@ -930,6 +966,31 @@ fn create_album_input_row<'a>(input_val: &str) -> Element<'a, Msg> {
                 .size(TEXT_BASE)
                 .width(Length::Fill),
             super::styles::icon_btn("✓", Msg::ConfirmCreateAlbum),
+            super::styles::icon_btn("✕", Msg::EscapePressed),
+        ]
+        .spacing(SPACE_1)
+        .align_y(Alignment::Center),
+    )
+    .height(ALBUM_ITEM_HEIGHT)
+    .align_y(Alignment::Center)
+    .padding([0.0, SPACE_1])
+    .into()
+}
+
+/// The inline "new group" name input row (group glyph + name field + confirm /
+/// cancel), used both at the top level and nested under a parent group.
+fn create_group_input_row<'a>(input_val: &str) -> Element<'a, Msg> {
+    container(
+        row![
+            super::icons::icon(Icon::Group, FG_DIM),
+            text_input("Group name…", input_val)
+                .id(crate::app::input_ids::create_group())
+                .on_input(Msg::CreateGroupInputChanged)
+                .on_submit(Msg::ConfirmCreateGroup)
+                .padding([SPACE_1_5, SPACE_2])
+                .size(TEXT_BASE)
+                .width(Length::Fill),
+            super::styles::icon_btn("✓", Msg::ConfirmCreateGroup),
             super::styles::icon_btn("✕", Msg::EscapePressed),
         ]
         .spacing(SPACE_1)
@@ -1226,7 +1287,7 @@ fn album_sidebar_row<'a>(
     let count_str = if count > 0 { format!("{dirty_dot} {count}") } else { dirty_dot.to_string() };
 
     // The whole row is the press target (no inner button) so its `mouse_area` can
-    // capture press-down — needed to start an album→shelf drag. Click vs drag is
+    // capture press-down — needed to start an album→group drag. Click vs drag is
     // resolved on release in the update loop (see `Msg::AlbumPressed`).
     let inner = container(
         row![

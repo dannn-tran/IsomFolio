@@ -15,8 +15,8 @@ macro_rules! input_id {
 
 input_id!(create_album, "input-create-album");
 input_id!(rename_album, "input-rename-album");
-input_id!(create_shelf, "input-create-shelf");
-input_id!(rename_shelf, "input-rename-shelf");
+input_id!(create_group, "input-create-group");
+input_id!(rename_group, "input-rename-group");
 input_id!(rename_face, "input-rename-face");
 input_id!(rename_tag, "input-rename-tag");
 input_id!(new_catalog, "input-new-catalog");

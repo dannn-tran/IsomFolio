@@ -65,40 +65,40 @@ impl App {
                 }
                 ContextMenuTarget::ManualAlbum(album_id)
                 | ContextMenuTarget::SmartAlbum(album_id) => {
-                    // "Move to Shelf" submenu: every shelf + "New Shelf…" + an
+                    // "Move to Group" submenu: every group + "New Group…" + an
                     // "Ungrouped" escape. Acts on the whole multi-selection when the
                     // clicked album is part of it, otherwise just this album.
-                    let targets = self.shelf_move_targets(album_id);
+                    let targets = self.group_move_targets(album_id);
                     let multi = targets.len() > 1;
-                    // The ✓ current-shelf marker only makes sense for a single album.
+                    // The ✓ current-group marker only makes sense for a single album.
                     let current = (!multi)
                         .then(|| {
                             self.albums
                                 .iter()
                                 .find(|a| &a.id == album_id)
-                                .and_then(|a| a.shelf_id.clone())
+                                .and_then(|a| a.group_id.clone())
                         })
                         .flatten();
                     let mut col = column![].spacing(0);
                     let ungrouped_label = if !multi && current.is_none() { "Ungrouped ✓" } else { "Ungrouped" };
                     col = col.push(
                         button(text(ungrouped_label).size(TEXT_MD).color(FG))
-                            .on_press(Msg::MenuAction(Box::new(Msg::MoveAlbumsToShelf {
+                            .on_press(Msg::MenuAction(Box::new(Msg::MoveAlbumsToGroup {
                                 album_ids: targets.clone(),
-                                shelf_id: None,
+                                group_id: None,
                             })))
                             .style(menu_item_style)
                             .height(ITEM_HEIGHT)
                             .width(Length::Fill),
                     );
-                    for shelf in &self.shelves {
-                        let here = current.as_deref() == Some(shelf.id.as_str());
-                        let label = if here { format!("{} ✓", shelf.name) } else { shelf.name.clone() };
+                    for group in &self.groups {
+                        let here = current.as_deref() == Some(group.id.as_str());
+                        let label = if here { format!("{} ✓", group.name) } else { group.name.clone() };
                         col = col.push(
                             button(text(label).size(TEXT_MD).color(FG))
-                                .on_press(Msg::MenuAction(Box::new(Msg::MoveAlbumsToShelf {
+                                .on_press(Msg::MenuAction(Box::new(Msg::MoveAlbumsToGroup {
                                     album_ids: targets.clone(),
-                                    shelf_id: Some(shelf.id.clone()),
+                                    group_id: Some(group.id.clone()),
                                 })))
                                 .style(menu_item_style)
                                 .height(ITEM_HEIGHT)
@@ -106,8 +106,8 @@ impl App {
                         );
                     }
                     col = col.push(
-                        button(text("New Shelf…").size(TEXT_MD).color(FG_DIM))
-                            .on_press(Msg::MenuAction(Box::new(Msg::StartCreateShelfFor(targets))))
+                        button(text("New Group…").size(TEXT_MD).color(FG_DIM))
+                            .on_press(Msg::MenuAction(Box::new(Msg::StartCreateGroupFor(targets))))
                             .style(menu_item_style)
                             .height(ITEM_HEIGHT)
                             .width(Length::Fill),
@@ -167,9 +167,9 @@ impl App {
         Some(overlay.into())
     }
 
-    /// Albums a shelf move/file action applies to: the whole multi-selection when
+    /// Albums a group move/file action applies to: the whole multi-selection when
     /// the clicked album is part of it, otherwise just the clicked album.
-    fn shelf_move_targets(&self, clicked: &str) -> Vec<String> {
+    fn group_move_targets(&self, clicked: &str) -> Vec<String> {
         if self.selected_albums.len() > 1 && self.selected_albums.contains(clicked) {
             self.selected_albums.iter().cloned().collect()
         } else {
@@ -177,14 +177,14 @@ impl App {
         }
     }
 
-    /// Label for the album context menu's shelf entry, pluralised when several
-    /// albums are selected ("Move 3 albums to Shelf ▶").
-    fn shelf_menu_label(&self, clicked: &str) -> String {
-        let n = self.shelf_move_targets(clicked).len();
+    /// Label for the album context menu's group entry, pluralised when several
+    /// albums are selected ("Move 3 albums to Group ▶").
+    fn group_menu_label(&self, clicked: &str) -> String {
+        let n = self.group_move_targets(clicked).len();
         if n > 1 {
-            format!("Move {n} albums to Shelf ▶")
+            format!("Move {n} albums to Group ▶")
         } else {
-            "Move to Shelf ▶".to_string()
+            "Move to Group ▶".to_string()
         }
     }
 
@@ -214,7 +214,7 @@ impl App {
                     Some(("Rename".into(), Msg::StartRenameAlbum(id.clone()), false)),
                     Some(("Duplicate".into(), Msg::DuplicateAlbum(id.clone()), false)),
                     Some((target_label.into(), Msg::SetTargetAlbum(id.clone()), false)),
-                    Some((self.shelf_menu_label(id), Msg::ToggleAddToAlbumSubmenu, false)),
+                    Some((self.group_menu_label(id), Msg::ToggleAddToAlbumSubmenu, false)),
                     Some(("Copy to Folder…".into(), Msg::ExportAlbumToDialog(id.clone()), false)),
                     None,
                     Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
@@ -228,34 +228,35 @@ impl App {
                     Msg::SidebarItemClicked(crate::app::SidebarItem::Album(id.clone())),
                     false,
                 )),
-                Some((self.shelf_menu_label(id), Msg::ToggleAddToAlbumSubmenu, false)),
+                Some((self.group_menu_label(id), Msg::ToggleAddToAlbumSubmenu, false)),
                 Some(("Copy to Folder…".into(), Msg::ExportAlbumToDialog(id.clone()), false)),
                 None,
                 Some(("Delete…".into(), Msg::RequestDeleteAlbum(id.clone()), true)),
             ],
-            ContextMenuTarget::Shelf(id) => {
+            ContextMenuTarget::Group(id) => {
                 let has_albums = self
                     .albums
                     .iter()
-                    .any(|a| a.shelf_id.as_deref() == Some(id.as_str()));
+                    .any(|a| a.group_id.as_deref() == Some(id.as_str()));
                 let mut items = vec![
                     Some(("New Album".into(), Msg::StartCreateAlbumIn(id.clone()), false)),
+                    Some(("New Group inside".into(), Msg::StartCreateGroupIn(id.clone()), false)),
                 ];
                 if has_albums {
-                    items.push(Some(("Select Albums".into(), Msg::SelectShelfAlbums(id.clone()), false)));
+                    items.push(Some(("Select Albums".into(), Msg::SelectGroupAlbums(id.clone()), false)));
                 }
                 items.extend([
                     None,
-                    Some(("Rename".into(), Msg::StartRenameShelf(id.clone()), false)),
-                    Some(("Copy to Folder…".into(), Msg::ExportShelfToDialog(id.clone()), false)),
+                    Some(("Rename".into(), Msg::StartRenameGroup(id.clone()), false)),
+                    Some(("Copy to Folder…".into(), Msg::ExportGroupToDialog(id.clone()), false)),
                     None,
-                    Some(("Delete Shelf…".into(), Msg::RequestDeleteShelf(id.clone()), true)),
+                    Some(("Delete Group…".into(), Msg::RequestDeleteGroup(id.clone()), true)),
                 ]);
                 items
             }
             ContextMenuTarget::AlbumsAdd => vec![
                 Some(("New Album".into(), Msg::StartCreateAlbum, false)),
-                Some(("New Shelf".into(), Msg::StartCreateShelf, false)),
+                Some(("New Group".into(), Msg::StartCreateGroup, false)),
             ],
             ContextMenuTarget::FaceCluster(cluster_id) => {
                 let id = cluster_id.clone();

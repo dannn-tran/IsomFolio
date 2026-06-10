@@ -397,26 +397,31 @@ impl Catalog {
         db::copy_album_files(&self.conn, src, dst)
     }
 
-    // Shelves — containers that group albums.
+    // Groups — containers that group albums.
 
-    pub fn create_shelf(&self, shelf: &Shelf) -> Result<(), AppError> {
-        db::create_shelf(&self.conn, shelf)
+    pub fn create_group(&self, group: &Group) -> Result<(), AppError> {
+        db::create_group(&self.conn, group)
     }
 
-    pub fn get_all_shelves(&self) -> Result<Vec<Shelf>, AppError> {
-        db::get_all_shelves(&self.conn)
+    pub fn get_all_groups(&self) -> Result<Vec<Group>, AppError> {
+        db::get_all_groups(&self.conn)
     }
 
-    pub fn rename_shelf(&self, shelf_id: &str, new_name: &str) -> Result<(), AppError> {
-        db::rename_shelf(&self.conn, shelf_id, new_name)
+    pub fn rename_group(&self, group_id: &str, new_name: &str) -> Result<(), AppError> {
+        db::rename_group(&self.conn, group_id, new_name)
     }
 
-    pub fn delete_shelf(&self, shelf_id: &str) -> Result<(), AppError> {
-        db::delete_shelf(&self.conn, shelf_id)
+    pub fn delete_group(&self, group_id: &str) -> Result<(), AppError> {
+        db::delete_group(&self.conn, group_id)
     }
 
-    pub fn set_album_shelf(&self, album_id: &str, shelf_id: Option<&str>) -> Result<(), AppError> {
-        db::set_album_shelf(&self.conn, album_id, shelf_id)
+    pub fn set_album_group(&self, album_id: &str, group_id: Option<&str>) -> Result<(), AppError> {
+        db::set_album_group(&self.conn, album_id, group_id)
+    }
+
+    /// Re-parent a group (or pass `None` for the top level). Rejects cycles.
+    pub fn set_group_parent(&self, group_id: &str, parent_id: Option<&str>) -> Result<(), AppError> {
+        db::set_group_parent(&self.conn, group_id, parent_id)
     }
 
     // Face clusters
