@@ -6,6 +6,7 @@ mod drag_drop;
 mod extensions;
 mod loupe_load;
 mod navigation;
+mod pointer;
 mod groups;
 mod sync;
 mod settings;
@@ -141,23 +142,8 @@ impl App {
             | Msg::Navigate { .. }
             | Msg::NavigateExtend { .. }
             | Msg::ToggleFullscreen
-            | Msg::SidebarResizeStart
-            | Msg::ListColResizeStart(_)
-            | Msg::MouseMoved(_)
-            | Msg::MouseRightClicked
-            | Msg::MousePressed
-            | Msg::MouseReleased
-            | Msg::ModifiersChanged(_)
             | Msg::EscapePressed
             | Msg::Scrolled { .. }
-            | Msg::OpenFaceClusterMenu(_)
-            | Msg::OpenAlbumsAddMenu
-            | Msg::ToggleAddToAlbumSubmenu
-            | Msg::HoverSidebarEntityStart(_)
-            | Msg::HoverSidebarEntityEnd(_)
-            | Msg::OpenSidebarEntityMenu(_)
-            | Msg::AlbumPressed(_)
-            | Msg::HoverDrop(_)
             | Msg::ToggleShortcutHelp
             | Msg::OpenMenuDropdown(_)
             | Msg::HoverMenuTab(_)
@@ -166,6 +152,23 @@ impl App {
             | Msg::DeselectAll
             | Msg::ShowInFinder(_)
             | Msg::SidebarScrolled(_) => self.handle_navigation_msg(msg),
+
+            // — pointer / drag interaction + context menus —
+            Msg::SidebarResizeStart
+            | Msg::ListColResizeStart(_)
+            | Msg::MouseMoved(_)
+            | Msg::MouseRightClicked
+            | Msg::MousePressed
+            | Msg::MouseReleased
+            | Msg::ModifiersChanged(_)
+            | Msg::OpenFaceClusterMenu(_)
+            | Msg::OpenAlbumsAddMenu
+            | Msg::ToggleAddToAlbumSubmenu
+            | Msg::HoverSidebarEntityStart(_)
+            | Msg::HoverSidebarEntityEnd(_)
+            | Msg::OpenSidebarEntityMenu(_)
+            | Msg::AlbumPressed(_)
+            | Msg::HoverDrop(_) => self.handle_pointer_msg(msg),
 
             // — loupe / preview / compare —
             Msg::OpenLoupe
