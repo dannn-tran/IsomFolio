@@ -1,0 +1,453 @@
+use iced::{
+    widget::{button, column, container, mouse_area, row, scrollable, text, text_input, Space},
+    Alignment, Background, Element, Length, Theme,
+};
+
+use super::styles;
+use crate::app::{App, Msg, SettingsTab};
+use styles::{
+    active_chip_style, danger_btn_style, ghost_btn_style, ACCENT, BG_GRID, BORDER, ERR, FG, FG_DIM,
+    FG_MUTED, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, SPACE_6, TEXT_BASE,
+    TEXT_LG, TEXT_MD, TEXT_SM, TEXT_TITLE,
+};
+
+impl App {
+    pub(super) fn view_settings_pane(&self) -> Element<'_, Msg> {
+        let header = row![
+            text("Settings").size(TEXT_TITLE).color(FG),
+            Space::new().width(Length::Fill),
+            self.settings_tab_chip("General", SettingsTab::General),
+            self.settings_tab_chip("Extensions", SettingsTab::Extensions),
+            styles::icon_btn("✕", Msg::CloseSettings),
+        ]
+        .align_y(Alignment::Center)
+        .spacing(SPACE_1_5)
+        .width(Length::Fill);
+
+        let content: Element<'_, Msg> = match self.settings.tab {
+            SettingsTab::General => self.settings_general_pane(),
+            SettingsTab::Extensions => self.settings_extensions_pane(),
+        };
+
+        let scroll_area = scrollable(
+            container(content)
+                .padding([SPACE_1, SPACE_1])
+                .width(Length::Fill),
+        )
+        .height(Length::Fill)
+        .direction(scrollable::Direction::Vertical(
+            scrollable::Scrollbar::new().width(6).scroller_width(6),
+        ));
+
+        let footer_status = match (
+            self.settings.install_error.as_deref(),
+            self.settings.status.as_deref(),
+        ) {
+            (Some(err), _) => Some((err.to_string(), ERR)),
+            (_, Some(s)) => Some((s.to_string(), FG_DIM)),
+            _ => None,
+        };
+
+        let footer = row![
+            {
+                if let Some((msg, color)) = footer_status {
+                    text(msg).size(TEXT_SM).color(color)
+                } else {
+                    text("").size(TEXT_SM)
+                }
+            },
+            Space::new().width(Length::Fill),
+            button(text("Save").size(TEXT_BASE))
+                .on_press(Msg::SaveSettings)
+                .style(active_chip_style),
+        ]
+        .spacing(SPACE_2)
+        .align_y(Alignment::Center);
+
+        let body = column![
+            header,
+            Space::new().height(SPACE_3),
+            container(Space::new())
+                .width(Length::Fill)
+                .height(1.0)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(BORDER)),
+                    ..Default::default()
+                }),
+            Space::new().height(SPACE_2),
+            scroll_area,
+            Space::new().height(SPACE_3),
+            container(Space::new())
+                .width(Length::Fill)
+                .height(1.0)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(BORDER)),
+                    ..Default::default()
+                }),
+            Space::new().height(SPACE_2_5),
+            footer,
+        ]
+        .spacing(0)
+        .width(Length::Fill);
+
+        container(body)
+            .padding(SPACE_6)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_GRID)),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    fn settings_tab_chip(&self, label: &str, tab: SettingsTab) -> Element<'_, Msg> {
+        let selected = self.settings.tab == tab;
+        button(text(label.to_string()).size(TEXT_MD))
+            .on_press(Msg::SwitchSettingsTab(tab))
+            .style(move |t: &Theme, s| {
+                if selected { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+            })
+            .into()
+    }
+
+    fn settings_general_pane(&self) -> Element<'_, Msg> {
+        let mut col = column![].spacing(SPACE_3).width(Length::Fill);
+
+        col = col.push(self.toggle_row(
+            "Auto-advance after culling",
+            "Move to the next photo automatically after a flag (P/X/U), rating (1–5), or colour label (6–9) in loupe.",
+            self.app_settings.auto_advance_on_cull,
+            Msg::ToggleAutoAdvanceOnCull,
+        ));
+        col = col.push(self.toggle_row(
+            "Auto-detect people",
+            "Run after each sync that finds new photos.",
+            self.app_settings.auto_face_cluster,
+            Msg::ToggleAutoFaceCluster,
+        ));
+        col = col.push(self.toggle_row(
+            "Import XMP keywords",
+            "Copy dc:subject keywords into new photos as tags. Applies going forward — turning this off never removes tags already imported.",
+            self.app_settings.import_xmp_tags.unwrap_or(true),
+            Msg::ToggleImportXmpTags,
+        ));
+        if cfg!(target_os = "macos") {
+            col = col.push(self.toggle_row(
+                "Import Apple Finder tags",
+                "Copy macOS Finder tags (kMDItemUserTags) into new photos as tags. Applies going forward — turning this off never removes tags already imported.",
+                self.app_settings.import_apple_tags.unwrap_or(true),
+                Msg::ToggleImportAppleTags,
+            ));
+        }
+
+        col = col.push(Space::new().height(SPACE_3));
+        col = col.push(self.stacking_section());
+        col = col.push(self.scene_section());
+
+        col = col.push(Space::new().height(SPACE_3));
+        col = col.push(self.inference_engine_section());
+
+        col.into()
+    }
+
+    /// Content-based stacking: group near-duplicate frames (perceptual hash)
+    /// shot close together, per folder. Threshold = pixel tolerance, window =
+    /// max gap between frames of one stack.
+    fn stacking_section(&self) -> Element<'_, Msg> {
+        let header = column![
+            text("Stacking").size(TEXT_BASE).color(FG),
+            text("Group near-identical frames shot seconds apart into one stack, inferred from pixels.")
+                .size(TEXT_SM)
+                .color(FG_DIM),
+        ]
+        .spacing(SPACE_0_5);
+
+        let mut col = column![header].spacing(SPACE_2).width(Length::Fill);
+
+        col = col.push(self.toggle_row(
+            "Auto-stack near-duplicates",
+            "Stack as thumbnails are generated and after each sync.",
+            self.app_settings.auto_stack,
+            Msg::ToggleAutoStack,
+        ));
+        col = col.push(self.labeled_input(
+            "Similarity threshold (lower = stricter, 0–64)",
+            &self.app_settings.stack_threshold.to_string(),
+            Msg::StackThresholdChanged,
+        ));
+        col = col.push(self.labeled_input(
+            "Max gap between frames (seconds)",
+            &self.app_settings.stack_window_secs.to_string(),
+            Msg::StackWindowChanged,
+        ));
+
+        let s = &self.stack_stats;
+        let stats_line = if self.stacking_in_flight {
+            "Stacking…".to_string()
+        } else if s.hashed == 0 {
+            "Not yet stacked — run a sync or press Re-stack now.".to_string()
+        } else if s.stacks == 0 {
+            format!("{} frames hashed · no near-duplicate stacks", s.hashed)
+        } else {
+            format!(
+                "{} frames hashed · {} stack{} across {} frames",
+                s.hashed,
+                s.stacks,
+                if s.stacks == 1 { "" } else { "s" },
+                s.stacked_frames,
+            )
+        };
+        col = col.push(text(stats_line).size(TEXT_SM).color(FG_DIM));
+
+        // Disabled (no on_press) while a pass is running, so the button doubles
+        // as an in-flight indicator.
+        let restack_btn = if self.stacking_in_flight {
+            button(text("Stacking…").size(TEXT_MD)).style(ghost_btn_style)
+        } else {
+            button(text("Re-stack now").size(TEXT_MD))
+                .on_press(Msg::RestackNow)
+                .style(ghost_btn_style)
+        };
+        col = col.push(restack_btn);
+
+        col.into()
+    }
+
+    /// Scene grouping: cluster whole-image embeddings into looser "same scene /
+    /// several tries" groups for Review Scenes (⇧R). A different axis from
+    /// stacks — content similarity, not near-identical pixels.
+    fn scene_section(&self) -> Element<'_, Msg> {
+        let header = column![
+            text("Scene grouping").size(TEXT_BASE).color(FG),
+            text("Group looser \"same scene / several tries at one shot\" frames for Review Scenes (⇧R), from image content.")
+                .size(TEXT_SM)
+                .color(FG_DIM),
+        ]
+        .spacing(SPACE_0_5);
+
+        let mut col = column![header].spacing(SPACE_2).width(Length::Fill);
+
+        col = col.push(self.toggle_row(
+            "Auto-embed scenes",
+            "Compute scene embeddings as thumbnails are generated and after each sync.",
+            self.app_settings.auto_scene_embed,
+            Msg::ToggleAutoSceneEmbed,
+        ));
+        col = col.push(self.labeled_input(
+            "Grouping looseness (0–1, higher groups more)",
+            &self.app_settings.scene_eps.to_string(),
+            Msg::SceneEpsChanged,
+        ));
+        col = col.push(self.labeled_input(
+            "Min neighbours to form a scene (1 allows pairs)",
+            &self.app_settings.scene_min_pts.to_string(),
+            Msg::SceneMinPtsChanged,
+        ));
+
+        col = col.push(
+            text(format!("{} frames embedded", self.scene_embed_count)).size(TEXT_SM).color(FG_DIM),
+        );
+
+        col.into()
+    }
+
+    /// Inference-engine settings: Auto (managed local) vs a custom URL, the
+    /// managed port, and the people-clustering knobs (eps / min faces).
+    fn inference_engine_section(&self) -> Element<'_, Msg> {
+        let custom = self.app_settings.inference_custom_url.is_some();
+
+        let header = column![
+            text("Face inference engine").size(TEXT_BASE).color(FG),
+            text("Where face detection runs. Auto manages a local engine; Custom URL points at a self-hosted one.")
+                .size(TEXT_SM)
+                .color(FG_DIM),
+        ]
+        .spacing(SPACE_0_5);
+
+        let mode_chips = row![
+            button(text("Auto").size(TEXT_MD))
+                .on_press_maybe(custom.then_some(Msg::ToggleInferenceCustom))
+                .style(if custom { ghost_btn_style } else { active_chip_style }),
+            button(text("Custom URL").size(TEXT_MD))
+                .on_press_maybe((!custom).then_some(Msg::ToggleInferenceCustom))
+                .style(if custom { active_chip_style } else { ghost_btn_style }),
+        ]
+        .spacing(SPACE_1_5);
+
+        let mut col = column![header, mode_chips].spacing(SPACE_2).width(Length::Fill);
+
+        if custom {
+            let url = self.app_settings.inference_custom_url.clone().unwrap_or_default();
+            col = col.push(
+                text_input("http://127.0.0.1:45876", &url)
+                    .on_input(Msg::InferenceUrlChanged)
+                    .size(TEXT_MD)
+                    .padding(SPACE_1_5),
+            );
+        } else {
+            col = col.push(self.labeled_input(
+                "Port",
+                &self.app_settings.inference_port.to_string(),
+                Msg::InferencePortChanged,
+            ));
+        }
+
+        col = col.push(self.labeled_input(
+            "Sensitivity (lower = stricter, 0.05–2.0)",
+            &format!("{:.2}", self.app_settings.face_eps),
+            Msg::FaceEpsChanged,
+        ));
+        col = col.push(self.labeled_input(
+            "Min faces per person",
+            &self.app_settings.face_min_pts.to_string(),
+            Msg::FaceMinPtsChanged,
+        ));
+
+        col.into()
+    }
+
+    fn labeled_input<'a>(
+        &self,
+        label: &str,
+        value: &str,
+        on_input: impl Fn(String) -> Msg + 'a,
+    ) -> Element<'a, Msg> {
+        row![
+            text(label.to_string()).size(TEXT_SM).color(FG_DIM).width(Length::FillPortion(2)),
+            text_input("", value)
+                .on_input(on_input)
+                .size(TEXT_MD)
+                .padding(SPACE_1)
+                .width(Length::FillPortion(1)),
+        ]
+        .align_y(Alignment::Center)
+        .spacing(SPACE_2)
+        .into()
+    }
+
+    fn toggle_row<'a>(
+        &self,
+        label: &str,
+        help: &str,
+        on: bool,
+        msg: Msg,
+    ) -> Element<'a, Msg> {
+        let glyph = if on { "●" } else { "○" };
+        let tint = if on { ACCENT } else { FG_DIM };
+        row![
+            mouse_area(
+                row![
+                    text(glyph.to_string()).size(TEXT_LG).color(tint),
+                    column![
+                        text(label.to_string()).size(TEXT_BASE).color(FG),
+                        text(help.to_string()).size(TEXT_SM).color(FG_DIM),
+                    ]
+                    .spacing(SPACE_0_5),
+                ]
+                .spacing(SPACE_2)
+                .align_y(Alignment::Center),
+            )
+            .on_press(msg)
+            .interaction(iced::mouse::Interaction::Pointer),
+        ]
+        .into()
+    }
+
+    fn settings_extensions_pane(&self) -> Element<'_, Msg> {
+        let install_btn = row![
+            button(text("Install from file…").size(TEXT_BASE))
+                .on_press(Msg::InstallExtensionPickFile)
+                .style(ghost_btn_style),
+            Space::new().width(Length::Fill),
+            text(format!(
+                "{} installed",
+                self.inference_manifest.is_some() as usize
+            ))
+            .size(TEXT_SM)
+            .color(FG_DIM),
+        ]
+        .align_y(Alignment::Center)
+        .spacing(SPACE_2);
+
+        let mut body = column![
+            install_btn,
+            Space::new().height(SPACE_3),
+        ]
+        .spacing(0)
+        .width(Length::Fill);
+
+        if self.inference_manifest.is_none() {
+            body = body.push(
+                container(
+                    text("No extensions installed. Click \"Install from file…\" above to add one.")
+                        .size(TEXT_MD)
+                        .color(FG_MUTED),
+                )
+                .padding(SPACE_3),
+            );
+        }
+
+        // The inference engine isn't an IEP process (not in self.extensions), so
+        // render it from its manifest: identity, model_variant config, Remove.
+        if let Some(engine) = &self.inference_manifest {
+            let name = engine.name.clone();
+            body = body.push(
+                row![
+                    column![
+                        row![
+                            text(name.clone()).size(TEXT_BASE).color(FG),
+                            text("inference engine").size(TEXT_SM).color(ACCENT),
+                        ]
+                        .spacing(SPACE_1_5),
+                        text(engine.description.clone()).size(TEXT_SM).color(FG_DIM),
+                    ]
+                    .spacing(SPACE_0_5),
+                    Space::new().width(Length::Fill),
+                    button(text("Remove").size(TEXT_SM))
+                        .on_press(Msg::UninstallExtension(name.clone()))
+                        .style(danger_btn_style),
+                ]
+                .align_y(Alignment::Center)
+                .spacing(SPACE_2),
+            );
+
+            let empty_map = std::collections::HashMap::new();
+            let field_values = self.settings.extension_configs.get(&name).unwrap_or(&empty_map);
+            for field in &engine.config_schema {
+                use isomfolio_core::extension::ConfigFieldKind;
+                if !matches!(field.kind, ConfigFieldKind::Select) {
+                    continue;
+                }
+                let current = field_values.get(&field.key).cloned()
+                    .or_else(|| field.default.clone())
+                    .unwrap_or_default();
+                body = body.push(Space::new().height(SPACE_2));
+                body = body.push(text(&field.label).size(TEXT_MD).color(FG_DIM));
+                body = body.push(Space::new().height(SPACE_1_5));
+                let mut option_row = row![].spacing(SPACE_1_5);
+                for opt in &field.options {
+                    let selected = current == *opt;
+                    let opt_val = opt.clone();
+                    let k = field.key.clone();
+                    let an = name.clone();
+                    option_row = option_row.push(
+                        button(text(opt.as_str()).size(TEXT_MD))
+                            .on_press(Msg::SettingsConfigChanged {
+                                extension_name: an,
+                                key: k,
+                                value: opt_val,
+                            })
+                            .style(move |t: &Theme, st| {
+                                if selected { active_chip_style(t, st) } else { ghost_btn_style(t, st) }
+                            }),
+                    );
+                }
+                body = body.push(option_row);
+            }
+            body = body.push(Space::new().height(SPACE_3));
+        }
+
+        body.into()
+    }
+}
