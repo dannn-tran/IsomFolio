@@ -6,7 +6,7 @@ use isomfolio_core::indexing::thumbnail::thumbnail_cache_path;
 use isomfolio_core::models::{AssetFile, Flag, SearchQuery};
 use isomfolio_core::phash;
 
-use super::navigation::decode_image_for_display;
+use super::loupe_load::decode_image_for_display;
 use super::LockUnwrap;
 use super::super::{App, Msg, ResolveState, SidebarItem, StackReview, UndoOp, ViewMode};
 
