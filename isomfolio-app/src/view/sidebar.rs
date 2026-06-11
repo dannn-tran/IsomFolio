@@ -21,6 +21,11 @@ use super::sidebar_rows::{CHEVRON_W, create_album_input_row, create_group_input_
 /// How many recent import batches the sidebar shows before "Show all".
 const IMPORTS_COLLAPSED: usize = 10;
 
+/// Maximum group-nesting depth the sidebar will render. Real trees never approach
+/// this (the catalog rejects cycles); it's a guard so malformed parent_id data
+/// degrades instead of overflowing the stack via unbounded recursion.
+const MAX_GROUP_NEST: usize = 64;
+
 /// A section-collapse chevron, shown at the *trailing* (right) edge of a section
 /// header — the disclosure convention (▾ expanded / ▸ collapsed). Kept off the
 /// leading edge so every section's icon shares one column with the nav-row icons.
@@ -407,12 +412,18 @@ impl App {
 
         let mut block = column![header];
         if !self.collapsed_groups.contains(&group.id) {
-            for child in self
-                .groups
-                .iter()
-                .filter(|g| g.parent_id.as_deref() == Some(group.id.as_str()))
-            {
-                block = block.push(self.render_group_block(child, drag_hover, max_chars, depth + 1));
+            // Stop descending past a sane nesting depth. The catalog's cycle guard
+            // makes a real tree finite, but a malformed (externally edited) DB with
+            // a parent_id loop would otherwise recurse until the stack overflows;
+            // cap it so bad data degrades instead of crashing.
+            if depth < MAX_GROUP_NEST {
+                for child in self
+                    .groups
+                    .iter()
+                    .filter(|g| g.parent_id.as_deref() == Some(group.id.as_str()))
+                {
+                    block = block.push(self.render_group_block(child, drag_hover, max_chars, depth + 1));
+                }
             }
             // A new group being created inside this one: its inline input nests
             // among the child groups, indented one level deeper.

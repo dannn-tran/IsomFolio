@@ -239,7 +239,7 @@ impl App {
                 // Reject cycles up front from the in-memory tree (the catalog
                 // guards too, as defense-in-depth) so the status reads as user
                 // feedback, not a DB error, and the tree is left untouched.
-                if self.group_move_would_cycle(&group_id, parent_id.as_deref()) {
+                if move_would_cycle(&self.groups, &group_id, parent_id.as_deref()) {
                     self.status =
                         format!("Can't nest \u{201C}{name}\u{201D} there — a group can't go inside itself");
                     return Task::none();
@@ -276,24 +276,31 @@ impl App {
         }
     }
 
-    /// True if filing `group_id` under `parent_id` would form a cycle — i.e.
-    /// `parent` is the group itself or sits within its subtree. Walks up the
-    /// in-memory parent chain from `parent`; hitting `group_id` means the group
-    /// is an ancestor of the proposed parent, so the move must be rejected.
-    fn group_move_would_cycle(&self, group_id: &str, parent_id: Option<&str>) -> bool {
-        let mut cur = parent_id;
-        while let Some(c) = cur {
-            if c == group_id {
-                return true;
-            }
-            cur = self
-                .groups
-                .iter()
-                .find(|g| g.id == c)
-                .and_then(|g| g.parent_id.as_deref());
+}
+
+/// True if filing `group_id` under `parent_id` would form a cycle — i.e. `parent`
+/// is the group itself or sits within its subtree. Walks up the in-memory parent
+/// chain from `parent`; hitting `group_id` means the group is an ancestor of the
+/// proposed parent, so the move must be rejected. Mirrors the catalog's
+/// `group_is_descendant` CTE as the user-facing pre-check. A bounded walk: the
+/// chain length is capped by the group count, so even a malformed (cyclic) tree
+/// terminates instead of looping forever.
+fn move_would_cycle(groups: &[Group], group_id: &str, parent_id: Option<&str>) -> bool {
+    let mut cur = parent_id;
+    let mut steps = 0;
+    while let Some(c) = cur {
+        if c == group_id {
+            return true;
         }
-        false
+        steps += 1;
+        if steps > groups.len() {
+            // More hops than groups means the data already contains a cycle that
+            // doesn't pass through `group_id`; stop rather than spin.
+            return true;
+        }
+        cur = groups.iter().find(|g| g.id == c).and_then(|g| g.parent_id.as_deref());
     }
+    false
 }
 
 fn new_group_id() -> String {
@@ -304,4 +311,57 @@ fn new_group_id() -> String {
         .unwrap_or_default()
         .as_nanos();
     format!("grp-{nanos:x}-{seq:x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod move_would_cycle_fn {
+        use super::*;
+
+        fn g(id: &str, parent: Option<&str>) -> Group {
+            Group { id: id.into(), name: id.into(), sort_order: 0, parent_id: parent.map(Into::into) }
+        }
+
+        // Tree: a → b → c (c child of b, b child of a), plus sibling d.
+        fn tree() -> Vec<Group> {
+            vec![g("a", None), g("b", Some("a")), g("c", Some("b")), g("d", None)]
+        }
+
+        #[test]
+        fn nesting_a_group_under_itself_is_a_cycle() {
+            assert!(move_would_cycle(&tree(), "a", Some("a")));
+        }
+
+        #[test]
+        fn nesting_a_group_under_its_direct_child_is_a_cycle() {
+            assert!(move_would_cycle(&tree(), "a", Some("b")));
+        }
+
+        #[test]
+        fn nesting_a_group_under_a_deeper_descendant_is_a_cycle() {
+            assert!(move_would_cycle(&tree(), "a", Some("c")));
+        }
+
+        #[test]
+        fn nesting_under_a_non_descendant_is_allowed() {
+            assert!(!move_would_cycle(&tree(), "a", Some("d")));
+            // Filing a leaf under another branch is fine.
+            assert!(!move_would_cycle(&tree(), "c", Some("d")));
+        }
+
+        #[test]
+        fn moving_to_the_top_level_is_never_a_cycle() {
+            assert!(!move_would_cycle(&tree(), "c", None));
+        }
+
+        #[test]
+        fn malformed_cyclic_data_terminates_instead_of_looping() {
+            // x ↔ y point at each other; the move doesn't pass through `c`, but the
+            // walk must still stop (bounded by group count).
+            let groups = vec![g("x", Some("y")), g("y", Some("x")), g("c", None)];
+            assert!(move_would_cycle(&groups, "c", Some("x")));
+        }
+    }
 }
