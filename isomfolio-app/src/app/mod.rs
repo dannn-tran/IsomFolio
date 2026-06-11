@@ -519,7 +519,8 @@ pub enum SurfaceLayout {
     Grid,
     /// One large preview of the focused item + a thumbnail filmstrip.
     Strip,
-    // `Full` (full-bleed + OS fullscreen) lands with the Browse-surface step.
+    /// The focused item full-bleed (loupe / fullscreen one-up).
+    Full,
 }
 
 /// State for the resolve-stacks view — a guided, full-bleed pass through every

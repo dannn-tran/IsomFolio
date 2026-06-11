@@ -491,6 +491,9 @@ pub enum Msg {
     ResolveConfirm,
     /// Reset the current stack's keepers to the auto-picked (sharpest) frame.
     ResolveResetAuto,
+    /// Switch the Browse surface layout — maps Grid/Strip/Full onto the
+    /// Browse / Preview / Loupe modes from the toolbar switcher.
+    SetBrowseLayout(crate::app::SurfaceLayout),
     /// Switch the Sift layout (Grid / Strip / Full) and pin the choice.
     SiftSetLayout(crate::app::SurfaceLayout),
     /// Focus a frame within the current group (filmstrip click / arrow keys).

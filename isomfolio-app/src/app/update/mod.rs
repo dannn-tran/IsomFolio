@@ -180,6 +180,7 @@ impl App {
             | Msg::ToggleLoupeZoomLock
             | Msg::LoupeJumpTo(_)
             | Msg::TogglePreview
+            | Msg::SetBrowseLayout(_)
             | Msg::LoupeFullResLoaded { .. }
             | Msg::LoupeFullResFailed { .. }
             | Msg::OpenPrivacySettings

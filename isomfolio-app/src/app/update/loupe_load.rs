@@ -268,6 +268,28 @@ impl App {
                 Task::none()
             }
 
+            Msg::SetBrowseLayout(layout) => {
+                use crate::app::SurfaceLayout as SL;
+                match (layout, &self.view_mode) {
+                    (SL::Grid, ViewMode::Loupe) => self.exit_loupe_to_grid(),
+                    (SL::Grid, ViewMode::Preview) => {
+                        self.view_mode = ViewMode::Browse;
+                        self.loupe = LoupeState::default();
+                        Task::none()
+                    }
+                    // Loupe → Strip keeps the focused index, just swaps the chrome.
+                    (SL::Strip, ViewMode::Loupe) => {
+                        self.view_mode = ViewMode::Preview;
+                        Task::none()
+                    }
+                    (SL::Strip, ViewMode::Browse) => self.handle_loupe_msg(Msg::TogglePreview),
+                    (SL::Full, m) if !matches!(m, ViewMode::Loupe) => {
+                        self.handle_loupe_msg(Msg::OpenLoupe)
+                    }
+                    _ => Task::none(),
+                }
+            }
+
             Msg::TogglePreview => {
                 match self.view_mode {
                     ViewMode::Preview => {
@@ -530,6 +552,34 @@ mod tests {
             if denied {
                 assert!(err.permission, "expected permission flag, got: {}", err.message);
             }
+        }
+    }
+
+    mod browse_layout_switch {
+        use crate::app::{App, Msg, SurfaceLayout, ViewMode};
+
+        #[test]
+        fn strip_to_grid_returns_to_browse() {
+            let mut app = App::new(None).0;
+            app.view_mode = ViewMode::Preview;
+            let _ = app.update(Msg::SetBrowseLayout(SurfaceLayout::Grid));
+            assert!(matches!(app.view_mode, ViewMode::Browse));
+        }
+
+        #[test]
+        fn full_to_strip_becomes_preview() {
+            let mut app = App::new(None).0;
+            app.view_mode = ViewMode::Loupe;
+            let _ = app.update(Msg::SetBrowseLayout(SurfaceLayout::Strip));
+            assert!(matches!(app.view_mode, ViewMode::Preview));
+        }
+
+        #[test]
+        fn selecting_current_layout_is_noop() {
+            let mut app = App::new(None).0;
+            app.view_mode = ViewMode::Loupe;
+            let _ = app.update(Msg::SetBrowseLayout(SurfaceLayout::Full));
+            assert!(matches!(app.view_mode, ViewMode::Loupe));
         }
     }
 }

@@ -28,8 +28,8 @@ use super::styles::{
 };
 use crate::app::{
     format_file_size, sort_field_label, unix_to_date_str, App, GridLayout, ListCol, Msg,
-    DetailField, BUFFER_ROWS, GRID_PADDING, LIST_HEADER_HEIGHT, LIST_ROW_HEIGHT, TILE_GAP,
-    TILE_SIZE_MAX, TILE_SIZE_MIN,
+    DetailField, SurfaceLayout, ViewMode, BUFFER_ROWS, GRID_PADDING, LIST_HEADER_HEIGHT,
+    LIST_ROW_HEIGHT, TILE_GAP, TILE_SIZE_MAX, TILE_SIZE_MIN,
 };
 
 // Fixed (non-resizable) glyph columns for the List layout. The resizable
@@ -42,6 +42,30 @@ const LIST_COL_COLOR: f32 = 16.0;
 const LIST_HANDLE_W: f32 = 6.0;
 
 impl App {
+    /// One button of the Browse layout switcher; the active layout reads as filled.
+    fn browse_layout_btn(
+        &self,
+        label: &'static str,
+        layout: SurfaceLayout,
+        active: SurfaceLayout,
+    ) -> Element<'_, Msg> {
+        let is_active = layout == active;
+        let tip = match layout {
+            SurfaceLayout::Grid => "Grid — all photos as tiles",
+            SurfaceLayout::Strip => "Strip — big preview over a filmstrip",
+            SurfaceLayout::Full => "Full — loupe one-up",
+        };
+        super::styles::tip(
+            button(text(label).size(TEXT_MD))
+                .on_press(Msg::SetBrowseLayout(layout))
+                .style(move |t: &Theme, s| {
+                    if is_active { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+                }),
+            tip,
+            super::styles::TipPos::Bottom,
+        )
+    }
+
     pub(super) fn view_grid(&self) -> Element<'_, Msg> {
         let is_list = matches!(self.grid_layout, GridLayout::List);
 
@@ -131,6 +155,21 @@ impl App {
             Space::new().width(0.0).into()
         };
 
+        // One shared layout switcher across the Browse surface: Grid (this view),
+        // Strip (preview + filmstrip), Full (loupe one-up). The same vocabulary Sift
+        // uses, so "how photos are arranged" is one control everywhere.
+        let active_surface = match self.view_mode {
+            ViewMode::Preview => SurfaceLayout::Strip,
+            ViewMode::Loupe => SurfaceLayout::Full,
+            _ => SurfaceLayout::Grid,
+        };
+        let surface_switch = row![
+            self.browse_layout_btn("▦", SurfaceLayout::Grid, active_surface),
+            self.browse_layout_btn("▭", SurfaceLayout::Strip, active_surface),
+            self.browse_layout_btn("⛶", SurfaceLayout::Full, active_surface),
+        ]
+        .spacing(SPACE_1);
+
         let toolbar_row = row![
             sift_entry,
             super::styles::tip(
@@ -152,6 +191,7 @@ impl App {
             ),
             filter_indicator,
             Space::new().width(Length::Fill),
+            surface_switch,
             size_control,
             layout_toggle,
             text("Sort").size(TEXT_MD).color(FG_DIM),

@@ -52,7 +52,8 @@ impl App {
 
         let body = match self.resolve.layout {
             SurfaceLayout::Grid => self.sift_grid_body(stack_review),
-            SurfaceLayout::Strip => self.sift_strip_body(stack_review),
+            // Sift offers Grid/Strip; Full is a Browse-only (loupe) layout.
+            SurfaceLayout::Strip | SurfaceLayout::Full => self.sift_strip_body(stack_review),
         };
 
         let mut left = row![].spacing(SPACE_2).align_y(Alignment::Center);
