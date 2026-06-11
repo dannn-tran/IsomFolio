@@ -330,6 +330,9 @@ impl App {
                     .map(|a| a.name.clone())
                     .unwrap_or_default();
                 self.status = format!("Removed {count} photo(s) from \"{name}\"");
+                // Re-select the neighbour that slides into the first removed slot
+                // after the reload (parity with delete; see soft_set_deleted).
+                self.pending_restore_idx = self.files.iter().position(|f| ids.contains(&f.id));
                 self.grid_selected.clear();
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();

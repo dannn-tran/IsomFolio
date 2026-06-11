@@ -654,6 +654,12 @@ impl App {
     /// and reload. `deleted = true` moves to the Deleted view; `false` restores.
     fn soft_set_deleted(&mut self, ids: Vec<String>, deleted: bool) -> Task<Msg> {
         let count = ids.len();
+        // Grid: after the reload, re-select the photo that slides into the first
+        // removed slot (loupe handles its own advance via `loupe_resync`). Without
+        // this, delete leaves nothing selected and a stale anchor.
+        if !matches!(self.view_mode, ViewMode::Loupe) {
+            self.pending_restore_idx = self.files.iter().position(|f| ids.contains(&f.id));
+        }
         self.grid_selected.clear();
         self.status = if deleted {
             // First-ever soft-delete: spell out that this is virtual and the files

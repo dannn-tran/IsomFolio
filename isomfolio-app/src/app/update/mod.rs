@@ -687,7 +687,12 @@ impl App {
                     None
                 };
                 let restore = self.pending_restore_idx.take().and_then(|idx| {
-                    (idx < self.files.len()).then(|| {
+                    // Clamp instead of dropping: deleting the last photo (or returning
+                    // to a now-shorter view) should still land on the neighbour that
+                    // slid into place — matches Finder/Lightroom/Photos selecting the
+                    // next item, or the previous one when the last was removed.
+                    (!self.files.is_empty()).then(|| {
+                        let idx = idx.min(self.files.len() - 1);
                         self.anchor_idx = Some(idx);
                         self.select_lead = Some(idx);
                         self.grid_selected.clear();
