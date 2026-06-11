@@ -292,8 +292,10 @@ fn build_scene_review(
         .map(|group| {
             // group is sharpest-first; rep is its head.
             let frames: Vec<_> = group.iter().map(|&i| kept[i].clone()).collect();
+            let frame_sharpness: Vec<f64> =
+                frames.iter().map(|f| sharpness.get(&f.id).copied().unwrap_or(0.0)).collect();
             let rep_id = frames.first().map(|f| f.id.clone()).unwrap_or_default();
-            StackReview { frames, rep_id }
+            StackReview { frames, sharpness: frame_sharpness, rep_id }
         })
         .collect()
 }

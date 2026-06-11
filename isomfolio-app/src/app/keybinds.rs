@@ -107,9 +107,9 @@ pub fn default_bindings() -> Vec<KeyBind> {
 
         // Compare
         KeyBind { key: Char("c"), mods: Mods::NONE, when_ignored: true, action: || Msg::OpenCompare, label: "Compare (2 selected)", category: View },
-        KeyBind { key: Char("r"), mods: Mods::NONE, when_ignored: true, action: || Msg::OpenResolveStacks, label: "Review Stacks", category: View },
-        KeyBind { key: Char("r"), mods: Mods::SHIFT, when_ignored: true, action: || Msg::OpenResolveScenes, label: "Review Scenes", category: View },
-        KeyBind { key: Named(Named::Enter), mods: Mods::NONE, when_ignored: true, action: || Msg::ResolveConfirm, label: "Keep & Next (in Review)", category: View },
+        KeyBind { key: Char("r"), mods: Mods::NONE, when_ignored: true, action: || Msg::OpenResolveStacks, label: "Sift Bursts", category: View },
+        KeyBind { key: Char("r"), mods: Mods::SHIFT, when_ignored: true, action: || Msg::OpenResolveScenes, label: "Sift Scenes", category: View },
+        KeyBind { key: Named(Named::Enter), mods: Mods::NONE, when_ignored: true, action: || Msg::ResolveConfirm, label: "Keep & Next (in Sift)", category: View },
 
         // Tagging
         KeyBind { key: Char("t"), mods: Mods::NONE, when_ignored: true, action: || Msg::FocusTagInput, label: "Add Tag (focus entry)", category: Tagging },

@@ -117,7 +117,22 @@ impl App {
             Space::new().width(0.0).into()
         };
 
+        // Discoverable entry to Sift: a call-to-action chip that appears only when
+        // there are similar-shot groups to review. Opens the guided pass (also `R`).
+        let sift_entry: Element<Msg> = if self.stack_stats.stacks > 0 {
+            super::styles::tip(
+                button(text(format!("Sift ({})", self.stack_stats.stacks)).size(TEXT_MD))
+                    .on_press(Msg::OpenResolveStacks)
+                    .style(active_chip_style),
+                "Sift similar shots down to the keeper · press R",
+                super::styles::TipPos::Bottom,
+            )
+        } else {
+            Space::new().width(0.0).into()
+        };
+
         let toolbar_row = row![
+            sift_entry,
             super::styles::tip(
                 button(
                     text(if self.stack_stats.stacks > 0 {
@@ -132,7 +147,7 @@ impl App {
                     let on = self.collapse_bursts;
                     move |t: &Theme, s| if on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
                 }),
-                "Collapse near-duplicate stacks to one tile · press R to review them",
+                "Collapse near-duplicate stacks to one tile in the grid",
                 super::styles::TipPos::Bottom,
             ),
             filter_indicator,

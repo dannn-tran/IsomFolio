@@ -107,6 +107,7 @@ impl App {
                 if !self.resolve.keepers.remove(&id) {
                     self.resolve.keepers.insert(id);
                 }
+                self.commit_keepers();
                 Task::none()
             }
 
@@ -185,15 +186,28 @@ impl App {
         )
     }
 
-    /// Show stack `i`: reset keepers to its sharpest frame and kick off a full-res
-    /// decode for each frame. Exits the mode if `i` is past the end.
+    /// Mirror the live keeper set into the per-group store, so navigating away and
+    /// back restores it. Called after every keeper edit.
+    fn commit_keepers(&mut self) {
+        let idx = self.resolve.idx;
+        self.resolve.decisions.insert(idx, self.resolve.keepers.clone());
+    }
+
+    /// Show stack `i`: restore its saved keeper decision (or default to the sharpest
+    /// frame on first visit) and kick off a full-res decode for each frame. Exits
+    /// the mode if `i` is past the end.
     pub(crate) fn enter_resolve_stack(&mut self, i: usize) -> Task<Msg> {
         let Some(stack) = self.resolve.stacks.get(i) else {
             return self.exit_resolve(true);
         };
         self.resolve.idx = i;
         self.resolve.handles.clear();
-        self.resolve.keepers = std::iter::once(stack.rep_id.clone()).collect();
+        self.resolve.keepers = self
+            .resolve
+            .decisions
+            .get(&i)
+            .cloned()
+            .unwrap_or_else(|| std::iter::once(stack.rep_id.clone()).collect());
         let tasks: Vec<Task<Msg>> = stack
             .frames
             .iter()
@@ -239,6 +253,7 @@ impl App {
                 if !self.resolve.keepers.remove(&id) {
                     self.resolve.keepers.insert(id);
                 }
+                self.commit_keepers();
             }
         }
         Task::none()
@@ -248,6 +263,7 @@ impl App {
     pub(super) fn resolve_reset_auto(&mut self) -> Task<Msg> {
         if let Some(stack) = self.resolve.stacks.get(self.resolve.idx) {
             self.resolve.keepers = std::iter::once(stack.rep_id.clone()).collect();
+            self.commit_keepers();
         }
         Task::none()
     }
@@ -256,15 +272,17 @@ impl App {
     /// then advance. The flag write runs off-thread; when it's the *last* stack we
     /// chain the exit reload onto it so the grid reflects the final write.
     fn apply_resolve_and_advance(&mut self) -> Task<Msg> {
-        let Some(stack) = self.resolve.stacks.get(self.resolve.idx) else {
+        if self.resolve.idx >= self.resolve.stacks.len() {
             return Task::none();
-        };
+        }
         // Keeping nothing would silently reject the whole stack — almost never the
         // intent. Treat it as a skip and nudge the user, rather than blow it away.
         if self.resolve.keepers.is_empty() {
             self.status = "Nothing kept — skipped (pick at least one frame to keep)".to_string();
             return self.advance_resolve(self.resolve.idx + 1);
         }
+        self.commit_keepers();
+        let stack = &self.resolve.stacks[self.resolve.idx];
         let keepers = self.resolve.keepers.clone();
         let picks: Vec<String> = stack
             .frames
@@ -445,16 +463,17 @@ fn group_stacks_for_review(
             if frames.len() < 2 {
                 return None;
             }
+            let sharpness: Vec<f64> = frames
+                .iter()
+                .map(|f| membership.get(&f.id).map(|(_, s)| *s).unwrap_or(0.0))
+                .collect();
             let rep_id = frames
                 .iter()
-                .max_by(|a, b| {
-                    let sa = membership.get(&a.id).map(|(_, s)| *s).unwrap_or(0.0);
-                    let sb = membership.get(&b.id).map(|(_, s)| *s).unwrap_or(0.0);
-                    sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .map(|f| f.id.clone())
+                .zip(&sharpness)
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(f, _)| f.id.clone())
                 .unwrap_or_default();
-            Some(StackReview { frames, rep_id })
+            Some(StackReview { frames, sharpness, rep_id })
         })
         .collect()
 }
@@ -528,7 +547,11 @@ mod tests {
             let mut app = App::new(None).0;
             let frames = vec![file("f1"), file("f2"), file("f3")];
             app.resolve = ResolveState {
-                stacks: vec![StackReview { frames, rep_id: "f2".to_string() }],
+                stacks: vec![StackReview {
+                    frames,
+                    sharpness: vec![1.0, 3.0, 2.0],
+                    rep_id: "f2".to_string(),
+                }],
                 idx: 0,
                 keepers: std::iter::once("f2".to_string()).collect(),
                 ..Default::default()
@@ -571,6 +594,78 @@ mod tests {
             assert!(app.in_resolve());
             app.view_mode = ViewMode::Browse;
             assert!(!app.in_resolve());
+        }
+
+        fn two_stack_app() -> App {
+            let mut app = App::new(None).0;
+            app.resolve = ResolveState {
+                stacks: vec![
+                    StackReview {
+                        frames: vec![file("a1"), file("a2")],
+                        sharpness: vec![5.0, 1.0],
+                        rep_id: "a1".to_string(),
+                    },
+                    StackReview {
+                        frames: vec![file("b1"), file("b2")],
+                        sharpness: vec![2.0, 8.0],
+                        rep_id: "b2".to_string(),
+                    },
+                ],
+                idx: 0,
+                keepers: std::iter::once("a1".to_string()).collect(),
+                ..Default::default()
+            };
+            app.view_mode = ViewMode::ResolveStacks;
+            app
+        }
+
+        #[test]
+        fn decision_survives_navigation_away_and_back() {
+            let mut app = two_stack_app();
+            // Override the auto-pick on stack 0: keep a2 as well.
+            let _ = app.resolve_toggle_frame(2);
+            let stack0 = app.resolve.keepers.clone();
+            assert!(stack0.contains("a1") && stack0.contains("a2"));
+            // Move to stack 1 (its own default), then back to stack 0.
+            let _ = app.enter_resolve_stack(1);
+            assert_eq!(app.resolve.keepers, std::iter::once("b2".to_string()).collect());
+            let _ = app.enter_resolve_stack(0);
+            assert_eq!(app.resolve.keepers, stack0, "stack 0 choice must be restored");
+        }
+
+        #[test]
+        fn fresh_group_defaults_to_the_sharpest() {
+            let mut app = two_stack_app();
+            // Never visited stack 1; entering it should default to its rep (b2).
+            let _ = app.enter_resolve_stack(1);
+            assert_eq!(app.resolve.keepers, std::iter::once("b2".to_string()).collect());
+        }
+    }
+
+    mod sharpness_rank {
+        use super::*;
+
+        #[test]
+        fn ranks_one_for_sharpest_descending() {
+            let s = StackReview {
+                frames: vec![file("f0"), file("f1"), file("f2")],
+                sharpness: vec![1.0, 3.0, 2.0],
+                rep_id: "f1".to_string(),
+            };
+            assert_eq!(s.sharpness_rank(0), 3);
+            assert_eq!(s.sharpness_rank(1), 1);
+            assert_eq!(s.sharpness_rank(2), 2);
+        }
+
+        #[test]
+        fn ties_get_distinct_stable_ranks() {
+            let s = StackReview {
+                frames: vec![file("f0"), file("f1")],
+                sharpness: vec![4.0, 4.0],
+                rep_id: "f0".to_string(),
+            };
+            assert_eq!(s.sharpness_rank(0), 1);
+            assert_eq!(s.sharpness_rank(1), 2);
         }
     }
 }

@@ -29,17 +29,13 @@ impl App {
             row![
                 icon_btn("✕", Msg::EscapePressed),
                 Space::new().width(Length::Fill),
-                text(if self.resolve.scenes { "Review Scenes" } else { "Review Stacks" })
+                text(if self.resolve.scenes { "Sift · Scenes" } else { "Sift · Bursts" })
                     .size(TEXT_BASE)
                     .color(FG),
                 Space::new().width(Length::Fill),
-                text(format!(
-                    "{} {} of {total}",
-                    if self.resolve.scenes { "Scene" } else { "Stack" },
-                    self.resolve.idx + 1
-                ))
-                .size(TEXT_MD)
-                .color(FG_DIM),
+                text(format!("Group {} of {total}", self.resolve.idx + 1))
+                    .size(TEXT_MD)
+                    .color(FG_DIM),
             ]
             .spacing(SPACE_2_5)
             .align_y(Alignment::Center),
@@ -63,7 +59,7 @@ impl App {
                 .width(Length::Fill)
                 .height(Length::FillPortion(1));
             for (i, f) in chunk {
-                r = r.push(self.resolve_frame(*i, f, f.id == stack_review.rep_id));
+                r = r.push(self.resolve_frame(*i, f, stack_review.sharpness_rank(*i)));
             }
             // Pad a short final row so its cells keep the same width as full rows.
             for _ in chunk.len()..cols {
@@ -129,15 +125,15 @@ impl App {
     }
 
     /// One reviewable frame: large image, click to toggle keeper. A kept frame
-    /// gets an `ACCENT` ring + "✓ Keep" badge; a reject is dimmed. The auto-picked
-    /// (sharpest) frame carries a persistent marker so its suggestion is always
-    /// legible — even after the user overrides it. The filename sits in a caption
-    /// *below* the image, never overlaying it.
+    /// gets an `ACCENT` ring + "✓ Keep" badge; a reject is dimmed. Every frame shows
+    /// its sharpness `rank` (1 = sharpest, the auto-pick), so overriding the default
+    /// keeper is informed — you can see which of the rest is next-sharpest. The
+    /// filename sits in a caption *below* the image, never overlaying it.
     fn resolve_frame<'a>(
         &'a self,
         frame_idx: usize,
         f: &AssetFile,
-        is_sharpest: bool,
+        rank: usize,
     ) -> Element<'a, Msg> {
         let keep = self.resolve.keepers.contains(&f.id);
 
@@ -182,12 +178,16 @@ impl App {
         };
 
         let (badge_label, badge_color) = if keep { ("✓ Keep", ACCENT) } else { ("✕ Reject", ERR) };
-        let mut top = row![chip(badge_label, badge_color)].spacing(SPACE_1);
-        // The auto-pick marker persists regardless of keep state, so the user can
-        // always see (and trust, or override) what the app chose and why.
-        if is_sharpest {
-            top = top.push(chip("★ sharpest", ACCENT));
-        }
+        // Sharpness rank rides on every frame regardless of keep state: #1 (the
+        // auto-pick) is starred, the rest numbered, so the user can always see what
+        // the app chose *and* the next-best alternative if they override it.
+        let (rank_label, rank_color) = if rank == 1 {
+            ("★ sharpest".to_string(), ACCENT)
+        } else {
+            (format!("#{rank} sharp"), FG)
+        };
+        let top = row![chip(badge_label, badge_color), chip(&rank_label, rank_color)]
+            .spacing(SPACE_1);
 
         let overlay: Element<Msg> = container(
             container(top).width(Length::Fill).align_x(Alignment::Start),

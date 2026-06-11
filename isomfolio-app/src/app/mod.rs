@@ -483,11 +483,30 @@ impl CompareState {
 }
 
 /// One stack queued for review in the resolve-stacks mode: its frames (in
-/// capture order) and the id of its sharpest frame (the default keeper).
+/// capture order), each frame's sharpness (parallel to `frames`, so the panel can
+/// rank them), and the id of its sharpest frame (the default keeper).
 #[derive(Debug, Clone)]
 pub struct StackReview {
     pub frames: Vec<isomfolio_core::models::AssetFile>,
+    pub sharpness: Vec<f64>,
     pub rep_id: String,
+}
+
+impl StackReview {
+    /// Sharpness rank of frame `idx`, 1 = sharpest. Ties break by position so the
+    /// ranks are a stable 1..=n permutation. Used for the per-frame badge.
+    pub fn sharpness_rank(&self, idx: usize) -> usize {
+        let mine = self.sharpness.get(idx).copied().unwrap_or(0.0);
+        // Count frames strictly sharper, plus earlier frames that tie, so equal
+        // sharpness still yields distinct ranks.
+        let mut rank = 1;
+        for (i, &s) in self.sharpness.iter().enumerate() {
+            if s > mine || (s == mine && i < idx) {
+                rank += 1;
+            }
+        }
+        rank
+    }
 }
 
 /// State for the resolve-stacks view — a guided, full-bleed pass through every
@@ -497,8 +516,13 @@ pub struct ResolveState {
     pub stacks: Vec<StackReview>,
     /// Index of the stack currently shown.
     pub idx: usize,
-    /// Ids of frames in the current stack marked as keepers (→ Pick on resolve).
+    /// Ids of frames in the *current* stack marked as keepers (→ Pick on resolve).
+    /// This is the live working set; it is mirrored into `decisions` on every edit
+    /// so stepping away and back restores the choice.
     pub keepers: HashSet<String>,
+    /// Per-group keeper decisions, keyed by stack index. Lets `←`/`→` navigation
+    /// preserve what the user marked instead of resetting to the auto-pick.
+    pub decisions: HashMap<usize, HashSet<String>>,
     /// Full-res handles for the current stack's frames, keyed by frame index.
     pub handles: HashMap<usize, iced::widget::image::Handle>,
     /// True when the queue was built from embedding scene-clusters ("Review
