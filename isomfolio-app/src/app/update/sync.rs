@@ -674,6 +674,7 @@ impl App {
         } else {
             format!("Restored {count} photo(s)")
         };
+        self.push_undo(crate::app::UndoOp::SetDeleted { ids: ids.clone(), deleted });
         let Some(conn) = self.catalog.clone() else { return Task::none() };
         Task::perform(
             async move {

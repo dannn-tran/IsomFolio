@@ -353,10 +353,13 @@ impl App {
             Msg::Redo => self.apply_undo_op(false),
 
             Msg::UndoApplied => {
+                // Sidebar too: delete and album-membership undos change Deleted /
+                // album counts.
                 let t1 = self.load_files_task();
                 let t2 = self.maybe_load_detail();
                 let t3 = self.load_file_side_data_task();
-                Task::batch([t1, t2, t3])
+                let t4 = self.load_sidebar_task();
+                Task::batch([t1, t2, t3, t4])
             }
 
             other => {
@@ -379,6 +382,12 @@ impl App {
     fn apply_undo_op(&mut self, is_undo: bool) -> Task<Msg> {
         let op = if is_undo { self.undo_stack.pop() } else { self.redo_stack.pop() };
         let Some(op) = op else { return Task::none() };
+
+        // Re-centre the view on the edited photos after the reload (loupe returns to
+        // the image, grid re-selects it) — so undoing an edit that auto-advanced in
+        // loupe puts you back where you were.
+        let focus = op.edited_ids();
+        self.pending_focus_files = (!focus.is_empty()).then_some(focus);
 
         // Self-contained ops: undo writes `before`, redo writes `after`. The op
         // round-trips between the stacks unchanged — no inverse to recompute.
@@ -403,6 +412,14 @@ impl App {
                 let effective_add = if is_undo { !add } else { *add };
                 self.tag_db_task(file_ids.clone(), tag.clone(), effective_add)
             }
+            UndoOp::SetDeleted { ids, deleted } => {
+                let effective = if is_undo { !deleted } else { *deleted };
+                self.set_deleted_db_task(ids.clone(), effective)
+            }
+            UndoOp::Album { add, album_id, file_ids } => {
+                let effective_add = if is_undo { !add } else { *add };
+                self.album_membership_db_task(album_id.clone(), file_ids.clone(), effective_add)
+            }
         };
         if is_undo {
             self.redo_stack.push(op);
@@ -410,6 +427,42 @@ impl App {
             self.undo_stack.push(op);
         }
         task
+    }
+
+    fn set_deleted_db_task(&self, ids: Vec<String>, deleted: bool) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    conn.lock_unwrap().set_files_deleted(&ids, deleted).err().map(|e| e.to_string())
+                })
+                .await
+                .ok()
+                .flatten()
+            },
+            |e| e.map_or(Msg::UndoApplied, Msg::DbError),
+        )
+    }
+
+    fn album_membership_db_task(&self, album_id: String, file_ids: Vec<String>, add: bool) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                for fid in &file_ids {
+                    let r = if add {
+                        g.add_file_to_album(&album_id, fid)
+                    } else {
+                        g.remove_file_from_album(&album_id, fid)
+                    };
+                    if let Err(e) = r {
+                        return Some(e.to_string());
+                    }
+                }
+                None
+            },
+            |e| e.map_or(Msg::UndoApplied, Msg::DbError),
+        )
     }
 
     // Editing chokepoints — every reversible edit flows through one of these, so
@@ -760,5 +813,80 @@ mod undo_redo {
         let _ = a.apply_undo_op(false);
         assert_eq!(a.undo_stack.len(), 0);
         assert_eq!(a.redo_stack.len(), 0);
+    }
+
+    #[test]
+    fn delete_op_round_trips_and_arms_focus() {
+        let mut a = app_with_catalog();
+        a.undo_stack.push(UndoOp::SetDeleted { ids: vec!["f1".into()], deleted: true });
+
+        let _ = a.apply_undo_op(true);
+        assert_eq!(
+            a.pending_focus_files.as_deref(),
+            Some(&["f1".to_string()][..]),
+            "undoing a delete arms a return-to-the-restored-photo focus",
+        );
+        assert!(matches!(a.redo_stack.last(), Some(UndoOp::SetDeleted { deleted: true, .. })));
+
+        let _ = a.apply_undo_op(false);
+        assert!(matches!(a.undo_stack.last(), Some(UndoOp::SetDeleted { deleted: true, .. })));
+    }
+
+    #[test]
+    fn album_op_round_trips_and_arms_focus() {
+        let mut a = app_with_catalog();
+        a.undo_stack.push(UndoOp::Album {
+            add: true,
+            album_id: "al".into(),
+            file_ids: vec!["f1".into()],
+        });
+
+        let _ = a.apply_undo_op(true);
+        assert_eq!(a.pending_focus_files.as_deref(), Some(&["f1".to_string()][..]));
+        assert!(matches!(a.redo_stack.last(), Some(UndoOp::Album { add: true, .. })));
+    }
+
+    // The headline behaviour: an edit in loupe auto-advances, so undo must return
+    // the loupe to the photo it touched — not leave you parked on the next one.
+    #[test]
+    fn undo_returns_loupe_to_the_edited_photo() {
+        let mut a = app_with_catalog();
+        a.view_mode = crate::app::ViewMode::Loupe;
+        a.loupe.idx = 2; // auto-advanced two past the edit
+        a.pending_focus_files = Some(vec!["f2".into()]);
+        let files =
+            vec![file("f1", Flag::Unflagged), file("f2", Flag::Unflagged), file("f3", Flag::Unflagged)];
+
+        let _ = a.update(Msg::FilesLoaded(files));
+        assert_eq!(a.loupe.idx, 1, "loupe jumps back to f2 (the edited photo)");
+        assert!(a.pending_focus_files.is_none(), "focus consumed");
+    }
+
+    #[test]
+    fn undo_reselects_the_edited_photo_in_grid() {
+        let mut a = app_with_catalog();
+        a.view_mode = crate::app::ViewMode::Browse;
+        a.pending_focus_files = Some(vec!["f2".into()]);
+        let files =
+            vec![file("f1", Flag::Unflagged), file("f2", Flag::Unflagged), file("f3", Flag::Unflagged)];
+
+        let _ = a.update(Msg::FilesLoaded(files));
+        assert_eq!(a.anchor_idx, Some(1));
+        assert!(a.grid_selected.contains("f2"), "the edited photo is re-selected");
+    }
+
+    #[test]
+    fn focus_skips_a_photo_no_longer_present() {
+        // Re-applying a delete (redo) targets a photo that's gone from the view; the
+        // focus must simply fall through rather than mis-select.
+        let mut a = app_with_catalog();
+        a.view_mode = crate::app::ViewMode::Browse;
+        a.anchor_idx = Some(0);
+        a.pending_focus_files = Some(vec!["gone".into()]);
+        let files = vec![file("f1", Flag::Unflagged), file("f2", Flag::Unflagged)];
+
+        let _ = a.update(Msg::FilesLoaded(files));
+        assert!(a.grid_selected.is_empty(), "absent focus target selects nothing");
+        assert!(a.pending_focus_files.is_none(), "still consumed");
     }
 }

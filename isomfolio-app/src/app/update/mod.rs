@@ -666,6 +666,40 @@ impl App {
                 self.files = files;
                 self.enqueue_thumbnails();
                 self.status = format!("{} photo(s)", self.files.len());
+                // Undo/redo re-centring (id-based): jump the view back to the photo(s)
+                // the undone/redone edit touched, *before* anything clamps. In loupe
+                // this restores `loupe.idx` (so undoing an auto-advanced edit returns
+                // to the image); in grid it re-selects them. Ids no longer present
+                // (e.g. a re-applied delete) leave the view to fall through to the
+                // clamp below. Wins over `pending_restore_idx`.
+                let mut focus_scroll: Option<Task<Msg>> = None;
+                let focused = if let Some(ids) = self.pending_focus_files.take() {
+                    if let Some(idx) = self.files.iter().position(|f| ids.contains(&f.id)) {
+                        if matches!(self.view_mode, super::ViewMode::Loupe) {
+                            self.loupe.idx = idx;
+                        } else {
+                            let present: Vec<String> = self
+                                .files
+                                .iter()
+                                .filter(|f| ids.contains(&f.id))
+                                .map(|f| f.id.clone())
+                                .collect();
+                            self.anchor_idx = Some(idx);
+                            self.select_lead = Some(idx);
+                            self.grid_selected.clear();
+                            self.selection_base.clear();
+                            for id in present {
+                                self.grid_selected.insert(id);
+                            }
+                            focus_scroll = Some(self.scroll_to_index(idx));
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
                 // The loupe full-res cache is keyed only by index, so any list
                 // mutation (delete, filter, re-sort) leaves it pointing at a photo
                 // that may no longer live at that slot. Re-sync: clamp the index,
@@ -686,7 +720,7 @@ impl App {
                 } else {
                     None
                 };
-                let restore = self.pending_restore_idx.take().and_then(|idx| {
+                let restore = (!focused).then(|| self.pending_restore_idx.take()).flatten().and_then(|idx| {
                     // Clamp instead of dropping: deleting the last photo (or returning
                     // to a now-shorter view) should still land on the neighbour that
                     // slid into place — matches Finder/Lightroom/Photos selecting the
@@ -707,6 +741,9 @@ impl App {
                 let t2 = self.load_file_side_data_task();
                 let mut tasks = vec![t1, t2];
                 if let Some(scroll) = restore {
+                    tasks.push(scroll);
+                }
+                if let Some(scroll) = focus_scroll {
                     tasks.push(scroll);
                 }
                 if let Some(loupe) = loupe_resync {

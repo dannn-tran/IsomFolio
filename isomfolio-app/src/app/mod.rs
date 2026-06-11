@@ -302,6 +302,10 @@ pub struct App {
     /// Grid index to restore after the next `FilesLoaded` (set when switching
     /// to a view that has a remembered position).
     pub pending_restore_idx: Option<usize>,
+    /// File ids to re-centre on after the next `FilesLoaded` (set by undo/redo so
+    /// the view returns to the edited photo). Takes precedence over
+    /// `pending_restore_idx`; ids no longer present are skipped.
+    pub pending_focus_files: Option<Vec<String>>,
 
     pub scroll_y: f32,
     pub viewport_height: f32,
@@ -707,6 +711,7 @@ impl App {
             selection_base: HashSet::new(),
             saved_positions: HashMap::new(),
             pending_restore_idx: None,
+            pending_focus_files: None,
             scroll_y: 0.0,
             viewport_height: 600.0,
             viewport_width: 1060.0,

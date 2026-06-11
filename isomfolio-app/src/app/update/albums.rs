@@ -20,6 +20,11 @@ impl App {
                     .unwrap_or_default();
                 let count = ids.len();
                 self.status = format!("Added {count} photo(s) to \"{name}\"");
+                self.push_undo(crate::app::UndoOp::Album {
+                    add: true,
+                    album_id: album_id.clone(),
+                    file_ids: ids.clone(),
+                });
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
@@ -88,6 +93,11 @@ impl App {
                     .map(|a| a.name.clone())
                     .unwrap_or_default();
                 self.status = format!("Added {count} photo(s) to \"{name}\"");
+                self.push_undo(crate::app::UndoOp::Album {
+                    add: true,
+                    album_id: album_id.clone(),
+                    file_ids: ids.clone(),
+                });
                 let Some(conn) = self.catalog.clone() else {
                     return Task::none();
                 };
@@ -330,6 +340,11 @@ impl App {
                     .map(|a| a.name.clone())
                     .unwrap_or_default();
                 self.status = format!("Removed {count} photo(s) from \"{name}\"");
+                self.push_undo(crate::app::UndoOp::Album {
+                    add: false,
+                    album_id: album_id.clone(),
+                    file_ids: ids.clone(),
+                });
                 // Re-select the neighbour that slides into the first removed slot
                 // after the reload (parity with delete; see soft_set_deleted).
                 self.pending_restore_idx = self.files.iter().position(|f| ids.contains(&f.id));

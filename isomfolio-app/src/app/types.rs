@@ -746,6 +746,11 @@ pub enum UndoOp {
     Labels { before: Vec<(String, Option<String>)>, after: Vec<(String, Option<String>)> },
     /// `add` is the forward direction; undo applies its negation.
     Tag { add: bool, file_ids: Vec<String>, tag: String },
+    /// `deleted` is what the forward action set (`true` = moved to Deleted);
+    /// undo flips it.
+    SetDeleted { ids: Vec<String>, deleted: bool },
+    /// `add` is the forward direction (added to / removed from the album).
+    Album { add: bool, album_id: String, file_ids: Vec<String> },
 }
 
 impl UndoOp {
@@ -756,6 +761,25 @@ impl UndoOp {
             UndoOp::Flags { .. } => "Flag",
             UndoOp::Labels { .. } => "Label",
             UndoOp::Tag { .. } => "Tag",
+            UndoOp::SetDeleted { deleted: true, .. } => "Delete",
+            UndoOp::SetDeleted { deleted: false, .. } => "Restore",
+            UndoOp::Album { add: true, .. } => "Add to Album",
+            UndoOp::Album { add: false, .. } => "Remove from Album",
+        }
+    }
+
+    /// The files this op touched. After undo/redo + reload, the view re-centres on
+    /// whichever of these are still present — so undoing a loupe edit that
+    /// auto-advanced returns you to the photo you edited, and a grid edit re-selects
+    /// it. (Files no longer in view, e.g. a re-applied delete, are simply skipped.)
+    pub fn edited_ids(&self) -> Vec<String> {
+        match self {
+            UndoOp::Ratings { before, .. } => before.iter().map(|(id, _)| id.clone()).collect(),
+            UndoOp::Labels { before, .. } => before.iter().map(|(id, _)| id.clone()).collect(),
+            UndoOp::Flags { before, .. } => before.iter().map(|(id, _)| id.clone()).collect(),
+            UndoOp::Tag { file_ids, .. }
+            | UndoOp::SetDeleted { ids: file_ids, .. }
+            | UndoOp::Album { file_ids, .. } => file_ids.clone(),
         }
     }
 }

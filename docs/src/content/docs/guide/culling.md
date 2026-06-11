@@ -83,12 +83,14 @@ To collect picks into an album as you go, right-click a manual album → **Set a
 
 ## Undo
 
-Rating, flag, colour-label, and tag changes are all undoable.
+Almost everything you do to photos is undoable: ratings, flags, colour labels, tags, **deleting** (and restoring), and **adding to or removing from an album**.
 
 - `Cmd+Z` — undo
 - `Cmd+Shift+Z` — redo
 
-The **Edit** menu names the next step — *Undo Rating*, *Redo Flag* — and greys the item out when there's nothing to undo. The history is preserved for the current session.
+Undo follows you back to the photo. In the loupe, flagging or deleting auto-advances to the next frame — pressing `Cmd+Z` reverses the change *and* returns the view to the photo you were on, so a misfire never loses your place. In the grid, the affected photos are re-selected.
+
+The **Edit** menu names the next step — *Undo Rating*, *Redo Delete* — and greys the item out when there's nothing to undo. The history is preserved for the current session.
 
 ## Batch culling
 
