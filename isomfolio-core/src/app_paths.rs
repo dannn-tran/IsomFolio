@@ -73,9 +73,11 @@ pub struct AppSettings {
     /// tags already imported.
     #[serde(default)]
     pub import_apple_tags: Option<bool>,
-    /// Auto-advance to the next photo after flagging (Pick/Reject/Unflagged) in loupe mode.
-    #[serde(default = "default_true")]
-    pub auto_advance_on_flag: bool,
+    /// Auto-advance to the next photo after any cull verdict — flag, rating, or
+    /// colour label — in loupe mode. `alias` keeps the pre-rename `auto_advance_on_flag`
+    /// key readable so existing settings.json (incl. users who turned it off) survives.
+    #[serde(default = "default_true", alias = "auto_advance_on_flag")]
+    pub auto_advance_on_cull: bool,
     /// Custom inference-engine base URL. `None` = Auto (managed local engine);
     /// `Some(url)` = connect to a user-hosted engine instead of spawning one.
     #[serde(default)]
@@ -121,7 +123,7 @@ impl Default for AppSettings {
             auto_face_cluster: true,
             import_xmp_tags: None,
             import_apple_tags: None,
-            auto_advance_on_flag: true,
+            auto_advance_on_cull: true,
             inference_custom_url: None,
             inference_port: default_inference_port(),
             face_eps: default_face_eps(),

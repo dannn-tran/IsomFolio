@@ -64,6 +64,10 @@ A second, independent axis for organising a cull (use stars for quality, colours
 
 Press a colour key again to clear it. Purple (and any colour) can also be set from the swatches in the Loupe overlay. Colour shows as a dot on the grid tile and in Loupe, and is a filter in the cull strip. Labels are stored as the standard XMP `xmp:Label`.
 
+## Auto-advance
+
+In the **Loupe**, applying any cull verdict — a flag (`P`/`X`/`U`), a rating (`1`–`5`), or a colour label (`6`–`9`) — moves you to the next photo automatically, so a one-handed pass is one keypress per frame. Toggle it under **Settings → General → "Auto-advance after culling"** (on by default). In the grid, multi-photo edits stay put so you can keep refining the same selection.
+
 ## Filtering by flag or rating
 
 The **cull strip** sits directly under the toolbar and is always visible — no need to open a panel:

@@ -516,7 +516,7 @@ pub enum Msg {
     FaceMinPtsChanged(String),
     ToggleImportXmpTags,
     ToggleImportAppleTags,
-    ToggleAutoAdvanceOnFlag,
+    ToggleAutoAdvanceOnCull,
     ToggleAutoStack,
     StackThresholdChanged(String),
     StackWindowChanged(String),

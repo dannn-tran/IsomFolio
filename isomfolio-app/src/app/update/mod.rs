@@ -569,7 +569,7 @@ impl App {
             | Msg::FaceMinPtsChanged(_)
             | Msg::ToggleImportXmpTags
             | Msg::ToggleImportAppleTags
-            | Msg::ToggleAutoAdvanceOnFlag
+            | Msg::ToggleAutoAdvanceOnCull
             | Msg::ToggleAutoStack
             | Msg::StackThresholdChanged(_)
             | Msg::StackWindowChanged(_)

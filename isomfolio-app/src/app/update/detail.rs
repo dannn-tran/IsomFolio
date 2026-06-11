@@ -4,6 +4,20 @@ use super::LockUnwrap;
 use super::super::{App, Msg, UndoOp};
 
 impl App {
+    /// In loupe with auto-advance on, sequence a forward `Navigate` after a cull
+    /// write so flag, rating, and label all share one "verdict → next" behaviour.
+    /// The DB write and the navigate are batched; outside loupe (grid multi-edit)
+    /// the cull stays put.
+    fn advance_after_cull(&self, db_task: Task<Msg>) -> Task<Msg> {
+        if matches!(self.view_mode, super::super::ViewMode::Loupe)
+            && self.app_settings.auto_advance_on_cull
+        {
+            Task::batch([db_task, Task::done(Msg::Navigate { dx: 1, dy: 0 })])
+        } else {
+            db_task
+        }
+    }
+
     pub(super) fn handle_detail_msg(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::ToggleDetail => {
@@ -220,13 +234,7 @@ impl App {
                     },
                     |e| e.map_or(Msg::FlagsApplied, Msg::DbError),
                 );
-                if matches!(self.view_mode, super::super::ViewMode::Loupe)
-                    && self.app_settings.auto_advance_on_flag
-                {
-                    Task::batch([db_task, Task::done(Msg::Navigate { dx: 1, dy: 0 })])
-                } else {
-                    db_task
-                }
+                self.advance_after_cull(db_task)
             }
 
             Msg::FlagsApplied => {
@@ -262,13 +270,14 @@ impl App {
                 self.undo_stack.push(UndoOp::SetRatings { before });
                 self.redo_stack.clear();
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
-                Task::perform(
+                let db_task = Task::perform(
                     async move {
                         let g = conn.lock_unwrap();
                         g.set_files_rating(&ids, rating).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::RatingsApplied, Msg::DbError),
-                )
+                );
+                self.advance_after_cull(db_task)
             }
 
             Msg::RatingsApplied => {
@@ -307,16 +316,17 @@ impl App {
                 self.redo_stack.clear();
                 let Some(conn) = self.catalog.clone() else { return Task::none() };
                 let label_owned = effective.clone();
-                Task::perform(
+                let db_task = Task::perform(
                     async move {
                         let g = conn.lock_unwrap();
                         g.set_files_label(&ids, label_owned.as_deref()).err().map(|e| e.to_string())
                     },
                     |e| e.map_or(Msg::LabelsApplied, Msg::DbError),
-                )
+                );
                 // Reload (if the colour filter is active) is sequenced in the
                 // `LabelsApplied` callback — never batched concurrently with the
                 // write, which would race the re-query against the label commit.
+                self.advance_after_cull(db_task)
             }
 
             Msg::LabelsApplied => {

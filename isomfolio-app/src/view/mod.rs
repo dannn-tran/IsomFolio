@@ -1103,10 +1103,10 @@ impl App {
         let mut col = column![].spacing(SPACE_3).width(Length::Fill);
 
         col = col.push(self.toggle_row(
-            "Auto-advance after flagging",
-            "Move to the next photo automatically after pressing P, X, or U in loupe.",
-            self.app_settings.auto_advance_on_flag,
-            Msg::ToggleAutoAdvanceOnFlag,
+            "Auto-advance after culling",
+            "Move to the next photo automatically after a flag (P/X/U), rating (1–5), or colour label (6–9) in loupe.",
+            self.app_settings.auto_advance_on_cull,
+            Msg::ToggleAutoAdvanceOnCull,
         ));
         col = col.push(self.toggle_row(
             "Auto-detect people",
