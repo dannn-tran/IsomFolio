@@ -477,7 +477,7 @@ pub enum Msg {
     /// The review queue finished building (capture-ordered stacks of ≥2 frames).
     ResolveStacksLoaded(Vec<crate::app::StackReview>),
     /// Full-res for one frame of the stack currently under review arrived.
-    ResolveFrameLoaded { stack_idx: usize, frame_idx: usize, handle: iced::widget::image::Handle },
+    ResolveFrameLoaded { stack_idx: usize, frame_idx: usize, handle: iced::widget::image::Handle, dims: (u32, u32) },
     /// Toggle a frame's keeper mark in the current stack.
     ToggleResolveKeeper(String),
     /// Apply the current stack's decision (keepers → Pick, rest → Reject) and

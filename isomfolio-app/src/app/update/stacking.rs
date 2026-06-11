@@ -6,7 +6,7 @@ use isomfolio_core::indexing::thumbnail::thumbnail_cache_path;
 use isomfolio_core::models::{AssetFile, Flag, SearchQuery};
 use isomfolio_core::phash;
 
-use super::loupe_load::decode_image_for_display;
+use super::loupe_load::decode_image_sized;
 use super::LockUnwrap;
 use super::super::{App, Msg, ResolveState, SidebarItem, StackReview, UndoOp, ViewMode};
 
@@ -96,9 +96,10 @@ impl App {
                 self.enter_resolve_stack(0)
             }
 
-            Msg::ResolveFrameLoaded { stack_idx, frame_idx, handle } => {
+            Msg::ResolveFrameLoaded { stack_idx, frame_idx, handle, dims } => {
                 if matches!(self.view_mode, ViewMode::ResolveStacks) && self.resolve.idx == stack_idx {
                     self.resolve.handles.insert(frame_idx, handle);
+                    self.resolve.frame_dims.insert(frame_idx, dims);
                 }
                 Task::none()
             }
@@ -225,6 +226,7 @@ impl App {
         self.resolve.idx = i;
         self.resolve.focus = 0;
         self.resolve.handles.clear();
+        self.resolve.frame_dims.clear();
         self.resolve.keepers = self
             .resolve
             .decisions
@@ -240,13 +242,13 @@ impl App {
                 let stack_idx = i;
                 Task::perform(
                     async move {
-                        tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
+                        tokio::task::spawn_blocking(move || decode_image_sized(&path, false))
                             .await
                             .ok()
                             .flatten()
                     },
                     move |h| match h {
-                        Some(handle) => Msg::ResolveFrameLoaded { stack_idx, frame_idx, handle },
+                        Some((handle, dims)) => Msg::ResolveFrameLoaded { stack_idx, frame_idx, handle, dims },
                         None => Msg::NoOp,
                     },
                 )

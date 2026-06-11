@@ -211,7 +211,21 @@ impl App {
 
     /// Survey layout: every frame at once in an adaptive, window-filling grid.
     fn sift_grid_body(&self, stack: &StackReview) -> Element<'_, Msg> {
-        let cols = resolve_cols(stack.frames.len());
+        let n = stack.frames.len();
+        // Once frames decode we know their orientation; lay the grid out so cells
+        // match the frame aspect (3 landscapes → a row of 3, not 2×2). Until then,
+        // fall back to the count-only split.
+        let mut aspects: Vec<f32> = (0..n)
+            .filter_map(|i| self.resolve.frame_dims.get(&i).copied())
+            .filter(|(w, h)| *w > 0 && *h > 0)
+            .map(|(w, h)| w as f32 / h as f32)
+            .collect();
+        let cols = if aspects.is_empty() {
+            resolve_cols(n)
+        } else {
+            aspects.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            aspect_aware_cols(n, aspects[aspects.len() / 2])
+        };
         let indexed: Vec<(usize, &AssetFile)> = stack.frames.iter().enumerate().collect();
         let mut grid = column![].spacing(SPACE_2).width(Length::Fill).height(Length::Fill);
         for chunk in indexed.chunks(cols) {
@@ -421,9 +435,42 @@ fn resolve_cols(n: usize) -> usize {
     }
 }
 
+/// Columns for the survey grid given the frames' median aspect ratio. With cells
+/// matching the frame aspect, the grid's overall shape is ≈ `(cols/rows) * aspect`;
+/// aiming that at a typical landscape window (~1.6:1) gives
+/// `cols ≈ sqrt(n * 1.6 / aspect)` — so wide frames pack into fewer, wider columns
+/// and tall frames spread across more.
+fn aspect_aware_cols(n: usize, frame_aspect: f32) -> usize {
+    if n <= 1 {
+        return 1;
+    }
+    const TARGET: f32 = 1.6;
+    let cols = (n as f32 * TARGET / frame_aspect.max(0.1)).sqrt().round() as usize;
+    cols.clamp(1, n)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::resolve_cols;
+    use super::{aspect_aware_cols, resolve_cols};
+
+    #[test]
+    fn portraits_spread_wider_than_landscapes() {
+        // Same count: tall frames want more columns (side by side), wide frames
+        // fewer (stacked into rows).
+        assert!(aspect_aware_cols(4, 0.5) > aspect_aware_cols(4, 2.0));
+        assert!(aspect_aware_cols(6, 0.5) >= aspect_aware_cols(6, 2.0));
+    }
+
+    #[test]
+    fn aspect_cols_stay_in_bounds() {
+        for n in 1..=20 {
+            for &a in &[0.3_f32, 0.7, 1.0, 1.5, 2.5] {
+                let c = aspect_aware_cols(n, a);
+                assert!(c >= 1 && c <= n.max(1), "n={n} a={a} c={c}");
+            }
+        }
+        assert_eq!(aspect_aware_cols(1, 2.0), 1);
+    }
 
     #[test]
     fn grid_wraps_instead_of_one_long_row() {

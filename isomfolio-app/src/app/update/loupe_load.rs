@@ -423,10 +423,19 @@ pub(crate) fn is_raw_path(path: &str) -> bool {
 }
 
 pub(crate) fn decode_image_for_display(path: &str, prefer_full: bool) -> Option<iced::widget::image::Handle> {
+    decode_image_sized(path, prefer_full).map(|(h, _)| h)
+}
+
+/// Like [`decode_image_for_display`] but also returns the decoded pixel
+/// dimensions, so callers (the Sift grid) can lay frames out by aspect ratio.
+pub(crate) fn decode_image_sized(
+    path: &str,
+    prefer_full: bool,
+) -> Option<(iced::widget::image::Handle, (u32, u32))> {
     let img = open_image(path, prefer_full)?;
     let rgba = img.into_rgba8();
     let (w, h) = (rgba.width(), rgba.height());
-    Some(iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()))
+    Some((iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()), (w, h)))
 }
 
 /// Classify why a full-res decode produced nothing, into a user-facing reason +
