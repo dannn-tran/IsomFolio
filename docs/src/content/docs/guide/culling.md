@@ -136,4 +136,6 @@ Bursts are *tight*: near-identical frames shot seconds apart. **Scenes** are loo
 
 The difference is how the groups are formed. Bursts compare pixels (a perceptual hash); scenes compare **image content** (a whole-image embedding), so a group survives a pan or a tighter crop that would split a burst. Use **Sift Bursts** for burst/bracketing cleanup, **Sift Scenes** for "I tried this portrait twelve ways — show me the set so I can keep the best."
 
+**Tune grouping without leaving.** In Sift Scenes the header carries a **Looseness** slider — drag it and release to re-cluster the whole pass live (higher pulls more varied frames into a group, lower keeps groups tight). Already-applied keep/reject choices are safe (they're written as you go); only the groups you haven't reached yet reshape. It's the same control as **Settings → Scene grouping**, but right where you're looking.
+
 Scene grouping runs in the background after a sync (like stacking), so it may lag fresh thumbnails for a moment. Tune it under **Settings → General → Scene grouping**: **Grouping looseness** (higher pulls more varied frames together), **Min neighbours** (1 lets a two-frame scene form), and an **Auto-embed** toggle. The panel shows how many frames have been embedded so far.

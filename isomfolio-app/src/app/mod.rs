@@ -523,6 +523,17 @@ pub enum SurfaceLayout {
     Full,
 }
 
+/// Cached scene-clustering inputs for the current view, kept so the header
+/// tolerance slider can re-cluster live (in memory, no DB round-trip or re-embed).
+#[derive(Debug, Clone, Default)]
+pub struct SceneCache {
+    pub files: Vec<isomfolio_core::models::AssetFile>,
+    /// Whitened embeddings, parallel-keyed by file id.
+    pub whitened: Vec<(String, Vec<f32>)>,
+    pub sharpness: HashMap<String, f64>,
+    pub min_pts: usize,
+}
+
 /// State for the resolve-stacks view — a guided, full-bleed pass through every
 /// multi-frame stack in the current view, one at a time.
 #[derive(Default)]
@@ -551,6 +562,10 @@ pub struct ResolveState {
     /// Scenes") rather than dHash stacks — drives the title/status label only;
     /// the keeper-picking flow is identical.
     pub scenes: bool,
+    /// Live grouping tolerance (scene `eps`); driven by the header slider.
+    pub tolerance: f32,
+    /// Cached clustering inputs so the slider can regroup without a DB round-trip.
+    pub scene_cache: Option<SceneCache>,
 }
 
 struct ThumbnailRecipe {

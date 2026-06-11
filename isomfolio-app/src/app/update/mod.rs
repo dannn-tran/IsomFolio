@@ -217,7 +217,10 @@ impl App {
             | Msg::SceneEmbedChunkDone { .. }
             | Msg::SceneEmbeddingDone(_)
             | Msg::OpenResolveScenes
-            | Msg::ResolveScenesLoaded(_) => self.handle_scenes_msg(msg),
+            | Msg::ResolveScenesLoaded { .. }
+            | Msg::SiftToleranceChanged(_)
+            | Msg::SiftRegroup
+            | Msg::ScenesRegrouped(_) => self.handle_scenes_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);

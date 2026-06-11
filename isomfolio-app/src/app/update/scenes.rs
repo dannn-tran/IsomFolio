@@ -6,7 +6,7 @@ use isomfolio_core::models::SearchQuery;
 use isomfolio_core::scene_embed::{self, SceneItem, SCENE_MODEL};
 
 use super::LockUnwrap;
-use super::super::{App, Msg, ResolveState, SceneProgress, SidebarItem, StackReview, ViewMode};
+use super::super::{App, Msg, ResolveState, SceneCache, SceneProgress, SidebarItem, StackReview, ViewMode};
 
 /// Files embedded per chunk between progress updates — small enough that the bar
 /// advances a few times a second, large enough that per-chunk lock/dispatch
@@ -48,14 +48,41 @@ impl App {
 
             Msg::OpenResolveScenes => self.open_resolve_scenes_task(),
 
-            Msg::ResolveScenesLoaded(scenes) => {
-                if scenes.is_empty() {
+            Msg::ResolveScenesLoaded { stacks, cache, eps } => {
+                if stacks.is_empty() {
                     self.status = "No scenes to review in this view".to_string();
                     return Task::none();
                 }
-                self.resolve = ResolveState { stacks: scenes, idx: 0, scenes: true, ..Default::default() };
+                self.resolve = ResolveState {
+                    stacks,
+                    idx: 0,
+                    scenes: true,
+                    tolerance: eps,
+                    scene_cache: Some(cache),
+                    ..Default::default()
+                };
                 self.view_mode = ViewMode::ResolveStacks;
                 self.grid_selected.clear();
+                self.enter_resolve_stack(0)
+            }
+
+            Msg::SiftToleranceChanged(v) => {
+                self.resolve.tolerance = v;
+                Task::none()
+            }
+
+            Msg::SiftRegroup => self.regroup_scenes_task(),
+
+            Msg::ScenesRegrouped(stacks) => {
+                if stacks.is_empty() {
+                    // No groups at this looseness — keep the current queue, just nudge.
+                    self.status = "No scenes at this looseness — adjust the slider".to_string();
+                    return Task::none();
+                }
+                // Grouping changed, so prior per-group decisions no longer line up;
+                // committed keep/reject already live as flags in the DB.
+                self.resolve.stacks = stacks;
+                self.resolve.decisions.clear();
                 self.enter_resolve_stack(0)
             }
 
@@ -207,12 +234,37 @@ impl App {
                         .map(|(id, _)| id.clone())
                         .zip(scene_embed::whiten(&raw))
                         .collect();
-                    build_scene_review(files, whitened, sharpness, eps, min_pts)
+                    let stacks =
+                        build_scene_review(files.clone(), whitened.clone(), sharpness.clone(), eps, min_pts);
+                    // Keep the whitened inputs so the header slider can re-cluster
+                    // live (in memory) without re-querying or re-embedding.
+                    let cache = SceneCache { files, whitened, sharpness, min_pts };
+                    (stacks, cache, eps)
+                })
+                .await
+                .unwrap_or_else(|_| (Vec::new(), SceneCache::default(), 0.0))
+            },
+            |(stacks, cache, eps)| Msg::ResolveScenesLoaded { stacks, cache, eps },
+        )
+    }
+
+    /// Re-cluster the cached scene signals at the current tolerance — drives the
+    /// header looseness slider. Pure of the DB; runs off-thread since DBSCAN over a
+    /// large view is O(n²).
+    fn regroup_scenes_task(&self) -> Task<Msg> {
+        let Some(cache) = self.resolve.scene_cache.clone() else {
+            return Task::none();
+        };
+        let eps = self.resolve.tolerance;
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    build_scene_review(cache.files, cache.whitened, cache.sharpness, eps, cache.min_pts)
                 })
                 .await
                 .unwrap_or_default()
             },
-            Msg::ResolveScenesLoaded,
+            Msg::ScenesRegrouped,
         )
     }
 }
@@ -373,6 +425,57 @@ mod tests {
             let scenes = build_scene_review(files, embeddings, HashMap::new(), 0.1, 1);
             assert_eq!(scenes.len(), 1);
             assert_eq!(scenes[0].frames.len(), 2);
+        }
+    }
+
+    mod live_tolerance {
+        use super::file;
+        use crate::app::{App, Msg, ResolveState, StackReview, ViewMode};
+
+        fn sr(id: &str) -> StackReview {
+            StackReview {
+                frames: vec![file(id), file(&format!("{id}b"))],
+                sharpness: vec![2.0, 1.0],
+                rep_id: id.to_string(),
+            }
+        }
+
+        fn scenes_app(stacks: Vec<StackReview>) -> App {
+            let mut app = App::new(None).0;
+            app.resolve = ResolveState {
+                stacks,
+                idx: 0,
+                scenes: true,
+                tolerance: 0.5,
+                ..Default::default()
+            };
+            app.view_mode = ViewMode::ResolveStacks;
+            app
+        }
+
+        #[test]
+        fn tolerance_change_updates_value_without_regrouping() {
+            let mut app = scenes_app(vec![sr("a")]);
+            let _ = app.update(Msg::SiftToleranceChanged(0.8));
+            assert!((app.resolve.tolerance - 0.8).abs() < 1e-6);
+            assert_eq!(app.resolve.stacks.len(), 1);
+        }
+
+        #[test]
+        fn regroup_replaces_queue_and_clears_decisions() {
+            let mut app = scenes_app(vec![sr("a"), sr("b")]);
+            app.resolve.decisions.insert(0, std::iter::once("a".to_string()).collect());
+            let _ = app.update(Msg::ScenesRegrouped(vec![sr("x")]));
+            assert_eq!(app.resolve.stacks.len(), 1);
+            assert!(app.resolve.decisions.is_empty());
+            assert_eq!(app.resolve.idx, 0);
+        }
+
+        #[test]
+        fn empty_regroup_keeps_current_queue() {
+            let mut app = scenes_app(vec![sr("a"), sr("b")]);
+            let _ = app.update(Msg::ScenesRegrouped(vec![]));
+            assert_eq!(app.resolve.stacks.len(), 2);
         }
     }
 }

@@ -498,6 +498,12 @@ pub enum Msg {
     SiftSetLayout(crate::app::SurfaceLayout),
     /// Focus a frame within the current group (filmstrip click / arrow keys).
     SiftFocusFrame(usize),
+    /// Header tolerance slider moved — update the live value (cheap, no regroup).
+    SiftToleranceChanged(f32),
+    /// Tolerance slider released — re-cluster the cached signals at the new value.
+    SiftRegroup,
+    /// A live re-cluster finished; replace the queue.
+    ScenesRegrouped(Vec<crate::app::StackReview>),
     /// The final stack's flags finished writing — exit the review and refresh.
     ResolveFinished,
     FlagsApplied,
@@ -569,8 +575,9 @@ pub enum Msg {
     /// Enter the review mode for embedding scene-clusters in the current view.
     OpenResolveScenes,
     /// The scene review queue finished building (clusters of ≥2 frames, sharpest
-    /// first). Feeds the same review mode as `ResolveStacksLoaded`.
-    ResolveScenesLoaded(Vec<crate::app::StackReview>),
+    /// first). Feeds the same review mode as `ResolveStacksLoaded`. Carries the
+    /// cached clustering inputs + the `eps` used, so the header slider can regroup.
+    ResolveScenesLoaded { stacks: Vec<crate::app::StackReview>, cache: crate::app::SceneCache, eps: f32 },
 
     /// Focus the Info-panel tag entry (opening the panel first if needed) so a tag
     /// can be typed without reaching for the mouse.

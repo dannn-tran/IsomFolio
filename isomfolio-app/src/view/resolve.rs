@@ -1,5 +1,5 @@
 use iced::{
-    widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, Space},
+    widget::{button, column, container, image, mouse_area, row, scrollable, slider, stack, text, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 use isomfolio_core::models::{AssetFile, ThumbnailState};
@@ -33,6 +33,7 @@ impl App {
                     .size(TEXT_BASE)
                     .color(FG),
                 Space::new().width(Length::Fill),
+                self.sift_tolerance_ctrl(),
                 self.sift_layout_btn("▦ Grid", SurfaceLayout::Grid),
                 self.sift_layout_btn("▭ Strip", SurfaceLayout::Strip),
                 Space::new().width(SPACE_2),
@@ -198,6 +199,26 @@ impl App {
         mouse_area(cell)
             .on_press(Msg::ToggleResolveKeeper(f.id.clone()))
             .into()
+    }
+
+    /// Live grouping-tolerance control in the header. Scenes only for now — drag to
+    /// re-cluster looser/tighter without leaving the pass (regroup fires on release).
+    fn sift_tolerance_ctrl(&self) -> Element<'_, Msg> {
+        if !self.resolve.scenes {
+            return Space::new().width(0.0).into();
+        }
+        row![
+            text("Looseness").size(TEXT_SM).color(FG_DIM),
+            slider(0.0..=1.0, self.resolve.tolerance, Msg::SiftToleranceChanged)
+                .on_release(Msg::SiftRegroup)
+                .step(0.01)
+                .width(Length::Fixed(140.0)),
+            text(format!("{:.2}", self.resolve.tolerance)).size(TEXT_SM).color(FG_DIM),
+            Space::new().width(SPACE_2),
+        ]
+        .spacing(SPACE_1)
+        .align_y(Alignment::Center)
+        .into()
     }
 
     /// Header toggle for one layout; the active layout reads as a filled chip.
