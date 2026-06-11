@@ -200,6 +200,8 @@ impl App {
 
             // — permissive scene grouping (embeddings) —
             Msg::RunSceneEmbedding
+            | Msg::SceneEmbedStarted(_)
+            | Msg::SceneEmbedChunkDone { .. }
             | Msg::SceneEmbeddingDone(_)
             | Msg::OpenResolveScenes
             | Msg::ResolveScenesLoaded(_) => self.handle_scenes_msg(msg),

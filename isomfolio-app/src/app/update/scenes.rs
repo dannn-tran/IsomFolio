@@ -6,12 +6,40 @@ use isomfolio_core::models::SearchQuery;
 use isomfolio_core::scene_embed::{self, SceneItem, SCENE_MODEL};
 
 use super::LockUnwrap;
-use super::super::{App, Msg, ResolveState, SidebarItem, StackReview, ViewMode};
+use super::super::{App, Msg, ResolveState, SceneProgress, SidebarItem, StackReview, ViewMode};
+
+/// Files embedded per chunk between progress updates — small enough that the bar
+/// advances a few times a second, large enough that per-chunk lock/dispatch
+/// overhead stays negligible.
+const SCENE_CHUNK: usize = 64;
 
 impl App {
     pub(super) fn handle_scenes_msg(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::RunSceneEmbedding => self.run_scene_embedding_task(),
+
+            Msg::SceneEmbedStarted(needing) => {
+                if needing.is_empty() {
+                    self.scene_pass_starting = false;
+                    return Task::none();
+                }
+                self.scene_pass_starting = false;
+                self.scene_pass = Some(SceneProgress {
+                    total: needing.len(),
+                    done: 0,
+                    queue: needing,
+                    start_at: std::time::Instant::now(),
+                });
+                self.next_scene_chunk()
+            }
+
+            Msg::SceneEmbedChunkDone { processed, total_embedded } => {
+                self.scene_embed_count = total_embedded;
+                if let Some(p) = self.scene_pass.as_mut() {
+                    p.done += processed;
+                }
+                self.next_scene_chunk()
+            }
 
             Msg::SceneEmbeddingDone(total) => {
                 self.scene_embed_count = total;
@@ -50,37 +78,76 @@ impl App {
         )
     }
 
-    /// Compute scene embeddings for any file that lacks one (for the current
-    /// model), from its cached thumbnail. Same lock discipline as stacking: read
-    /// the needing-list under the lock, decode + embed *unlocked*, write back
-    /// under the lock. Background pass — runs after thumbnails exist.
+    /// Kick the background scene-embedding pass: compute the needing-list off the
+    /// lock, then hand it to `SceneEmbedStarted` which opens the panel task and
+    /// drains it a chunk at a time. Re-entrant triggers (sync + thumbnail-drain
+    /// both fire this) are coalesced — a pass already running or starting is a
+    /// no-op so two passes can't embed the same files at once.
     pub(crate) fn run_scene_embedding_task(&mut self) -> Task<Msg> {
+        if self.scene_pass.is_some() || self.scene_pass_starting {
+            return Task::none();
+        }
         let Some(conn) = self.catalog.clone() else {
             return Task::none();
         };
-        let catalog_dir = self.catalog_dir.clone();
-
+        self.scene_pass_starting = true;
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    let needing = {
-                        let g = conn.lock_unwrap();
-                        g.files_needing_scene_embedding(SCENE_MODEL).unwrap_or_default()
-                    };
-                    let rows = embed_thumbnails(&catalog_dir, needing);
-                    let n = rows.len();
-                    if !rows.is_empty() {
-                        let g = conn.lock_unwrap();
-                        if let Err(e) = g.store_scene_embeddings(SCENE_MODEL, &rows) {
-                            eprintln!("[scene] store_scene_embeddings failed: {e}");
-                        }
-                    }
-                    n
+                    let g = conn.lock_unwrap();
+                    g.files_needing_scene_embedding(SCENE_MODEL).unwrap_or_default()
                 })
                 .await
-                .unwrap_or(0)
+                .unwrap_or_default()
             },
-            Msg::SceneEmbeddingDone,
+            Msg::SceneEmbedStarted,
+        )
+    }
+
+    /// Embed the next `SCENE_CHUNK` files from the in-flight pass: decode + compute
+    /// *off the lock*, write the chunk back *under the lock* (stacking's
+    /// discipline). When the queue drains, close the pass and leave a ✓ toast.
+    fn next_scene_chunk(&mut self) -> Task<Msg> {
+        let Some(pass) = self.scene_pass.as_mut() else {
+            return Task::none();
+        };
+        if pass.queue.is_empty() {
+            let total = pass.total;
+            self.scene_pass = None;
+            if total > 0 {
+                self.bg_mark_done("Scenes embedded", format!("{total} frames"));
+            }
+            return Task::none();
+        }
+        let take = pass.queue.len().min(SCENE_CHUNK);
+        let chunk: Vec<(String, i64)> = pass.queue.drain(..take).collect();
+        let Some(conn) = self.catalog.clone() else {
+            self.scene_pass = None;
+            return Task::none();
+        };
+        let catalog_dir = self.catalog_dir.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    // Advance the bar by files *attempted*, not embedded — some may
+                    // lack a thumbnail and be skipped, but they still leave the queue.
+                    let processed = chunk.len();
+                    let rows = embed_thumbnails(&catalog_dir, chunk);
+                    let total_embedded = {
+                        let g = conn.lock_unwrap();
+                        if !rows.is_empty() {
+                            if let Err(e) = g.store_scene_embeddings(SCENE_MODEL, &rows) {
+                                eprintln!("[scene] store_scene_embeddings failed: {e}");
+                            }
+                        }
+                        g.count_scene_embeddings(SCENE_MODEL).unwrap_or(0) as usize
+                    };
+                    (processed, total_embedded)
+                })
+                .await
+                .unwrap_or((0, 0))
+            },
+            |(processed, total_embedded)| Msg::SceneEmbedChunkDone { processed, total_embedded },
         )
     }
 

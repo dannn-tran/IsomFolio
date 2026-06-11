@@ -545,7 +545,14 @@ pub enum Msg {
     /// Compute whole-image scene embeddings for any file that lacks one (from its
     /// cached thumbnail), persisting them for "Review Scenes". Background pass.
     RunSceneEmbedding,
+    /// The needing-list for a pass was computed off the lock; carries the files to
+    /// embed. Opens the panel task and kicks the first chunk.
+    SceneEmbedStarted(Vec<(String, i64)>),
+    /// One chunk of the pass finished: `processed` files embedded this chunk,
+    /// `total_embedded` is the new catalog-wide count. Advances the bar, kicks next.
+    SceneEmbedChunkDone { processed: usize, total_embedded: usize },
     /// The scene-embedding pass finished writing; carries how many were computed.
+    /// (Also fired by the cheap on-open COUNT to refresh the Settings readout.)
     SceneEmbeddingDone(usize),
     /// Enter the review mode for embedding scene-clusters in the current view.
     OpenResolveScenes,

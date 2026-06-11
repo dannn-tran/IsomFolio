@@ -113,6 +113,16 @@ pub struct ThumbnailContext {
     pub done_gen: u64,
 }
 
+/// In-flight state of the background scene-embedding pass. `None` = idle. The pass
+/// drains `queue` a chunk at a time so the task panel shows determinate progress
+/// (done / total + ETA) instead of an opaque spinner.
+pub struct SceneProgress {
+    pub queue: Vec<(String, i64)>,
+    pub total: usize,
+    pub done: usize,
+    pub start_at: Instant,
+}
+
 pub struct DragContext {
     /// The single in-flight drag (any payload), or `None`. Built as a click
     /// candidate on press, promoted to a real drag once it passes the threshold.
@@ -412,6 +422,11 @@ pub struct App {
     /// Count of files with a scene embedding (current model); Settings readout,
     /// refreshed after each scene-embedding pass and on catalog open.
     pub scene_embed_count: usize,
+    /// Live progress of the background scene-embedding pass (`None` = idle).
+    pub scene_pass: Option<SceneProgress>,
+    /// Set between `RunSceneEmbedding` and its `SceneEmbedStarted` so overlapping
+    /// triggers (sync + thumbnail-drain both fire it) can't double-start a pass.
+    pub scene_pass_starting: bool,
 
     pub undo_stack: Vec<UndoOp>,
     pub redo_stack: Vec<UndoOp>,
@@ -778,6 +793,8 @@ impl App {
             stacking_manual: false,
             stack_stats: isomfolio_core::models::StackStats::default(),
             scene_embed_count: 0,
+            scene_pass: None,
+            scene_pass_starting: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             compare: CompareState::default(),
@@ -956,6 +973,7 @@ impl App {
         !self.bg_tasks.is_empty()
             || !self.completed_tasks.is_empty()
             || self.thumb_ctx.total > 0
+            || self.scene_pass.is_some()
             || self.is_syncing
             || self.faces.is_clustering
     }
