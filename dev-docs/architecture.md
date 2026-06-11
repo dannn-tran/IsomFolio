@@ -272,9 +272,11 @@ A **scene** is a *looser* group than a stack — "several tries at the same shot
 
 **Reuses both halves we already own.** Clustering is `clustering::dbscan` (cosine, the same function faces use). The review UI is the **Review Stacks** mode unchanged: `scene_embed::group_scenes` clusters the current view's embeddings and emits the same `Vec<StackReview>` (groups of ≥2, sharpest frame first) that the dHash stacker produces, so `ResolveState`/`ViewMode::ResolveStacks` drive it with only a `scenes: bool` flag toggling the title. The one new piece is the queue-builder (`update/scenes.rs`).
 
+**Whitening is mandatory, not optional.** Before clustering, the view's embeddings are whitened **relative to the view** (`scene_embed::whiten`: z-score each dimension, re-L2-normalise). Validated on a real single-venue shoot, raw global descriptors collapse into one mega-scene under cosine distance — the shared backdrop dominates every frame's statistics, so the discriminating subject is lost. Whitening removes the constant dimensions and amplifies the ones that actually vary across *this* view, which both fixes the over-grouping and makes grouping correctly relative to what the user is reviewing. This is the known weakness of a no-ML descriptor; a CLIP image-encoder would not need it. (An ignored real-data test, `real_data_scene_clustering`, guards the regression: largest scene must stay below half the frames.)
+
 **Pass + lock discipline mirror stacking exactly:** `files_needing_scene_embedding(model)` (no current-mtime row) is read under the lock; thumbnails are decoded + embedded **unlocked**; `store_scene_embeddings` writes under the lock. Triggers: `Msg::RunSceneEmbedding` after a sync and on thumbnail-batch drain, gated by `auto_scene_embed`. Opening **Review Scenes** (`⇧R`) also embeds any stragglers in the view first, so the cluster is complete even if the background pass is mid-flight.
 
-**Settings:** `auto_scene_embed` (default on), `scene_eps` (cosine radius, default 0.12 — higher groups looser), `scene_min_pts` (DBSCAN core threshold, **default 1** so a two-frame scene can form; `group_scenes` drops singletons regardless).
+**Settings:** `auto_scene_embed` (default on), `scene_eps` (cosine radius in *whitened* space, default 0.2 — higher groups looser), `scene_min_pts` (DBSCAN core threshold, **default 1** so a two-frame scene can form; `group_scenes` drops singletons regardless).
 
 ---
 
