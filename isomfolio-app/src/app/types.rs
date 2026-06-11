@@ -491,6 +491,10 @@ pub enum Msg {
     ResolveConfirm,
     /// Reset the current stack's keepers to the auto-picked (sharpest) frame.
     ResolveResetAuto,
+    /// Switch the Sift layout (Grid / Strip / Full) and pin the choice.
+    SiftSetLayout(crate::app::SurfaceLayout),
+    /// Focus a frame within the current group (filmstrip click / arrow keys).
+    SiftFocusFrame(usize),
     /// The final stack's flags finished writing — exit the review and refresh.
     ResolveFinished,
     FlagsApplied,

@@ -206,6 +206,8 @@ impl App {
             | Msg::ResolvePrevStack
             | Msg::ResolveConfirm
             | Msg::ResolveResetAuto
+            | Msg::SiftSetLayout(_)
+            | Msg::SiftFocusFrame(_)
             | Msg::ResolveFinished => self.handle_stacking_msg(msg),
 
             // — permissive scene grouping (embeddings) —

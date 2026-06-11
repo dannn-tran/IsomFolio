@@ -122,6 +122,20 @@ impl App {
 
             Msg::ResolveResetAuto => self.resolve_reset_auto(),
 
+            Msg::SiftSetLayout(layout) => {
+                self.resolve.layout = layout;
+                self.resolve.layout_pinned = true;
+                Task::none()
+            }
+
+            Msg::SiftFocusFrame(i) => {
+                let n = self.resolve.stacks.get(self.resolve.idx).map_or(0, |s| s.frames.len());
+                if n > 0 {
+                    self.resolve.focus = i.min(n - 1);
+                }
+                Task::none()
+            }
+
             Msg::ResolveFinished => self.exit_resolve(true),
 
             _ => Task::none(),
@@ -200,7 +214,16 @@ impl App {
         let Some(stack) = self.resolve.stacks.get(i) else {
             return self.exit_resolve(true);
         };
+        // Until the user pins a layout, auto-pick by group size: small groups read
+        // best all-at-once (Grid); large ones get tiny tiles, so default to the
+        // one-up Strip where the focused frame stays large.
+        let n_frames = stack.frames.len();
+        if !self.resolve.layout_pinned {
+            self.resolve.layout =
+                if n_frames > 4 { crate::app::SurfaceLayout::Strip } else { crate::app::SurfaceLayout::Grid };
+        }
         self.resolve.idx = i;
+        self.resolve.focus = 0;
         self.resolve.handles.clear();
         self.resolve.keepers = self
             .resolve
@@ -666,6 +689,80 @@ mod tests {
             };
             assert_eq!(s.sharpness_rank(0), 1);
             assert_eq!(s.sharpness_rank(1), 2);
+        }
+    }
+
+    mod sift_layout {
+        use super::*;
+        use crate::app::SurfaceLayout;
+
+        fn app_with_group(n: usize) -> App {
+            let mut app = App::new(None).0;
+            let frames: Vec<_> = (0..n).map(|i| file(&format!("f{i}"))).collect();
+            let sharpness: Vec<f64> = (0..n).map(|i| i as f64).collect();
+            app.resolve = ResolveState {
+                stacks: vec![StackReview { frames, sharpness, rep_id: "f0".to_string() }],
+                ..Default::default()
+            };
+            app.view_mode = ViewMode::ResolveStacks;
+            app
+        }
+
+        #[test]
+        fn set_layout_pins_choice() {
+            let mut app = app_with_group(3);
+            let _ = app.handle_stacking_msg(Msg::SiftSetLayout(SurfaceLayout::Strip));
+            assert_eq!(app.resolve.layout, SurfaceLayout::Strip);
+            assert!(app.resolve.layout_pinned);
+        }
+
+        #[test]
+        fn focus_frame_clamps_to_range() {
+            let mut app = app_with_group(3);
+            let _ = app.handle_stacking_msg(Msg::SiftFocusFrame(99));
+            assert_eq!(app.resolve.focus, 2);
+        }
+
+        #[test]
+        fn auto_layout_follows_group_size() {
+            let mut small = app_with_group(3);
+            let _ = small.enter_resolve_stack(0);
+            assert_eq!(small.resolve.layout, SurfaceLayout::Grid);
+
+            let mut big = app_with_group(6);
+            let _ = big.enter_resolve_stack(0);
+            assert_eq!(big.resolve.layout, SurfaceLayout::Strip);
+        }
+
+        #[test]
+        fn pinned_layout_overrides_size_auto() {
+            let mut app = app_with_group(6);
+            let _ = app.handle_stacking_msg(Msg::SiftSetLayout(SurfaceLayout::Grid));
+            let _ = app.enter_resolve_stack(0);
+            assert_eq!(app.resolve.layout, SurfaceLayout::Grid);
+        }
+
+        #[test]
+        fn arrows_move_frame_focus_in_strip() {
+            let mut app = app_with_group(4);
+            app.resolve.layout = SurfaceLayout::Strip;
+            let _ = app.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(app.resolve.focus, 1);
+            let _ = app.update(Msg::Navigate { dx: -1, dy: 0 });
+            assert_eq!(app.resolve.focus, 0);
+        }
+
+        #[test]
+        fn arrows_change_group_in_grid() {
+            let mut app = app_with_group(3);
+            app.resolve.stacks.push(StackReview {
+                frames: vec![file("g0"), file("g1")],
+                sharpness: vec![1.0, 2.0],
+                rep_id: "g1".to_string(),
+            });
+            app.resolve.layout = SurfaceLayout::Grid;
+            let _ = app.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(app.resolve.idx, 1);
         }
     }
 }

@@ -36,15 +36,29 @@ impl App {
 
             Msg::Navigate { dx, dy } => {
                 if matches!(self.view_mode, ViewMode::ResolveStacks) {
-                    // ← / → step between stacks (non-destructive); ↑ / ↓ inert.
                     let step = dx + dy;
-                    return if step < 0 {
-                        self.handle_stacking_msg(Msg::ResolvePrevStack)
-                    } else if step > 0 {
-                        self.handle_stacking_msg(Msg::ResolveSkipStack)
-                    } else {
-                        Task::none()
-                    };
+                    // In Grid, arrows step between groups. In Strip/Full, arrows move
+                    // the focused frame *within* the group (group nav is Shift+arrow,
+                    // handled in NavigateExtend).
+                    if matches!(self.resolve.layout, crate::app::SurfaceLayout::Grid) {
+                        return if step < 0 {
+                            self.handle_stacking_msg(Msg::ResolvePrevStack)
+                        } else if step > 0 {
+                            self.handle_stacking_msg(Msg::ResolveSkipStack)
+                        } else {
+                            Task::none()
+                        };
+                    }
+                    let n = self
+                        .resolve
+                        .stacks
+                        .get(self.resolve.idx)
+                        .map_or(0, |s| s.frames.len());
+                    if n > 0 && step != 0 {
+                        self.resolve.focus =
+                            (self.resolve.focus as i32 + step).rem_euclid(n as i32) as usize;
+                    }
+                    return Task::none();
                 }
                 if matches!(self.view_mode, ViewMode::Loupe | ViewMode::Preview) {
                     let total = self.files.len();
@@ -116,6 +130,18 @@ impl App {
             }
 
             Msg::NavigateExtend { dx, dy } => {
+                // In Sift, Shift+arrow always steps between groups, whatever the
+                // layout (plain arrows may be moving frame focus instead).
+                if matches!(self.view_mode, ViewMode::ResolveStacks) {
+                    let step = dx + dy;
+                    return if step < 0 {
+                        self.handle_stacking_msg(Msg::ResolvePrevStack)
+                    } else if step > 0 {
+                        self.handle_stacking_msg(Msg::ResolveSkipStack)
+                    } else {
+                        Task::none()
+                    };
+                }
                 if !matches!(self.view_mode, ViewMode::Browse) {
                     return self.handle_navigation_msg(Msg::Navigate { dx, dy });
                 }

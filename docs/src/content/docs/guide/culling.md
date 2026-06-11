@@ -113,13 +113,15 @@ When a shoot has *many* bursts, press **`R`** (the **Sift (N)** chip, or **View 
 2. Confirm with **Keep selected & Next ›** to flag your choice (keepers → Pick, the rest → Reject) and jump to the next group. **Skip** moves on without changing anything; **‹ Previous** steps back — and your earlier keep/reject choices are remembered, so stepping back and forth never loses them. Keeping *nothing* is treated as a Skip (you can't silently reject a whole group).
 3. When you've worked through every group — or press **Esc** to stop early — you're returned to the grid.
 
+**Two layouts.** Toggle **▦ Grid** / **▭ Strip** in the header. *Grid* shows every frame at once in a window-filling adaptive grid — best for small groups. *Strip* shows one large preview of the focused frame over a thumbnail filmstrip — best for many frames (and for pixel-checking focus), so the photo stays big instead of shrinking. Groups with more than four frames open in Strip automatically; pick a layout yourself and it sticks for the rest of the pass.
+
 **Keyboard — the whole pass is one-handed:**
 
 | Key | Action |
 |---|---|
 | `Enter` or `Space` | Keep selected & Next |
-| `→` | Next group (Skip) |
-| `←` | Previous group |
+| `←` / `→` | *Grid:* previous / next group · *Strip:* focus previous / next frame |
+| `Shift`+`←` / `→` | Previous / next group (either layout) |
 | `1`–`9` | Toggle keep on that frame (by position) |
 | `0` | Reset to the auto-pick (sharpest) |
 | `Esc` | Exit to grid |

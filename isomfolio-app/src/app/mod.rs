@@ -509,6 +509,19 @@ impl StackReview {
     }
 }
 
+/// How a set of photos is arranged on screen. Orthogonal to *what* the photos are
+/// (Browse vs Sift) — a shared vocabulary so the same layouts can be offered in any
+/// context. (Browse adoption lands in a later step; Sift uses it now.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SurfaceLayout {
+    /// All items at once in an adaptive tile grid.
+    #[default]
+    Grid,
+    /// One large preview of the focused item + a thumbnail filmstrip.
+    Strip,
+    // `Full` (full-bleed + OS fullscreen) lands with the Browse-surface step.
+}
+
 /// State for the resolve-stacks view — a guided, full-bleed pass through every
 /// multi-frame stack in the current view, one at a time.
 #[derive(Default)]
@@ -516,6 +529,12 @@ pub struct ResolveState {
     pub stacks: Vec<StackReview>,
     /// Index of the stack currently shown.
     pub idx: usize,
+    /// How the current group's frames are arranged. Auto-chosen per group by size
+    /// until the user picks one, after which `layout_pinned` makes it sticky.
+    pub layout: SurfaceLayout,
+    pub layout_pinned: bool,
+    /// Focused frame within the current group (drives the Strip/Full preview).
+    pub focus: usize,
     /// Ids of frames in the *current* stack marked as keepers (→ Pick on resolve).
     /// This is the live working set; it is mirrored into `decisions` on every edit
     /// so stepping away and back restores the choice.
