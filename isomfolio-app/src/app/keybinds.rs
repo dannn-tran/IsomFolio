@@ -111,6 +111,7 @@ pub fn default_bindings() -> Vec<KeyBind> {
         KeyBind { key: Char("r"), mods: Mods::SHIFT, when_ignored: true, action: || Msg::OpenResolveScenes, label: "Review Scenes", category: View },
 
         // Tagging
+        KeyBind { key: Char("t"), mods: Mods::NONE, when_ignored: true, action: || Msg::FocusTagInput, label: "Add Tag (focus entry)", category: Tagging },
         KeyBind { key: Char("."), mods: Mods::NONE, when_ignored: true, action: || Msg::RepeatLastTag, label: "Repeat Last Tag", category: Tagging },
         KeyBind { key: Char("b"), mods: Mods::NONE, when_ignored: true, action: || Msg::AddSelectionToTargetAlbum, label: "Add to Target Album", category: Tagging },
 

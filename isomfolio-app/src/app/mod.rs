@@ -422,6 +422,9 @@ pub struct App {
     /// Count of files with a scene embedding (current model); Settings readout,
     /// refreshed after each scene-embedding pass and on catalog open.
     pub scene_embed_count: usize,
+    /// Set when `t` opened the Info panel from cold — the tag field isn't mounted
+    /// yet (detail loads async), so `DetailLoaded` focuses it once it appears.
+    pub pending_focus_tag: bool,
     /// Live progress of the background scene-embedding pass (`None` = idle).
     pub scene_pass: Option<SceneProgress>,
     /// Set between `RunSceneEmbedding` and its `SceneEmbedStarted` so overlapping
@@ -793,6 +796,7 @@ impl App {
             stacking_manual: false,
             stack_stats: isomfolio_core::models::StackStats::default(),
             scene_embed_count: 0,
+            pending_focus_tag: false,
             scene_pass: None,
             scene_pass_starting: false,
             undo_stack: Vec::new(),

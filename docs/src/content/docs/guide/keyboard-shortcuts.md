@@ -56,6 +56,7 @@ Press `?` at any time to open the in-app shortcut help panel.
 
 | Shortcut | Action |
 |---|---|
+| `T` | Focus the tag entry (opens the Info panel if needed) |
 | `.` | Repeat last tag (apply to current selection) |
 | `Cmd+Z` | Undo |
 | `Cmd+Shift+Z` | Redo |

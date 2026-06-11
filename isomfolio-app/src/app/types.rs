@@ -560,6 +560,10 @@ pub enum Msg {
     /// first). Feeds the same review mode as `ResolveStacksLoaded`.
     ResolveScenesLoaded(Vec<crate::app::StackReview>),
 
+    /// Focus the Info-panel tag entry (opening the panel first if needed) so a tag
+    /// can be typed without reaching for the mouse.
+    FocusTagInput,
+
     RunFaceClustering { force_full: bool },
     FaceClusterProgress { files_done: usize, total: usize, percent: u8 },
     InferenceEngineReady {

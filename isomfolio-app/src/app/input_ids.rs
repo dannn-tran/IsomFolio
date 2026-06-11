@@ -19,5 +19,6 @@ input_id!(create_group, "input-create-group");
 input_id!(rename_group, "input-rename-group");
 input_id!(rename_face, "input-rename-face");
 input_id!(rename_tag, "input-rename-tag");
+input_id!(detail_tag, "input-detail-tag");
 input_id!(new_catalog, "input-new-catalog");
 input_id!(save_smart_album, "input-save-smart-album");

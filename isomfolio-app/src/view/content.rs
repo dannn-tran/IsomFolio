@@ -856,6 +856,7 @@ impl App {
 
             col = col.push(
                 text_input("Add tag…", &self.detail.tag_input)
+                    .id(crate::app::input_ids::detail_tag())
                     .on_input(Msg::DetailTagInputChanged)
                     .on_submit(Msg::AddDetailTag)
                     .padding([SPACE_1, SPACE_1_5])

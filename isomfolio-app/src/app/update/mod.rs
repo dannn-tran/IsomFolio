@@ -113,6 +113,7 @@ impl App {
             | Msg::AllTagsLoaded(_)
             | Msg::TagsSavedResult(_, _)
             | Msg::RepeatLastTag
+            | Msg::FocusTagInput
             | Msg::SetDetailRating(_)
             | Msg::SetFlag(_)
             | Msg::FlagsApplied

@@ -30,6 +30,28 @@ impl App {
                 }
             }
 
+            Msg::FocusTagInput => {
+                let focus =
+                    iced::widget::operation::focus(crate::app::input_ids::detail_tag());
+                let has_target =
+                    self.detail_file().is_some() || !self.detail.batch_file_ids.is_empty();
+                if has_target {
+                    // The tag field renders whenever there's a target and the data
+                    // is already loaded — open the panel and focus this same frame.
+                    self.detail.show = true;
+                    return focus;
+                }
+                if self.grid_selected.is_empty() {
+                    self.status = "Select a photo to tag".to_string();
+                    return Task::none();
+                }
+                // Cold open: load the selection first; `DetailLoaded` focuses the
+                // field once it mounts.
+                self.detail.show = true;
+                self.pending_focus_tag = true;
+                self.maybe_load_detail()
+            }
+
             Msg::DetailLoaded {
                 file_id,
                 tags,
@@ -52,7 +74,15 @@ impl App {
                 self.detail.caption_input = description.unwrap_or_default();
                 self.detail.creator_input = creator.unwrap_or_default();
                 self.detail.rights_input = rights.unwrap_or_default();
-                self.load_all_tags_task()
+                let load = self.load_all_tags_task();
+                if std::mem::take(&mut self.pending_focus_tag) {
+                    Task::batch([
+                        load,
+                        iced::widget::operation::focus(crate::app::input_ids::detail_tag()),
+                    ])
+                } else {
+                    load
+                }
             }
 
             Msg::BatchDetailLoaded { file_ids, tags } => {
@@ -211,6 +241,7 @@ impl App {
             Msg::SetFlag(flag) => {
                 let ids = self.selection_target_ids();
                 if ids.is_empty() {
+                    self.status = "Select photos first".to_string();
                     return Task::none();
                 }
                 let before: Vec<(String, isomfolio_core::models::Flag)> = ids
@@ -248,6 +279,7 @@ impl App {
             Msg::SetRating(rating) => {
                 let ids = self.selection_target_ids();
                 if ids.is_empty() {
+                    self.status = "Select photos first".to_string();
                     return Task::none();
                 }
                 let before: Vec<(String, Option<i32>)> = ids
@@ -295,6 +327,7 @@ impl App {
             Msg::SetColorLabel(color) => {
                 let ids = self.selection_target_ids();
                 if ids.is_empty() {
+                    self.status = "Select photos first".to_string();
                     return Task::none();
                 }
                 // Pressing the same colour again clears it (toggle off).
