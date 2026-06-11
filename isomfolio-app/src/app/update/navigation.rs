@@ -3,13 +3,11 @@ use std::collections::HashSet;
 use iced::Task;
 
 use super::super::{
-    loupe, App, ContextMenuState, ContextMenuTarget, Drag, DragPayload,
-    LoupeState, Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX,
+    App, ContextMenuState, ContextMenuTarget, Drag, DragPayload,
+    Msg, SidebarItem, ViewMode, SIDEBAR_HANDLE_WIDTH, SIDEBAR_WIDTH_MAX,
     SIDEBAR_WIDTH_MIN, TILE_SIZE_MAX, TILE_SIZE_MIN, TILE_SIZE_STEP,
 };
 use super::drag_drop::album_siblings;
-use super::loupe_load::open_privacy_settings;
-use super::LockUnwrap;
 
 impl App {
     pub(super) fn handle_navigation_msg(&mut self, msg: Msg) -> Task<Msg> {
@@ -17,7 +15,7 @@ impl App {
             Msg::TileSizeUp => {
                 // In the loupe the "zoom" keys zoom the image, not the grid tiles.
                 if matches!(self.view_mode, ViewMode::Loupe) {
-                    return self.handle_navigation_msg(Msg::LoupeZoomBy(1.25));
+                    return self.handle_loupe_msg(Msg::LoupeZoomBy(1.25));
                 }
                 self.tile_px = (self.tile_px + TILE_SIZE_STEP).min(TILE_SIZE_MAX);
                 if let Some(idx) = self.anchor_idx { self.scroll_to_index(idx) } else { Task::none() }
@@ -25,7 +23,7 @@ impl App {
 
             Msg::TileSizeDown => {
                 if matches!(self.view_mode, ViewMode::Loupe) {
-                    return self.handle_navigation_msg(Msg::LoupeZoomBy(0.8));
+                    return self.handle_loupe_msg(Msg::LoupeZoomBy(0.8));
                 }
                 self.tile_px = (self.tile_px - TILE_SIZE_STEP).max(TILE_SIZE_MIN);
                 if let Some(idx) = self.anchor_idx { self.scroll_to_index(idx) } else { Task::none() }
@@ -132,77 +130,6 @@ impl App {
                 Task::batch([scroll, detail])
             }
 
-            // The widget already reduced this through `LoupeGeometry::apply`
-            // (it owns the live geometry); the app just stores the result and
-            // loads the hi-res decode if we ended up zoomed in.
-            Msg::LoupeZoomChanged { scale, pan } => {
-                self.loupe.zoom = scale.clamp(
-                    super::super::LOUPE_ZOOM_MIN,
-                    super::super::LOUPE_ZOOM_MAX,
-                );
-                self.loupe.pan = if self.loupe.zoom <= super::super::LOUPE_ZOOM_MIN {
-                    iced::Vector::ZERO
-                } else {
-                    pan
-                };
-                if self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
-                    return self.load_loupe_hires();
-                }
-                Task::none()
-            }
-
-            Msg::LoupeZoomBy(factor) => {
-                let anchor = self.loupe_center();
-                self.apply_loupe_intent(loupe::LoupeIntent::ZoomAround { anchor, factor })
-            }
-
-            Msg::LoupeZoomReset => self.apply_loupe_intent(loupe::LoupeIntent::Reset),
-
-            Msg::ToggleLoupeZoomLock => {
-                self.loupe.lock_zoom = !self.loupe.lock_zoom;
-                Task::none()
-            }
-
-            Msg::LoupeJumpTo(idx) => {
-                if idx >= self.files.len() || !matches!(self.view_mode, ViewMode::Loupe) {
-                    return Task::none();
-                }
-                self.loupe.idx = idx;
-                self.loupe.reset_zoom();
-                self.loupe.load_error = None;
-                self.loupe.prefetch.retain(|&k, _| {
-                    (k as i32 - idx as i32).unsigned_abs() as usize <= 2
-                });
-                let mut tasks: Vec<Task<Msg>> = Vec::new();
-                if let Some(handle) = self.loupe.prefetch.remove(&idx) {
-                    self.loupe.full_res = Some((idx, handle));
-                } else {
-                    self.loupe.full_res = None;
-                    tasks.push(self.load_loupe_full_res());
-                }
-                tasks.push(self.load_loupe_prefetch());
-                Task::batch(tasks)
-            }
-
-            Msg::LoupeGeometry { viewport, native } => {
-                self.loupe.viewport = Some(viewport);
-                self.loupe.native = Some(native);
-                Task::none()
-            }
-
-            Msg::LoupeZoomActual => {
-                // Toggle between fit and 1:1 (Lightroom-style). Centre-anchored.
-                let intent = if self.loupe.zoom > super::super::LOUPE_ZOOM_MIN {
-                    loupe::LoupeIntent::Reset
-                } else {
-                    loupe::LoupeIntent::ZoomTo {
-                        level: loupe::ZoomLevel::Actual,
-                        anchor: self.loupe_center(),
-                    }
-                };
-                self.apply_loupe_intent(intent)
-            }
-
             Msg::ToggleFullscreen => {
                 self.fullscreen = !self.fullscreen;
                 let mode = if self.fullscreen {
@@ -214,77 +141,6 @@ impl App {
                     Some(id) => iced::window::set_mode(id, mode),
                     None => Task::none(),
                 })
-            }
-
-            Msg::OpenLoupe => {
-                match self.view_mode {
-                    ViewMode::Loupe => {
-                        self.anchor_idx = Some(self.loupe.idx);
-                        self.select_lead = Some(self.loupe.idx);
-                        self.grid_selected.clear();
-                        self.selection_base.clear();
-                        if let Some(f) = self.files.get(self.loupe.idx) {
-                            self.grid_selected.insert(f.id.clone());
-                        }
-                        self.view_mode = ViewMode::Browse;
-                        self.loupe.full_res = None;
-                        self.loupe.prefetch.clear();
-                        return Task::batch([
-                            self.scroll_to_index(self.loupe.idx),
-                            self.restore_sidebar_scroll(),
-                        ]);
-                    }
-                    ViewMode::Preview => {
-                        self.loupe.reset_zoom();
-                        self.view_mode = ViewMode::Loupe;
-                        return Task::none();
-                    }
-                    ViewMode::Browse => {
-                        if !self.files.is_empty() {
-                            let idx =
-                                self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
-                            self.loupe.idx = idx;
-                            self.loupe.reset_zoom();
-                            self.loupe.load_error = None;
-                            self.view_mode = ViewMode::Loupe;
-                            if let Some(handle) = self.loupe.prefetch.remove(&idx) {
-                                self.loupe.full_res = Some((idx, handle));
-                                return self.load_loupe_prefetch();
-                            }
-                            self.loupe.full_res = None;
-                            return Task::batch([
-                                self.load_loupe_full_res(),
-                                self.load_loupe_prefetch(),
-                            ]);
-                        }
-                    }
-                    ViewMode::People
-                    | ViewMode::Compare
-                    | ViewMode::ResolveStacks
-                    | ViewMode::Settings => {}
-                }
-                Task::none()
-            }
-
-            Msg::TogglePreview => {
-                match self.view_mode {
-                    ViewMode::Preview => {
-                        self.view_mode = ViewMode::Browse;
-                        self.loupe = LoupeState::default();
-                    }
-                    ViewMode::Browse => {
-                        if let Some(idx) = self.anchor_idx {
-                            self.loupe.idx = idx;
-                            self.view_mode = ViewMode::Preview;
-                            return Task::batch([
-                                self.load_loupe_full_res(),
-                                self.load_loupe_prefetch(),
-                            ]);
-                        }
-                    }
-                    _ => {}
-                }
-                Task::none()
             }
 
             Msg::SidebarResizeStart => {
@@ -579,22 +435,7 @@ impl App {
                     return Task::none();
                 }
                 if matches!(self.view_mode, ViewMode::Loupe) {
-                    // Exit loupe back to the grid on the same photo (retain
-                    // position) rather than jumping to the top.
-                    self.anchor_idx = Some(self.loupe.idx);
-                    self.select_lead = Some(self.loupe.idx);
-                    self.grid_selected.clear();
-                    self.selection_base.clear();
-                    if let Some(f) = self.files.get(self.loupe.idx) {
-                        self.grid_selected.insert(f.id.clone());
-                    }
-                    self.view_mode = ViewMode::Browse;
-                    self.loupe.full_res = None;
-                    self.loupe.prefetch.clear();
-                    return Task::batch([
-                        self.scroll_to_index(self.loupe.idx),
-                        self.restore_sidebar_scroll(),
-                    ]);
+                    return self.exit_loupe_to_grid();
                 }
                 if matches!(self.view_mode, ViewMode::ResolveStacks) {
                     return self.exit_resolve(false);
@@ -756,46 +597,6 @@ impl App {
                 Task::none()
             }
 
-            Msg::LoupeFullResLoaded { idx, handle } => {
-                if self.loupe.idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
-                    self.loupe.full_res = Some((idx, handle));
-                    if matches!(&self.loupe.load_error, Some((e, _)) if *e == idx) {
-                        self.loupe.load_error = None;
-                    }
-                }
-                Task::none()
-            }
-
-            Msg::LoupeFullResFailed { idx, error } => {
-                if self.loupe.idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
-                    self.loupe.load_error = Some((idx, error));
-                }
-                Task::none()
-            }
-
-            Msg::OpenPrivacySettings => {
-                open_privacy_settings();
-                Task::none()
-            }
-
-            Msg::LoupeHiresLoaded { idx, handle } => {
-                if self.loupe.idx == idx && matches!(self.view_mode, ViewMode::Loupe) {
-                    self.loupe.full_res = Some((idx, handle));
-                    self.loupe.hires_loaded = true;
-                }
-                Task::none()
-            }
-
-            Msg::LoupePrefetchLoaded { idx, handle } => {
-                if matches!(self.view_mode, ViewMode::Loupe) {
-                    let dist = (idx as i32 - self.loupe.idx as i32).unsigned_abs() as usize;
-                    if dist <= 2 {
-                        self.loupe.prefetch.insert(idx, handle);
-                    }
-                }
-                Task::none()
-            }
-
             Msg::SelectAll => {
                 // While an album multi-selection is active, Cmd+A expands it to all
                 // sibling albums — every album sharing a group (or the ungrouped
@@ -818,40 +619,6 @@ impl App {
                 self.selection_base.clear();
                 self.anchor_idx = None;
                 self.select_lead = None;
-                Task::none()
-            }
-
-            Msg::OpenCompare => {
-                if self.grid_selected.len() != 2 {
-                    self.status = "Select exactly 2 photos to compare".to_string();
-                    return Task::none();
-                }
-                let mut sel = self.grid_selected.iter();
-                let id0 = sel.next().expect("grid_selected.len() == 2 checked above").clone();
-                let id1 = sel.next().expect("grid_selected.len() == 2 checked above").clone();
-                let f0 = self.files.iter().find(|f| f.id == id0).cloned();
-                let f1 = self.files.iter().find(|f| f.id == id1).cloned();
-                // Pull the two frames' computed sharpness (a small keyed read) so
-                // the panel can mark the sharper one. Absent values → no badge.
-                let sharpness = self
-                    .catalog
-                    .as_ref()
-                    .and_then(|c| c.lock_unwrap().sharpness_for(&[id0.clone(), id1.clone()]).ok())
-                    .map(|m| [m.get(&id0).copied(), m.get(&id1).copied()])
-                    .unwrap_or([None, None]);
-                self.compare = super::super::CompareState {
-                    files: [f0, f1],
-                    handles: [None, None],
-                    sharpness,
-                };
-                self.view_mode = ViewMode::Compare;
-                Task::batch([self.load_compare_slot(0), self.load_compare_slot(1)])
-            }
-
-            Msg::CompareFullResLoaded { slot, handle } => {
-                if matches!(self.view_mode, ViewMode::Compare) {
-                    self.compare.handles[slot] = Some(handle);
-                }
                 Task::none()
             }
 

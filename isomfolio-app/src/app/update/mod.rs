@@ -140,16 +140,7 @@ impl App {
             | Msg::WindowResized(_)
             | Msg::Navigate { .. }
             | Msg::NavigateExtend { .. }
-            | Msg::OpenLoupe
-            | Msg::LoupeZoomChanged { .. }
-            | Msg::LoupeZoomBy(_)
-            | Msg::LoupeZoomReset
-            | Msg::LoupeZoomActual
-            | Msg::LoupeGeometry { .. }
             | Msg::ToggleFullscreen
-            | Msg::ToggleLoupeZoomLock
-            | Msg::LoupeJumpTo(_)
-            | Msg::TogglePreview
             | Msg::SidebarResizeStart
             | Msg::ListColResizeStart(_)
             | Msg::MouseMoved(_)
@@ -171,17 +162,28 @@ impl App {
             | Msg::OpenMenuDropdown(_)
             | Msg::HoverMenuTab(_)
             | Msg::CloseMenuDropdown
+            | Msg::SelectAll
+            | Msg::DeselectAll
+            | Msg::ShowInFinder(_)
+            | Msg::SidebarScrolled(_) => self.handle_navigation_msg(msg),
+
+            // — loupe / preview / compare —
+            Msg::OpenLoupe
+            | Msg::LoupeZoomChanged { .. }
+            | Msg::LoupeZoomBy(_)
+            | Msg::LoupeZoomReset
+            | Msg::LoupeZoomActual
+            | Msg::LoupeGeometry { .. }
+            | Msg::ToggleLoupeZoomLock
+            | Msg::LoupeJumpTo(_)
+            | Msg::TogglePreview
             | Msg::LoupeFullResLoaded { .. }
             | Msg::LoupeFullResFailed { .. }
             | Msg::OpenPrivacySettings
             | Msg::LoupeHiresLoaded { .. }
             | Msg::LoupePrefetchLoaded { .. }
-            | Msg::SelectAll
-            | Msg::DeselectAll
             | Msg::OpenCompare
-            | Msg::CompareFullResLoaded { .. }
-            | Msg::ShowInFinder(_)
-            | Msg::SidebarScrolled(_) => self.handle_navigation_msg(msg),
+            | Msg::CompareFullResLoaded { .. } => self.handle_loupe_msg(msg),
 
             // — content-based stacking —
             Msg::RunStacking
