@@ -10,6 +10,7 @@ mod people;
 mod resolve;
 mod settings;
 mod sidebar;
+mod sidebar_filters;
 pub mod styles;
 mod task_panel;
 mod tag_browser;
