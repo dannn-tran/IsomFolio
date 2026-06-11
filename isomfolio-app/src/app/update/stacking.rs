@@ -117,7 +117,9 @@ impl App {
                 self.enter_resolve_stack(prev)
             }
 
-            Msg::ResolveApplyAndNext => self.apply_resolve_and_advance(),
+            Msg::ResolveApplyAndNext | Msg::ResolveConfirm => self.apply_resolve_and_advance(),
+
+            Msg::ResolveResetAuto => self.resolve_reset_auto(),
 
             Msg::ResolveFinished => self.exit_resolve(true),
 
@@ -224,6 +226,32 @@ impl App {
         }
     }
 
+    pub(super) fn in_resolve(&self) -> bool {
+        matches!(self.view_mode, ViewMode::ResolveStacks)
+    }
+
+    /// Toggle the keeper mark on the `n`-th frame (1-based) of the current stack —
+    /// the number-key shortcut in the review. Out-of-range numbers are ignored.
+    pub(super) fn resolve_toggle_frame(&mut self, n: usize) -> Task<Msg> {
+        if let Some(stack) = self.resolve.stacks.get(self.resolve.idx) {
+            if let Some(f) = stack.frames.get(n.wrapping_sub(1)) {
+                let id = f.id.clone();
+                if !self.resolve.keepers.remove(&id) {
+                    self.resolve.keepers.insert(id);
+                }
+            }
+        }
+        Task::none()
+    }
+
+    /// Restore the current stack's keepers to the auto-picked (sharpest) frame.
+    pub(super) fn resolve_reset_auto(&mut self) -> Task<Msg> {
+        if let Some(stack) = self.resolve.stacks.get(self.resolve.idx) {
+            self.resolve.keepers = std::iter::once(stack.rep_id.clone()).collect();
+        }
+        Task::none()
+    }
+
     /// Flag the current stack (keepers → Pick, the rest → Reject), record undo,
     /// then advance. The flag write runs off-thread; when it's the *last* stack we
     /// chain the exit reload onto it so the grid reflects the final write.
@@ -231,6 +259,12 @@ impl App {
         let Some(stack) = self.resolve.stacks.get(self.resolve.idx) else {
             return Task::none();
         };
+        // Keeping nothing would silently reject the whole stack — almost never the
+        // intent. Treat it as a skip and nudge the user, rather than blow it away.
+        if self.resolve.keepers.is_empty() {
+            self.status = "Nothing kept — skipped (pick at least one frame to keep)".to_string();
+            return self.advance_resolve(self.resolve.idx + 1);
+        }
         let keepers = self.resolve.keepers.clone();
         let picks: Vec<String> = stack
             .frames
@@ -483,6 +517,60 @@ mod tests {
             let files = vec![file("a1"), file("b1")];
             let m = membership(&[("a1", "A", 5.0), ("b1", "B", 5.0)]);
             assert!(group_stacks_for_review(files, &m).is_empty());
+        }
+    }
+
+    mod resolve_keeper_keys {
+        use super::*;
+        use std::collections::HashSet;
+
+        fn review_app() -> App {
+            let mut app = App::new(None).0;
+            let frames = vec![file("f1"), file("f2"), file("f3")];
+            app.resolve = ResolveState {
+                stacks: vec![StackReview { frames, rep_id: "f2".to_string() }],
+                idx: 0,
+                keepers: std::iter::once("f2".to_string()).collect(),
+                ..Default::default()
+            };
+            app.view_mode = ViewMode::ResolveStacks;
+            app
+        }
+
+        #[test]
+        fn number_key_toggles_that_frame() {
+            let mut app = review_app();
+            let _ = app.resolve_toggle_frame(1);
+            assert!(app.resolve.keepers.contains("f1"));
+            let _ = app.resolve_toggle_frame(1);
+            assert!(!app.resolve.keepers.contains("f1"));
+        }
+
+        #[test]
+        fn out_of_range_number_is_ignored() {
+            let mut app = review_app();
+            let before = app.resolve.keepers.clone();
+            let _ = app.resolve_toggle_frame(0);
+            let _ = app.resolve_toggle_frame(9);
+            assert_eq!(app.resolve.keepers, before);
+        }
+
+        #[test]
+        fn reset_restores_the_auto_pick() {
+            let mut app = review_app();
+            let _ = app.resolve_toggle_frame(1);
+            let _ = app.resolve_toggle_frame(3);
+            let _ = app.resolve_reset_auto();
+            let expect: HashSet<String> = std::iter::once("f2".to_string()).collect();
+            assert_eq!(app.resolve.keepers, expect);
+        }
+
+        #[test]
+        fn in_resolve_tracks_view_mode() {
+            let mut app = review_app();
+            assert!(app.in_resolve());
+            app.view_mode = ViewMode::Browse;
+            assert!(!app.in_resolve());
         }
     }
 }

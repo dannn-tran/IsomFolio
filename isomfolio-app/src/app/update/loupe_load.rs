@@ -260,7 +260,10 @@ impl App {
                             return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
                         }
                     }
-                    ViewMode::People | ViewMode::Compare | ViewMode::ResolveStacks | ViewMode::Settings => {}
+                    // No loupe in review — repurpose Space as "Keep & Next", the
+                    // same as Enter, so the pass is fully one-handed.
+                    ViewMode::ResolveStacks => return self.handle_stacking_msg(Msg::ResolveConfirm),
+                    ViewMode::People | ViewMode::Compare | ViewMode::Settings => {}
                 }
                 Task::none()
             }

@@ -487,6 +487,10 @@ pub enum Msg {
     ResolveSkipStack,
     /// Step back to the previous stack without changing anything.
     ResolvePrevStack,
+    /// Keep selected & advance — keyboard confirm (Enter / Space) in review.
+    ResolveConfirm,
+    /// Reset the current stack's keepers to the auto-picked (sharpest) frame.
+    ResolveResetAuto,
     /// The final stack's flags finished writing — exit the review and refresh.
     ResolveFinished,
     FlagsApplied,

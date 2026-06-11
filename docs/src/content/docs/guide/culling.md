@@ -98,7 +98,7 @@ Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selecti
 
 ## Culling stacks
 
-When you've shot several near-identical frames, IsomFolio groups them into a **stack** (see [Browsing → Stacks](/guide/browsing/)). With the toolbar **⧉ Stack** collapse on, you don't have to expand a burst to resolve it:
+When you've shot several near-identical frames, IsomFolio groups them into a **stack** (see [Browsing → Stacks](/guide/browsing/)). The toolbar **⧉ Stack** chip shows how many stacks the current library has (e.g. `⧉ Stack (12)`); how aggressively frames group is tunable under **Settings → General → Stacking** (similarity threshold + max time gap). With collapse on, you don't have to expand a burst to resolve it:
 
 - **Keep this, reject rest** — right-click the stack's tile. The frame you clicked is flagged **Pick** and every other frame in the stack is flagged **Reject** — the keep-the-best-of-a-burst decision in one action. (The collapsed tile defaults to the *sharpest* frame; expand the stack first by clicking its `⧉ N` badge if you want to keep a different one.)
 - **Reject whole stack** — flags every frame in the stack as a Reject (e.g. the whole burst missed).
@@ -107,11 +107,24 @@ Both are undoable with `Cmd+Z`, and they apply to every frame in the stack even 
 
 ### Review Stacks — a guided pass
 
-When a shoot has *many* bursts, press **`R`** (or **View → Review Stacks**) to step through them one at a time. This opens a full-screen review — the same kind of focused view as the loupe — showing one stack's frames large, side by side, so you can actually judge focus, eyes, and expression:
+When a shoot has *many* bursts, press **`R`** (or **View → Review Stacks**) to step through them one at a time. This opens a full-screen review — the same kind of focused view as the loupe — showing one stack's frames large in an **adaptive grid that fits the window** (no horizontal scrolling, even for a row of landscapes), so you can actually judge focus, eyes, and expression:
 
-1. The **sharpest** frame is pre-marked as the keeper. Click any frame to toggle whether it's kept — kept frames get a blue ring and **✓ Keep**, the rest show **✕ Reject**.
-2. Click **Keep selected & Next ›** to flag your choice (keepers → Pick, the rest → Reject) and jump to the next stack. **Skip** moves on without changing anything; **‹ Previous** steps back.
+1. The **sharpest** frame is pre-marked as the keeper and carries a persistent **★ sharpest** tag, so you always see what the app suggested — even after you override it. Click any frame to toggle whether it's kept — kept frames get a blue ring and **✓ Keep**, the rest show **✕ Reject** and dim.
+2. Confirm with **Keep selected & Next ›** to flag your choice (keepers → Pick, the rest → Reject) and jump to the next stack. **Skip** moves on without changing anything; **‹ Previous** steps back. Keeping *nothing* is treated as a Skip (you can't silently reject a whole stack).
 3. When you've worked through every stack — or press **Esc** to stop early — you're returned to the grid.
+
+**Keyboard — the whole pass is one-handed:**
+
+| Key | Action |
+|---|---|
+| `Enter` or `Space` | Keep selected & Next |
+| `→` | Next stack (Skip) |
+| `←` | Previous stack |
+| `1`–`9` | Toggle keep on that frame (by position) |
+| `0` | Reset to the auto-pick (sharpest) |
+| `Esc` | Exit to grid |
+
+If you've toggled away from the auto-pick, a **↺ Reset to auto** button (and `0`) restores it.
 
 Everything you do here is undoable with `Cmd+Z`. It's the fastest way to cull a shoot full of bursts down to one keeper each.
 

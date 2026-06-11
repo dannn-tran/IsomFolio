@@ -35,6 +35,17 @@ impl App {
             }
 
             Msg::Navigate { dx, dy } => {
+                if matches!(self.view_mode, ViewMode::ResolveStacks) {
+                    // ← / → step between stacks (non-destructive); ↑ / ↓ inert.
+                    let step = dx + dy;
+                    return if step < 0 {
+                        self.handle_stacking_msg(Msg::ResolvePrevStack)
+                    } else if step > 0 {
+                        self.handle_stacking_msg(Msg::ResolveSkipStack)
+                    } else {
+                        Task::none()
+                    };
+                }
                 if matches!(self.view_mode, ViewMode::Loupe | ViewMode::Preview) {
                     let total = self.files.len();
                     if total == 0 {

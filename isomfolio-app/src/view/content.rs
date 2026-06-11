@@ -119,13 +119,20 @@ impl App {
 
         let toolbar_row = row![
             super::styles::tip(
-                button(text("⧉ Stack").size(TEXT_MD))
-                    .on_press(Msg::ToggleCollapseBursts)
-                    .style({
-                        let on = self.collapse_bursts;
-                        move |t: &Theme, s| if on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
-                    }),
-                "Collapse stacks to one tile",
+                button(
+                    text(if self.stack_stats.stacks > 0 {
+                        format!("⧉ Stack ({})", self.stack_stats.stacks)
+                    } else {
+                        "⧉ Stack".to_string()
+                    })
+                    .size(TEXT_MD),
+                )
+                .on_press(Msg::ToggleCollapseBursts)
+                .style({
+                    let on = self.collapse_bursts;
+                    move |t: &Theme, s| if on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+                }),
+                "Collapse near-duplicate stacks to one tile · press R to review them",
                 super::styles::TipPos::Bottom,
             ),
             filter_indicator,
