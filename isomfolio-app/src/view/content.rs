@@ -316,11 +316,23 @@ impl App {
             // evicts off-screen textures — so we hand it the path and hold no
             // decoded pixels ourselves (bounded RAM regardless of library size).
             Some(ThumbnailState::Ready(path)) => {
-                image(image::Handle::from_path(path))
-                    .width(self.tile_px)
-                    .height(self.tile_px)
-                    .content_fit(iced::ContentFit::Cover)
-                    .into()
+                // Fit (not crop) so the whole frame shows — culling decisions turn on
+                // composition and the edges a square crop would hide. The tile bg
+                // fills the letterbox so the gaps read as intentional.
+                container(
+                    image(image::Handle::from_path(path))
+                        .width(self.tile_px)
+                        .height(self.tile_px)
+                        .content_fit(iced::ContentFit::Contain),
+                )
+                .width(self.tile_px)
+                .height(self.tile_px)
+                .style(|_: &Theme| container::Style {
+                    background: Some(Background::Color(BG_TILE_LOADING)),
+                    border: Border { radius: TILE_CORNER.into(), ..Default::default() },
+                    ..Default::default()
+                })
+                .into()
             }
             _ => {
                 container(Space::new())
