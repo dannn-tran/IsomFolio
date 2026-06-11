@@ -468,9 +468,10 @@ pub enum Msg {
     /// Expand or collapse one stack inline (only meaningful while the global
     /// Stack collapse is on) — show all its members instead of one rep.
     ToggleStackExpanded(String),
-    /// Stack flags written; carries prior `(id, flag)` (for undo) and how many
-    /// frames were kept, so the status line can report the cull.
-    StackFlagsApplied { before: Vec<(String, Flag)>, kept: usize },
+    /// Stack flags written; carries prior and new `(id, flag)` (a self-contained
+    /// undo step) and how many frames were kept, so the status line can report
+    /// the cull.
+    StackFlagsApplied { before: Vec<(String, Flag)>, after: Vec<(String, Flag)>, kept: usize },
     /// Enter the resolve-stacks review mode for the stacks in the current view.
     OpenResolveStacks,
     /// The review queue finished building (capture-ordered stacks of ≥2 frames).
@@ -734,12 +735,29 @@ pub struct CopyEntry {
 
 use isomfolio_core::models::FlagSelection;
 
+/// A reversible edit. Self-contained: every op carries *both* sides, so undo
+/// writes `before`, redo writes `after`, and the op round-trips between the two
+/// stacks unchanged — no recomputing the inverse from live state (which used to
+/// silently drop ids no longer in the current view). All recording flows through
+/// the `edit_*` chokepoints on `App`, so a handler can't forget to register one.
 pub enum UndoOp {
-    AddedTag { file_ids: Vec<String>, tag: String },
-    RemovedTag { file_ids: Vec<String>, tag: String },
-    SetRatings { before: Vec<(String, Option<i32>)> },
-    SetFlags { before: Vec<(String, Flag)> },
-    SetLabels { before: Vec<(String, Option<String>)> },
+    Ratings { before: Vec<(String, Option<i32>)>, after: Vec<(String, Option<i32>)> },
+    Flags { before: Vec<(String, Flag)>, after: Vec<(String, Flag)> },
+    Labels { before: Vec<(String, Option<String>)>, after: Vec<(String, Option<String>)> },
+    /// `add` is the forward direction; undo applies its negation.
+    Tag { add: bool, file_ids: Vec<String>, tag: String },
+}
+
+impl UndoOp {
+    /// Short verb for the Edit-menu label ("Undo Rating").
+    pub fn label(&self) -> &'static str {
+        match self {
+            UndoOp::Ratings { .. } => "Rating",
+            UndoOp::Flags { .. } => "Flag",
+            UndoOp::Labels { .. } => "Label",
+            UndoOp::Tag { .. } => "Tag",
+        }
+    }
 }
 
 /// Comparator for the star-rating filter UI. Combined with a star count chip to

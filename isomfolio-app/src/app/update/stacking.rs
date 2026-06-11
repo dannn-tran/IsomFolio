@@ -65,13 +65,12 @@ impl App {
                 self.load_files_task()
             }
 
-            Msg::StackFlagsApplied { before, kept } => {
+            Msg::StackFlagsApplied { before, after, kept } => {
                 if before.is_empty() {
                     return Task::none();
                 }
                 let total = before.len();
-                self.undo_stack.push(crate::app::UndoOp::SetFlags { before });
-                self.redo_stack.clear();
+                self.push_undo(crate::app::UndoOp::Flags { before, after });
                 self.status = if kept > 0 {
                     format!("Kept {kept}, rejected {} in stack", total - kept)
                 } else {
@@ -246,8 +245,12 @@ impl App {
             .map(|f| f.id.clone())
             .collect();
         let before: Vec<(String, Flag)> = stack.frames.iter().map(|f| (f.id.clone(), f.flag)).collect();
-        self.undo_stack.push(UndoOp::SetFlags { before });
-        self.redo_stack.clear();
+        let after: Vec<(String, Flag)> = stack
+            .frames
+            .iter()
+            .map(|f| (f.id.clone(), if keepers.contains(&f.id) { Flag::Pick } else { Flag::Reject }))
+            .collect();
+        self.push_undo(UndoOp::Flags { before, after });
 
         let Some(conn) = self.catalog.clone() else { return Task::none() };
         let is_last = self.resolve.idx + 1 >= self.resolve.stacks.len();
@@ -292,16 +295,34 @@ impl App {
         let Some(conn) = self.catalog.clone() else {
             return Task::none();
         };
+        // `set_stack_flags` applies "anchor → Pick (if keep_one), rest → Reject" and
+        // returns the prior flags; mirror that rule to reconstruct the `after` side
+        // for a self-contained undo step (the anchor isn't in scope post-await).
+        let anchor_for_after = anchor.clone();
         Task::perform(
             async move {
                 let g = conn.lock_unwrap();
                 g.set_stack_flags(&anchor, keep_one).map_err(|e| e.to_string())
             },
             move |res| match res {
-                Ok(before) => Msg::StackFlagsApplied {
-                    before,
-                    kept: if keep_one { 1 } else { 0 },
-                },
+                Ok(before) => {
+                    let after = before
+                        .iter()
+                        .map(|(id, _)| {
+                            let flag = if keep_one && *id == anchor_for_after {
+                                Flag::Pick
+                            } else {
+                                Flag::Reject
+                            };
+                            (id.clone(), flag)
+                        })
+                        .collect();
+                    Msg::StackFlagsApplied {
+                        before,
+                        after,
+                        kept: if keep_one { 1 } else { 0 },
+                    }
+                }
                 Err(e) => Msg::DbError(e),
             },
         )

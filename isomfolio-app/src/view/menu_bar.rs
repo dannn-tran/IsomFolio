@@ -117,6 +117,9 @@ impl App {
         for item in items {
             match item {
                 MenuItem::Action(label, shortcut, msg) => {
+                    col = col.push(menu_action_row(label.to_string(), shortcut, Some(msg)));
+                }
+                MenuItem::ActionMaybe { label, shortcut, msg } => {
                     col = col.push(menu_action_row(label, shortcut, msg));
                 }
                 MenuItem::Separator => {
@@ -252,9 +255,28 @@ impl App {
     }
 
     fn edit_menu_items(&self) -> Vec<MenuItem> {
+        // Reflect the undo/redo stacks: name the next step ("Undo Rating") and grey
+        // the item out when there's nothing to do, so the menu never silently
+        // no-ops. `msg: None` renders disabled.
+        let undo = MenuItem::ActionMaybe {
+            label: match self.undo_stack.last() {
+                Some(op) => format!("Undo {}", op.label()),
+                None => "Undo".to_string(),
+            },
+            shortcut: "Cmd+Z",
+            msg: self.undo_stack.last().map(|_| Msg::Undo),
+        };
+        let redo = MenuItem::ActionMaybe {
+            label: match self.redo_stack.last() {
+                Some(op) => format!("Redo {}", op.label()),
+                None => "Redo".to_string(),
+            },
+            shortcut: "Cmd+Shift+Z",
+            msg: self.redo_stack.last().map(|_| Msg::Redo),
+        };
         vec![
-            MenuItem::Action("Undo", "Cmd+Z", Msg::Undo),
-            MenuItem::Action("Redo", "Cmd+Shift+Z", Msg::Redo),
+            undo,
+            redo,
             MenuItem::Separator,
             MenuItem::Action("Delete Rejected Photos…", "", Msg::RequestDeleteRejects),
         ]
@@ -263,12 +285,15 @@ impl App {
 
 enum MenuItem {
     Action(&'static str, &'static str, Msg),
+    /// An item with an owned (dynamic) label that is disabled when `msg` is `None`.
+    ActionMaybe { label: String, shortcut: &'static str, msg: Option<Msg> },
     Separator,
 }
 
-fn menu_action_row<'a>(label: &'a str, shortcut: &'a str, msg: Msg) -> Element<'a, Msg> {
+fn menu_action_row(label: String, shortcut: &'static str, msg: Option<Msg>) -> Element<'static, Msg> {
+    let enabled = msg.is_some();
     let mut r = row![
-        text(label).size(TEXT_SM).color(FG),
+        text(label).size(TEXT_SM).color(if enabled { FG } else { FG_MUTED }),
         Space::new().width(Length::Fill),
     ]
     .spacing(SPACE_2)
@@ -279,8 +304,8 @@ fn menu_action_row<'a>(label: &'a str, shortcut: &'a str, msg: Msg) -> Element<'
     }
 
     button(r.padding([0.0, SPACE_1_5]))
-        .on_press(msg)
-        .style(|_: &Theme, status| {
+        .on_press_maybe(msg)
+        .style(move |_: &Theme, status| {
             let bg = match status {
                 iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed => {
                     HINT_HOVER
@@ -289,7 +314,7 @@ fn menu_action_row<'a>(label: &'a str, shortcut: &'a str, msg: Msg) -> Element<'
             };
             iced::widget::button::Style {
                 background: Some(Background::Color(bg)),
-                text_color: FG,
+                text_color: if enabled { FG } else { FG_MUTED },
                 border: Border { radius: 4.0.into(), ..Default::default() },
                 shadow: iced::Shadow::default(),
                 snap: false,

@@ -1,7 +1,24 @@
 use iced::Task;
+use isomfolio_core::models::Flag;
 
 use super::LockUnwrap;
 use super::super::{App, Msg, UndoOp};
+
+/// Group `(id, value)` pairs by distinct value so a heterogeneous undo snapshot
+/// (different ratings/flags/labels per file) collapses into one bulk DB write per
+/// value — and a uniform forward edit stays a single statement. O(n·k), k = the
+/// few distinct values; avoids requiring `Hash` on `Flag`.
+fn group_by_value<V: PartialEq + Clone>(vals: &[(String, V)]) -> Vec<(V, Vec<String>)> {
+    let mut groups: Vec<(V, Vec<String>)> = Vec::new();
+    for (id, v) in vals {
+        if let Some(g) = groups.iter_mut().find(|(gv, _)| gv == v) {
+            g.1.push(id.clone());
+        } else {
+            groups.push((v.clone(), vec![id.clone()]));
+        }
+    }
+    groups
+}
 
 impl App {
     /// In loupe with auto-advance on, sequence a forward `Navigate` after a cull
@@ -164,8 +181,7 @@ impl App {
                 self.detail.tags.push(tag.clone());
                 self.detail.push_recent_tag(&tag);
                 let file_ids = self.current_detail_file_ids();
-                self.undo_stack.push(UndoOp::AddedTag { file_ids, tag: tag.clone() });
-                self.redo_stack.clear();
+                self.record_tag_edit(true, file_ids, tag.clone());
                 if !self.detail.batch_file_ids.is_empty() {
                     self.batch_add_tag_task(tag)
                 } else {
@@ -182,8 +198,7 @@ impl App {
                 self.detail.tag_input.clear();
                 self.detail.push_recent_tag(&tag);
                 let file_ids = self.current_detail_file_ids();
-                self.undo_stack.push(UndoOp::AddedTag { file_ids, tag: tag.clone() });
-                self.redo_stack.clear();
+                self.record_tag_edit(true, file_ids, tag.clone());
                 if !self.detail.batch_file_ids.is_empty() {
                     self.batch_add_tag_task(tag)
                 } else {
@@ -194,8 +209,7 @@ impl App {
             Msg::RemoveDetailTag(tag) => {
                 self.detail.tags.retain(|t| t != &tag);
                 let file_ids = self.current_detail_file_ids();
-                self.undo_stack.push(UndoOp::RemovedTag { file_ids, tag: tag.clone() });
-                self.redo_stack.clear();
+                self.record_tag_edit(false, file_ids, tag.clone());
                 if !self.detail.batch_file_ids.is_empty() {
                     self.batch_remove_tag_task(tag)
                 } else {
@@ -224,47 +238,16 @@ impl App {
             }
 
             Msg::SetDetailRating(n) => {
+                let Some(fid) = self.detail.file_id.clone() else { return Task::none() };
                 let new_rating = if self.detail.rating == Some(n) { None } else { Some(n) };
-                self.detail.rating = new_rating;
-                let Some(ref fid) = self.detail.file_id else { return Task::none() };
-                let fid = fid.clone();
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.set_file_rating(&fid, new_rating).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::NoOp, Msg::DbError),
-                )
+                // Same gesture as the grid/keyboard star: route through the shared
+                // chokepoint so it stays in sync and undoable (no per-handler push).
+                self.edit_ratings(vec![fid], new_rating)
             }
 
             Msg::SetFlag(flag) => {
                 let ids = self.selection_target_ids();
-                if ids.is_empty() {
-                    self.status = "Select photos first".to_string();
-                    return Task::none();
-                }
-                let before: Vec<(String, isomfolio_core::models::Flag)> = ids
-                    .iter()
-                    .filter_map(|id| {
-                        self.files.iter().find(|f| &f.id == id).map(|f| (id.clone(), f.flag))
-                    })
-                    .collect();
-                for id in &ids {
-                    if let Some(f) = self.files.iter_mut().find(|f| &f.id == id) {
-                        f.flag = flag;
-                    }
-                }
-                self.undo_stack.push(UndoOp::SetFlags { before });
-                self.redo_stack.clear();
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                let db_task = Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.set_files_flag(&ids, flag).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::FlagsApplied, Msg::DbError),
-                );
+                let db_task = self.edit_flags(ids, flag);
                 self.advance_after_cull(db_task)
             }
 
@@ -278,37 +261,7 @@ impl App {
 
             Msg::SetRating(rating) => {
                 let ids = self.selection_target_ids();
-                if ids.is_empty() {
-                    self.status = "Select photos first".to_string();
-                    return Task::none();
-                }
-                let before: Vec<(String, Option<i32>)> = ids
-                    .iter()
-                    .map(|id| (id.clone(), self.file_ratings.get(id).copied()))
-                    .collect();
-                for id in &ids {
-                    match rating {
-                        Some(r) if r > 0 => {
-                            self.file_ratings.insert(id.clone(), r);
-                        }
-                        _ => {
-                            self.file_ratings.remove(id);
-                        }
-                    }
-                }
-                if ids.len() == 1 && self.detail.file_id.as_deref() == Some(ids[0].as_str()) {
-                    self.detail.rating = rating;
-                }
-                self.undo_stack.push(UndoOp::SetRatings { before });
-                self.redo_stack.clear();
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                let db_task = Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.set_files_rating(&ids, rating).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::RatingsApplied, Msg::DbError),
-                );
+                let db_task = self.edit_ratings(ids, rating);
                 self.advance_after_cull(db_task)
             }
 
@@ -330,35 +283,17 @@ impl App {
                     self.status = "Select photos first".to_string();
                     return Task::none();
                 }
-                // Pressing the same colour again clears it (toggle off).
+                // Pressing the same colour again clears it (toggle off). This
+                // decision reads current labels, so it stays in the handler; the
+                // resolved value then goes through the shared chokepoint.
                 let effective = match &color {
                     Some(c) if ids.iter().all(|id| self.file_labels.get(id) == Some(c)) => None,
                     other => other.clone(),
                 };
-                let before: Vec<(String, Option<String>)> = ids
-                    .iter()
-                    .map(|id| (id.clone(), self.file_labels.get(id).cloned()))
-                    .collect();
-                for id in &ids {
-                    match &effective {
-                        Some(c) => { self.file_labels.insert(id.clone(), c.clone()); }
-                        None => { self.file_labels.remove(id); }
-                    }
-                }
-                self.undo_stack.push(UndoOp::SetLabels { before });
-                self.redo_stack.clear();
-                let Some(conn) = self.catalog.clone() else { return Task::none() };
-                let label_owned = effective.clone();
-                let db_task = Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.set_files_label(&ids, label_owned.as_deref()).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::LabelsApplied, Msg::DbError),
-                );
                 // Reload (if the colour filter is active) is sequenced in the
                 // `LabelsApplied` callback — never batched concurrently with the
                 // write, which would race the re-query against the label commit.
+                let db_task = self.edit_labels(ids, effective);
                 self.advance_after_cull(db_task)
             }
 
@@ -444,137 +379,198 @@ impl App {
     fn apply_undo_op(&mut self, is_undo: bool) -> Task<Msg> {
         let op = if is_undo { self.undo_stack.pop() } else { self.redo_stack.pop() };
         let Some(op) = op else { return Task::none() };
-        let Some(conn) = self.catalog.clone() else { return Task::none() };
 
-        match op {
-            UndoOp::AddedTag { file_ids, tag } => {
-                let inverse =
-                    UndoOp::RemovedTag { file_ids: file_ids.clone(), tag: tag.clone() };
-                if is_undo {
-                    self.redo_stack.push(inverse);
-                } else {
-                    self.undo_stack.push(inverse);
-                }
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.remove_tag_from_files(&file_ids, &tag).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::UndoApplied, Msg::DbError),
-                )
+        // Self-contained ops: undo writes `before`, redo writes `after`. The op
+        // round-trips between the stacks unchanged — no inverse to recompute.
+        let task = match &op {
+            UndoOp::Ratings { before, after } => {
+                let vals = if is_undo { before } else { after };
+                self.apply_ratings_mem(vals);
+                self.ratings_db_task(vals.clone(), || Msg::UndoApplied)
             }
-            UndoOp::RemovedTag { file_ids, tag } => {
-                let inverse =
-                    UndoOp::AddedTag { file_ids: file_ids.clone(), tag: tag.clone() };
-                if is_undo {
-                    self.redo_stack.push(inverse);
-                } else {
-                    self.undo_stack.push(inverse);
-                }
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        g.add_tag_to_files(&file_ids, &tag).err().map(|e| e.to_string())
-                    },
-                    |e| e.map_or(Msg::UndoApplied, Msg::DbError),
-                )
+            UndoOp::Flags { before, after } => {
+                let vals = if is_undo { before } else { after };
+                self.apply_flags_mem(vals);
+                self.flags_db_task(vals.clone(), || Msg::UndoApplied)
             }
-            UndoOp::SetRatings { before } => {
-                let after: Vec<(String, Option<i32>)> = before
-                    .iter()
-                    .map(|(id, _)| (id.clone(), self.file_ratings.get(id).copied()))
-                    .collect();
-                let inverse = UndoOp::SetRatings { before: after };
-                if is_undo {
-                    self.redo_stack.push(inverse);
-                } else {
-                    self.undo_stack.push(inverse);
-                }
-                for (id, rating) in &before {
-                    match rating {
-                        Some(r) if *r > 0 => {
-                            self.file_ratings.insert(id.clone(), *r);
-                        }
-                        _ => {
-                            self.file_ratings.remove(id);
-                        }
-                    }
-                }
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        for (id, rating) in &before {
-                            if let Err(e) = g.set_file_rating(id, *rating) {
-                                return Some(e.to_string());
-                            }
-                        }
-                        None
-                    },
-                    |e| e.map_or(Msg::UndoApplied, Msg::DbError),
-                )
+            UndoOp::Labels { before, after } => {
+                let vals = if is_undo { before } else { after };
+                self.apply_labels_mem(vals);
+                self.labels_db_task(vals.clone(), || Msg::UndoApplied)
             }
-            UndoOp::SetFlags { before } => {
-                let after: Vec<(String, isomfolio_core::models::Flag)> = before
-                    .iter()
-                    .filter_map(|(id, _)| {
-                        self.files.iter().find(|f| &f.id == id).map(|f| (id.clone(), f.flag))
-                    })
-                    .collect();
-                let inverse = UndoOp::SetFlags { before: after };
-                if is_undo {
-                    self.redo_stack.push(inverse);
-                } else {
-                    self.undo_stack.push(inverse);
-                }
-                for (id, flag) in &before {
-                    if let Some(f) = self.files.iter_mut().find(|f| &f.id == id) {
-                        f.flag = *flag;
-                    }
-                }
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        for (id, flag) in &before {
-                            if let Err(e) = g.set_file_flag(id, *flag) {
-                                return Some(e.to_string());
-                            }
-                        }
-                        None
-                    },
-                    |e| e.map_or(Msg::UndoApplied, Msg::DbError),
-                )
+            UndoOp::Tag { add, file_ids, tag } => {
+                // Undo applies the negation of the forward direction.
+                let effective_add = if is_undo { !add } else { *add };
+                self.tag_db_task(file_ids.clone(), tag.clone(), effective_add)
             }
-            UndoOp::SetLabels { before } => {
-                let after: Vec<(String, Option<String>)> = before
-                    .iter()
-                    .map(|(id, _)| (id.clone(), self.file_labels.get(id).cloned()))
-                    .collect();
-                let inverse = UndoOp::SetLabels { before: after };
-                if is_undo {
-                    self.redo_stack.push(inverse);
-                } else {
-                    self.undo_stack.push(inverse);
-                }
-                for (id, label) in &before {
-                    match label {
-                        Some(l) => { self.file_labels.insert(id.clone(), l.clone()); }
-                        None => { self.file_labels.remove(id); }
-                    }
-                }
-                Task::perform(
-                    async move {
-                        let g = conn.lock_unwrap();
-                        for (id, label) in &before {
-                            if let Err(e) = g.set_files_label(&[id.clone()], label.as_deref()) {
-                                return Some(e.to_string());
-                            }
-                        }
-                        None
-                    },
-                    |e| e.map_or(Msg::UndoApplied, Msg::DbError),
-                )
+        };
+        if is_undo {
+            self.redo_stack.push(op);
+        } else {
+            self.undo_stack.push(op);
+        }
+        task
+    }
+
+    // Editing chokepoints — every reversible edit flows through one of these, so
+    // recording an undo step is a property of the write path, not something each
+    // handler has to remember (the gap that left the detail-panel star un-undoable).
+
+    /// Snapshot, push the op, clear the redo branch. Bounded so a long session
+    /// can't grow the history without limit.
+    pub(super) fn push_undo(&mut self, op: UndoOp) {
+        const CAP: usize = 200;
+        self.undo_stack.push(op);
+        self.redo_stack.clear();
+        let len = self.undo_stack.len();
+        if len > CAP {
+            self.undo_stack.drain(0..len - CAP);
+        }
+    }
+
+    pub(super) fn edit_ratings(&mut self, ids: Vec<String>, new: Option<i32>) -> Task<Msg> {
+        if ids.is_empty() {
+            self.status = "Select photos first".to_string();
+            return Task::none();
+        }
+        let before: Vec<(String, Option<i32>)> =
+            ids.iter().map(|id| (id.clone(), self.file_ratings.get(id).copied())).collect();
+        let after: Vec<(String, Option<i32>)> = ids.iter().map(|id| (id.clone(), new)).collect();
+        self.apply_ratings_mem(&after);
+        if ids.len() == 1 && self.detail.file_id.as_deref() == Some(ids[0].as_str()) {
+            self.detail.rating = new;
+        }
+        self.push_undo(UndoOp::Ratings { before, after: after.clone() });
+        self.ratings_db_task(after, || Msg::RatingsApplied)
+    }
+
+    pub(super) fn edit_flags(&mut self, ids: Vec<String>, flag: Flag) -> Task<Msg> {
+        if ids.is_empty() {
+            self.status = "Select photos first".to_string();
+            return Task::none();
+        }
+        let before: Vec<(String, Flag)> = ids
+            .iter()
+            .map(|id| {
+                let f = self.files.iter().find(|f| &f.id == id).map(|f| f.flag).unwrap_or(Flag::Unflagged);
+                (id.clone(), f)
+            })
+            .collect();
+        let after: Vec<(String, Flag)> = ids.iter().map(|id| (id.clone(), flag)).collect();
+        self.apply_flags_mem(&after);
+        self.push_undo(UndoOp::Flags { before, after: after.clone() });
+        self.flags_db_task(after, || Msg::FlagsApplied)
+    }
+
+    pub(super) fn edit_labels(&mut self, ids: Vec<String>, label: Option<String>) -> Task<Msg> {
+        if ids.is_empty() {
+            self.status = "Select photos first".to_string();
+            return Task::none();
+        }
+        let before: Vec<(String, Option<String>)> =
+            ids.iter().map(|id| (id.clone(), self.file_labels.get(id).cloned())).collect();
+        let after: Vec<(String, Option<String>)> =
+            ids.iter().map(|id| (id.clone(), label.clone())).collect();
+        self.apply_labels_mem(&after);
+        self.push_undo(UndoOp::Labels { before, after: after.clone() });
+        self.labels_db_task(after, || Msg::LabelsApplied)
+    }
+
+    /// Tags don't carry per-file value snapshots (they're a toggle of one tag over
+    /// a set); the forward DB write + in-memory `detail.tags` upkeep stay in the
+    /// tag handlers, this just registers the reversible step.
+    pub(super) fn record_tag_edit(&mut self, add: bool, file_ids: Vec<String>, tag: String) {
+        self.push_undo(UndoOp::Tag { add, file_ids, tag });
+    }
+
+    fn apply_ratings_mem(&mut self, vals: &[(String, Option<i32>)]) {
+        for (id, r) in vals {
+            match r {
+                Some(n) if *n > 0 => { self.file_ratings.insert(id.clone(), *n); }
+                _ => { self.file_ratings.remove(id); }
             }
         }
+    }
+
+    fn apply_flags_mem(&mut self, vals: &[(String, Flag)]) {
+        for (id, flag) in vals {
+            if let Some(f) = self.files.iter_mut().find(|f| &f.id == id) {
+                f.flag = *flag;
+            }
+        }
+    }
+
+    fn apply_labels_mem(&mut self, vals: &[(String, Option<String>)]) {
+        for (id, label) in vals {
+            match label {
+                Some(c) => { self.file_labels.insert(id.clone(), c.clone()); }
+                None => { self.file_labels.remove(id); }
+            }
+        }
+    }
+
+    fn ratings_db_task(&self, vals: Vec<(String, Option<i32>)>, done: fn() -> Msg) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                for (val, ids) in group_by_value(&vals) {
+                    if let Err(e) = g.set_files_rating(&ids, val) {
+                        return Some(e.to_string());
+                    }
+                }
+                None
+            },
+            move |e| e.map_or_else(done, Msg::DbError),
+        )
+    }
+
+    fn flags_db_task(&self, vals: Vec<(String, Flag)>, done: fn() -> Msg) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                for (val, ids) in group_by_value(&vals) {
+                    if let Err(e) = g.set_files_flag(&ids, val) {
+                        return Some(e.to_string());
+                    }
+                }
+                None
+            },
+            move |e| e.map_or_else(done, Msg::DbError),
+        )
+    }
+
+    fn labels_db_task(&self, vals: Vec<(String, Option<String>)>, done: fn() -> Msg) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                for (val, ids) in group_by_value(&vals) {
+                    if let Err(e) = g.set_files_label(&ids, val.as_deref()) {
+                        return Some(e.to_string());
+                    }
+                }
+                None
+            },
+            move |e| e.map_or_else(done, Msg::DbError),
+        )
+    }
+
+    fn tag_db_task(&self, file_ids: Vec<String>, tag: String, add: bool) -> Task<Msg> {
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                let r = if add {
+                    g.add_tag_to_files(&file_ids, &tag)
+                } else {
+                    g.remove_tag_from_files(&file_ids, &tag)
+                };
+                r.err().map(|e| e.to_string())
+            },
+            |e| e.map_or(Msg::UndoApplied, Msg::DbError),
+        )
     }
 
     pub(super) fn save_detail_tags_task(&self) -> Task<Msg> {
@@ -620,5 +616,149 @@ impl App {
             },
             |e| e.map_or(Msg::BatchTagsChanged, Msg::DbError),
         )
+    }
+}
+
+#[cfg(test)]
+mod undo_redo {
+    use super::*;
+    use isomfolio_core::catalog::Catalog;
+    use isomfolio_core::models::{AssetFile, Flag};
+    use std::sync::{Arc, Mutex};
+
+    // apply_undo_op short-circuits when no catalog is attached (it pushes the
+    // inverse and mutates in-memory state only after that guard), so a real
+    // in-memory catalog is required even though the async DB write never runs
+    // in a unit test. These tests assert the in-memory + stack-symmetry meat.
+    fn app_with_catalog() -> App {
+        let mut a = App::new(None).0;
+        let cat = Catalog::open(":memory:").expect("open in-memory catalog");
+        a.catalog = Some(Arc::new(Mutex::new(cat)));
+        a
+    }
+
+    fn file(id: &str, flag: Flag) -> AssetFile {
+        AssetFile {
+            id: id.to_string(),
+            path: format!("/p/{id}.jpg"),
+            name: format!("{id}.jpg"),
+            folder: "/p".to_string(),
+            folder_display: "/p".to_string(),
+            ext: "jpg".to_string(),
+            size_bytes: 1,
+            mtime_unix: 0,
+            created_at_unix: 0,
+            is_orphaned: false,
+            orphaned_at: None,
+            flag,
+            exif_date_unix: Some(0),
+            gps_lat: None,
+            gps_lon: None,
+        }
+    }
+
+    #[test]
+    fn rating_undo_restores_then_redo_reapplies() {
+        let mut a = app_with_catalog();
+        a.file_ratings.insert("f1".into(), 4); // current state after the edit
+        a.undo_stack.push(UndoOp::Ratings {
+            before: vec![("f1".into(), None)],
+            after: vec![("f1".into(), Some(4))],
+        });
+
+        let _ = a.apply_undo_op(true);
+        assert_eq!(a.file_ratings.get("f1"), None, "undo writes the `before` side");
+        assert_eq!(a.undo_stack.len(), 0);
+        assert_eq!(a.redo_stack.len(), 1, "op moved to the redo stack unchanged");
+
+        let _ = a.apply_undo_op(false);
+        assert_eq!(a.file_ratings.get("f1"), Some(&4), "redo writes the `after` side");
+        assert_eq!(a.redo_stack.len(), 0);
+        assert_eq!(a.undo_stack.len(), 1, "op moved back to the undo stack");
+    }
+
+    #[test]
+    fn flag_undo_restores_then_redo_reapplies() {
+        let mut a = app_with_catalog();
+        a.files = vec![file("f1", Flag::Pick)];
+        a.undo_stack.push(UndoOp::Flags {
+            before: vec![("f1".into(), Flag::Unflagged)],
+            after: vec![("f1".into(), Flag::Pick)],
+        });
+
+        let _ = a.apply_undo_op(true);
+        assert_eq!(a.files[0].flag, Flag::Unflagged, "undo restores the prior flag");
+
+        let _ = a.apply_undo_op(false);
+        assert_eq!(a.files[0].flag, Flag::Pick, "redo re-applies the flag");
+    }
+
+    #[test]
+    fn label_undo_restores_then_redo_reapplies() {
+        let mut a = app_with_catalog();
+        a.file_labels.insert("f1".into(), "red".into());
+        a.undo_stack.push(UndoOp::Labels {
+            before: vec![("f1".into(), None)],
+            after: vec![("f1".into(), Some("red".into()))],
+        });
+
+        let _ = a.apply_undo_op(true);
+        assert_eq!(a.file_labels.get("f1"), None, "undo clears the label");
+
+        let _ = a.apply_undo_op(false);
+        assert_eq!(a.file_labels.get("f1").map(String::as_str), Some("red"), "redo re-applies");
+    }
+
+    #[test]
+    fn tag_op_round_trips_unchanged_across_stacks() {
+        let mut a = app_with_catalog();
+        a.undo_stack.push(UndoOp::Tag { add: true, file_ids: vec!["f1".into()], tag: "beach".into() });
+
+        let _ = a.apply_undo_op(true);
+        assert_eq!(a.undo_stack.len(), 0);
+        assert!(
+            matches!(a.redo_stack.last(), Some(UndoOp::Tag { add: true, tag, .. }) if tag == "beach"),
+            "self-contained: the op moves to redo unchanged (direction flips at apply time)",
+        );
+
+        let _ = a.apply_undo_op(false);
+        assert!(matches!(a.undo_stack.last(), Some(UndoOp::Tag { add: true, .. })));
+        assert_eq!(a.redo_stack.len(), 0);
+    }
+
+    // The whole point of the chokepoint: editing records an undo step without the
+    // handler doing anything — the class of bug that left the detail star un-undoable.
+    #[test]
+    fn edit_chokepoint_records_and_round_trips() {
+        let mut a = app_with_catalog();
+        a.files = vec![file("f1", Flag::Unflagged)];
+
+        let _ = a.edit_flags(vec!["f1".into()], Flag::Reject);
+        assert_eq!(a.files[0].flag, Flag::Reject, "edit applied in memory");
+        assert_eq!(a.undo_stack.len(), 1, "edit recorded an undo step automatically");
+        assert!(a.redo_stack.is_empty(), "a fresh edit clears the redo branch");
+
+        let _ = a.apply_undo_op(true);
+        assert_eq!(a.files[0].flag, Flag::Unflagged, "undo reverts to the captured `before`");
+    }
+
+    #[test]
+    fn fresh_edit_clears_redo_branch() {
+        let mut a = app_with_catalog();
+        a.file_ratings.insert("f1".into(), 3);
+        let _ = a.edit_ratings(vec!["f1".into()], Some(5));
+        let _ = a.apply_undo_op(true); // undo → redo now has one op
+        assert_eq!(a.redo_stack.len(), 1);
+        let _ = a.edit_ratings(vec!["f1".into()], Some(2)); // a new edit must drop the redo branch
+        assert!(a.redo_stack.is_empty());
+    }
+
+    #[test]
+    fn empty_stacks_are_no_ops() {
+        let mut a = app_with_catalog();
+        let _ = a.apply_undo_op(true);
+        let _ = a.apply_undo_op(false);
+        assert_eq!(a.undo_stack.len(), 0);
+        assert_eq!(a.redo_stack.len(), 0);
     }
 }

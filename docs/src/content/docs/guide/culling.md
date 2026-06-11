@@ -83,12 +83,12 @@ To collect picks into an album as you go, right-click a manual album → **Set a
 
 ## Undo
 
-All rating and flag changes are undoable.
+Rating, flag, colour-label, and tag changes are all undoable.
 
 - `Cmd+Z` — undo
 - `Cmd+Shift+Z` — redo
 
-The undo history is preserved for the current session.
+The **Edit** menu names the next step — *Undo Rating*, *Redo Flag* — and greys the item out when there's nothing to undo. The history is preserved for the current session.
 
 ## Batch culling
 
