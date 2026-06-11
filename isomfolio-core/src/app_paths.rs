@@ -143,7 +143,10 @@ fn default_face_eps() -> f32 { 0.4 }
 fn default_face_min_pts() -> u32 { 2 }
 fn default_stack_threshold() -> u32 { 8 }
 fn default_stack_window() -> i64 { 10 }
-fn default_scene_eps() -> f32 { 0.12 }
+// Cosine radius in *whitened* embedding space (build_scene_review whitens the
+// view first). 0.2 gives tight, useful scene groups on a real shoot without the
+// over-grouping that raw global descriptors suffer; higher groups looser.
+fn default_scene_eps() -> f32 { 0.2 }
 // DBSCAN core threshold (neighbours, self excluded): 1 lets a two-frame scene
 // form (two tries at one shot), matching stacks' ≥2 minimum; group_scenes drops
 // singletons. Raise it to require denser clusters.

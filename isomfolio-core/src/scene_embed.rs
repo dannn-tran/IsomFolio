@@ -172,6 +172,49 @@ pub struct SceneItem {
     pub sharpness: f64,
 }
 
+/// Whiten a set of embeddings *relative to the set*: z-score each dimension
+/// (subtract its mean, divide by its std across all vectors) then re-L2-normalise
+/// each vector. This amplifies the dimensions that actually vary across *this*
+/// view and suppresses the constant ones — without it, a single-venue shoot (a
+/// shared backdrop dominating every frame's global stats) collapses into one
+/// mega-cluster under cosine distance. Grouping is therefore relative to what the
+/// user is looking at, which is the right behaviour for "review *these* scenes".
+/// Pure; empty input or a single vector returns the input unchanged.
+pub fn whiten(embeddings: &[Vec<f32>]) -> Vec<Vec<f32>> {
+    let n = embeddings.len();
+    if n < 2 {
+        return embeddings.to_vec();
+    }
+    let d = embeddings[0].len();
+    let mut mean = vec![0f32; d];
+    for v in embeddings {
+        for j in 0..d {
+            mean[j] += v[j];
+        }
+    }
+    for m in &mut mean {
+        *m /= n as f32;
+    }
+    let mut std = vec![0f32; d];
+    for v in embeddings {
+        for j in 0..d {
+            let dv = v[j] - mean[j];
+            std[j] += dv * dv;
+        }
+    }
+    for s in &mut std {
+        *s = (*s / n as f32).sqrt().max(1e-6);
+    }
+    embeddings
+        .iter()
+        .map(|v| {
+            let mut w: Vec<f32> = (0..d).map(|j| (v[j] - mean[j]) / std[j]).collect();
+            l2_normalize(&mut w);
+            w
+        })
+        .collect()
+}
+
 /// Group files into *scenes* by clustering their embeddings (cosine distance,
 /// `eps` = cosine-distance radius) and dropping noise/singletons, mirroring the
 /// `phash::group_stacks` contract so the result drops into the same Review queue:
@@ -345,6 +388,94 @@ mod tests {
         fn empty_input_yields_no_groups() {
             assert!(group_scenes(&[], 0.1, 2).is_empty());
         }
+    }
+
+    mod whiten_fn {
+        use super::*;
+
+        #[test]
+        fn centres_and_unit_normalises() {
+            let v = vec![vec![1.0, 0.0, 5.0], vec![3.0, 0.0, 5.0], vec![5.0, 0.0, 5.0]];
+            let w = whiten(&v);
+            assert_eq!(w.len(), 3);
+            for row in &w {
+                let norm = row.iter().map(|x| x * x).sum::<f32>().sqrt();
+                // Constant dims (1, 2) contribute nothing → unit norm from the
+                // varying dim, or zero for the row at the mean.
+                assert!(norm < 1.0 + 1e-4);
+            }
+            // Constant dimension 2 is flattened to ~0 in every row.
+            assert!(w.iter().all(|r| r[2].abs() < 1e-3));
+        }
+
+        #[test]
+        fn breaks_a_dominated_blob_apart() {
+            // Two tight sub-groups sharing a huge constant "backdrop" dimension.
+            // Raw cosine sees them as nearly identical (the backdrop dominates);
+            // whitening removes the constant axis so they separate.
+            let mk = |a: f32, b: f32| vec![100.0, a, b];
+            let raw = vec![mk(1.0, 0.0), mk(1.0, 0.0), mk(0.0, 1.0), mk(0.0, 1.0)];
+            let raw_items: Vec<SceneItem> =
+                raw.iter().map(|v| SceneItem { embedding: { let mut v = v.clone(); l2_normalize(&mut v); v }, sharpness: 0.0 }).collect();
+            // Raw: all four collapse into one group at a modest radius.
+            assert_eq!(group_scenes(&raw_items, 0.1, 1).len(), 1);
+
+            let w_items: Vec<SceneItem> =
+                whiten(&raw).into_iter().map(|embedding| SceneItem { embedding, sharpness: 0.0 }).collect();
+            // Whitened: two distinct groups emerge.
+            assert_eq!(group_scenes(&w_items, 0.1, 1).len(), 2);
+        }
+    }
+
+    // Manual real-data check: `ISOM_SCENE_DIR=/path cargo test -p isomfolio-core
+    // real_data_scene_clustering -- --ignored --nocapture`. Guards against the
+    // over-grouping failure (one mega-scene) on a real, homogeneous-venue shoot.
+    #[test]
+    #[ignore]
+    fn real_data_scene_clustering() {
+        let dir = std::env::var("ISOM_SCENE_DIR").expect("set ISOM_SCENE_DIR");
+        let limit: usize = std::env::var("ISOM_SCENE_LIMIT").ok().and_then(|s| s.parse().ok()).unwrap_or(400);
+        let eps: f32 = std::env::var("ISOM_SCENE_EPS").ok().and_then(|s| s.parse().ok()).unwrap_or(0.2);
+        let min_pts: usize = std::env::var("ISOM_SCENE_MINPTS").ok().and_then(|s| s.parse().ok()).unwrap_or(1);
+
+        let mut paths = Vec::new();
+        fn walk(d: &std::path::Path, out: &mut Vec<std::path::PathBuf>, lim: usize) {
+            if out.len() >= lim { return; }
+            let Ok(rd) = std::fs::read_dir(d) else { return };
+            for e in rd.filter_map(|e| e.ok()) {
+                let p = e.path();
+                if p.is_dir() { walk(&p, out, lim); }
+                else if p.extension().and_then(|x| x.to_str()).map(|x| x.eq_ignore_ascii_case("jpg")).unwrap_or(false) {
+                    out.push(p);
+                    if out.len() >= lim { return; }
+                }
+            }
+        }
+        walk(std::path::Path::new(&dir), &mut paths, limit);
+        paths.sort();
+
+        let raw: Vec<Vec<f32>> = paths
+            .iter()
+            .filter_map(|p| image::open(p).ok())
+            .map(|img| scene_embedding(&img))
+            .collect();
+        let items: Vec<SceneItem> =
+            whiten(&raw).into_iter().map(|embedding| SceneItem { embedding, sharpness: 0.0 }).collect();
+
+        let groups = group_scenes(&items, eps, min_pts);
+        let grouped: usize = groups.iter().map(|g| g.len()).sum();
+        let largest = groups.iter().map(|g| g.len()).max().unwrap_or(0);
+        eprintln!(
+            "{} frames · whitened · eps={eps} min_pts={min_pts} → {} groups, {grouped} grouped, largest {largest}",
+            items.len(),
+            groups.len(),
+        );
+        assert!(!groups.is_empty(), "expected scene groups on a real shoot");
+        assert!(
+            largest < items.len() / 2,
+            "over-grouping: largest scene {largest} is ≥ half of {} frames",
+            items.len()
+        );
     }
 
     mod rgb_to_hsv_fn {

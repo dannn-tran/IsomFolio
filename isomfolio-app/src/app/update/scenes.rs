@@ -132,7 +132,15 @@ impl App {
                         let sharp = cat.sharpness_for(&ids).unwrap_or_default();
                         (emb, sharp)
                     };
-                    build_scene_review(files, embeddings, sharpness, eps, min_pts)
+                    // Whiten across the whole view before clustering — without it a
+                    // homogeneous shoot (shared backdrop) collapses into one mega-scene.
+                    let raw: Vec<Vec<f32>> = embeddings.iter().map(|(_, v)| v.clone()).collect();
+                    let whitened: Vec<(String, Vec<f32>)> = embeddings
+                        .iter()
+                        .map(|(id, _)| id.clone())
+                        .zip(scene_embed::whiten(&raw))
+                        .collect();
+                    build_scene_review(files, whitened, sharpness, eps, min_pts)
                 })
                 .await
                 .unwrap_or_default()
