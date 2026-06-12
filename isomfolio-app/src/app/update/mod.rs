@@ -199,7 +199,7 @@ impl App {
             | Msg::ToggleStackExpanded(_)
             | Msg::StackFlagsApplied { .. }
             | Msg::OpenResolveStacks
-            | Msg::ResolveStacksLoaded(_)
+            | Msg::ResolveStacksLoaded { .. }
             | Msg::ResolveFrameLoaded { .. }
             | Msg::ToggleResolveKeeper(_)
             | Msg::ResolveApplyAndNext
@@ -220,7 +220,7 @@ impl App {
             | Msg::ResolveScenesLoaded { .. }
             | Msg::SiftToleranceChanged(_)
             | Msg::SiftRegroup
-            | Msg::ScenesRegrouped(_) => self.handle_scenes_msg(msg),
+            | Msg::SiftRegrouped { .. } => self.handle_scenes_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);

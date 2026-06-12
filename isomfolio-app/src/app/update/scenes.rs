@@ -71,12 +71,28 @@ impl App {
                 Task::none()
             }
 
-            Msg::SiftRegroup => self.regroup_scenes_task(),
+            Msg::SiftRegroup => {
+                // Bump the request id so any in-flight regroup's result is dropped
+                // when it returns — the slider may have moved on. Mark in-flight.
+                self.resolve.regroup_seq += 1;
+                self.resolve.regrouping = true;
+                let seq = self.resolve.regroup_seq;
+                if self.resolve.scenes {
+                    self.regroup_scenes_task(seq)
+                } else {
+                    self.regroup_bursts_task(seq)
+                }
+            }
 
-            Msg::ScenesRegrouped(stacks) => {
+            Msg::SiftRegrouped { stacks, seq } => {
+                // Drop a stale result (the slider moved again since this kicked off).
+                if seq != self.resolve.regroup_seq {
+                    return Task::none();
+                }
+                self.resolve.regrouping = false;
                 if stacks.is_empty() {
-                    // No groups at this looseness — keep the current queue, just nudge.
-                    self.status = "No scenes at this looseness — adjust the slider".to_string();
+                    // No groups at this tolerance — keep the current queue, just nudge.
+                    self.status = "No groups at this tolerance — adjust the slider".to_string();
                     return Task::none();
                 }
                 // Grouping changed, so prior per-group decisions no longer line up;
@@ -251,7 +267,7 @@ impl App {
     /// Re-cluster the cached scene signals at the current tolerance — drives the
     /// header looseness slider. Pure of the DB; runs off-thread since DBSCAN over a
     /// large view is O(n²).
-    fn regroup_scenes_task(&self) -> Task<Msg> {
+    fn regroup_scenes_task(&self, seq: u64) -> Task<Msg> {
         let Some(cache) = self.resolve.scene_cache.clone() else {
             return Task::none();
         };
@@ -264,7 +280,7 @@ impl App {
                 .await
                 .unwrap_or_default()
             },
-            Msg::ScenesRegrouped,
+            move |stacks| Msg::SiftRegrouped { stacks, seq },
         )
     }
 }
@@ -464,8 +480,9 @@ mod tests {
         #[test]
         fn regroup_replaces_queue_and_clears_decisions() {
             let mut app = scenes_app(vec![sr("a"), sr("b")]);
+            app.resolve.regroup_seq = 1;
             app.resolve.decisions.insert(0, std::iter::once("a".to_string()).collect());
-            let _ = app.update(Msg::ScenesRegrouped(vec![sr("x")]));
+            let _ = app.update(Msg::SiftRegrouped { stacks: vec![sr("x")], seq: 1 });
             assert_eq!(app.resolve.stacks.len(), 1);
             assert!(app.resolve.decisions.is_empty());
             assert_eq!(app.resolve.idx, 0);
@@ -474,8 +491,17 @@ mod tests {
         #[test]
         fn empty_regroup_keeps_current_queue() {
             let mut app = scenes_app(vec![sr("a"), sr("b")]);
-            let _ = app.update(Msg::ScenesRegrouped(vec![]));
+            app.resolve.regroup_seq = 1;
+            let _ = app.update(Msg::SiftRegrouped { stacks: vec![], seq: 1 });
             assert_eq!(app.resolve.stacks.len(), 2);
+        }
+
+        #[test]
+        fn stale_regroup_result_is_dropped() {
+            let mut app = scenes_app(vec![sr("a"), sr("b")]);
+            app.resolve.regroup_seq = 2; // slider moved on since seq 1 kicked off
+            let _ = app.update(Msg::SiftRegrouped { stacks: vec![sr("x")], seq: 1 });
+            assert_eq!(app.resolve.stacks.len(), 2, "stale result must not replace the queue");
         }
     }
 }

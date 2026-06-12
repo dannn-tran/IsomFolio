@@ -186,6 +186,10 @@ impl Catalog {
         db::store_phashes(&self.conn, rows)
     }
 
+    pub fn load_phashes(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, u64>, AppError> {
+        db::load_phashes(&self.conn, file_ids)
+    }
+
     pub fn files_needing_scene_embedding(&self, model: &str) -> Result<Vec<(String, i64)>, AppError> {
         db::files_needing_scene_embedding(&self.conn, model)
     }

@@ -475,7 +475,7 @@ pub enum Msg {
     /// Enter the resolve-stacks review mode for the stacks in the current view.
     OpenResolveStacks,
     /// The review queue finished building (capture-ordered stacks of ≥2 frames).
-    ResolveStacksLoaded(Vec<crate::app::StackReview>),
+    ResolveStacksLoaded { stacks: Vec<crate::app::StackReview>, cache: crate::app::BurstCache, threshold: u32 },
     /// Full-res for one frame of the stack currently under review arrived.
     ResolveFrameLoaded { stack_idx: usize, frame_idx: usize, handle: iced::widget::image::Handle, dims: (u32, u32) },
     /// Toggle a frame's keeper mark in the current stack.
@@ -502,8 +502,9 @@ pub enum Msg {
     SiftToleranceChanged(f32),
     /// Tolerance slider released — re-cluster the cached signals at the new value.
     SiftRegroup,
-    /// A live re-cluster finished; replace the queue.
-    ScenesRegrouped(Vec<crate::app::StackReview>),
+    /// A live regroup (either engine) finished; replace the queue. `seq` is the
+    /// request id — a stale one (superseded by a newer slider move) is ignored.
+    SiftRegrouped { stacks: Vec<crate::app::StackReview>, seq: u64 },
     /// The final stack's flags finished writing — exit the review and refresh.
     ResolveFinished,
     FlagsApplied,

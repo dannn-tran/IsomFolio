@@ -1157,6 +1157,33 @@ pub fn files_needing_phash(conn: &Connection) -> Result<Vec<String>, AppError> {
 /// Persist computed perceptual hashes. Each tuple is `(file_id, hash, sharpness,
 /// thumb_mtime)`; the hash is stored as i64 (SQLite has no u64), reinterpreted on
 /// read. `thumb_mtime` records the thumbnail the hash was derived from.
+/// Load the stored perceptual hash for each given file id (skipping those without
+/// one). Lets the Sift burst pass regroup in memory at a live threshold instead of
+/// re-running the persisted per-folder stacking.
+pub fn load_phashes(
+    conn: &Connection,
+    file_ids: &[String],
+) -> Result<std::collections::HashMap<String, u64>, AppError> {
+    let mut out = std::collections::HashMap::new();
+    if file_ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = file_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!("SELECT id, phash FROM files WHERE phash IS NOT NULL AND id IN ({placeholders})");
+    let mut stmt = conn.prepare(&sql)?;
+    let params = rusqlite::params_from_iter(file_ids.iter());
+    let rows = stmt.query_map(params, |r| {
+        let id: String = r.get(0)?;
+        let hash: i64 = r.get(1)?;
+        Ok((id, hash as u64))
+    })?;
+    for row in rows {
+        let (id, hash) = row.map_err(|e| AppError::Db(e.to_string()))?;
+        out.insert(id, hash);
+    }
+    Ok(out)
+}
+
 pub fn store_phashes(conn: &Connection, rows: &[(String, u64, f64, i64)]) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
     {
@@ -2075,6 +2102,17 @@ mod tests {
                 .unwrap();
             assert!(bid_a1.is_some() && bid_b1.is_some());
             assert_ne!(bid_a1, bid_b1);
+        }
+
+        #[test]
+        fn load_phashes_returns_stored_hashes_skipping_unhashed() {
+            let (conn, _f) = open_temp();
+            upsert_files(&conn, &[file_in("a1", "/A", 100), file_in("a2", "/A", 101), file_in("none", "/A", 102)]).unwrap();
+            store_phashes(&conn, &[("a1".into(), 42, 9.0, 0), ("a2".into(), 7, 5.0, 0)]).unwrap();
+            let got = load_phashes(&conn, &["a1".into(), "a2".into(), "none".into()]).unwrap();
+            assert_eq!(got.get("a1"), Some(&42));
+            assert_eq!(got.get("a2"), Some(&7));
+            assert_eq!(got.get("none"), None, "a file without a phash is omitted");
         }
 
         #[test]

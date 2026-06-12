@@ -8,7 +8,7 @@ use isomfolio_core::phash;
 
 use super::loupe_load::decode_image_sized;
 use super::LockUnwrap;
-use super::super::{App, Msg, ResolveState, SidebarItem, StackReview, UndoOp, ViewMode};
+use super::super::{App, BurstCache, Msg, ResolveState, SidebarItem, StackReview, UndoOp, ViewMode};
 
 impl App {
     pub(super) fn handle_stacking_msg(&mut self, msg: Msg) -> Task<Msg> {
@@ -83,12 +83,18 @@ impl App {
 
             Msg::OpenResolveStacks => self.open_resolve_stacks_task(),
 
-            Msg::ResolveStacksLoaded(stacks) => {
+            Msg::ResolveStacksLoaded { stacks, cache, threshold } => {
                 if stacks.is_empty() {
                     self.status = "No stacks to review in this view".to_string();
                     return Task::none();
                 }
-                self.resolve = ResolveState { stacks, idx: 0, ..Default::default() };
+                self.resolve = ResolveState {
+                    stacks,
+                    idx: 0,
+                    tolerance: threshold as f32,
+                    burst_cache: Some(cache),
+                    ..Default::default()
+                };
                 self.view_mode = ViewMode::ResolveStacks;
                 // Drop any grid selection so flag/delete keys (which target the
                 // selection) are inert while reviewing — clicks pick keepers here.
@@ -160,7 +166,9 @@ impl App {
 
     /// Build the review queue: every multi-frame stack in the current view, in
     /// capture order, each tagged with its sharpest frame as the default keeper.
-    /// Runs the scope's search uncollapsed so all members are present.
+    /// Loads the raw per-file phashes + sharpness and groups them **in memory**
+    /// (per folder, like the persisted stacker) so the header threshold slider can
+    /// later regroup live without touching the DB.
     fn open_resolve_stacks_task(&self) -> Task<Msg> {
         let Some(catalog) = self.catalog.clone() else {
             return Task::none();
@@ -170,34 +178,59 @@ impl App {
         query.collapse_bursts = false;
         query.expanded_bursts = Vec::new();
         let is_smart = self.current_album_is_smart();
+        let threshold = self.app_settings.stack_threshold;
+        let window_secs = self.app_settings.stack_window_secs;
 
         Task::perform(
             async move {
-                let cat = catalog.lock_unwrap();
-                let files = match item {
-                    SidebarItem::AllFiles => cat.search(&query).unwrap_or_default(),
-                    SidebarItem::Folder(path) => {
-                        let q = SearchQuery { folder_path: Some(path), folder_recursive: true, ..query };
-                        cat.search(&q).unwrap_or_default()
-                    }
-                    SidebarItem::Album(album_id) => {
-                        if is_smart {
-                            cat.search(&query).unwrap_or_default()
-                        } else {
-                            cat.search_manual_album(&album_id, &query).unwrap_or_default()
+                let (files, hashes, sharpness) = {
+                    let cat = catalog.lock_unwrap();
+                    let files = match item {
+                        SidebarItem::AllFiles => cat.search(&query).unwrap_or_default(),
+                        SidebarItem::Folder(path) => {
+                            let q = SearchQuery { folder_path: Some(path), folder_recursive: true, ..query };
+                            cat.search(&q).unwrap_or_default()
                         }
-                    }
-                    SidebarItem::Import(batch_id) => {
-                        let q = SearchQuery { import_batch: Some(batch_id), ..query };
-                        cat.search(&q).unwrap_or_default()
-                    }
-                    SidebarItem::Deleted => Vec::new(), // no stacking in the Deleted view
+                        SidebarItem::Album(album_id) => {
+                            if is_smart {
+                                cat.search(&query).unwrap_or_default()
+                            } else {
+                                cat.search_manual_album(&album_id, &query).unwrap_or_default()
+                            }
+                        }
+                        SidebarItem::Import(batch_id) => {
+                            let q = SearchQuery { import_batch: Some(batch_id), ..query };
+                            cat.search(&q).unwrap_or_default()
+                        }
+                        SidebarItem::Deleted => Vec::new(), // no stacking in the Deleted view
+                    };
+                    let ids: Vec<String> = files.iter().map(|f| f.id.clone()).collect();
+                    let hashes = cat.load_phashes(&ids).unwrap_or_default();
+                    let sharpness = cat.sharpness_for(&ids).unwrap_or_default();
+                    (files, hashes, sharpness)
                 };
-                let ids: Vec<String> = files.iter().map(|f| f.id.clone()).collect();
-                let membership = cat.get_stack_membership(&ids).unwrap_or_default();
-                group_stacks_for_review(files, &membership)
+                let cache = BurstCache { files, hashes, sharpness, window_secs };
+                let stacks = regroup_bursts(&cache, threshold);
+                (stacks, cache, threshold)
             },
-            Msg::ResolveStacksLoaded,
+            |(stacks, cache, threshold)| Msg::ResolveStacksLoaded { stacks, cache, threshold },
+        )
+    }
+
+    /// Re-group the cached burst signals at the current Hamming threshold — drives
+    /// the header tolerance slider for Sift Bursts. Pure of the DB; off-thread.
+    pub(super) fn regroup_bursts_task(&self, seq: u64) -> Task<Msg> {
+        let Some(cache) = self.resolve.burst_cache.clone() else {
+            return Task::none();
+        };
+        let threshold = self.resolve.tolerance.round().max(0.0) as u32;
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || regroup_bursts(&cache, threshold))
+                    .await
+                    .unwrap_or_default()
+            },
+            move |stacks| Msg::SiftRegrouped { stacks, seq },
         )
     }
 
@@ -465,42 +498,49 @@ impl App {
     }
 }
 
-/// Group a capture-ordered file list into review stacks using each file's
-/// `(burst_id, sharpness)`. Stacks keep first-appearance order; only groups of
-/// ≥2 frames are returned, each tagged with its sharpest frame as `rep_id`.
-fn group_stacks_for_review(
-    files: Vec<AssetFile>,
-    membership: &HashMap<String, (String, f64)>,
-) -> Vec<StackReview> {
+/// Group the cached view files into review stacks **in memory** at a given Hamming
+/// `threshold`, per folder (matching the persisted stacker). Files keep
+/// first-appearance order; only groups of ≥2 are returned, each tagged with its
+/// sharpest frame as `rep_id`. Pure — drives both the initial queue and the live
+/// threshold slider.
+fn regroup_bursts(cache: &BurstCache, threshold: u32) -> Vec<StackReview> {
     let mut order: Vec<String> = Vec::new();
-    let mut groups: HashMap<String, Vec<AssetFile>> = HashMap::new();
-    for f in files {
-        let Some((burst, _)) = membership.get(&f.id) else { continue };
-        if !groups.contains_key(burst) {
-            order.push(burst.clone());
+    let mut by_folder: HashMap<String, Vec<&AssetFile>> = HashMap::new();
+    for f in &cache.files {
+        if !cache.hashes.contains_key(&f.id) {
+            continue; // no phash yet → can't stack
         }
-        groups.entry(burst.clone()).or_default().push(f);
+        if !by_folder.contains_key(&f.folder) {
+            order.push(f.folder.clone());
+        }
+        by_folder.entry(f.folder.clone()).or_default().push(f);
     }
-    order
-        .into_iter()
-        .filter_map(|burst| {
-            let frames = groups.remove(&burst)?;
-            if frames.len() < 2 {
-                return None;
-            }
-            let sharpness: Vec<f64> = frames
-                .iter()
-                .map(|f| membership.get(&f.id).map(|(_, s)| *s).unwrap_or(0.0))
-                .collect();
+
+    let mut out: Vec<StackReview> = Vec::new();
+    for folder in order {
+        let Some(files) = by_folder.remove(&folder) else { continue };
+        let items: Vec<phash::HashedFile> = files
+            .iter()
+            .map(|f| phash::HashedFile {
+                hash: cache.hashes.get(&f.id).copied().unwrap_or(0),
+                // Match the persisted stacker: COALESCE(exif_date, modified_time).
+                time: f.exif_date_unix.unwrap_or(f.mtime_unix),
+            })
+            .collect();
+        for group in phash::group_stacks(&items, threshold, cache.window_secs) {
+            let frames: Vec<AssetFile> = group.iter().map(|&i| files[i].clone()).collect();
+            let sharpness: Vec<f64> =
+                frames.iter().map(|f| cache.sharpness.get(&f.id).copied().unwrap_or(0.0)).collect();
             let rep_id = frames
                 .iter()
                 .zip(&sharpness)
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(f, _)| f.id.clone())
                 .unwrap_or_default();
-            Some(StackReview { frames, sharpness, rep_id })
-        })
-        .collect()
+            out.push(StackReview { frames, sharpness, rep_id });
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -527,40 +567,70 @@ mod tests {
         }
     }
 
-    mod group_stacks_for_review_fn {
+    mod regroup_bursts_fn {
         use super::*;
 
-        fn membership(pairs: &[(&str, &str, f64)]) -> HashMap<String, (String, f64)> {
-            pairs.iter().map(|(id, b, s)| (id.to_string(), (b.to_string(), *s))).collect()
+        /// `n` near-identical frames (hashes within a few bits) at consecutive
+        /// seconds, in folder `folder`, ids `prefix0..`.
+        fn burst(cache: &mut BurstCache, folder: &str, prefix: &str, hashes: &[u64], sharp: &[f64]) {
+            for (i, (&h, &s)) in hashes.iter().zip(sharp).enumerate() {
+                let id = format!("{prefix}{i}");
+                let mut f = file(&id);
+                f.folder = folder.to_string();
+                f.exif_date_unix = Some(i as i64); // 1s apart, in order
+                cache.hashes.insert(id.clone(), h);
+                cache.sharpness.insert(id.clone(), s);
+                cache.files.push(f);
+            }
+        }
+
+        fn empty_cache() -> BurstCache {
+            BurstCache { files: vec![], hashes: Default::default(), sharpness: Default::default(), window_secs: 10 }
         }
 
         #[test]
-        fn keeps_only_multi_frame_stacks_in_capture_order() {
-            let files = vec![file("a1"), file("a2"), file("solo"), file("b1"), file("b2")];
-            let m = membership(&[
-                ("a1", "A", 5.0), ("a2", "A", 9.0),
-                ("b1", "B", 1.0), ("b2", "B", 2.0),
-                // "solo" absent from membership → not stacked
-            ]);
-            let stacks = group_stacks_for_review(files, &m);
-            assert_eq!(stacks.len(), 2);
-            assert_eq!(stacks[0].frames.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), vec!["a1", "a2"]);
-            assert_eq!(stacks[1].frames.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), vec!["b1", "b2"]);
+        fn groups_near_duplicates_within_threshold() {
+            let mut c = empty_cache();
+            burst(&mut c, "/a", "a", &[0b000, 0b001, 0b011], &[5.0, 9.0, 1.0]);
+            let stacks = regroup_bursts(&c, 4);
+            assert_eq!(stacks.len(), 1);
+            assert_eq!(stacks[0].frames.len(), 3);
+            assert_eq!(stacks[0].rep_id, "a1"); // sharpest (9.0)
         }
 
         #[test]
-        fn rep_is_the_sharpest_frame() {
-            let files = vec![file("a1"), file("a2"), file("a3")];
-            let m = membership(&[("a1", "A", 5.0), ("a2", "A", 9.0), ("a3", "A", 1.0)]);
-            let stacks = group_stacks_for_review(files, &m);
-            assert_eq!(stacks[0].rep_id, "a2");
+        fn tighter_threshold_splits_the_group() {
+            let mut c = empty_cache();
+            // a0..a1 identical (dist 0); a2 is 3 bits away.
+            burst(&mut c, "/a", "a", &[0b000, 0b000, 0b111], &[1.0, 2.0, 3.0]);
+            // threshold 0 → only the two identical frames group; the 3-bit one drops.
+            let tight = regroup_bursts(&c, 0);
+            assert_eq!(tight.len(), 1);
+            assert_eq!(tight[0].frames.len(), 2);
+            // looser → all three.
+            let loose = regroup_bursts(&c, 4);
+            assert_eq!(loose[0].frames.len(), 3);
         }
 
         #[test]
-        fn drops_singletons() {
-            let files = vec![file("a1"), file("b1")];
-            let m = membership(&[("a1", "A", 5.0), ("b1", "B", 5.0)]);
-            assert!(group_stacks_for_review(files, &m).is_empty());
+        fn folders_group_independently() {
+            let mut c = empty_cache();
+            burst(&mut c, "/a", "a", &[0, 0], &[1.0, 2.0]);
+            burst(&mut c, "/b", "b", &[0, 0], &[1.0, 2.0]);
+            let stacks = regroup_bursts(&c, 2);
+            assert_eq!(stacks.len(), 2, "same hashes in different folders stay separate");
+        }
+
+        #[test]
+        fn files_without_a_phash_are_skipped() {
+            let mut c = empty_cache();
+            burst(&mut c, "/a", "a", &[0, 0], &[1.0, 2.0]);
+            let mut lone = file("nohash");
+            lone.folder = "/a".to_string();
+            c.files.push(lone); // no entry in hashes
+            let stacks = regroup_bursts(&c, 2);
+            assert_eq!(stacks[0].frames.len(), 2);
+            assert!(stacks[0].frames.iter().all(|f| f.id != "nohash"));
         }
     }
 

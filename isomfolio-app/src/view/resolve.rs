@@ -8,7 +8,7 @@ use crate::app::{App, Msg, StackReview, SurfaceLayout};
 use super::styles::{
     active_chip_style, ghost_btn_style, icon_btn, ACCENT, BG_GRID, ERR, FG, FG_DIM,
     OVERLAY_HEAVY, SPACE_0_5, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, TEXT_BASE, TEXT_MD,
-    TEXT_SM, TILE_CORNER,
+    TEXT_SM, TILE_CORNER, WARN,
 };
 
 impl App {
@@ -201,24 +201,57 @@ impl App {
             .into()
     }
 
-    /// Live grouping-tolerance control in the header. Scenes only for now — drag to
-    /// re-cluster looser/tighter without leaving the pass (regroup fires on release).
+    /// Live grouping-tolerance control in the header: drag to re-cluster the pass
+    /// looser/tighter without leaving it (regroup fires on *release*). Scenes tune
+    /// embedding `eps` ("Looseness"); bursts tune the Hamming threshold
+    /// ("Tolerance"). Shows an in-flight indicator and, for a large scene set (the
+    /// only O(n²) case), a frame-count caution.
     fn sift_tolerance_ctrl(&self) -> Element<'_, Msg> {
-        if !self.resolve.scenes {
-            return Space::new().width(0.0).into();
+        let (label, slider_el): (&str, _) = if self.resolve.scenes {
+            (
+                "Looseness",
+                slider(0.0..=1.0, self.resolve.tolerance, Msg::SiftToleranceChanged)
+                    .on_release(Msg::SiftRegroup)
+                    .step(0.01)
+                    .width(Length::Fixed(130.0)),
+            )
+        } else {
+            (
+                "Tolerance",
+                slider(0.0..=16.0, self.resolve.tolerance, Msg::SiftToleranceChanged)
+                    .on_release(Msg::SiftRegroup)
+                    .step(1.0)
+                    .width(Length::Fixed(130.0)),
+            )
+        };
+
+        // Burst regroup is O(n) (cheap); scene DBSCAN is O(n²), so caution there.
+        let count = if self.resolve.scenes {
+            self.resolve.scene_cache.as_ref().map_or(0, |c| c.files.len())
+        } else {
+            self.resolve.burst_cache.as_ref().map_or(0, |c| c.files.len())
+        };
+        let heavy = self.resolve.scenes && count > 1500;
+
+        let readout: Element<Msg> = if self.resolve.regrouping {
+            text("Regrouping…").size(TEXT_SM).color(ACCENT).into()
+        } else if self.resolve.scenes {
+            text(format!("{:.2}", self.resolve.tolerance)).size(TEXT_SM).color(FG_DIM).into()
+        } else {
+            text(format!("{}", self.resolve.tolerance.round() as i32)).size(TEXT_SM).color(FG_DIM).into()
+        };
+
+        let mut ctrl = row![text(label).size(TEXT_SM).color(FG_DIM), slider_el, readout]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        if heavy && !self.resolve.regrouping {
+            ctrl = ctrl.push(super::styles::tip(
+                text(format!("⚠ {count}")).size(TEXT_SM).color(WARN),
+                "Large set — re-clustering may take a moment on release",
+                super::styles::TipPos::Bottom,
+            ));
         }
-        row![
-            text("Looseness").size(TEXT_SM).color(FG_DIM),
-            slider(0.0..=1.0, self.resolve.tolerance, Msg::SiftToleranceChanged)
-                .on_release(Msg::SiftRegroup)
-                .step(0.01)
-                .width(Length::Fixed(140.0)),
-            text(format!("{:.2}", self.resolve.tolerance)).size(TEXT_SM).color(FG_DIM),
-            Space::new().width(SPACE_2),
-        ]
-        .spacing(SPACE_1)
-        .align_y(Alignment::Center)
-        .into()
+        ctrl.push(Space::new().width(SPACE_2)).into()
     }
 
     /// Header toggle for one layout; the active layout reads as a filled chip.

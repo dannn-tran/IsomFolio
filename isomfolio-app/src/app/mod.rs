@@ -534,6 +534,16 @@ pub struct SceneCache {
     pub min_pts: usize,
 }
 
+/// Cached burst-grouping inputs for the current view, so the header tolerance
+/// slider can regroup (per-folder phash) in memory at a live Hamming threshold.
+#[derive(Debug, Clone, Default)]
+pub struct BurstCache {
+    pub files: Vec<isomfolio_core::models::AssetFile>,
+    pub hashes: HashMap<String, u64>,
+    pub sharpness: HashMap<String, f64>,
+    pub window_secs: i64,
+}
+
 /// State for the resolve-stacks view — a guided, full-bleed pass through every
 /// multi-frame stack in the current view, one at a time.
 #[derive(Default)]
@@ -566,6 +576,13 @@ pub struct ResolveState {
     pub tolerance: f32,
     /// Cached clustering inputs so the slider can regroup without a DB round-trip.
     pub scene_cache: Option<SceneCache>,
+    /// Cached burst inputs, for the live Hamming-threshold regroup.
+    pub burst_cache: Option<BurstCache>,
+    /// Monotonic id for the latest regroup request — a returning regroup whose id
+    /// is stale (the slider moved again since) is dropped, so only the newest wins.
+    pub regroup_seq: u64,
+    /// A regroup is computing off-thread (drives the "Regrouping…" indicator).
+    pub regrouping: bool,
 }
 
 struct ThumbnailRecipe {
