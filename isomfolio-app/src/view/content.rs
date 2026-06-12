@@ -172,21 +172,15 @@ impl App {
 
         let toolbar_row = row![
             sift_entry,
+            // A *view* toggle (not the Sift action): collapse each burst to one
+            // grid tile. Icon-only so it doesn't read as a second "Sift" — the
+            // count lives on the Sift button. Active fill when collapse is on.
             super::styles::tip(
-                button(
-                    text(if self.stack_stats.stacks > 0 {
-                        format!("⧉ Stack ({})", self.stack_stats.stacks)
-                    } else {
-                        "⧉ Stack".to_string()
-                    })
-                    .size(TEXT_MD),
-                )
-                .on_press(Msg::ToggleCollapseBursts)
-                .style({
+                super::styles::icon_btn_styled("⧉", Msg::ToggleCollapseBursts, {
                     let on = self.collapse_bursts;
-                    move |t: &Theme, s| if on { active_chip_style(t, s) } else { ghost_btn_style(t, s) }
+                    move |t: &Theme, s| if on { active_chip_style(t, s) } else { super::styles::icon_btn_style(t, s) }
                 }),
-                "Collapse near-duplicate stacks to one tile in the grid",
+                "Collapse near-duplicates to one tile in the grid",
                 super::styles::TipPos::Bottom,
             ),
             filter_indicator,
