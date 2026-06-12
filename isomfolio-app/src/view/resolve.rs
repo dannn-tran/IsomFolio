@@ -207,41 +207,34 @@ impl App {
     /// ("Tolerance"). Shows an in-flight indicator and, for a large scene set (the
     /// only O(n²) case), a frame-count caution.
     fn sift_tolerance_ctrl(&self) -> Element<'_, Msg> {
-        let (label, slider_el): (&str, _) = if self.resolve.scenes {
-            (
-                "Looseness",
-                slider(0.0..=1.0, self.resolve.tolerance, Msg::SiftToleranceChanged)
-                    .on_release(Msg::SiftRegroup)
-                    .step(0.01)
-                    .width(Length::Fixed(130.0)),
-            )
-        } else {
-            (
-                "Tolerance",
-                slider(0.0..=16.0, self.resolve.tolerance, Msg::SiftToleranceChanged)
-                    .on_release(Msg::SiftRegroup)
-                    .step(1.0)
-                    .width(Length::Fixed(130.0)),
-            )
-        };
+        // One normalized 0..1 slider spanning the Burst↔Scene continuum (seam at
+        // 0.5). The left "Burst" label brightens when active, the right "Scene"
+        // label when the slider has crossed the seam.
+        let scenes = self.resolve.scenes;
+        let burst_lbl = text("Burst").size(TEXT_SM).color(if scenes { FG_DIM } else { ACCENT });
+        let scene_lbl = text("Scene").size(TEXT_SM).color(if scenes { ACCENT } else { FG_DIM });
+        let slider_el = slider(0.0..=1.0, self.resolve.tolerance, Msg::SiftToleranceChanged)
+            .on_release(Msg::SiftRegroup)
+            .step(0.01)
+            .width(Length::Fixed(150.0));
 
         // Burst regroup is O(n) (cheap); scene DBSCAN is O(n²), so caution there.
-        let count = if self.resolve.scenes {
+        let count = if scenes {
             self.resolve.scene_cache.as_ref().map_or(0, |c| c.files.len())
         } else {
             self.resolve.burst_cache.as_ref().map_or(0, |c| c.files.len())
         };
-        let heavy = self.resolve.scenes && count > 1500;
+        let heavy = scenes && count > 1500;
 
         let readout: Element<Msg> = if self.resolve.regrouping {
             text("Regrouping…").size(TEXT_SM).color(ACCENT).into()
-        } else if self.resolve.scenes {
-            text(format!("{:.2}", self.resolve.tolerance)).size(TEXT_SM).color(FG_DIM).into()
+        } else if scenes {
+            text(format!("eps {:.2}", self.sift_scene_eps())).size(TEXT_SM).color(FG_DIM).into()
         } else {
-            text(format!("{}", self.resolve.tolerance.round() as i32)).size(TEXT_SM).color(FG_DIM).into()
+            text(format!("≤{} bits", self.sift_burst_threshold())).size(TEXT_SM).color(FG_DIM).into()
         };
 
-        let mut ctrl = row![text(label).size(TEXT_SM).color(FG_DIM), slider_el, readout]
+        let mut ctrl = row![burst_lbl, slider_el, scene_lbl, readout]
             .spacing(SPACE_1)
             .align_y(Alignment::Center);
         if heavy && !self.resolve.regrouping {

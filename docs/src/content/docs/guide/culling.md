@@ -107,7 +107,7 @@ Both are undoable with `Cmd+Z`, and they apply to every frame in the stack even 
 
 ### Sift — a guided pass
 
-When a shoot has *many* bursts, press **`R`** (the **Sift (N)** chip, or **View → Sift Bursts**) to step through them one at a time. This opens a full-screen review — the same kind of focused view as the loupe — showing one group's frames large in an **adaptive grid that fits the window** (no horizontal scrolling, even for a row of landscapes), so you can actually judge focus, eyes, and expression:
+When a shoot has *many* near-duplicates, press **`R`** (the **Sift (N)** chip, or **View → Sift…**) to step through groups of similar shots one at a time, keeping the best of each. This opens a full-screen review — the same kind of focused view as the loupe — showing one group's frames large in an **adaptive grid that fits the window** (no horizontal scrolling, even for a row of landscapes), so you can actually judge focus, eyes, and expression:
 
 1. The **sharpest** frame is pre-marked as the keeper. Every frame shows its sharpness **rank** — `★ sharpest` on the auto-pick, `#2`, `#3`… on the rest — so if you reject the default for a blink or a stray hand, you can see at a glance which of the others is next-sharpest. Click any frame to toggle whether it's kept — kept frames get a blue ring and **✓ Keep**, the rest show **✕ Reject** and dim.
 2. Confirm with **Keep selected & Next ›** to flag your choice (keepers → Pick, the rest → Reject) and jump to the next group. **Skip** moves on without changing anything; **‹ Previous** steps back — and your earlier keep/reject choices are remembered, so stepping back and forth never loses them. Keeping *nothing* is treated as a Skip (you can't silently reject a whole group).
@@ -128,16 +128,17 @@ When a shoot has *many* bursts, press **`R`** (the **Sift (N)** chip, or **View 
 
 If you've toggled away from the auto-pick, a **↺ Reset to auto** button (and `0`) restores it.
 
-Everything you do here is undoable with `Cmd+Z`. It's the fastest way to cull a shoot full of bursts down to one keeper each.
+Everything you do here is undoable with `Cmd+Z`. It's the fastest way to cull a shoot full of near-duplicates down to one keeper each.
 
-### Sift Scenes — looser groups by content
+### One slider, from bursts to scenes
 
-Bursts are *tight*: near-identical frames shot seconds apart. **Scenes** are looser — "several tries at the same shot or subject" even when you reframed, zoomed, or recomposed between frames. Press **`⇧R`** (or **View → Sift Scenes**) to step through them in the exact same guided, full-screen pass, picking a keeper for each.
+How shots are grouped is a single **Burst ↔ Scene** slider in the Sift header — no separate modes to choose between up front:
 
-The difference is how the groups are formed. Bursts compare pixels (a perceptual hash); scenes compare **image content** (a whole-image embedding), so a group survives a pan or a tighter crop that would split a burst. Use **Sift Bursts** for burst/bracketing cleanup, **Sift Scenes** for "I tried this portrait twelve ways — show me the set so I can keep the best."
+- Toward **Burst** (left): groups are *tight* — near-identical frames shot seconds apart, compared by pixels (a perceptual hash). Best for burst/bracketing cleanup. Drag left for stricter (near-exact) duplicates, right within the burst half to allow less-similar frames to stack.
+- Toward **Scene** (right): groups are *looser* — "several tries at the same shot or subject" even when you reframed, zoomed, or recomposed, compared by **image content** (a whole-image embedding), so a group survives a pan or a tighter crop. Best for "I tried this portrait twelve ways — show me the set."
 
-**Tune grouping without leaving.** The Sift header carries a tolerance slider — **Looseness** in Scenes (higher pulls more varied frames into a group), **Tolerance** in Bursts (higher allows less-similar frames to stack). Drag and **release** to re-group the whole pass live. Already-applied keep/reject choices are safe (they're written as you go); only the groups you haven't reached yet reshape. It's the same knob as **Settings → Scene grouping / Stacking**, but right where you're looking.
+Sift opens on the Burst side (at your **Settings → Stacking** threshold). Drag and **release** to re-group the whole pass live; the label shows the active side (`Burst`/`Scene`) and the effective setting. Crossing into the Scene side the first time loads the image embeddings (a brief one-time wait), so you only pay that cost if you actually use scenes.
 
-Re-grouping happens off-screen on release (not while you drag), and only the **latest** release is applied — if you nudge the slider again, the earlier result is discarded. Burst re-grouping is effectively instant; scene re-grouping does more work, so for a large set the header shows the **frame count with a ⚠** and a brief **Regrouping…** while it runs.
+Already-applied keep/reject choices are safe (they're written as you go); only the groups you haven't reached yet reshape. Re-grouping happens off-screen on release (not while you drag), and only the **latest** release is applied — nudge the slider again and the earlier result is discarded. Burst re-grouping is instant; scene re-grouping does more work, so for a large set the header shows the **frame count with a ⚠** and a brief **Regrouping…** while it runs.
 
 Scene grouping runs in the background after a sync (like stacking), so it may lag fresh thumbnails for a moment. Tune it under **Settings → General → Scene grouping**: **Grouping looseness** (higher pulls more varied frames together), **Min neighbours** (1 lets a two-frame scene form), and an **Auto-embed** toggle. The panel shows how many frames have been embedded so far.

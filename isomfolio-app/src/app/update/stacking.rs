@@ -91,7 +91,9 @@ impl App {
                 self.resolve = ResolveState {
                     stacks,
                     idx: 0,
-                    tolerance: threshold as f32,
+                    // Open in the burst half, seeded at the catalog's stacking
+                    // threshold; drag right past the seam to reach scenes.
+                    tolerance: Self::burst_threshold_to_pos(threshold),
                     burst_cache: Some(cache),
                     ..Default::default()
                 };
@@ -223,7 +225,7 @@ impl App {
         let Some(cache) = self.resolve.burst_cache.clone() else {
             return Task::none();
         };
-        let threshold = self.resolve.tolerance.round().max(0.0) as u32;
+        let threshold = self.sift_burst_threshold();
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || regroup_bursts(&cache, threshold))
@@ -300,6 +302,29 @@ impl App {
 
     pub(super) fn in_resolve(&self) -> bool {
         matches!(self.view_mode, ViewMode::ResolveStacks)
+    }
+
+    // The unified Sift slider is a normalized 0..1 tolerance with the seam at 0.5:
+    // the left half tunes the burst Hamming threshold, the right half the scene eps.
+    // The active engine — and each engine's parameter — is derived from the position.
+    pub(crate) fn sift_is_scenes(&self) -> bool {
+        self.resolve.tolerance >= 0.5
+    }
+
+    /// Burst Hamming threshold from the slider's left half: 0 (exact) → 16 (loose).
+    pub(crate) fn sift_burst_threshold(&self) -> u32 {
+        (self.resolve.tolerance.clamp(0.0, 0.5) * 32.0).round() as u32
+    }
+
+    /// Scene clustering eps from the slider's right half: 0 (tight) → 1 (loose).
+    pub(crate) fn sift_scene_eps(&self) -> f32 {
+        ((self.resolve.tolerance - 0.5) * 2.0).clamp(0.0, 1.0)
+    }
+
+    /// The normalized slider position for a burst threshold (the inverse of
+    /// [`Self::sift_burst_threshold`]) — used to seed the slider on open.
+    pub(super) fn burst_threshold_to_pos(threshold: u32) -> f32 {
+        (threshold as f32 / 32.0).clamp(0.0, 0.49)
     }
 
     /// Toggle the keeper mark on the `n`-th frame (1-based) of the current stack —
@@ -835,6 +860,46 @@ mod tests {
             app.resolve.layout = SurfaceLayout::Grid;
             let _ = app.update(Msg::Navigate { dx: 1, dy: 0 });
             assert_eq!(app.resolve.idx, 1);
+        }
+    }
+
+    mod sift_tolerance_axis {
+        use super::*;
+
+        fn app_at(t: f32) -> App {
+            let mut a = App::new(None).0;
+            a.resolve.tolerance = t;
+            a
+        }
+
+        #[test]
+        fn seam_at_half_selects_engine() {
+            assert!(!app_at(0.0).sift_is_scenes());
+            assert!(!app_at(0.49).sift_is_scenes());
+            assert!(app_at(0.5).sift_is_scenes());
+            assert!(app_at(0.9).sift_is_scenes());
+        }
+
+        #[test]
+        fn burst_half_maps_to_threshold() {
+            assert_eq!(app_at(0.0).sift_burst_threshold(), 0);
+            assert_eq!(app_at(0.25).sift_burst_threshold(), 8);
+            assert_eq!(app_at(0.5).sift_burst_threshold(), 16);
+        }
+
+        #[test]
+        fn scene_half_maps_to_eps() {
+            assert!(app_at(0.5).sift_scene_eps().abs() < 1e-6);
+            assert!((app_at(0.75).sift_scene_eps() - 0.5).abs() < 1e-6);
+            assert!((app_at(1.0).sift_scene_eps() - 1.0).abs() < 1e-6);
+        }
+
+        #[test]
+        fn open_position_round_trips_default_threshold() {
+            let mut a = App::new(None).0;
+            a.resolve.tolerance = App::burst_threshold_to_pos(8);
+            assert_eq!(a.sift_burst_threshold(), 8);
+            assert!(!a.sift_is_scenes(), "default opens in the burst half");
         }
     }
 }

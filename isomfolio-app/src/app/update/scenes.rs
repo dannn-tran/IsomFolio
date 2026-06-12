@@ -6,7 +6,7 @@ use isomfolio_core::models::SearchQuery;
 use isomfolio_core::scene_embed::{self, SceneItem, SCENE_MODEL};
 
 use super::LockUnwrap;
-use super::super::{App, Msg, ResolveState, SceneCache, SceneProgress, SidebarItem, StackReview, ViewMode};
+use super::super::{App, Msg, SceneCache, SceneProgress, SidebarItem, StackReview};
 
 /// Files embedded per chunk between progress updates — small enough that the bar
 /// advances a few times a second, large enough that per-chunk lock/dispatch
@@ -46,28 +46,20 @@ impl App {
                 Task::none()
             }
 
-            Msg::OpenResolveScenes => self.open_resolve_scenes_task(),
-
-            Msg::ResolveScenesLoaded { stacks, cache, eps } => {
-                if stacks.is_empty() {
-                    self.status = "No scenes to review in this view".to_string();
+            Msg::SceneCacheLoaded { cache, seq } => {
+                // Lazy scene-cache load finished; drop it if superseded, else stash
+                // it and chain the scene regroup it was kicked off for.
+                if seq != self.resolve.regroup_seq {
                     return Task::none();
                 }
-                self.resolve = ResolveState {
-                    stacks,
-                    idx: 0,
-                    scenes: true,
-                    tolerance: eps,
-                    scene_cache: Some(cache),
-                    ..Default::default()
-                };
-                self.view_mode = ViewMode::ResolveStacks;
-                self.grid_selected.clear();
-                self.enter_resolve_stack(0)
+                self.resolve.scene_cache = Some(cache);
+                self.regroup_scenes_task(seq)
             }
 
             Msg::SiftToleranceChanged(v) => {
                 self.resolve.tolerance = v;
+                // Engine is derived from the slider position (seam at 0.5).
+                self.resolve.scenes = self.sift_is_scenes();
                 Task::none()
             }
 
@@ -77,10 +69,14 @@ impl App {
                 self.resolve.regroup_seq += 1;
                 self.resolve.regrouping = true;
                 let seq = self.resolve.regroup_seq;
-                if self.resolve.scenes {
+                if !self.resolve.scenes {
+                    self.regroup_bursts_task(seq)
+                } else if self.resolve.scene_cache.is_some() {
                     self.regroup_scenes_task(seq)
                 } else {
-                    self.regroup_bursts_task(seq)
+                    // First crossing into the scene region — pay the embedding load
+                    // now (lazily), then regroup once it lands.
+                    self.load_scene_cache_task(seq)
                 }
             }
 
@@ -194,10 +190,12 @@ impl App {
         )
     }
 
-    /// Build the "Review Scenes" queue for the current view: ensure every visible
-    /// file is embedded (compute any stragglers the background pass hasn't reached
-    /// yet), then cluster the embeddings and emit groups of ≥2, sharpest-first.
-    fn open_resolve_scenes_task(&self) -> Task<Msg> {
+    /// Lazily build the scene-clustering inputs for the current view (the first
+    /// time the unified tolerance slider crosses into the scene region): ensure
+    /// every visible file is embedded (computing any stragglers), load + whiten the
+    /// embeddings, and hand back a `SceneCache`. No clustering here — that's the
+    /// `regroup` that chains off `SceneCacheLoaded`.
+    fn load_scene_cache_task(&self, seq: u64) -> Task<Msg> {
         let Some(catalog) = self.catalog.clone() else {
             return Task::none();
         };
@@ -207,7 +205,6 @@ impl App {
         query.collapse_bursts = false;
         query.expanded_bursts = Vec::new();
         let is_smart = self.current_album_is_smart();
-        let eps = self.app_settings.scene_eps;
         let min_pts = self.app_settings.scene_min_pts as usize;
 
         Task::perform(
@@ -250,28 +247,22 @@ impl App {
                         .map(|(id, _)| id.clone())
                         .zip(scene_embed::whiten(&raw))
                         .collect();
-                    let stacks =
-                        build_scene_review(files.clone(), whitened.clone(), sharpness.clone(), eps, min_pts);
-                    // Keep the whitened inputs so the header slider can re-cluster
-                    // live (in memory) without re-querying or re-embedding.
-                    let cache = SceneCache { files, whitened, sharpness, min_pts };
-                    (stacks, cache, eps)
+                    SceneCache { files, whitened, sharpness, min_pts }
                 })
                 .await
-                .unwrap_or_else(|_| (Vec::new(), SceneCache::default(), 0.0))
+                .unwrap_or_default()
             },
-            |(stacks, cache, eps)| Msg::ResolveScenesLoaded { stacks, cache, eps },
+            move |cache| Msg::SceneCacheLoaded { cache, seq },
         )
     }
 
     /// Re-cluster the cached scene signals at the current tolerance — drives the
-    /// header looseness slider. Pure of the DB; runs off-thread since DBSCAN over a
-    /// large view is O(n²).
+    /// scene half of the header slider. Pure of the DB; off-thread (DBSCAN is O(n²)).
     fn regroup_scenes_task(&self, seq: u64) -> Task<Msg> {
         let Some(cache) = self.resolve.scene_cache.clone() else {
             return Task::none();
         };
-        let eps = self.resolve.tolerance;
+        let eps = self.sift_scene_eps();
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
@@ -446,7 +437,7 @@ mod tests {
 
     mod live_tolerance {
         use super::file;
-        use crate::app::{App, Msg, ResolveState, StackReview, ViewMode};
+        use crate::app::{App, Msg, ResolveState, SceneCache, StackReview, ViewMode};
 
         fn sr(id: &str) -> StackReview {
             StackReview {
@@ -502,6 +493,22 @@ mod tests {
             app.resolve.regroup_seq = 2; // slider moved on since seq 1 kicked off
             let _ = app.update(Msg::SiftRegrouped { stacks: vec![sr("x")], seq: 1 });
             assert_eq!(app.resolve.stacks.len(), 2, "stale result must not replace the queue");
+        }
+
+        #[test]
+        fn lazy_scene_cache_stores_when_current() {
+            let mut app = scenes_app(vec![sr("a")]);
+            app.resolve.regroup_seq = 3;
+            let _ = app.update(Msg::SceneCacheLoaded { cache: SceneCache::default(), seq: 3 });
+            assert!(app.resolve.scene_cache.is_some());
+        }
+
+        #[test]
+        fn lazy_scene_cache_dropped_when_superseded() {
+            let mut app = scenes_app(vec![sr("a")]);
+            app.resolve.regroup_seq = 5;
+            let _ = app.update(Msg::SceneCacheLoaded { cache: SceneCache::default(), seq: 4 });
+            assert!(app.resolve.scene_cache.is_none(), "stale cache load must be ignored");
         }
     }
 }

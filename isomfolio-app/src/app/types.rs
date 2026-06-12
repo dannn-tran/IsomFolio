@@ -574,11 +574,10 @@ pub enum Msg {
     /// (Also fired by the cheap on-open COUNT to refresh the Settings readout.)
     SceneEmbeddingDone(usize),
     /// Enter the review mode for embedding scene-clusters in the current view.
-    OpenResolveScenes,
-    /// The scene review queue finished building (clusters of ≥2 frames, sharpest
-    /// first). Feeds the same review mode as `ResolveStacksLoaded`. Carries the
-    /// cached clustering inputs + the `eps` used, so the header slider can regroup.
-    ResolveScenesLoaded { stacks: Vec<crate::app::StackReview>, cache: crate::app::SceneCache, eps: f32 },
+    /// The scene clustering inputs finished loading (lazily, the first time the
+    /// unified tolerance slider crosses into the scene region). `seq` guards against
+    /// a superseded request; a regroup is chained once it lands.
+    SceneCacheLoaded { cache: crate::app::SceneCache, seq: u64 },
 
     /// Focus the Info-panel tag entry (opening the panel first if needed) so a tag
     /// can be typed without reaching for the mouse.

@@ -216,8 +216,7 @@ impl App {
             | Msg::SceneEmbedStarted(_)
             | Msg::SceneEmbedChunkDone { .. }
             | Msg::SceneEmbeddingDone(_)
-            | Msg::OpenResolveScenes
-            | Msg::ResolveScenesLoaded { .. }
+            | Msg::SceneCacheLoaded { .. }
             | Msg::SiftToleranceChanged(_)
             | Msg::SiftRegroup
             | Msg::SiftRegrouped { .. } => self.handle_scenes_msg(msg),
