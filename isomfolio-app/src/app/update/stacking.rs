@@ -132,8 +132,8 @@ impl App {
             Msg::ResolveResetAuto => self.resolve_reset_auto(),
 
             Msg::SiftSetLayout(layout) => {
+                // One layout for the whole pass; persists across group navigation.
                 self.resolve.layout = layout;
-                self.resolve.layout_pinned = true;
                 Task::none()
             }
 
@@ -250,24 +250,29 @@ impl App {
         let Some(stack) = self.resolve.stacks.get(i) else {
             return self.exit_resolve(true);
         };
-        // Until the user pins a layout, auto-pick by group size: small groups read
-        // best all-at-once (Grid); large ones get tiny tiles, so default to the
-        // one-up Strip where the focused frame stays large.
-        let n_frames = stack.frames.len();
-        if !self.resolve.layout_pinned {
-            self.resolve.layout =
-                if n_frames > 4 { crate::app::SurfaceLayout::Strip } else { crate::app::SurfaceLayout::Grid };
-        }
+        // Layout is a single, stable choice for the whole pass (set via the header
+        // toggle) — it does NOT change per group, so navigating never flips between
+        // Grid and Strip behind your back.
         self.resolve.idx = i;
         self.resolve.focus = 0;
         self.resolve.handles.clear();
         self.resolve.frame_dims.clear();
-        self.resolve.keepers = self
-            .resolve
-            .decisions
-            .get(&i)
-            .cloned()
-            .unwrap_or_else(|| std::iter::once(stack.rep_id.clone()).collect());
+        // Restore a saved in-session decision; else seed from the frames' existing
+        // Pick flags (so a keeper chosen in an earlier pass persists across exit and
+        // re-entry); else fall back to the sharpest frame.
+        self.resolve.keepers = self.resolve.decisions.get(&i).cloned().unwrap_or_else(|| {
+            let prior: std::collections::HashSet<String> = stack
+                .frames
+                .iter()
+                .filter(|f| f.flag == Flag::Pick)
+                .map(|f| f.id.clone())
+                .collect();
+            if prior.is_empty() {
+                std::iter::once(stack.rep_id.clone()).collect()
+            } else {
+                prior
+            }
+        });
         let tasks: Vec<Task<Msg>> = stack
             .frames
             .iter()
@@ -806,11 +811,10 @@ mod tests {
         }
 
         #[test]
-        fn set_layout_pins_choice() {
+        fn set_layout_changes_layout() {
             let mut app = app_with_group(3);
             let _ = app.handle_stacking_msg(Msg::SiftSetLayout(SurfaceLayout::Strip));
             assert_eq!(app.resolve.layout, SurfaceLayout::Strip);
-            assert!(app.resolve.layout_pinned);
         }
 
         #[test]
@@ -821,22 +825,41 @@ mod tests {
         }
 
         #[test]
-        fn auto_layout_follows_group_size() {
-            let mut small = app_with_group(3);
-            let _ = small.enter_resolve_stack(0);
-            assert_eq!(small.resolve.layout, SurfaceLayout::Grid);
-
-            let mut big = app_with_group(6);
-            let _ = big.enter_resolve_stack(0);
-            assert_eq!(big.resolve.layout, SurfaceLayout::Strip);
+        fn layout_is_stable_across_groups() {
+            // A chosen layout must not flip when navigating between groups of
+            // different sizes (the per-group auto-flip bug).
+            let mut app = app_with_group(3);
+            app.resolve.stacks.push(StackReview {
+                frames: (0..8).map(|i| file(&format!("b{i}"))).collect(),
+                sharpness: (0..8).map(|i| i as f64).collect(),
+                rep_id: "b0".to_string(),
+            });
+            let _ = app.handle_stacking_msg(Msg::SiftSetLayout(SurfaceLayout::Strip));
+            let _ = app.enter_resolve_stack(1); // big group
+            assert_eq!(app.resolve.layout, SurfaceLayout::Strip);
+            let _ = app.enter_resolve_stack(0); // small group — stays Strip
+            assert_eq!(app.resolve.layout, SurfaceLayout::Strip);
         }
 
         #[test]
-        fn pinned_layout_overrides_size_auto() {
-            let mut app = app_with_group(6);
-            let _ = app.handle_stacking_msg(Msg::SiftSetLayout(SurfaceLayout::Grid));
+        fn keepers_seed_from_existing_pick_flags() {
+            // A frame already flagged Pick (a keeper from a prior pass) is restored
+            // as the keeper on entry, instead of resetting to the sharpest.
+            let mut app = App::new(None).0;
+            let mut f_keep = file("k");
+            f_keep.flag = isomfolio_core::models::Flag::Pick;
+            app.resolve = ResolveState {
+                stacks: vec![StackReview {
+                    frames: vec![file("a"), f_keep, file("c")],
+                    sharpness: vec![9.0, 1.0, 5.0], // "a" is sharpest
+                    rep_id: "a".to_string(),
+                }],
+                ..Default::default()
+            };
+            app.view_mode = ViewMode::ResolveStacks;
             let _ = app.enter_resolve_stack(0);
-            assert_eq!(app.resolve.layout, SurfaceLayout::Grid);
+            assert!(app.resolve.keepers.contains("k"), "prior Pick restored as keeper");
+            assert!(!app.resolve.keepers.contains("a"), "not reset to the sharpest");
         }
 
         #[test]

@@ -551,10 +551,9 @@ pub struct ResolveState {
     pub stacks: Vec<StackReview>,
     /// Index of the stack currently shown.
     pub idx: usize,
-    /// How the current group's frames are arranged. Auto-chosen per group by size
-    /// until the user picks one, after which `layout_pinned` makes it sticky.
+    /// How frames are arranged — a single, stable choice for the whole pass (set
+    /// via the header toggle), not re-decided per group.
     pub layout: SurfaceLayout,
-    pub layout_pinned: bool,
     /// Focused frame within the current group (drives the Strip/Full preview).
     pub focus: usize,
     /// Ids of frames in the *current* stack marked as keepers (→ Pick on resolve).
