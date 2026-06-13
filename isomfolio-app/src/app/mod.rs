@@ -61,6 +61,11 @@ pub struct LoupeState {
     /// explanatory overlay so a permission-blocked photo isn't a silent pixelated
     /// fallback. Keyed by idx so it self-clears on navigate.
     pub load_error: Option<(usize, LoupeLoadError)>,
+    /// When non-empty, the loupe steps through *only* these file indices (a
+    /// multi-selection sent to review), not the whole view — `idx` is still an
+    /// index into `files`, but navigation moves between scope entries. Empty =
+    /// browse the whole view.
+    pub scope: Vec<usize>,
 }
 
 /// A full-resolution load failure, with enough to explain it and offer a fix.
@@ -98,6 +103,7 @@ impl Default for LoupeState {
             native: None,
             lock_zoom: false,
             load_error: None,
+            scope: Vec::new(),
         }
     }
 }

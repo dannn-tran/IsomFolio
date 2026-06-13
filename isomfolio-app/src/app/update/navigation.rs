@@ -67,9 +67,19 @@ impl App {
                         return Task::none();
                     }
                     let delta = dx + dy;
-                    // Clamp, don't wrap — stepping off either end stays put.
-                    let new_idx =
-                        (self.loupe.idx as i32 + delta).clamp(0, total as i32 - 1) as usize;
+                    // Clamp, don't wrap — stepping off either end stays put. A scoped
+                    // loupe (a multi-selection sent to review) steps between scope
+                    // entries; otherwise between all files.
+                    let scoped =
+                        matches!(self.view_mode, ViewMode::Loupe) && !self.loupe.scope.is_empty();
+                    let new_idx = if scoped {
+                        let scope = &self.loupe.scope;
+                        let pos = scope.iter().position(|&i| i == self.loupe.idx).unwrap_or(0);
+                        let npos = (pos as i32 + delta).clamp(0, scope.len() as i32 - 1) as usize;
+                        scope[npos]
+                    } else {
+                        (self.loupe.idx as i32 + delta).clamp(0, total as i32 - 1) as usize
+                    };
                     if new_idx == self.loupe.idx {
                         // At the boundary: a true no-op, no needless reload/flicker.
                         return Task::none();

@@ -170,6 +170,7 @@ impl App {
         self.view_mode = ViewMode::Browse;
         self.loupe.full_res = None;
         self.loupe.prefetch.clear();
+        self.loupe.scope.clear();
         Task::batch([self.scroll_to_index(self.loupe.idx), self.restore_sidebar_scroll()])
     }
 
@@ -253,7 +254,27 @@ impl App {
                     }
                     ViewMode::Browse => {
                         if !self.files.is_empty() {
-                            let idx = self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
+                            // A multi-selection enters a *scoped* review — the loupe
+                            // steps through just those frames (filmstrip + big preview
+                            // of the candidates). A single/no selection browses all.
+                            self.loupe.scope = if self.grid_selected.len() >= 2 {
+                                self.files
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(_, f)| self.grid_selected.contains(&f.id))
+                                    .map(|(i, _)| i)
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
+                            let anchor = self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
+                            let idx = if self.loupe.scope.is_empty() {
+                                anchor
+                            } else if self.loupe.scope.contains(&anchor) {
+                                anchor
+                            } else {
+                                self.loupe.scope[0]
+                            };
                             self.loupe.idx = idx;
                             self.loupe.reset_zoom();
                             self.loupe.load_error = None;

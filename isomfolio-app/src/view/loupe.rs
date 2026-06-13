@@ -105,13 +105,13 @@ impl App {
         };
 
         let filename = self.files.get(idx).map(|f| f.name.as_str()).unwrap_or("");
-        let wrap_hint = if total > 1 && (idx == 0 || idx == total - 1) {
-            " ↩"
-        } else {
-            ""
-        };
-        let counter = if total > 0 {
-            format!("{} / {}{}", idx + 1, total, wrap_hint)
+        // A scoped loupe (multi-selection review) counts within the selection and
+        // says so, so the narrowed set never reads as a bug; Esc returns to all.
+        let counter = if !self.loupe.scope.is_empty() {
+            let pos = self.loupe.scope.iter().position(|&i| i == idx).unwrap_or(0);
+            format!("Reviewing {} / {} selected · Esc for all", pos + 1, self.loupe.scope.len())
+        } else if total > 0 {
+            format!("{} / {}", idx + 1, total)
         } else {
             String::new()
         };
@@ -395,11 +395,18 @@ impl App {
         const THUMB: f32 = 56.0;
         const WINDOW: usize = 14;
         let total = self.files.len();
-        let lo = current.saturating_sub(WINDOW);
-        let hi = (current + WINDOW + 1).min(total);
+        // Scoped review shows exactly the selected frames; otherwise a window of the
+        // whole view around the current photo.
+        let indices: Vec<usize> = if !self.loupe.scope.is_empty() {
+            self.loupe.scope.clone()
+        } else {
+            let lo = current.saturating_sub(WINDOW);
+            let hi = (current + WINDOW + 1).min(total);
+            (lo..hi).collect()
+        };
 
         let mut strip = row![].spacing(SPACE_1).align_y(Alignment::Center);
-        for i in lo..hi {
+        for i in indices {
             let file = &self.files[i];
             let is_cur = i == current;
             let thumb: Element<Msg> = match self.thumbnails.get(&file.id) {

@@ -909,6 +909,28 @@ mod undo_redo {
     }
 
     #[test]
+    fn scoped_loupe_steps_between_selected_only() {
+        let mut a = app_with_catalog();
+        a.view_mode = crate::app::ViewMode::Loupe;
+        let files = vec![
+            file("f1", Flag::Unflagged),
+            file("f2", Flag::Unflagged),
+            file("f3", Flag::Unflagged),
+        ];
+        let _ = a.update(Msg::FilesLoaded(files));
+        // Scope to f1 and f3 (skip f2); start on f1.
+        a.loupe.scope = vec![0, 2];
+        a.loupe.idx = 0;
+
+        let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+        assert_eq!(a.loupe.idx, 2, "next jumps over the unselected f2 to f3");
+        let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+        assert_eq!(a.loupe.idx, 2, "at the end of the scope it stays put (no loop)");
+        let _ = a.update(Msg::Navigate { dx: -1, dy: 0 });
+        assert_eq!(a.loupe.idx, 0, "back to f1, still within the scope");
+    }
+
+    #[test]
     fn undo_reselects_the_edited_photo_in_grid() {
         let mut a = app_with_catalog();
         a.view_mode = crate::app::ViewMode::Browse;
