@@ -101,7 +101,7 @@ impl App {
     }
 
     pub(crate) fn load_compare_slot(&self, slot: usize) -> Task<Msg> {
-        let Some(file) = self.compare.files[slot].as_ref() else { return Task::none() };
+        let Some(file) = self.compare.files.get(slot) else { return Task::none() };
         let path = file.disk_path();
         Task::perform(
             async move {
@@ -353,35 +353,39 @@ impl App {
             }
 
             Msg::OpenCompare => {
-                if self.grid_selected.len() != 2 {
-                    self.status = "Select exactly 2 photos to compare".to_string();
+                if self.grid_selected.len() < 2 {
+                    self.status = "Select 2 or more photos to compare".to_string();
                     return Task::none();
                 }
-                let mut sel = self.grid_selected.iter();
-                let id0 = sel.next().expect("grid_selected.len() == 2 checked above").clone();
-                let id1 = sel.next().expect("grid_selected.len() == 2 checked above").clone();
-                let f0 = self.files.iter().find(|f| f.id == id0).cloned();
-                let f1 = self.files.iter().find(|f| f.id == id1).cloned();
-                // Pull the two frames' computed sharpness (a small keyed read) so
-                // the panel can mark the sharper one. Absent values → no badge.
-                let sharpness = self
+                // Panes follow the view's capture order, so a burst reads left→right
+                // as it was shot (not hash-set order).
+                let files: Vec<_> =
+                    self.files.iter().filter(|f| self.grid_selected.contains(&f.id)).cloned().collect();
+                let ids: Vec<String> = files.iter().map(|f| f.id.clone()).collect();
+                // Pull each frame's computed sharpness (a small keyed read) so the
+                // panel can mark the sharpest. Absent values → no badge.
+                let sharp_map = self
                     .catalog
                     .as_ref()
-                    .and_then(|c| c.lock_unwrap().sharpness_for(&[id0.clone(), id1.clone()]).ok())
-                    .map(|m| [m.get(&id0).copied(), m.get(&id1).copied()])
-                    .unwrap_or([None, None]);
+                    .and_then(|c| c.lock_unwrap().sharpness_for(&ids).ok())
+                    .unwrap_or_default();
+                let sharpness: Vec<Option<f64>> =
+                    ids.iter().map(|id| sharp_map.get(id).copied()).collect();
+                let n = files.len();
                 self.compare = super::super::CompareState {
-                    files: [f0, f1],
-                    handles: [None, None],
+                    files,
+                    handles: vec![None; n],
                     sharpness,
                 };
                 self.view_mode = ViewMode::Compare;
-                Task::batch([self.load_compare_slot(0), self.load_compare_slot(1)])
+                Task::batch((0..n).map(|slot| self.load_compare_slot(slot)).collect::<Vec<_>>())
             }
 
             Msg::CompareFullResLoaded { slot, handle } => {
                 if matches!(self.view_mode, ViewMode::Compare) {
-                    self.compare.handles[slot] = Some(handle);
+                    if let Some(h) = self.compare.handles.get_mut(slot) {
+                        *h = Some(handle);
+                    }
                 }
                 Task::none()
             }

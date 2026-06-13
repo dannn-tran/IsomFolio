@@ -453,32 +453,41 @@ pub struct App {
 pub const COMPLETED_TTL: std::time::Duration = std::time::Duration::from_secs(4);
 
 pub struct CompareState {
-    pub files: [Option<isomfolio_core::models::AssetFile>; 2],
-    pub handles: [Option<iced::widget::image::Handle>; 2],
-    /// Computed sharpness (variance-of-Laplacian) per slot, when available.
-    /// Only compared *between* the two frames — never shown as an absolute value.
-    pub sharpness: [Option<f64>; 2],
+    pub files: Vec<isomfolio_core::models::AssetFile>,
+    pub handles: Vec<Option<iced::widget::image::Handle>>,
+    /// Computed sharpness (variance-of-Laplacian) per pane, parallel to `files`,
+    /// when available. Only compared *between* the frames — never an absolute value.
+    pub sharpness: Vec<Option<f64>>,
 }
 
 impl Default for CompareState {
     fn default() -> Self {
-        Self { files: [None, None], handles: [None, None], sharpness: [None, None] }
+        Self { files: Vec::new(), handles: Vec::new(), sharpness: Vec::new() }
     }
 }
 
 impl CompareState {
-    /// The slot holding the sharper frame, when both sharpness values are known
-    /// and differ by a clear margin (so float noise / near-ties aren't called).
-    /// `None` when either value is missing or the two are effectively equal.
-    pub fn sharper_slot(&self) -> Option<usize> {
-        // Require the winner to exceed the other by ≥2% — enough to clear noise
-        // in the variance metric without hiding a real focus difference.
+    /// The pane holding the sharpest frame, when its score clears the next-best by
+    /// a clear margin (so float noise / near-ties aren't called). `None` when fewer
+    /// than two scores are known or the top two are effectively equal. Generalises
+    /// the old two-frame rule to N panes.
+    pub fn sharpest_slot(&self) -> Option<usize> {
+        // The winner must exceed the runner-up by ≥2% — enough to clear noise in
+        // the variance metric without hiding a real focus difference.
         const MARGIN: f64 = 1.02;
-        match (self.sharpness[0], self.sharpness[1]) {
-            (Some(a), Some(b)) if a > b * MARGIN => Some(0),
-            (Some(a), Some(b)) if b > a * MARGIN => Some(1),
-            _ => None,
+        let mut scored: Vec<(usize, f64)> = self
+            .sharpness
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| s.map(|v| (i, v)))
+            .collect();
+        if scored.len() < 2 {
+            return None;
         }
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let (top_i, top_v) = scored[0];
+        let (_, second_v) = scored[1];
+        (top_v > second_v * MARGIN).then_some(top_i)
     }
 }
 
@@ -1761,28 +1770,37 @@ mod layout_tests {
     mod compare_sharper_fn {
         use super::*;
 
-        fn cmp(a: Option<f64>, b: Option<f64>) -> CompareState {
-            CompareState { files: [None, None], handles: [None, None], sharpness: [a, b] }
+        fn cmp(scores: Vec<Option<f64>>) -> CompareState {
+            CompareState { files: vec![], handles: vec![], sharpness: scores }
         }
 
         #[test]
-        fn none_when_a_value_missing() {
-            assert_eq!(cmp(Some(100.0), None).sharper_slot(), None);
-            assert_eq!(cmp(None, Some(100.0)).sharper_slot(), None);
-            assert_eq!(cmp(None, None).sharper_slot(), None);
+        fn none_when_fewer_than_two_scores() {
+            assert_eq!(cmp(vec![Some(100.0), None]).sharpest_slot(), None);
+            assert_eq!(cmp(vec![None, Some(100.0)]).sharpest_slot(), None);
+            assert_eq!(cmp(vec![None, None]).sharpest_slot(), None);
         }
 
         #[test]
         fn none_when_within_margin() {
             // <2% apart — treated as a tie, no winner claimed.
-            assert_eq!(cmp(Some(100.0), Some(101.0)).sharper_slot(), None);
-            assert_eq!(cmp(Some(101.0), Some(100.0)).sharper_slot(), None);
+            assert_eq!(cmp(vec![Some(100.0), Some(101.0)]).sharpest_slot(), None);
+            assert_eq!(cmp(vec![Some(101.0), Some(100.0)]).sharpest_slot(), None);
         }
 
         #[test]
-        fn picks_clearly_sharper_slot() {
-            assert_eq!(cmp(Some(200.0), Some(100.0)).sharper_slot(), Some(0));
-            assert_eq!(cmp(Some(100.0), Some(200.0)).sharper_slot(), Some(1));
+        fn picks_clearly_sharpest_slot() {
+            assert_eq!(cmp(vec![Some(200.0), Some(100.0)]).sharpest_slot(), Some(0));
+            assert_eq!(cmp(vec![Some(100.0), Some(200.0)]).sharpest_slot(), Some(1));
+        }
+
+        #[test]
+        fn picks_sharpest_among_many() {
+            // Winner is pane 2 (300 vs runner-up 100 — clears the margin).
+            assert_eq!(
+                cmp(vec![Some(90.0), Some(100.0), Some(300.0), None]).sharpest_slot(),
+                Some(2)
+            );
         }
     }
 

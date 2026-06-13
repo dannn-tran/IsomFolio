@@ -12,7 +12,8 @@ use super::styles::{
 
 impl App {
     pub(crate) fn view_compare(&self) -> Element<'_, Msg> {
-        let panels: Vec<Element<Msg>> = (0..2)
+        let n = self.compare.files.len();
+        let panels: Vec<Element<Msg>> = (0..n)
             .map(|slot| self.compare_panel(slot))
             .collect();
 
@@ -20,7 +21,7 @@ impl App {
             row![
                 super::styles::icon_btn("✕", Msg::EscapePressed),
                 Space::new().width(Length::Fill),
-                text("Compare").size(TEXT_BASE).color(FG),
+                text(format!("Compare · {n}")).size(TEXT_BASE).color(FG),
                 Space::new().width(Length::Fill),
                 text("Esc to exit").size(TEXT_MD).color(FG_DIM),
             ]
@@ -52,8 +53,8 @@ impl App {
     }
 
     fn compare_panel(&self, slot: usize) -> Element<'_, Msg> {
-        let file = self.compare.files[slot].as_ref();
-        let handle = self.compare.handles[slot].as_ref();
+        let file = self.compare.files.get(slot);
+        let handle = self.compare.handles.get(slot).and_then(|h| h.as_ref());
 
         let img_el: Element<Msg> = match handle {
             Some(h) => image(h.clone())
@@ -102,8 +103,8 @@ impl App {
             }
             // Mark the sharper of the two frames (relative, not an absolute focus
             // verdict). Only shows when both scores exist and differ clearly.
-            if self.compare.sharper_slot() == Some(slot) {
-                meta_row = meta_row.push(text("\u{25c9} Sharper").size(TEXT_SM).color(ACCENT));
+            if self.compare.sharpest_slot() == Some(slot) {
+                meta_row = meta_row.push(text("\u{25c9} Sharpest").size(TEXT_SM).color(ACCENT));
             }
 
             container(
