@@ -55,7 +55,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([sidebar_task, extension_task, face_task, maint_task, self.load_stack_stats_task()])
+                Task::batch([sidebar_task, extension_task, face_task, maint_task])
             }
 
             Msg::OpenCatalog(path) => {
@@ -80,8 +80,6 @@ impl App {
                 self.grid_selected.clear();
                 self.selected_albums.clear();
                 self.drag = DragContext::default();
-                self.expanded_bursts.clear();
-                self.file_burst_ids.clear();
                 self.search_debounce_id += 1;
                 self.search_text.clear();
                 self.filters = FilterState::default();

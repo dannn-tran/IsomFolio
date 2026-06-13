@@ -10,7 +10,6 @@ mod pointer;
 mod groups;
 mod sync;
 mod settings;
-mod stacking;
 mod tag_browser;
 
 use iced::Task;
@@ -188,16 +187,6 @@ impl App {
             | Msg::OpenCompare
             | Msg::CompareFullResLoaded { .. }
             | Msg::CompareZoomChanged { .. } => self.handle_loupe_msg(msg),
-
-            // — content-based stacking —
-            Msg::RunStacking
-            | Msg::RestackNow
-            | Msg::StacksUpdated
-            | Msg::StackStatsLoaded(_)
-            | Msg::StackKeepOnly(_)
-            | Msg::StackRejectAll(_)
-            | Msg::ToggleStackExpanded(_)
-            | Msg::StackFlagsApplied { .. } => self.handle_stacking_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);
@@ -540,7 +529,6 @@ impl App {
             | Msg::SetCameraFilter(_)
             | Msg::SetColorFilter(_)
             | Msg::ToggleFilterFileType(_)
-            | Msg::ToggleCollapseBursts
             | Msg::ClearFilters => self.handle_filters(msg),
 
             // — settings panel —
@@ -562,10 +550,7 @@ impl App {
             | Msg::FaceMinPtsChanged(_)
             | Msg::ToggleImportXmpTags
             | Msg::ToggleImportAppleTags
-            | Msg::ToggleAutoAdvanceOnCull
-            | Msg::ToggleAutoStack
-            | Msg::StackThresholdChanged(_)
-            | Msg::StackWindowChanged(_) => self.handle_settings(msg),
+            | Msg::ToggleAutoAdvanceOnCull => self.handle_settings(msg),
 
             // — tag browser —
             Msg::OpenTagBrowser
@@ -626,7 +611,6 @@ impl App {
                 self.files.clear();
                 self.file_ratings.clear();
                 self.file_labels.clear();
-                self.file_burst_sizes.clear();
                 self.scroll_y = 0.0;
                 self.loupe.idx = 0;
                 self.anchor_idx = None;
@@ -916,12 +900,7 @@ impl App {
                 },
                 Msg::ClearThumbnailProgress,
             );
-            // Newly-cached thumbnails are now hashable / embeddable — refresh.
-            let mut tasks = vec![clear];
-            if self.app_settings.auto_stack {
-                tasks.push(Task::done(Msg::RunStacking));
-            }
-            Task::batch(tasks)
+            Task::batch([clear])
         } else {
             Task::none()
         }

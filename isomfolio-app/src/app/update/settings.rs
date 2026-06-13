@@ -273,35 +273,6 @@ impl App {
                 Task::none()
             }
 
-            Msg::ToggleAutoStack => {
-                self.app_settings.auto_stack = !self.app_settings.auto_stack;
-                isomfolio_core::app_paths::save_settings(&self.app_settings);
-                Task::none()
-            }
-
-            Msg::StackThresholdChanged(s) => {
-                if let Ok(n) = s.trim().parse::<u32>() {
-                    if n <= 64 {
-                        self.app_settings.stack_threshold = n;
-                        isomfolio_core::app_paths::save_settings(&self.app_settings);
-                        // Threshold change re-groups existing hashes.
-                        return Task::done(Msg::RunStacking);
-                    }
-                }
-                Task::none()
-            }
-
-            Msg::StackWindowChanged(s) => {
-                if let Ok(n) = s.trim().parse::<i64>() {
-                    if n >= 1 {
-                        self.app_settings.stack_window_secs = n;
-                        isomfolio_core::app_paths::save_settings(&self.app_settings);
-                        return Task::done(Msg::RunStacking);
-                    }
-                }
-                Task::none()
-            }
-
 
             other => {
                 debug_assert!(false, "handle_settings received misrouted message: {other:?}");

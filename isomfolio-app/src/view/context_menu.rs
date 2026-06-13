@@ -286,26 +286,6 @@ impl App {
                 items.push(Some(("Add to Album ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)));
                 items.push(Some(("Delete".into(), Msg::DeleteSelection, true)));
 
-                // Stack culling — only when a single tile that belongs to a stack
-                // is selected. "Keep this" makes the cull decision in one click.
-                if n == 1 {
-                    if let Some(id) = self.grid_selected.iter().next() {
-                        if self.file_burst_sizes.contains_key(id) {
-                            items.push(None);
-                            items.push(Some(("Keep this, reject rest".into(), Msg::StackKeepOnly(id.clone()), false)));
-                            items.push(Some(("Reject whole stack".into(), Msg::StackRejectAll(id.clone()), true)));
-                            if self.collapse_bursts {
-                                let expanded = self
-                                    .file_burst_ids
-                                    .get(id)
-                                    .is_some_and(|b| self.expanded_bursts.contains(b));
-                                let label = if expanded { "Collapse stack" } else { "Expand stack" };
-                                items.push(Some((label.into(), Msg::ToggleStackExpanded(id.clone()), false)));
-                            }
-                        }
-                    }
-                }
-
                 items.push(None);
                 items.push(Some(("Import XMP metadata".into(), Msg::SyncXmpForSelection, false)));
                 if cfg!(target_os = "macos") {

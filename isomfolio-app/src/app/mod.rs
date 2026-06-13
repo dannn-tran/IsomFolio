@@ -268,15 +268,6 @@ pub struct App {
     pub files: Vec<AssetFile>,
     pub file_ratings: HashMap<String, i32>,
     pub file_labels: HashMap<String, String>,
-    /// file_id → burst size, for the ⧉ badge (only files in a burst).
-    pub file_burst_sizes: HashMap<String, usize>,
-    /// file_id → burst_id, so a tile can be mapped to its stack for inline
-    /// expand/collapse.
-    pub file_burst_ids: HashMap<String, String>,
-    /// When set, a burst shows as one representative tile.
-    pub collapse_bursts: bool,
-    /// Burst ids the user has expanded inline while `collapse_bursts` is on.
-    pub expanded_bursts: HashSet<String>,
     pub thumbnails: HashMap<String, ThumbnailState>,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
@@ -411,14 +402,6 @@ pub struct App {
     /// gates the "Find people" UI.
     pub inference_manifest: Option<isomfolio_core::extension::ExtensionManifest>,
 
-    /// True while a background perceptual-hash/stacking pass is running, so
-    /// repeated triggers (sync, thumbnail-batch drains) don't pile up.
-    pub stacking_in_flight: bool,
-    /// Set when the user clicks "Re-stack now" so the next completion announces
-    /// its result on the status line (auto passes stay silent).
-    pub stacking_manual: bool,
-    /// At-rest stacking summary shown in Settings; refreshed after each pass.
-    pub stack_stats: isomfolio_core::models::StackStats,
     /// Set when `t` opened the Info panel from cold — the tag field isn't mounted
     /// yet (detail loads async), so `DetailLoaded` focuses it once it appears.
     pub pending_focus_tag: bool,
@@ -696,10 +679,6 @@ impl App {
             files: Vec::new(),
             file_ratings: HashMap::new(),
             file_labels: HashMap::new(),
-            file_burst_sizes: HashMap::new(),
-            file_burst_ids: HashMap::new(),
-            collapse_bursts: false,
-            expanded_bursts: HashSet::new(),
             thumbnails: HashMap::new(),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
@@ -795,9 +774,6 @@ impl App {
             faces: FaceState::default(),
             inference: None,
             inference_manifest: None,
-            stacking_in_flight: false,
-            stacking_manual: false,
-            stack_stats: isomfolio_core::models::StackStats::default(),
             pending_focus_tag: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -1036,8 +1012,6 @@ impl App {
             color_label: self.filters.color.clone(),
             added_within_days: self.filters.added_within_days,
             include_orphaned: self.search_text.is_empty() && !self.has_active_filters(),
-            collapse_bursts: self.collapse_bursts,
-            expanded_bursts: self.expanded_bursts.iter().cloned().collect(),
             ..Default::default()
         }
     }
@@ -1372,9 +1346,9 @@ impl App {
         )
     }
 
-    /// Load the per-file side data the grid shows alongside each tile — ratings,
-    /// colour labels, burst sizes — in one task (one catalog lock), each via a
-    /// batched query rather than a per-file round-trip.
+    /// Load the per-file side data the grid shows alongside each tile — ratings
+    /// and colour labels — in one task (one catalog lock), each via a batched
+    /// query rather than a per-file round-trip.
     pub(crate) fn load_file_side_data_task(&self) -> Task<Msg> {
         let Some(catalog) = self.catalog.clone() else {
             return Task::none();
@@ -1384,8 +1358,6 @@ impl App {
             return Task::done(Msg::FileSideDataLoaded {
                 ratings: HashMap::new(),
                 labels: HashMap::new(),
-                bursts: HashMap::new(),
-                burst_ids: HashMap::new(),
             });
         }
         Task::perform(
@@ -1393,11 +1365,9 @@ impl App {
                 let cat = catalog.lock_unwrap();
                 let ratings = cat.get_ratings_for(&file_ids).unwrap_or_default();
                 let labels = cat.get_file_labels(&file_ids).unwrap_or_default();
-                let bursts = cat.get_burst_sizes_for(&file_ids).unwrap_or_default();
-                let burst_ids = cat.get_burst_ids_for(&file_ids).unwrap_or_default();
-                (ratings, labels, bursts, burst_ids)
+                (ratings, labels)
             },
-            |(ratings, labels, bursts, burst_ids)| Msg::FileSideDataLoaded { ratings, labels, bursts, burst_ids },
+            |(ratings, labels)| Msg::FileSideDataLoaded { ratings, labels },
         )
     }
 

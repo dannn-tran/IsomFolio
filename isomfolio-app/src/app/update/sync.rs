@@ -169,14 +169,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                // Stack any already-thumbnailed files now; freshly-generated
-                // thumbnails get picked up later via the thumbnail-batch drain.
-                let t_stack = if has_new && self.app_settings.auto_stack {
-                    Task::done(Msg::RunStacking)
-                } else {
-                    Task::none()
-                };
-                Task::batch([t_batch, t1, t_nav, t_faces, t_stack])
+                Task::batch([t_batch, t1, t_nav, t_faces])
             }
 
             Msg::RequestRemoveFolder(path) => {

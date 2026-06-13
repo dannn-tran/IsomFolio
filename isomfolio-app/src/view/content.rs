@@ -157,17 +157,6 @@ impl App {
         .spacing(SPACE_1);
 
         let toolbar_row = row![
-            // A *view* toggle (not the Sift action): collapse each burst to one
-            // grid tile. Icon-only so it doesn't read as a second "Sift" — the
-            // count lives on the Sift button. Active fill when collapse is on.
-            super::styles::tip(
-                super::styles::icon_btn_styled("⧉", Msg::ToggleCollapseBursts, {
-                    let on = self.collapse_bursts;
-                    move |t: &Theme, s| if on { active_chip_style(t, s) } else { super::styles::icon_btn_style(t, s) }
-                }),
-                "Collapse near-duplicates to one tile in the grid",
-                super::styles::TipPos::Bottom,
-            ),
             filter_indicator,
             Space::new().width(Length::Fill),
             surface_switch,
@@ -355,7 +344,6 @@ impl App {
 
         let rating = self.file_ratings.get(&file.id).copied().unwrap_or(0);
         let color = self.file_labels.get(&file.id).cloned();
-        let burst = self.file_burst_sizes.get(&file.id).copied();
         let tile_px = self.tile_px;
 
         let mut layers: Vec<Element<Msg>> = vec![
@@ -382,7 +370,7 @@ impl App {
                 .into(),
         ];
 
-        if flag != Flag::Unflagged || rating > 0 || color.is_some() || burst.is_some() {
+        if flag != Flag::Unflagged || rating > 0 || color.is_some() {
             let (flag_label, flag_color) = match flag {
                 Flag::Pick => ("✓", ACCENT),
                 Flag::Reject => ("✕", ERR),
@@ -410,31 +398,6 @@ impl App {
                         .style(badge_style)
                         .into(),
                 );
-            }
-            if let Some(n) = burst {
-                // While the global Stack collapse is on, the badge is the inline
-                // expand/collapse control for that one stack (▸ collapsed, ▾ open);
-                // its own mouse_area captures the press so the tile isn't selected.
-                let glyph = if self.collapse_bursts {
-                    let expanded = self
-                        .file_burst_ids
-                        .get(&file.id)
-                        .is_some_and(|b| self.expanded_bursts.contains(b));
-                    format!("⧉ {n} {}", if expanded { "▾" } else { "▸" })
-                } else {
-                    format!("⧉ {n}")
-                };
-                let badge: Element<Msg> = container(text(glyph).size(TEXT_SM).color(FG))
-                    .padding([2.0, 4.0])
-                    .style(badge_style)
-                    .into();
-                badge_col.push(if self.collapse_bursts {
-                    mouse_area(badge)
-                        .on_press(Msg::ToggleStackExpanded(file.id.clone()))
-                        .into()
-                } else {
-                    badge
-                });
             }
             badge_col.push(Space::new().height(Length::Fill).into());
             if rating > 0 {

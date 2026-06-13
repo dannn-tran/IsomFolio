@@ -142,73 +142,7 @@ impl App {
         }
 
         col = col.push(Space::new().height(SPACE_3));
-        col = col.push(self.stacking_section());
-
-        col = col.push(Space::new().height(SPACE_3));
         col = col.push(self.inference_engine_section());
-
-        col.into()
-    }
-
-    /// Content-based stacking: group near-duplicate frames (perceptual hash)
-    /// shot close together, per folder. Threshold = pixel tolerance, window =
-    /// max gap between frames of one stack.
-    fn stacking_section(&self) -> Element<'_, Msg> {
-        let header = column![
-            text("Stacking").size(TEXT_BASE).color(FG),
-            text("Group near-identical frames shot seconds apart into one stack, inferred from pixels.")
-                .size(TEXT_SM)
-                .color(FG_DIM),
-        ]
-        .spacing(SPACE_0_5);
-
-        let mut col = column![header].spacing(SPACE_2).width(Length::Fill);
-
-        col = col.push(self.toggle_row(
-            "Auto-stack near-duplicates",
-            "Stack as thumbnails are generated and after each sync.",
-            self.app_settings.auto_stack,
-            Msg::ToggleAutoStack,
-        ));
-        col = col.push(self.labeled_input(
-            "Similarity threshold (lower = stricter, 0–64)",
-            &self.app_settings.stack_threshold.to_string(),
-            Msg::StackThresholdChanged,
-        ));
-        col = col.push(self.labeled_input(
-            "Max gap between frames (seconds)",
-            &self.app_settings.stack_window_secs.to_string(),
-            Msg::StackWindowChanged,
-        ));
-
-        let s = &self.stack_stats;
-        let stats_line = if self.stacking_in_flight {
-            "Stacking…".to_string()
-        } else if s.hashed == 0 {
-            "Not yet stacked — run a sync or press Re-stack now.".to_string()
-        } else if s.stacks == 0 {
-            format!("{} frames hashed · no near-duplicate stacks", s.hashed)
-        } else {
-            format!(
-                "{} frames hashed · {} stack{} across {} frames",
-                s.hashed,
-                s.stacks,
-                if s.stacks == 1 { "" } else { "s" },
-                s.stacked_frames,
-            )
-        };
-        col = col.push(text(stats_line).size(TEXT_SM).color(FG_DIM));
-
-        // Disabled (no on_press) while a pass is running, so the button doubles
-        // as an in-flight indicator.
-        let restack_btn = if self.stacking_in_flight {
-            button(text("Stacking…").size(TEXT_MD)).style(ghost_btn_style)
-        } else {
-            button(text("Re-stack now").size(TEXT_MD))
-                .on_press(Msg::RestackNow)
-                .style(ghost_btn_style)
-        };
-        col = col.push(restack_btn);
 
         col.into()
     }

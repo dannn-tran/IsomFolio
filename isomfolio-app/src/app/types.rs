@@ -8,7 +8,7 @@ pub static GRID_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::u
 pub static SIDEBAR_SCROLL_ID: LazyLock<widget::Id> = LazyLock::new(|| widget::Id::unique());
 use isomfolio_core::extension::ExtensionManifest;
 use isomfolio_core::folder_tree::FolderNode;
-use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, Group, GroupId, SortField, StackStats};
+use isomfolio_core::models::{Album, AlbumId, AssetFile, Flag, Group, GroupId, SortField};
 use isomfolio_core::LibraryRoot;
 
 #[derive(Debug, Clone)]
@@ -449,27 +449,12 @@ pub enum Msg {
     /// current selection / loupe photo.
     SetColorLabel(Option<String>),
     SetColorFilter(Option<String>),
-    /// Per-file grid side data (ratings, colour labels, burst sizes), loaded
-    /// together after a file-list load.
+    /// Per-file grid side data (ratings, colour labels), loaded together after a
+    /// file-list load.
     FileSideDataLoaded {
         ratings: HashMap<String, i32>,
         labels: HashMap<String, String>,
-        bursts: HashMap<String, usize>,
-        burst_ids: HashMap<String, String>,
     },
-    ToggleCollapseBursts,
-    /// Stack cull from the collapsed rep tile: keep the clicked frame (Pick) and
-    /// reject the rest of its stack.
-    StackKeepOnly(String),
-    /// Reject every frame in the clicked tile's stack.
-    StackRejectAll(String),
-    /// Expand or collapse one stack inline (only meaningful while the global
-    /// Stack collapse is on) — show all its members instead of one rep.
-    ToggleStackExpanded(String),
-    /// Stack flags written; carries prior and new `(id, flag)` (a self-contained
-    /// undo step) and how many frames were kept, so the status line can report
-    /// the cull.
-    StackFlagsApplied { before: Vec<(String, Flag)>, after: Vec<(String, Flag)>, kept: usize },
     /// Switch the Browse surface layout — maps Grid/Strip/Full onto the
     /// Browse / Preview / Loupe modes from the toolbar switcher.
     SetBrowseLayout(crate::app::SurfaceLayout),
@@ -502,9 +487,6 @@ pub enum Msg {
     ToggleImportXmpTags,
     ToggleImportAppleTags,
     ToggleAutoAdvanceOnCull,
-    ToggleAutoStack,
-    StackThresholdChanged(String),
-    StackWindowChanged(String),
     SettingsConfigChanged { extension_name: String, key: String, value: String },
     SaveSettings,
     InstallExtensionPickFile,
@@ -512,17 +494,6 @@ pub enum Msg {
     EngineInstalled(ExtensionManifest),
     ExtensionInstallFailed(String),
     UninstallExtension(String),
-
-    /// Recompute perceptual hashes for any unhashed files (from cached
-    /// thumbnails) and re-derive per-folder stacks. Runs in the background.
-    RunStacking,
-    /// User-triggered "Re-stack now" — like `RunStacking` but announces the
-    /// result on the status line when it finishes.
-    RestackNow,
-    /// Stacking finished writing `burst_id`s; refresh badges / collapsed view.
-    StacksUpdated,
-    /// At-rest stacking summary loaded (Settings panel + completion announce).
-    StackStatsLoaded(StackStats),
 
     /// Focus the Info-panel tag entry (opening the panel first if needed) so a tag
     /// can be typed without reaching for the mouse.
