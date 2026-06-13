@@ -1,7 +1,6 @@
 use iced::{Point, Task};
 
 use super::super::{loupe, App, LoupeLoadError, LoupeState, Msg, ViewMode};
-use super::LockUnwrap;
 
 impl App {
     pub(crate) fn load_loupe_full_res(&self) -> Task<Msg> {
@@ -106,14 +105,21 @@ impl App {
         Task::perform(
             async move {
                 // prefer_full so a RAW pane zooms to real pixels (JPEG is full either
-                // way) — Compare exists to pixel-check focus across candidates.
-                tokio::task::spawn_blocking(move || decode_image_for_display(&path, true))
-                    .await
-                    .ok()
-                    .flatten()
+                // way) — Compare exists to pixel-check focus across candidates. The
+                // sharpness for the badge is computed from this same decode, so no DB.
+                tokio::task::spawn_blocking(move || {
+                    let img = open_image(&path, true)?;
+                    let sharpness = isomfolio_core::phash::sharpness(&img);
+                    let rgba = img.into_rgba8();
+                    let (w, h) = (rgba.width(), rgba.height());
+                    Some((iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()), sharpness))
+                })
+                .await
+                .ok()
+                .flatten()
             },
-            move |handle_opt| match handle_opt {
-                Some(handle) => Msg::CompareFullResLoaded { slot, handle },
+            move |res| match res {
+                Some((handle, sharpness)) => Msg::CompareFullResLoaded { slot, handle, sharpness },
                 None => Msg::NoOp,
             },
         )
@@ -381,21 +387,12 @@ impl App {
                 // as it was shot (not hash-set order).
                 let files: Vec<_> =
                     self.files.iter().filter(|f| self.grid_selected.contains(&f.id)).cloned().collect();
-                let ids: Vec<String> = files.iter().map(|f| f.id.clone()).collect();
-                // Pull each frame's computed sharpness (a small keyed read) so the
-                // panel can mark the sharpest. Absent values → no badge.
-                let sharp_map = self
-                    .catalog
-                    .as_ref()
-                    .and_then(|c| c.lock_unwrap().sharpness_for(&ids).ok())
-                    .unwrap_or_default();
-                let sharpness: Vec<Option<f64>> =
-                    ids.iter().map(|id| sharp_map.get(id).copied()).collect();
                 let n = files.len();
                 self.compare = super::super::CompareState {
                     files,
                     handles: vec![None; n],
-                    sharpness,
+                    // Sharpness fills in per pane as each decodes (computed live).
+                    sharpness: vec![None; n],
                     // Fresh compare opens at fit; zoom is shared across panes.
                     ..Default::default()
                 };
@@ -403,8 +400,11 @@ impl App {
                 Task::batch((0..n).map(|slot| self.load_compare_slot(slot)).collect::<Vec<_>>())
             }
 
-            Msg::CompareFullResLoaded { slot, handle } => {
+            Msg::CompareFullResLoaded { slot, handle, sharpness } => {
                 if matches!(self.view_mode, ViewMode::Compare) {
+                    if let Some(s) = self.compare.sharpness.get_mut(slot) {
+                        *s = Some(sharpness);
+                    }
                     if let Some(h) = self.compare.handles.get_mut(slot) {
                         *h = Some(handle);
                     }

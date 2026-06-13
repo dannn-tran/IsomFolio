@@ -530,7 +530,9 @@ pub enum Msg {
     Redo,
     UndoApplied,
     OpenCompare,
-    CompareFullResLoaded { slot: usize, handle: iced::widget::image::Handle },
+    /// A compare pane finished decoding; carries its full-res handle and the
+    /// sharpness computed live from that decode (so the badge needs no DB).
+    CompareFullResLoaded { slot: usize, handle: iced::widget::image::Handle, sharpness: f64 },
     /// Synced zoom/pan for Compare — emitted by any pane's `LoupeImage`, applied to
     /// the shared `CompareState` so every pane tracks the same region.
     CompareZoomChanged { scale: f32, pan: iced::Vector },
