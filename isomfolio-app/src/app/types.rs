@@ -480,16 +480,14 @@ pub enum Msg {
     ResolveFrameLoaded { stack_idx: usize, frame_idx: usize, handle: iced::widget::image::Handle, dims: (u32, u32) },
     /// Toggle a frame's keeper mark in the current stack.
     ToggleResolveKeeper(String),
-    /// Apply the current stack's decision (keepers → Pick, rest → Reject) and
-    /// advance to the next stack (or finish).
-    ResolveApplyAndNext,
-    /// Leave the current stack untouched and advance.
+    /// Advance to the next stack (decisions already persisted live). Drives the
+    /// footer "Next ›" / "Done" button.
     ResolveSkipStack,
-    /// Step back to the previous stack without changing anything.
+    /// Step back to the previous stack.
     ResolvePrevStack,
-    /// Keep selected & advance — keyboard confirm (Enter / Space) in review.
+    /// Advance to the next stack — keyboard confirm (Enter / Space) in review.
     ResolveConfirm,
-    /// Reset the current stack's keepers to the auto-picked (sharpest) frame.
+    /// Set the current stack's keepers to the auto-pick (sharpest) and persist.
     ResolveResetAuto,
     /// Switch the Browse surface layout — maps Grid/Strip/Full onto the
     /// Browse / Preview / Loupe modes from the toolbar switcher.
@@ -505,8 +503,6 @@ pub enum Msg {
     /// A live regroup (either engine) finished; replace the queue. `seq` is the
     /// request id — a stale one (superseded by a newer slider move) is ignored.
     SiftRegrouped { stacks: Vec<crate::app::StackReview>, seq: u64 },
-    /// The final stack's flags finished writing — exit the review and refresh.
-    ResolveFinished,
     FlagsApplied,
     RatingsApplied,
     LabelsApplied,

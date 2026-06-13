@@ -116,8 +116,7 @@ impl App {
                 if !self.resolve.keepers.remove(&id) {
                     self.resolve.keepers.insert(id);
                 }
-                self.commit_keepers();
-                Task::none()
+                self.commit_and_persist()
             }
 
             Msg::ResolveSkipStack => self.advance_resolve(self.resolve.idx + 1),
@@ -127,7 +126,8 @@ impl App {
                 self.enter_resolve_stack(prev)
             }
 
-            Msg::ResolveApplyAndNext | Msg::ResolveConfirm => self.apply_resolve_and_advance(),
+            // Decisions persist live now, so Enter just advances — no apply step.
+            Msg::ResolveConfirm => self.advance_resolve(self.resolve.idx + 1),
 
             Msg::ResolveResetAuto => self.resolve_reset_auto(),
 
@@ -144,8 +144,6 @@ impl App {
                 }
                 Task::none()
             }
-
-            Msg::ResolveFinished => self.exit_resolve(true),
 
             _ => Task::none(),
         }
@@ -241,6 +239,76 @@ impl App {
     fn commit_keepers(&mut self) {
         let idx = self.resolve.idx;
         self.resolve.decisions.insert(idx, self.resolve.keepers.clone());
+    }
+
+    /// Record the keeper set *and* write it through to the catalog immediately —
+    /// the Sift pass has no Confirm step, so every toggle/pick persists live
+    /// (keepers → Pick, the rest of the group → Reject). Returns the DB write task.
+    fn commit_and_persist(&mut self) -> Task<Msg> {
+        self.commit_keepers();
+        self.persist_group_keepers(self.resolve.idx)
+    }
+
+    /// Write the current group's keeper decision to the catalog (keepers → Pick,
+    /// the rest → Reject), mirror it into the in-memory frame flags (so re-entry
+    /// seeds from real flags and the next undo snapshot is accurate), and record a
+    /// single undo step per group — consecutive edits to the same group coalesce.
+    fn persist_group_keepers(&mut self, idx: usize) -> Task<Msg> {
+        let Some(stack) = self.resolve.stacks.get(idx) else { return Task::none() };
+        let keepers = self.resolve.keepers.clone();
+        let before: Vec<(String, Flag)> =
+            stack.frames.iter().map(|f| (f.id.clone(), f.flag)).collect();
+        let after: Vec<(String, Flag)> = stack
+            .frames
+            .iter()
+            .map(|f| (f.id.clone(), if keepers.contains(&f.id) { Flag::Pick } else { Flag::Reject }))
+            .collect();
+        if before == after {
+            return Task::none();
+        }
+        if let Some(s) = self.resolve.stacks.get_mut(idx) {
+            for f in s.frames.iter_mut() {
+                f.flag = if keepers.contains(&f.id) { Flag::Pick } else { Flag::Reject };
+            }
+        }
+        self.record_group_flags(before, after.clone());
+
+        let picks: Vec<String> =
+            after.iter().filter(|(_, fl)| *fl == Flag::Pick).map(|(id, _)| id.clone()).collect();
+        let rejects: Vec<String> =
+            after.iter().filter(|(_, fl)| *fl == Flag::Reject).map(|(id, _)| id.clone()).collect();
+        let Some(conn) = self.catalog.clone() else { return Task::none() };
+        Task::perform(
+            async move {
+                let g = conn.lock_unwrap();
+                if !picks.is_empty() {
+                    let _ = g.set_files_flag(&picks, Flag::Pick);
+                }
+                if !rejects.is_empty() {
+                    let _ = g.set_files_flag(&rejects, Flag::Reject);
+                }
+            },
+            |_| Msg::NoOp,
+        )
+    }
+
+    /// Push (or coalesce into) a single undo step for a group's flag edit. When the
+    /// top of the undo stack already covers the same frame-set (consecutive edits to
+    /// the same group during one visit), keep its original `before` and just update
+    /// `after`, so a whole group's fiddling undoes in one `Cmd+Z`.
+    fn record_group_flags(&mut self, before: Vec<(String, Flag)>, after: Vec<(String, Flag)>) {
+        if let Some(UndoOp::Flags { before: prev_before, after: prev_after }) =
+            self.undo_stack.last_mut()
+        {
+            let same_set = prev_before.len() == before.len()
+                && prev_before.iter().zip(&before).all(|((a, _), (b, _))| a == b);
+            if same_set {
+                *prev_after = after;
+                self.redo_stack.clear();
+                return;
+            }
+        }
+        self.push_undo(UndoOp::Flags { before, after });
     }
 
     /// Show stack `i`: restore its saved keeper decision (or default to the sharpest
@@ -341,7 +409,7 @@ impl App {
                 if !self.resolve.keepers.remove(&id) {
                     self.resolve.keepers.insert(id);
                 }
-                self.commit_keepers();
+                return self.commit_and_persist();
             }
         }
         Task::none()
@@ -361,77 +429,21 @@ impl App {
                 } else {
                     self.resolve.keepers.remove(&id);
                 }
-                self.commit_keepers();
+                return self.commit_and_persist();
             }
         }
         Task::none()
     }
 
-    /// Restore the current stack's keepers to the auto-picked (sharpest) frame.
+    /// Set the current group's keepers to the auto-pick (sharpest) and persist —
+    /// the explicit "Apply auto-pick" override that replaces any manual toggles.
     pub(super) fn resolve_reset_auto(&mut self) -> Task<Msg> {
-        if let Some(stack) = self.resolve.stacks.get(self.resolve.idx) {
-            self.resolve.keepers = std::iter::once(stack.rep_id.clone()).collect();
-            self.commit_keepers();
+        if self.resolve.stacks.get(self.resolve.idx).is_some() {
+            let rep = self.resolve.stacks[self.resolve.idx].rep_id.clone();
+            self.resolve.keepers = std::iter::once(rep).collect();
+            return self.commit_and_persist();
         }
         Task::none()
-    }
-
-    /// Flag the current stack (keepers → Pick, the rest → Reject), record undo,
-    /// then advance. The flag write runs off-thread; when it's the *last* stack we
-    /// chain the exit reload onto it so the grid reflects the final write.
-    fn apply_resolve_and_advance(&mut self) -> Task<Msg> {
-        if self.resolve.idx >= self.resolve.stacks.len() {
-            return Task::none();
-        }
-        // Keeping nothing would silently reject the whole stack — almost never the
-        // intent. Treat it as a skip and nudge the user, rather than blow it away.
-        if self.resolve.keepers.is_empty() {
-            self.status = "Nothing kept — skipped (pick at least one frame to keep)".to_string();
-            return self.advance_resolve(self.resolve.idx + 1);
-        }
-        self.commit_keepers();
-        let stack = &self.resolve.stacks[self.resolve.idx];
-        let keepers = self.resolve.keepers.clone();
-        let picks: Vec<String> = stack
-            .frames
-            .iter()
-            .filter(|f| keepers.contains(&f.id))
-            .map(|f| f.id.clone())
-            .collect();
-        let rejects: Vec<String> = stack
-            .frames
-            .iter()
-            .filter(|f| !keepers.contains(&f.id))
-            .map(|f| f.id.clone())
-            .collect();
-        let before: Vec<(String, Flag)> = stack.frames.iter().map(|f| (f.id.clone(), f.flag)).collect();
-        let after: Vec<(String, Flag)> = stack
-            .frames
-            .iter()
-            .map(|f| (f.id.clone(), if keepers.contains(&f.id) { Flag::Pick } else { Flag::Reject }))
-            .collect();
-        self.push_undo(UndoOp::Flags { before, after });
-
-        let Some(conn) = self.catalog.clone() else { return Task::none() };
-        let is_last = self.resolve.idx + 1 >= self.resolve.stacks.len();
-        let write = Task::perform(
-            async move {
-                let g = conn.lock_unwrap();
-                if !picks.is_empty() {
-                    let _ = g.set_files_flag(&picks, Flag::Pick);
-                }
-                if !rejects.is_empty() {
-                    let _ = g.set_files_flag(&rejects, Flag::Reject);
-                }
-            },
-            move |_| if is_last { Msg::ResolveFinished } else { Msg::NoOp },
-        );
-        if is_last {
-            // Stay on the last stack until its write lands (ResolveFinished exits).
-            write
-        } else {
-            Task::batch([write, self.enter_resolve_stack(self.resolve.idx + 1)])
-        }
     }
 
     /// Leave the review. `completed` distinguishes finishing the queue from an
@@ -784,6 +796,41 @@ mod tests {
             // Never visited stack 1; entering it should default to its rep (b2).
             let _ = app.enter_resolve_stack(1);
             assert_eq!(app.resolve.keepers, std::iter::once("b2".to_string()).collect());
+        }
+
+        #[test]
+        fn edit_persists_to_frame_flags_immediately() {
+            // No Confirm step: a toggle stamps the group's flags live (keepers → Pick,
+            // rest → Reject) into the in-memory frames, so re-entry seeds from them.
+            let mut app = review_app(); // f1,f2,f3; auto-keep f2
+            let _ = app.resolve_toggle_frame(1); // also keep f1
+            let flags: std::collections::HashMap<_, _> = app.resolve.stacks[0]
+                .frames
+                .iter()
+                .map(|f| (f.id.clone(), f.flag))
+                .collect();
+            assert_eq!(flags["f1"], Flag::Pick);
+            assert_eq!(flags["f2"], Flag::Pick);
+            assert_eq!(flags["f3"], Flag::Reject);
+        }
+
+        #[test]
+        fn consecutive_edits_to_a_group_coalesce_to_one_undo() {
+            let mut app = review_app();
+            let _ = app.resolve_toggle_frame(1);
+            let _ = app.resolve_toggle_frame(3);
+            let _ = app.resolve_toggle_frame(3);
+            assert_eq!(app.undo_stack.len(), 1, "one group's fiddling is one undo step");
+        }
+
+        #[test]
+        fn untouched_group_writes_nothing() {
+            // Navigating past a group without editing must not flag anything.
+            let mut app = two_stack_app();
+            let _ = app.enter_resolve_stack(1); // just view it
+            let _ = app.enter_resolve_stack(0);
+            assert!(app.undo_stack.is_empty(), "viewing leaves no decision");
+            assert!(app.resolve.stacks[1].frames.iter().all(|f| f.flag == Flag::Unflagged));
         }
     }
 

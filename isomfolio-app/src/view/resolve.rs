@@ -65,31 +65,33 @@ impl App {
                     .style(ghost_btn_style),
             );
         }
-        // Re-arm the auto-pick (sharpest) after manual toggling. Only offered when
-        // the current keepers differ from the lone auto choice.
+        // Override manual toggling back to the sharpest auto-pick. Only offered when
+        // the current keepers differ from the lone auto choice. Persists on click.
         let on_auto = self.resolve.keepers.len() == 1
             && self.resolve.keepers.contains(&stack_review.rep_id);
         if !on_auto {
             left = left.push(
-                button(text("↺ Reset to auto").size(TEXT_SM))
+                button(text("↺ Apply auto-pick").size(TEXT_SM))
                     .on_press(Msg::ResolveResetAuto)
                     .style(ghost_btn_style),
             );
         }
 
+        // Choices persist live (no Confirm step), so the right action is just to move
+        // on; on the last group it finishes the pass.
+        let is_last = self.resolve.idx + 1 >= total;
+        let next_label = if is_last { "Done" } else { "Next ›" };
+
         let footer = container(
             row![
                 left,
                 Space::new().width(Length::Fill),
-                text(format!("Keeping {kept} · rejecting {rejected}"))
+                text(format!("Keeping {kept} · rejecting {rejected}  ·  saved"))
                     .size(TEXT_SM)
                     .color(FG_DIM),
                 Space::new().width(Length::Fill),
-                button(text("Skip").size(TEXT_SM))
+                button(text(next_label).size(TEXT_SM))
                     .on_press(Msg::ResolveSkipStack)
-                    .style(ghost_btn_style),
-                button(text("Keep selected & Next ›").size(TEXT_SM))
-                    .on_press(Msg::ResolveApplyAndNext)
                     .style(active_chip_style),
             ]
             .spacing(SPACE_2)

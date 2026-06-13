@@ -110,23 +110,27 @@ Both are undoable with `Cmd+Z`, and they apply to every frame in the stack even 
 When a shoot has *many* near-duplicates, press **`R`** (the **Sift (N)** chip, or **View → Sift…**) to step through groups of similar shots one at a time, keeping the best of each. This opens a full-screen review — the same kind of focused view as the loupe — showing one group's frames large in an **adaptive grid that fits the window** (no horizontal scrolling, even for a row of landscapes), so you can actually judge focus, eyes, and expression:
 
 1. The **sharpest** frame is pre-marked as the keeper. Every frame shows its sharpness **rank** — `★ sharpest` on the auto-pick, `#2`, `#3`… on the rest — so if you reject the default for a blink or a stray hand, you can see at a glance which of the others is next-sharpest. Click any frame to toggle whether it's kept — kept frames get a blue ring and **✓ Keep**, the rest show **✕ Reject** and dim.
-2. Confirm with **Keep selected & Next ›** to flag your choice (keepers → Pick, the rest → Reject) and jump to the next group. **Skip** moves on without changing anything; **‹ Previous** steps back — and your earlier keep/reject choices are remembered, so stepping back and forth never loses them. Keeping *nothing* is treated as a Skip (you can't silently reject a whole group).
-3. When you've worked through every group — or press **Esc** to stop early — you're returned to the grid.
+2. **Your choices save as you make them — there's no Confirm step.** Each keep/reject is written straight to the catalog (keepers → Pick, the rest of that group → Reject), so exiting and re-opening Sift always shows exactly what you decided, never a reset to the auto-picks. **Next ›** (and `Enter`) just moves to the next group; **‹ Previous** steps back; both keep everything you've done.
+3. A group you only **scroll past without touching stays unflagged** — viewing never rejects anything. To accept the auto-pick for a group explicitly, press **↺ Apply auto-pick** (or `0`), which sets the sharpest as the keeper and saves it.
+4. When you've worked through every group — or press **Esc** at any point — you're returned to the grid. Everything's already saved.
 
 **Two layouts.** Toggle **▦ Grid** / **▭ Strip** in the header. *Grid* shows every frame at once in a window-filling adaptive grid — best for small groups. *Strip* shows one large preview of the focused frame over a thumbnail filmstrip — best for many frames (and for pixel-checking focus), so the photo stays big instead of shrinking. Your choice applies to the **whole pass** and stays put as you move between groups — it doesn't flip around per group.
+
+**Picking in Strip.** Click the big preview to toggle the focused frame, or use the keys below — `P` keeps it, `X` rejects it, the number row picks by position. The filmstrip thumbnails move focus; the preview caption shows how to pick.
 
 **Keyboard — the whole pass is one-handed:**
 
 | Key | Action |
 |---|---|
-| `Enter` or `Space` | Keep selected & Next |
+| `Enter` or `Space` | Next group |
+| `P` / `X` | Keep / reject the focused frame |
 | `←` / `→` | *Grid:* previous / next group · *Strip:* focus previous / next frame |
 | `Shift`+`←` / `→` | Previous / next group (either layout) |
 | `1`–`9` | Toggle keep on that frame (by position) |
-| `0` | Reset to the auto-pick (sharpest) |
+| `0` | Apply auto-pick (sharpest) |
 | `Esc` | Exit to grid |
 
-If you've toggled away from the auto-pick, a **↺ Reset to auto** button (and `0`) restores it.
+If you've toggled away from the auto-pick, an **↺ Apply auto-pick** button (and `0`) restores and saves it.
 
 Everything you do here is undoable with `Cmd+Z`. It's the fastest way to cull a shoot full of near-duplicates down to one keeper each.
 
