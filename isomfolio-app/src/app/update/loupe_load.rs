@@ -125,7 +125,11 @@ impl App {
         let current = self.loupe.idx;
         let mut tasks = Vec::new();
         for delta in [-1i32, 1] {
-            let idx = (current as i32 + delta).rem_euclid(total as i32) as usize;
+            let signed = current as i32 + delta;
+            if signed < 0 || signed >= total as i32 {
+                continue; // no wrap — the ends have no off-edge neighbour to prefetch
+            }
+            let idx = signed as usize;
             if self.loupe.prefetch.contains_key(&idx) {
                 continue;
             }

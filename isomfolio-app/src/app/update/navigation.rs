@@ -55,8 +55,9 @@ impl App {
                         .get(self.resolve.idx)
                         .map_or(0, |s| s.frames.len());
                     if n > 0 && step != 0 {
+                        // Clamp, don't wrap — the first/last frame never loops.
                         self.resolve.focus =
-                            (self.resolve.focus as i32 + step).rem_euclid(n as i32) as usize;
+                            (self.resolve.focus as i32 + step).clamp(0, n as i32 - 1) as usize;
                     }
                     return Task::none();
                 }
@@ -66,8 +67,13 @@ impl App {
                         return Task::none();
                     }
                     let delta = dx + dy;
+                    // Clamp, don't wrap — stepping off either end stays put.
                     let new_idx =
-                        (self.loupe.idx as i32 + delta).rem_euclid(total as i32) as usize;
+                        (self.loupe.idx as i32 + delta).clamp(0, total as i32 - 1) as usize;
+                    if new_idx == self.loupe.idx {
+                        // At the boundary: a true no-op, no needless reload/flicker.
+                        return Task::none();
+                    }
                     self.loupe.idx = new_idx;
                     self.loupe.load_error = None;
                     if self.loupe.lock_zoom {

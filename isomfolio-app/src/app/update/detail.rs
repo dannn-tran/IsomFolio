@@ -892,6 +892,23 @@ mod undo_redo {
     }
 
     #[test]
+    fn loupe_nav_does_not_loop_at_either_end() {
+        let mut a = app_with_catalog();
+        a.view_mode = crate::app::ViewMode::Loupe;
+        let files =
+            vec![file("f1", Flag::Unflagged), file("f2", Flag::Unflagged), file("f3", Flag::Unflagged)];
+        let _ = a.update(Msg::FilesLoaded(files));
+
+        a.loupe.idx = 0;
+        let _ = a.update(Msg::Navigate { dx: -1, dy: 0 });
+        assert_eq!(a.loupe.idx, 0, "left at the first photo stays put (no wrap to last)");
+
+        a.loupe.idx = 2;
+        let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+        assert_eq!(a.loupe.idx, 2, "right at the last photo stays put (no wrap to first)");
+    }
+
+    #[test]
     fn undo_reselects_the_edited_photo_in_grid() {
         let mut a = app_with_catalog();
         a.view_mode = crate::app::ViewMode::Browse;
