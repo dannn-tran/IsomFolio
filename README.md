@@ -58,15 +58,6 @@ cargo run --release -p isomfolio-core --bin bench-thumbnails -- /path/to/photos 
 
 It reports a per-decode-path time breakdown (JPEG fast path vs RAW preview/full demosaic, decode vs resize) and a worker-thread concurrency sweep, writing thumbnails to a throwaway temp dir. Use it to find where time goes and whether more threads help.
 
-Evaluate **grouping quality** — whether the embedding-based scene grouper beats the cheap phash burst grouper — against a labelled test set (one subfolder per ground-truth "shot"):
-
-```sh
-cargo run --release -p isomfolio-core --bin bench-grouping -- /path/to/testset
-cargo run --release -p isomfolio-core --bin bench-grouping -- /path/to/testset --limit 500
-```
-
-For each grouper it sweeps the relevant parameter (burst Hamming threshold; scene `eps` × `min_pts`) and scores it against the folder labels with pairwise Precision/Recall/F1 and the Adjusted Rand Index, then counts how many "recomposed" same-group pairs (too far apart in Hamming for bursts to link) each one captures — the direct measure of whether scenes add utility. Pure `isomfolio-core`: both groupers are pure functions and the scene descriptor is model-free, so no inference engine or database is involved.
-
 ## Project structure
 
 ```

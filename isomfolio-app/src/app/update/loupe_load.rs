@@ -109,7 +109,7 @@ impl App {
                 // sharpness for the badge is computed from this same decode, so no DB.
                 tokio::task::spawn_blocking(move || {
                     let img = open_image(&path, true)?;
-                    let sharpness = isomfolio_core::phash::sharpness(&img);
+                    let sharpness = isomfolio_core::sharpness::sharpness(&img);
                     let rgba = img.into_rgba8();
                     let (w, h) = (rgba.width(), rgba.height());
                     Some((iced::widget::image::Handle::from_rgba(w, h, rgba.into_raw()), sharpness))
