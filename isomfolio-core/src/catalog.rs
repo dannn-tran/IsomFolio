@@ -178,39 +178,6 @@ impl Catalog {
         db::load_face_centroids(&self.conn)
     }
 
-    pub fn files_needing_phash(&self) -> Result<Vec<String>, AppError> {
-        db::files_needing_phash(&self.conn)
-    }
-
-    pub fn store_phashes(&self, rows: &[(String, u64, f64, i64)]) -> Result<(), AppError> {
-        db::store_phashes(&self.conn, rows)
-    }
-
-    pub fn load_phashes(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, u64>, AppError> {
-        db::load_phashes(&self.conn, file_ids)
-    }
-
-    pub fn files_needing_scene_embedding(&self, model: &str) -> Result<Vec<(String, i64)>, AppError> {
-        db::files_needing_scene_embedding(&self.conn, model)
-    }
-
-    pub fn store_scene_embeddings(&self, model: &str, rows: &[(String, i64, Vec<f32>)]) -> Result<(), AppError> {
-        db::store_scene_embeddings(&self.conn, model, rows)
-    }
-
-    pub fn load_scene_embeddings(&self, model: &str, file_ids: &[String]) -> Result<Vec<(String, Vec<f32>)>, AppError> {
-        db::load_scene_embeddings(&self.conn, model, file_ids)
-    }
-
-    pub fn count_scene_embeddings(&self, model: &str) -> Result<i64, AppError> {
-        db::count_scene_embeddings(&self.conn, model)
-    }
-
-    pub fn detect_and_store_stacks_all(&self, threshold: u32, window_secs: i64) -> Result<(), AppError> {
-        db::detect_and_store_stacks_all(&self.conn, threshold, window_secs)
-    }
-
-
     // Tags
 
     pub fn upsert_tags(&self, file_id: &str, tags: &[String]) -> Result<(), AppError> {
@@ -373,34 +340,6 @@ impl Catalog {
 
     pub fn count_deleted(&self) -> Result<usize, AppError> {
         db::count_deleted(&self.conn)
-    }
-
-    pub fn get_burst_sizes_for(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, usize>, AppError> {
-        db::get_burst_sizes_for(&self.conn, file_ids)
-    }
-
-    pub fn get_burst_ids_for(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, String>, AppError> {
-        db::get_burst_ids_for(&self.conn, file_ids)
-    }
-
-    pub fn get_stack_membership(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, (String, f64)>, AppError> {
-        db::get_stack_membership(&self.conn, file_ids)
-    }
-
-    /// Computed sharpness per file id (absent when not yet computed). Only
-    /// meaningful relative to a similar frame — used by Compare.
-    pub fn sharpness_for(&self, file_ids: &[String]) -> Result<std::collections::HashMap<String, f64>, AppError> {
-        db::sharpness_for(&self.conn, file_ids)
-    }
-
-    pub fn stack_stats(&self) -> Result<crate::models::StackStats, AppError> {
-        db::stack_stats(&self.conn)
-    }
-
-    /// Cull a whole stack: keep `anchor` (Pick) and reject the rest, or reject
-    /// all. Returns prior flags for undo. See `db::set_stack_flags`.
-    pub fn set_stack_flags(&self, anchor: &str, keep_one: bool) -> Result<Vec<(String, crate::models::Flag)>, AppError> {
-        db::set_stack_flags(&self.conn, anchor, keep_one)
     }
 
     pub fn update_smart_album_query(&self, album_id: &str, query: &SearchQuery) -> Result<(), AppError> {

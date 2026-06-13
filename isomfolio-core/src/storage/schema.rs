@@ -25,10 +25,6 @@ CREATE TABLE IF NOT EXISTS files (
     exif_date_unix  INTEGER,
     gps_lat         REAL,
     gps_lon         REAL,
-    burst_id        TEXT,
-    phash           INTEGER,
-    phash_mtime     INTEGER,
-    phash_sharpness REAL,
     is_deleted      INTEGER NOT NULL DEFAULT 0,
     import_batch_id INTEGER
 );
@@ -181,26 +177,6 @@ CREATE TABLE IF NOT EXISTS face_centroids (
 );
 ";
 
-// Whole-image embeddings for permissive *scene* grouping (distinct from
-// face_embeddings). `model` tags which embedding source produced the vector
-// ("gist-lite-v1" today; a CLIP image-encoder later) so the two can coexist and
-// clustering filters to the active model without a schema change. `dim` lets a
-// reader validate the blob; `mtime` guards recompute against thumbnail changes,
-// mirroring phash_mtime. PK (file_id, model) = one vector per file per model.
-pub const CREATE_SCENE_EMBEDDINGS: &str = "
-CREATE TABLE IF NOT EXISTS scene_embeddings (
-    file_id     TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-    model       TEXT NOT NULL,
-    dim         INTEGER NOT NULL,
-    mtime       INTEGER NOT NULL,
-    vec         BLOB NOT NULL,
-    PRIMARY KEY (file_id, model)
-);
-";
-
-pub const CREATE_SCENE_EMBEDDINGS_IDX: &str =
-    "CREATE INDEX IF NOT EXISTS idx_se_model ON scene_embeddings(model);";
-
 pub const CREATE_LIBRARY_ROOTS: &str = "
 CREATE TABLE IF NOT EXISTS library_roots (
     path         TEXT PRIMARY KEY,
@@ -230,7 +206,6 @@ pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE files ADD COLUMN exif_date_unix INTEGER",
     "ALTER TABLE files ADD COLUMN gps_lat REAL",
     "ALTER TABLE files ADD COLUMN gps_lon REAL",
-    "ALTER TABLE files ADD COLUMN burst_id TEXT",
     "ALTER TABLE metadata ADD COLUMN camera_make TEXT",
     "ALTER TABLE metadata ADD COLUMN camera_model TEXT",
     "ALTER TABLE metadata ADD COLUMN lens_model TEXT",
@@ -276,12 +251,6 @@ pub const MIGRATIONS: &[&str] = &[
         source_folder   TEXT,
         count           INTEGER NOT NULL
     )",
-    // Content-based stacking: perceptual hash + sharpness computed per file from
-    // its cached thumbnail; stacks are inferred from pixels (replaces time-only
-    // burst detection). phash_mtime guards recompute against thumbnail changes.
-    "ALTER TABLE files ADD COLUMN phash INTEGER",
-    "ALTER TABLE files ADD COLUMN phash_mtime INTEGER",
-    "ALTER TABLE files ADD COLUMN phash_sharpness REAL",
 ];
 
 pub const ALL_DDL: &[&str] = &[
@@ -303,8 +272,6 @@ pub const ALL_DDL: &[&str] = &[
     CREATE_FACE_EMBEDDINGS,
     CREATE_FACE_EMBEDDINGS_IDX,
     CREATE_FACE_CENTROIDS,
-    CREATE_SCENE_EMBEDDINGS,
-    CREATE_SCENE_EMBEDDINGS_IDX,
     CREATE_LIBRARY_ROOTS,
     CREATE_IMPORT_BATCHES,
 ];

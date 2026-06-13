@@ -217,15 +217,6 @@ pub struct SearchQuery {
     /// files are excluded from all results.
     #[serde(default)]
     pub only_deleted: bool,
-    /// Collapse bursts: return only one representative per `burst_id` (the
-    /// earliest shot) so a burst occupies a single tile.
-    #[serde(default)]
-    pub collapse_bursts: bool,
-    /// Burst ids the user has explicitly expanded while `collapse_bursts` is on,
-    /// so those stacks show every member instead of one representative. Pure
-    /// session UI state — never persisted into a saved smart album.
-    #[serde(skip)]
-    pub expanded_bursts: Vec<String>,
     /// Restrict to files belonging to a specific import batch (discrete sync that
     /// added them). The exact set captured at import time — does not drift.
     #[serde(default)]
@@ -240,16 +231,6 @@ pub struct ImportBatch {
     pub created_at_unix: i64,
     pub source_folder: Option<String>,
     pub count: usize,
-}
-
-/// At-rest summary of perceptual-hash stacking, for the Settings panel and the
-/// completion status line. `stacks`/`stacked_frames` count only real groups of
-/// ≥2 non-deleted members (matching the `⧉` badge gate), not stale singletons.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct StackStats {
-    pub hashed: usize,
-    pub stacks: usize,
-    pub stacked_frames: usize,
 }
 
 impl Default for SearchQuery {
@@ -276,8 +257,6 @@ impl Default for SearchQuery {
             color_label: None,
             include_orphaned: false,
             only_deleted: false,
-            collapse_bursts: false,
-            expanded_bursts: Vec::new(),
             import_batch: None,
         }
     }

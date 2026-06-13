@@ -91,30 +91,10 @@ pub struct AppSettings {
     /// Minimum faces required to form a person cluster.
     #[serde(default = "default_face_min_pts")]
     pub face_min_pts: u32,
-    /// Automatically stack near-duplicate frames (perceptual hash) after thumbnails exist.
-    #[serde(default = "default_true")]
-    pub auto_stack: bool,
-    /// Max Hamming distance (0–64) for two frames to count as the same shot — lower is stricter.
-    #[serde(default = "default_stack_threshold")]
-    pub stack_threshold: u32,
-    /// Max seconds between consecutive frames of one stack.
-    #[serde(default = "default_stack_window")]
-    pub stack_window_secs: i64,
     /// Whether the one-time "delete is virtual, files on disk untouched" reassurance
     /// has been shown. Set true after the first soft-delete so it never repeats.
     #[serde(default)]
     pub seen_delete_hint: bool,
-    /// Compute whole-image scene embeddings (for "Review Scenes" permissive
-    /// grouping) opportunistically after thumbnails exist, like auto_stack.
-    #[serde(default = "default_true")]
-    pub auto_scene_embed: bool,
-    /// DBSCAN cosine-distance radius for scene grouping — higher groups looser
-    /// (more reframed/varied shots together); lower keeps scenes tight.
-    #[serde(default = "default_scene_eps")]
-    pub scene_eps: f32,
-    /// Minimum frames required to form a scene group.
-    #[serde(default = "default_scene_min_pts")]
-    pub scene_min_pts: u32,
 }
 
 impl Default for AppSettings {
@@ -128,13 +108,7 @@ impl Default for AppSettings {
             inference_port: default_inference_port(),
             face_eps: default_face_eps(),
             face_min_pts: default_face_min_pts(),
-            auto_stack: true,
-            stack_threshold: default_stack_threshold(),
-            stack_window_secs: default_stack_window(),
             seen_delete_hint: false,
-            auto_scene_embed: true,
-            scene_eps: default_scene_eps(),
-            scene_min_pts: default_scene_min_pts(),
         }
     }
 }
@@ -143,16 +117,6 @@ fn default_true() -> bool { true }
 fn default_inference_port() -> u16 { 45876 }
 fn default_face_eps() -> f32 { 0.4 }
 fn default_face_min_pts() -> u32 { 2 }
-fn default_stack_threshold() -> u32 { 8 }
-fn default_stack_window() -> i64 { 10 }
-// Cosine radius in *whitened* embedding space (build_scene_review whitens the
-// view first). 0.2 gives tight, useful scene groups on a real shoot without the
-// over-grouping that raw global descriptors suffer; higher groups looser.
-fn default_scene_eps() -> f32 { 0.2 }
-// DBSCAN core threshold (neighbours, self excluded): 1 lets a two-frame scene
-// form (two tries at one shot), matching stacks' ≥2 minimum; group_scenes drops
-// singletons. Raise it to require denser clusters.
-fn default_scene_min_pts() -> u32 { 1 }
 
 fn settings_path() -> PathBuf {
     app_data_root().join("settings.json")
