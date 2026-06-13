@@ -7,7 +7,6 @@ mod loupe_image;
 mod menu_bar;
 mod modals;
 mod people;
-mod resolve;
 mod settings;
 mod sidebar;
 mod sidebar_filters;
@@ -45,10 +44,6 @@ impl App {
 
         if matches!(self.view_mode, ViewMode::Compare) {
             return self.view_compare();
-        }
-
-        if matches!(self.view_mode, ViewMode::ResolveStacks) {
-            return self.view_resolve();
         }
 
         let status = if let Some(pressed) = self.drag.dragging_group() {

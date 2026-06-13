@@ -242,7 +242,6 @@ impl App {
             MenuItem::Action("Toggle Filters", "F", Msg::ToggleFilterPanel),
             MenuItem::Action("Preview", "E", Msg::TogglePreview),
             MenuItem::Action("Loupe", "Space", Msg::OpenLoupe),
-            MenuItem::Action("Sift…", "R", Msg::OpenResolveStacks),
             MenuItem::Action("People", "", Msg::OpenPeopleView),
             MenuItem::Action("Tag Browser", "", Msg::OpenTagBrowser),
             MenuItem::Separator,

@@ -246,15 +246,6 @@ impl App {
             }
 
             Msg::SetFlag(flag) => {
-                // In the stack review, flags retarget to the *focused* frame: P keeps
-                // it, X rejects it (U clears the keep too). This is how you pick in
-                // Strip — the previewed frame — without the by-position number row.
-                if self.in_resolve() {
-                    return match flag {
-                        Flag::Pick => self.resolve_keep_focused(true),
-                        Flag::Reject | Flag::Unflagged => self.resolve_keep_focused(false),
-                    };
-                }
                 let ids = self.selection_target_ids();
                 let db_task = self.edit_flags(ids, flag);
                 self.advance_after_cull(db_task)
@@ -269,14 +260,6 @@ impl App {
             }
 
             Msg::SetRating(rating) => {
-                // In the stack review the number row picks frames, not ratings:
-                // 1–5 toggle that frame's keeper, 0 resets to the auto-pick.
-                if self.in_resolve() {
-                    return match rating {
-                        Some(n) => self.resolve_toggle_frame(n as usize),
-                        None => self.resolve_reset_auto(),
-                    };
-                }
                 let ids = self.selection_target_ids();
                 let db_task = self.edit_ratings(ids, rating);
                 self.advance_after_cull(db_task)
@@ -295,18 +278,6 @@ impl App {
             }
 
             Msg::SetColorLabel(color) => {
-                // In the stack review, 6–9 continue the number row as frame picks
-                // (Red=6, Yellow=7, Green=8, Blue=9), matching the cull keymap.
-                if self.in_resolve() {
-                    let n = match color.as_deref() {
-                        Some("Red") => 6,
-                        Some("Yellow") => 7,
-                        Some("Green") => 8,
-                        Some("Blue") => 9,
-                        _ => 0,
-                    };
-                    return self.resolve_toggle_frame(n);
-                }
                 let ids = self.selection_target_ids();
                 if ids.is_empty() {
                     self.status = "Select photos first".to_string();

@@ -66,32 +66,6 @@ impl App {
             });
         }
 
-        if let Some(p) = &self.scene_pass {
-            let total = p.total;
-            let done = p.done.min(total);
-            let ratio = done as f32 / total.max(1) as f32;
-            let eta = if done >= 3 {
-                let elapsed = p.start_at.elapsed().as_secs_f64();
-                let remaining = total.saturating_sub(done);
-                let secs = (remaining as f64 / (done as f64 / elapsed)).ceil() as u64;
-                if secs < 60 {
-                    format!(" · ~{secs}s")
-                } else {
-                    format!(" · ~{}m{}s", secs / 60, secs % 60)
-                }
-            } else {
-                String::new()
-            };
-            tasks.push(TaskView {
-                title: "Scenes".into(),
-                detail: format!("{done} / {total}{eta}"),
-                progress: TaskProgress::Determinate(ratio),
-                failed: false,
-                done: false,
-                dismiss: None,
-            });
-        }
-
         for task in &self.bg_tasks {
             let failed = task.failed.is_some();
             tasks.push(TaskView {

@@ -125,8 +125,6 @@ pub enum ViewMode {
     Loupe,
     People,
     Compare,
-    /// Guided, full-bleed pass through every stack in the current view.
-    ResolveStacks,
     Settings,
 }
 
@@ -472,37 +470,9 @@ pub enum Msg {
     /// undo step) and how many frames were kept, so the status line can report
     /// the cull.
     StackFlagsApplied { before: Vec<(String, Flag)>, after: Vec<(String, Flag)>, kept: usize },
-    /// Enter the resolve-stacks review mode for the stacks in the current view.
-    OpenResolveStacks,
-    /// The review queue finished building (capture-ordered stacks of ≥2 frames).
-    ResolveStacksLoaded { stacks: Vec<crate::app::StackReview>, cache: crate::app::BurstCache, threshold: u32 },
-    /// Full-res for one frame of the stack currently under review arrived.
-    ResolveFrameLoaded { stack_idx: usize, frame_idx: usize, handle: iced::widget::image::Handle, dims: (u32, u32) },
-    /// Toggle a frame's keeper mark in the current stack.
-    ToggleResolveKeeper(String),
-    /// Advance to the next stack (decisions already persisted live). Drives the
-    /// footer "Next ›" / "Done" button.
-    ResolveSkipStack,
-    /// Step back to the previous stack.
-    ResolvePrevStack,
-    /// Advance to the next stack — keyboard confirm (Enter / Space) in review.
-    ResolveConfirm,
-    /// Set the current stack's keepers to the auto-pick (sharpest) and persist.
-    ResolveResetAuto,
     /// Switch the Browse surface layout — maps Grid/Strip/Full onto the
     /// Browse / Preview / Loupe modes from the toolbar switcher.
     SetBrowseLayout(crate::app::SurfaceLayout),
-    /// Switch the Sift layout (Grid / Strip / Full) and pin the choice.
-    SiftSetLayout(crate::app::SurfaceLayout),
-    /// Focus a frame within the current group (filmstrip click / arrow keys).
-    SiftFocusFrame(usize),
-    /// Header tolerance slider moved — update the live value (cheap, no regroup).
-    SiftToleranceChanged(f32),
-    /// Tolerance slider released — re-cluster the cached signals at the new value.
-    SiftRegroup,
-    /// A live regroup (either engine) finished; replace the queue. `seq` is the
-    /// request id — a stale one (superseded by a newer slider move) is ignored.
-    SiftRegrouped { stacks: Vec<crate::app::StackReview>, seq: u64 },
     FlagsApplied,
     RatingsApplied,
     LabelsApplied,
@@ -535,9 +505,6 @@ pub enum Msg {
     ToggleAutoStack,
     StackThresholdChanged(String),
     StackWindowChanged(String),
-    ToggleAutoSceneEmbed,
-    SceneEpsChanged(String),
-    SceneMinPtsChanged(String),
     SettingsConfigChanged { extension_name: String, key: String, value: String },
     SaveSettings,
     InstallExtensionPickFile,
@@ -556,24 +523,6 @@ pub enum Msg {
     StacksUpdated,
     /// At-rest stacking summary loaded (Settings panel + completion announce).
     StackStatsLoaded(StackStats),
-
-    /// Compute whole-image scene embeddings for any file that lacks one (from its
-    /// cached thumbnail), persisting them for "Review Scenes". Background pass.
-    RunSceneEmbedding,
-    /// The needing-list for a pass was computed off the lock; carries the files to
-    /// embed. Opens the panel task and kicks the first chunk.
-    SceneEmbedStarted(Vec<(String, i64)>),
-    /// One chunk of the pass finished: `processed` files embedded this chunk,
-    /// `total_embedded` is the new catalog-wide count. Advances the bar, kicks next.
-    SceneEmbedChunkDone { processed: usize, total_embedded: usize },
-    /// The scene-embedding pass finished writing; carries how many were computed.
-    /// (Also fired by the cheap on-open COUNT to refresh the Settings readout.)
-    SceneEmbeddingDone(usize),
-    /// Enter the review mode for embedding scene-clusters in the current view.
-    /// The scene clustering inputs finished loading (lazily, the first time the
-    /// unified tolerance slider crosses into the scene region). `seq` guards against
-    /// a superseded request; a regroup is chained once it lands.
-    SceneCacheLoaded { cache: crate::app::SceneCache, seq: u64 },
 
     /// Focus the Info-panel tag entry (opening the panel first if needed) so a tag
     /// can be typed without reaching for the mouse.

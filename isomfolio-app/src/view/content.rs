@@ -141,20 +141,6 @@ impl App {
             Space::new().width(0.0).into()
         };
 
-        // Discoverable entry to Sift: a call-to-action chip that appears only when
-        // there are similar-shot groups to review. Opens the guided pass (also `R`).
-        let sift_entry: Element<Msg> = if self.stack_stats.stacks > 0 {
-            super::styles::tip(
-                button(text(format!("Sift ({})", self.stack_stats.stacks)).size(TEXT_MD))
-                    .on_press(Msg::OpenResolveStacks)
-                    .style(active_chip_style),
-                "Sift similar shots down to the keeper · press R",
-                super::styles::TipPos::Bottom,
-            )
-        } else {
-            Space::new().width(0.0).into()
-        };
-
         // One shared layout switcher across the Browse surface: Grid (this view),
         // Strip (preview + filmstrip), Full (loupe one-up). The same vocabulary Sift
         // uses, so "how photos are arranged" is one control everywhere.
@@ -171,7 +157,6 @@ impl App {
         .spacing(SPACE_1);
 
         let toolbar_row = row![
-            sift_entry,
             // A *view* toggle (not the Sift action): collapse each burst to one
             // grid tile. Icon-only so it doesn't read as a second "Sift" — the
             // count lives on the Sift button. Active fill when collapse is on.

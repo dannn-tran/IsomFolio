@@ -119,16 +119,6 @@ pub struct ThumbnailContext {
     pub done_gen: u64,
 }
 
-/// In-flight state of the background scene-embedding pass. `None` = idle. The pass
-/// drains `queue` a chunk at a time so the task panel shows determinate progress
-/// (done / total + ETA) instead of an opaque spinner.
-pub struct SceneProgress {
-    pub queue: Vec<(String, i64)>,
-    pub total: usize,
-    pub done: usize,
-    pub start_at: Instant,
-}
-
 pub struct DragContext {
     /// The single in-flight drag (any payload), or `None`. Built as a click
     /// candidate on press, promoted to a real drag once it passes the threshold.
@@ -429,23 +419,14 @@ pub struct App {
     pub stacking_manual: bool,
     /// At-rest stacking summary shown in Settings; refreshed after each pass.
     pub stack_stats: isomfolio_core::models::StackStats,
-    /// Count of files with a scene embedding (current model); Settings readout,
-    /// refreshed after each scene-embedding pass and on catalog open.
-    pub scene_embed_count: usize,
     /// Set when `t` opened the Info panel from cold — the tag field isn't mounted
     /// yet (detail loads async), so `DetailLoaded` focuses it once it appears.
     pub pending_focus_tag: bool,
-    /// Live progress of the background scene-embedding pass (`None` = idle).
-    pub scene_pass: Option<SceneProgress>,
-    /// Set between `RunSceneEmbedding` and its `SceneEmbedStarted` so overlapping
-    /// triggers (sync + thumbnail-drain both fire it) can't double-start a pass.
-    pub scene_pass_starting: bool,
 
     pub undo_stack: Vec<UndoOp>,
     pub redo_stack: Vec<UndoOp>,
 
     pub compare: CompareState,
-    pub resolve: ResolveState,
 
     pub bg_tasks: Vec<crate::app::types::BgTask>,
     /// Recently-finished tasks, shown with a ✓ until they expire (`COMPLETED_TTL`).
@@ -508,32 +489,6 @@ impl CompareState {
     }
 }
 
-/// One stack queued for review in the resolve-stacks mode: its frames (in
-/// capture order), each frame's sharpness (parallel to `frames`, so the panel can
-/// rank them), and the id of its sharpest frame (the default keeper).
-#[derive(Debug, Clone)]
-pub struct StackReview {
-    pub frames: Vec<isomfolio_core::models::AssetFile>,
-    pub sharpness: Vec<f64>,
-    pub rep_id: String,
-}
-
-impl StackReview {
-    /// Sharpness rank of frame `idx`, 1 = sharpest. Ties break by position so the
-    /// ranks are a stable 1..=n permutation. Used for the per-frame badge.
-    pub fn sharpness_rank(&self, idx: usize) -> usize {
-        let mine = self.sharpness.get(idx).copied().unwrap_or(0.0);
-        // Count frames strictly sharper, plus earlier frames that tie, so equal
-        // sharpness still yields distinct ranks.
-        let mut rank = 1;
-        for (i, &s) in self.sharpness.iter().enumerate() {
-            if s > mine || (s == mine && i < idx) {
-                rank += 1;
-            }
-        }
-        rank
-    }
-}
 
 /// How a set of photos is arranged on screen. Orthogonal to *what* the photos are
 /// (Browse vs Sift) — a shared vocabulary so the same layouts can be offered in any
@@ -549,66 +504,6 @@ pub enum SurfaceLayout {
     Full,
 }
 
-/// Cached scene-clustering inputs for the current view, kept so the header
-/// tolerance slider can re-cluster live (in memory, no DB round-trip or re-embed).
-#[derive(Debug, Clone, Default)]
-pub struct SceneCache {
-    pub files: Vec<isomfolio_core::models::AssetFile>,
-    /// Whitened embeddings, parallel-keyed by file id.
-    pub whitened: Vec<(String, Vec<f32>)>,
-    pub sharpness: HashMap<String, f64>,
-    pub min_pts: usize,
-}
-
-/// Cached burst-grouping inputs for the current view, so the header tolerance
-/// slider can regroup (per-folder phash) in memory at a live Hamming threshold.
-#[derive(Debug, Clone, Default)]
-pub struct BurstCache {
-    pub files: Vec<isomfolio_core::models::AssetFile>,
-    pub hashes: HashMap<String, u64>,
-    pub sharpness: HashMap<String, f64>,
-    pub window_secs: i64,
-}
-
-/// State for the resolve-stacks view — a guided, full-bleed pass through every
-/// multi-frame stack in the current view, one at a time.
-#[derive(Default)]
-pub struct ResolveState {
-    pub stacks: Vec<StackReview>,
-    /// Index of the stack currently shown.
-    pub idx: usize,
-    /// How frames are arranged — a single, stable choice for the whole pass (set
-    /// via the header toggle), not re-decided per group.
-    pub layout: SurfaceLayout,
-    /// Focused frame within the current group (drives the Strip/Full preview).
-    pub focus: usize,
-    /// Ids of frames in the *current* stack marked as keepers (→ Pick on resolve).
-    /// This is the live working set; it is mirrored into `decisions` on every edit
-    /// so stepping away and back restores the choice.
-    pub keepers: HashSet<String>,
-    /// Per-group keeper decisions, keyed by stack index. Lets `←`/`→` navigation
-    /// preserve what the user marked instead of resetting to the auto-pick.
-    pub decisions: HashMap<usize, HashSet<String>>,
-    /// Full-res handles for the current stack's frames, keyed by frame index.
-    pub handles: HashMap<usize, iced::widget::image::Handle>,
-    /// Decoded `(w, h)` per frame index, so the grid can lay out by aspect ratio.
-    pub frame_dims: HashMap<usize, (u32, u32)>,
-    /// True when the queue was built from embedding scene-clusters ("Review
-    /// Scenes") rather than dHash stacks — drives the title/status label only;
-    /// the keeper-picking flow is identical.
-    pub scenes: bool,
-    /// Live grouping tolerance (scene `eps`); driven by the header slider.
-    pub tolerance: f32,
-    /// Cached clustering inputs so the slider can regroup without a DB round-trip.
-    pub scene_cache: Option<SceneCache>,
-    /// Cached burst inputs, for the live Hamming-threshold regroup.
-    pub burst_cache: Option<BurstCache>,
-    /// Monotonic id for the latest regroup request — a returning regroup whose id
-    /// is stale (the slider moved again since) is dropped, so only the newest wins.
-    pub regroup_seq: u64,
-    /// A regroup is computing off-thread (drives the "Regrouping…" indicator).
-    pub regrouping: bool,
-}
 
 struct ThumbnailRecipe {
     rx: Arc<std::sync::Mutex<Option<mpsc::Receiver<ThumbnailEvent>>>>,
@@ -903,14 +798,10 @@ impl App {
             stacking_in_flight: false,
             stacking_manual: false,
             stack_stats: isomfolio_core::models::StackStats::default(),
-            scene_embed_count: 0,
             pending_focus_tag: false,
-            scene_pass: None,
-            scene_pass_starting: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             compare: CompareState::default(),
-            resolve: ResolveState::default(),
             bg_tasks: Vec::new(),
             completed_tasks: Vec::new(),
             next_bg_task_id: 0,
@@ -1085,7 +976,6 @@ impl App {
         !self.bg_tasks.is_empty()
             || !self.completed_tasks.is_empty()
             || self.thumb_ctx.total > 0
-            || self.scene_pass.is_some()
             || self.is_syncing
             || self.faces.is_clustering
     }

@@ -10,7 +10,6 @@ mod pointer;
 mod groups;
 mod sync;
 mod settings;
-mod scenes;
 mod stacking;
 mod tag_browser;
 
@@ -198,27 +197,7 @@ impl App {
             | Msg::StackKeepOnly(_)
             | Msg::StackRejectAll(_)
             | Msg::ToggleStackExpanded(_)
-            | Msg::StackFlagsApplied { .. }
-            | Msg::OpenResolveStacks
-            | Msg::ResolveStacksLoaded { .. }
-            | Msg::ResolveFrameLoaded { .. }
-            | Msg::ToggleResolveKeeper(_)
-            | Msg::ResolveSkipStack
-            | Msg::ResolvePrevStack
-            | Msg::ResolveConfirm
-            | Msg::ResolveResetAuto
-            | Msg::SiftSetLayout(_)
-            | Msg::SiftFocusFrame(_) => self.handle_stacking_msg(msg),
-
-            // — permissive scene grouping (embeddings) —
-            Msg::RunSceneEmbedding
-            | Msg::SceneEmbedStarted(_)
-            | Msg::SceneEmbedChunkDone { .. }
-            | Msg::SceneEmbeddingDone(_)
-            | Msg::SceneCacheLoaded { .. }
-            | Msg::SiftToleranceChanged(_)
-            | Msg::SiftRegroup
-            | Msg::SiftRegrouped { .. } => self.handle_scenes_msg(msg),
+            | Msg::StackFlagsApplied { .. } => self.handle_stacking_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);
@@ -586,10 +565,7 @@ impl App {
             | Msg::ToggleAutoAdvanceOnCull
             | Msg::ToggleAutoStack
             | Msg::StackThresholdChanged(_)
-            | Msg::StackWindowChanged(_)
-            | Msg::ToggleAutoSceneEmbed
-            | Msg::SceneEpsChanged(_)
-            | Msg::SceneMinPtsChanged(_) => self.handle_settings(msg),
+            | Msg::StackWindowChanged(_) => self.handle_settings(msg),
 
             // — tag browser —
             Msg::OpenTagBrowser
@@ -944,9 +920,6 @@ impl App {
             let mut tasks = vec![clear];
             if self.app_settings.auto_stack {
                 tasks.push(Task::done(Msg::RunStacking));
-            }
-            if self.app_settings.auto_scene_embed {
-                tasks.push(Task::done(Msg::RunSceneEmbedding));
             }
             Task::batch(tasks)
         } else {
