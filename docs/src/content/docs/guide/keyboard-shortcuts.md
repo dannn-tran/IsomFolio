@@ -26,12 +26,10 @@ Press `?` at any time to open the in-app shortcut help panel.
 
 | Shortcut | Action |
 |---|---|
-| `Space` | Toggle Loupe (full-screen single photo) |
+| `Space` | Toggle Loupe — full-screen single photo, or, with 2+ selected, scoped to the selection |
 | `E` | Toggle Preview mode |
 | `I` | Toggle Info panel |
-| `C` | Compare (requires exactly 2 photos selected) |
-| `R` | Review Stacks (guided pass over every stack in the view) |
-| `⇧R` | Review Scenes (guided pass over content-based scene groups) |
+| `C` | Compare selected photos side by side (2 or more) |
 | `+` / `Cmd++` | Zoom in — larger grid thumbnails, or zoom the loupe image |
 | `-` / `Cmd+-` | Zoom out — smaller grid thumbnails, or zoom the loupe image |
 | `Z` | In the loupe: toggle 1:1 (actual pixels) / Fit |

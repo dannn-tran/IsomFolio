@@ -96,53 +96,23 @@ The **Edit** menu names the next step — *Undo Rating*, *Redo Delete* — and g
 
 Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selection) and apply a flag or rating — it applies to all selected photos simultaneously.
 
-## Culling stacks
 
-When you've shot several near-identical frames, IsomFolio groups them into a **stack** (see [Browsing → Stacks](/guide/browsing/)). When the current library has groups to work through, a **Sift (N)** chip appears in the toolbar — click it (or press **`R`**) to start the guided pass described below. Next to it, the **⧉** icon is a separate *view* toggle: it collapses each stack to one tile in the grid (so the grid isn't cluttered) — it doesn't start a review. How aggressively frames group is tunable under **Settings → General → Stacking** (similarity threshold + max time gap). With collapse on, you don't have to expand a burst to resolve it:
+## Comparing similar shots
 
-- **Keep this, reject rest** — right-click the stack's tile. The frame you clicked is flagged **Pick** and every other frame in the stack is flagged **Reject** — the keep-the-best-of-a-burst decision in one action. (The collapsed tile defaults to the *sharpest* frame; expand the stack first by clicking its `⧉ N` badge if you want to keep a different one.)
-- **Reject whole stack** — flags every frame in the stack as a Reject (e.g. the whole burst missed).
+When you've shot several near-identical frames — a burst, or a few tries at the same setup — pick the best by reviewing them together. Sort the grid by **capture time** (the default) so a burst sits as one contiguous run, then select the candidates: click the first and **Shift+Click** the last to grab the whole run, or **Cmd+Click** individual frames.
 
-Both are undoable with `Cmd+Z`, and they apply to every frame in the stack even the ones hidden behind the collapsed tile.
+With a selection of two or more, two focused review surfaces open from the grid:
 
-### Sift — a guided pass
+### Compare — side by side
 
-When a shoot has *many* near-duplicates, press **`R`** (the **Sift (N)** chip, or **View → Sift…**) to step through groups of similar shots one at a time, keeping the best of each. This opens a full-screen review — the same kind of focused view as the loupe — showing one group's frames large in an **adaptive grid that fits the window** (no horizontal scrolling, even for a row of landscapes), so you can actually judge focus, eyes, and expression:
+Press **`C`** to open the selected frames **side by side**, each fit to the window. This is the way to judge fine differences across candidates at once:
 
-1. The **sharpest** frame is pre-marked as the keeper. Every frame shows its sharpness **rank** — `★ sharpest` on the auto-pick, `#2`, `#3`… on the rest — so if you reject the default for a blink or a stray hand, you can see at a glance which of the others is next-sharpest. Click any frame to toggle whether it's kept — kept frames get a blue ring and **✓ Keep**, the rest show **✕ Reject** and dim.
-2. **Your choices save as you make them — there's no Confirm step.** Each keep/reject is written straight to the catalog (keepers → Pick, the rest of that group → Reject), so exiting and re-opening Sift always shows exactly what you decided, never a reset to the auto-picks. **Next ›** (and `Enter`) just moves to the next group; **‹ Previous** steps back; both keep everything you've done.
-3. A group you only **scroll past without touching stays unflagged** — viewing never rejects anything. To accept the auto-pick for a group explicitly, press **↺ Apply auto-pick** (or `0`), which sets the sharpest as the keeper and saves it.
-4. When you've worked through every group — or press **Esc** at any point — you're returned to the grid. Everything's already saved.
+- **Synced zoom.** Scroll (or click) to zoom into a detail — the subject's eye, say — and **every pane zooms and pans to the same spot together**, so you compare sharpness and expression at 100% across all of them simultaneously. Drag to pan; the panes stay locked together.
+- The **sharpest** pane is marked **◉ Sharpest** — a *relative* cue among the frames you're comparing (never an absolute "blurry" verdict), to help break a tie. Eyes-open and expression are still your call.
+- Pick with the usual cull keys — **`P`** keeps the focused pane, **`X`** rejects it — then **Esc** back to the grid.
 
-**Two layouts.** Toggle **▦ Grid** / **▭ Strip** in the header. *Grid* shows every frame at once in a window-filling adaptive grid — best for small groups. *Strip* shows one large preview of the focused frame over a thumbnail filmstrip — best for many frames (and for pixel-checking focus), so the photo stays big instead of shrinking. Your choice applies to the **whole pass** and stays put as you move between groups — it doesn't flip around per group.
+### Loupe — one at a time
 
-**Picking in Strip.** Click the big preview to toggle the focused frame, or use the keys below — `P` keeps it, `X` rejects it, the number row picks by position. The filmstrip thumbnails move focus; the preview caption shows how to pick.
+Press **`Space`** on a multi-selection to open the **Loupe scoped to just those frames**: a large one-up preview over a filmstrip of the selection, stepping (`←`/`→`) only through what you picked. Zoom in to pixel-check focus; with **zoom lock** on, the zoom holds as you flip between frames, so flicking back and forth is a *blink comparison* of the same region. Flag as you go. (With a single photo selected, `Space` opens the normal Loupe over the whole view.)
 
-**Keyboard — the whole pass is one-handed:**
-
-| Key | Action |
-|---|---|
-| `Enter` or `Space` | Next group |
-| `P` / `X` | Keep / reject the focused frame |
-| `←` / `→` | *Grid:* previous / next group · *Strip:* focus previous / next frame |
-| `Shift`+`←` / `→` | Previous / next group (either layout) |
-| `1`–`9` | Toggle keep on that frame (by position) |
-| `0` | Apply auto-pick (sharpest) |
-| `Esc` | Exit to grid |
-
-If you've toggled away from the auto-pick, an **↺ Apply auto-pick** button (and `0`) restores and saves it.
-
-Everything you do here is undoable with `Cmd+Z`. It's the fastest way to cull a shoot full of near-duplicates down to one keeper each.
-
-### One slider, from bursts to scenes
-
-How shots are grouped is a single **Burst ↔ Scene** slider in the Sift header — no separate modes to choose between up front:
-
-- Toward **Burst** (left): groups are *tight* — near-identical frames shot seconds apart, compared by pixels (a perceptual hash). Best for burst/bracketing cleanup. Drag left for stricter (near-exact) duplicates, right within the burst half to allow less-similar frames to stack.
-- Toward **Scene** (right): groups are *looser* — "several tries at the same shot or subject" even when you reframed, zoomed, or recomposed, compared by **image content** (a whole-image embedding), so a group survives a pan or a tighter crop. Best for "I tried this portrait twelve ways — show me the set."
-
-Sift opens on the Burst side (at your **Settings → Stacking** threshold). Drag and **release** to re-group the whole pass live; the label shows the active side (`Burst`/`Scene`) and the effective setting. Crossing into the Scene side the first time loads the image embeddings (a brief one-time wait), so you only pay that cost if you actually use scenes.
-
-Already-applied keep/reject choices are safe (they're written as you go); only the groups you haven't reached yet reshape. Re-grouping happens off-screen on release (not while you drag), and only the **latest** release is applied — nudge the slider again and the earlier result is discarded. Burst re-grouping is instant; scene re-grouping does more work, so for a large set the header shows the **frame count with a ⚠** and a brief **Regrouping…** while it runs.
-
-Scene grouping runs in the background after a sync (like stacking), so it may lag fresh thumbnails for a moment. Tune it under **Settings → General → Scene grouping**: **Grouping looseness** (higher pulls more varied frames together), **Min neighbours** (1 lets a two-frame scene form), and an **Auto-embed** toggle. The panel shows how many frames have been embedded so far.
+Both surfaces leave no trace of their own — your **flags** are the durable result. Collect the keepers into an album with **`B`** (see *Gathering keepers with a target album* above) if you want them grouped.

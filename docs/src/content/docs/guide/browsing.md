@@ -17,14 +17,6 @@ Sort options (accessible from the toolbar or sort button):
 - **Rating** — highest first
 - Toggle ascending / descending with the sort direction button
 
-**Stacks.** Near-identical frames shot seconds apart — bracketing, motor-drive bursts, or just several tries at one shot — are grouped into a **stack** and marked with a `⧉ N` badge. Grouping is inferred from the pixels (a perceptual hash), not camera burst metadata, so it works on any source; frames only stack when they both look alike *and* were taken close together, and only within the same folder. The **⧉ Stack** toggle in the toolbar collapses each stack to a single representative tile — the **sharpest** frame — so you can scan a shoot quickly. Tune the sensitivity and time window, or turn auto-stacking off, under **Settings → General → Stacking**. That panel also shows the current state — *"N frames hashed · M stacks"* — and a **Re-stack now** button that reads **Stacking…** while a pass runs, so you can tell whether stacking has finished (a manual re-stack also reports its result in the status bar). Note that stacking only kicks in once a photo's **thumbnail** has been generated, so just after a large import the stacks appear a little after the thumbnails.
-
-**Working a collapsed stack.** While stacks are collapsed you don't have to toggle everything off to get into one:
-
-- **Expand just that stack** — click its `⧉ N` badge (the arrow shows `▸` collapsed, `▾` open). Its frames fan out inline as normal tiles, so you can select, flag, rate, and step through them in the loupe; click the badge again to collapse it back. Toggling the toolbar **⧉ Stack** off re-collapses every stack.
-- **Cull in one click** — right-click the stack tile for **Keep this, reject rest** (flags the frame you clicked as a Pick and every other frame in the stack as a Reject — the keep-the-best-of-a-burst decision in a single action) or **Reject whole stack**. Both are undoable with `Cmd+Z`.
-- **Work every stack in turn** — press **`R`** (**View → Review Stacks**) to step through all the stacks in the current view one at a time, full-screen, picking a keeper for each. See [Culling → Review Stacks](/guide/culling/).
-
 ## Grid and List views
 
 Two toolbar buttons switch how the content area lays out photos:
@@ -65,11 +57,11 @@ Press `E` to enter **Preview** — a single-photo view that keeps the sidebar an
 
 ## Compare mode
 
-Select exactly **two photos** in the grid, then press `C`. Both photos display side by side at full resolution. Use this to decide between two similar shots.
+Select **two or more photos** in the grid, then press `C`. They display **side by side**, each fit to the window — the way to decide between similar shots. Zoom into a detail (scroll, or click) and **every pane zooms and pans to the same spot together**, so you compare sharpness and expression at 100% across all of them at once; drag to pan, locked together.
 
-When IsomFolio has computed focus data for both frames, the sharper one is marked **◉ Sharper** in its caption strip — handy for picking the keeper from two near-identical frames. It's a *relative* comparison between the two shots on screen, not an absolute "in focus" verdict, so it only appears when the two differ clearly. (Focus data is computed alongside thumbnails/stacking, so it may be missing for a moment right after import.)
+The **sharpest** pane is marked **◉ Sharpest** in its caption strip — a *relative* comparison among the frames on screen (computed live from each pane), not an absolute "in focus" verdict, so it only appears when one frame clearly leads. Flag the keeper with `P` / the rest with `X`, then press `Esc` to return to the grid.
 
-Press `Esc` to return to the grid.
+For inspecting candidates one at a time instead, select them and press `Space` to open the **Loupe scoped to your selection** (see *Loupe view* above). Both are covered in detail under [Culling → Comparing similar shots](/guide/culling/).
 
 ## Thumbnail zoom
 
