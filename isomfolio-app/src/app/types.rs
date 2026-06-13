@@ -611,6 +611,9 @@ pub enum Msg {
     UndoApplied,
     OpenCompare,
     CompareFullResLoaded { slot: usize, handle: iced::widget::image::Handle },
+    /// Synced zoom/pan for Compare — emitted by any pane's `LoupeImage`, applied to
+    /// the shared `CompareState` so every pane tracks the same region.
+    CompareZoomChanged { scale: f32, pan: iced::Vector },
     NoOp,
 
     SidebarResizeStart,

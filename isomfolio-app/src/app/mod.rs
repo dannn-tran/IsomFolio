@@ -458,11 +458,22 @@ pub struct CompareState {
     /// Computed sharpness (variance-of-Laplacian) per pane, parallel to `files`,
     /// when available. Only compared *between* the frames — never an absolute value.
     pub sharpness: Vec<Option<f64>>,
+    /// Zoom factor and pan offset **shared by every pane** (1.0 = fit). This is what
+    /// makes the comparison synced: zoom/pan one pane and all panes track the same
+    /// region, so you check focus at the same spot across candidates at once.
+    pub zoom: f32,
+    pub pan: iced::Vector,
 }
 
 impl Default for CompareState {
     fn default() -> Self {
-        Self { files: Vec::new(), handles: Vec::new(), sharpness: Vec::new() }
+        Self {
+            files: Vec::new(),
+            handles: Vec::new(),
+            sharpness: Vec::new(),
+            zoom: LOUPE_ZOOM_MIN,
+            pan: iced::Vector::ZERO,
+        }
     }
 }
 
@@ -1771,7 +1782,7 @@ mod layout_tests {
         use super::*;
 
         fn cmp(scores: Vec<Option<f64>>) -> CompareState {
-            CompareState { files: vec![], handles: vec![], sharpness: scores }
+            CompareState { sharpness: scores, ..Default::default() }
         }
 
         #[test]

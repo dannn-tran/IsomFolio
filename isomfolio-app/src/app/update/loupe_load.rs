@@ -105,7 +105,9 @@ impl App {
         let path = file.disk_path();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || decode_image_for_display(&path, false))
+                // prefer_full so a RAW pane zooms to real pixels (JPEG is full either
+                // way) — Compare exists to pixel-check focus across candidates.
+                tokio::task::spawn_blocking(move || decode_image_for_display(&path, true))
                     .await
                     .ok()
                     .flatten()
@@ -376,6 +378,8 @@ impl App {
                     files,
                     handles: vec![None; n],
                     sharpness,
+                    // Fresh compare opens at fit; zoom is shared across panes.
+                    ..Default::default()
                 };
                 self.view_mode = ViewMode::Compare;
                 Task::batch((0..n).map(|slot| self.load_compare_slot(slot)).collect::<Vec<_>>())
@@ -387,6 +391,19 @@ impl App {
                         *h = Some(handle);
                     }
                 }
+                Task::none()
+            }
+
+            Msg::CompareZoomChanged { scale, pan } => {
+                // Any pane's gesture sets the shared zoom/pan; all panes re-render to
+                // the same region. Clamp to the loupe's range; fit drops the pan.
+                self.compare.zoom =
+                    scale.clamp(super::super::LOUPE_ZOOM_MIN, super::super::LOUPE_ZOOM_MAX);
+                self.compare.pan = if self.compare.zoom <= super::super::LOUPE_ZOOM_MIN {
+                    iced::Vector::ZERO
+                } else {
+                    pan
+                };
                 Task::none()
             }
 

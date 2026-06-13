@@ -23,7 +23,9 @@ impl App {
                 Space::new().width(Length::Fill),
                 text(format!("Compare · {n}")).size(TEXT_BASE).color(FG),
                 Space::new().width(Length::Fill),
-                text("Esc to exit").size(TEXT_MD).color(FG_DIM),
+                text("scroll/click zoom · drag pan · synced · Esc")
+                    .size(TEXT_MD)
+                    .color(FG_DIM),
             ]
             .spacing(SPACE_2_5)
             .align_y(Alignment::Center),
@@ -57,11 +59,16 @@ impl App {
         let handle = self.compare.handles.get(slot).and_then(|h| h.as_ref());
 
         let img_el: Element<Msg> = match handle {
-            Some(h) => image(h.clone())
-                .content_fit(iced::ContentFit::Contain)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
+            // Full-res handle → a zoomable/pannable pane driven by the *shared*
+            // compare zoom/pan, so panning/zooming one pane moves them all in lockstep.
+            Some(h) => super::loupe_image::LoupeImage::new(
+                h.clone(),
+                self.compare.zoom,
+                self.compare.pan,
+                |scale, pan| Msg::CompareZoomChanged { scale, pan },
+                |_, _| Msg::NoOp,
+            )
+            .into(),
             None => {
                 if let Some(f) = file {
                     let thumb = self.thumbnails.get(&f.id).and_then(|s| {

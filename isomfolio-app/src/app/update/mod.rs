@@ -187,7 +187,8 @@ impl App {
             | Msg::LoupeHiresLoaded { .. }
             | Msg::LoupePrefetchLoaded { .. }
             | Msg::OpenCompare
-            | Msg::CompareFullResLoaded { .. } => self.handle_loupe_msg(msg),
+            | Msg::CompareFullResLoaded { .. }
+            | Msg::CompareZoomChanged { .. } => self.handle_loupe_msg(msg),
 
             // — content-based stacking —
             Msg::RunStacking
