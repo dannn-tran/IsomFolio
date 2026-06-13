@@ -369,11 +369,18 @@ impl App {
                 ..Default::default()
             });
 
-        // Filename below the preview, never overlaying it.
+        // Filename below the preview, with a hint at how to pick this frame
+        // (click, or the universal P/X cull keys) — never overlaying the image.
+        let hint = if keep { "P/click keep · X reject" } else { "P/click keep" };
         let caption = container(
-            text(format!("{}  ·  frame {} of {}", f.name, focus + 1, stack.frames.len()))
-                .size(TEXT_SM)
-                .color(FG_DIM),
+            text(format!(
+                "{}  ·  frame {} of {}  ·  {hint}",
+                f.name,
+                focus + 1,
+                stack.frames.len()
+            ))
+            .size(TEXT_SM)
+            .color(FG_DIM),
         )
         .padding([SPACE_1, SPACE_2])
         .width(Length::Fill)

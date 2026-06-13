@@ -246,10 +246,14 @@ impl App {
             }
 
             Msg::SetFlag(flag) => {
-                // In the stack review, flags have no target (selection is cleared);
-                // frame picking is keeper-toggling, so swallow them here.
+                // In the stack review, flags retarget to the *focused* frame: P keeps
+                // it, X rejects it (U clears the keep too). This is how you pick in
+                // Strip — the previewed frame — without the by-position number row.
                 if self.in_resolve() {
-                    return Task::none();
+                    return match flag {
+                        Flag::Pick => self.resolve_keep_focused(true),
+                        Flag::Reject | Flag::Unflagged => self.resolve_keep_focused(false),
+                    };
                 }
                 let ids = self.selection_target_ids();
                 let db_task = self.edit_flags(ids, flag);

@@ -347,6 +347,26 @@ impl App {
         Task::none()
     }
 
+    /// Pick (`keep = true`) or reject (`keep = false`) the *focused* frame — the
+    /// one in the Strip preview, or the first in a Grid group. Wires the universal
+    /// `P`/`X` cull keys to the frame the user is looking at, so picking in Strip
+    /// isn't limited to the by-position number row or a click on the big preview.
+    pub(super) fn resolve_keep_focused(&mut self, keep: bool) -> Task<Msg> {
+        if let Some(stack) = self.resolve.stacks.get(self.resolve.idx) {
+            let focus = self.resolve.focus.min(stack.frames.len().saturating_sub(1));
+            if let Some(f) = stack.frames.get(focus) {
+                let id = f.id.clone();
+                if keep {
+                    self.resolve.keepers.insert(id);
+                } else {
+                    self.resolve.keepers.remove(&id);
+                }
+                self.commit_keepers();
+            }
+        }
+        Task::none()
+    }
+
     /// Restore the current stack's keepers to the auto-picked (sharpest) frame.
     pub(super) fn resolve_reset_auto(&mut self) -> Task<Msg> {
         if let Some(stack) = self.resolve.stacks.get(self.resolve.idx) {
@@ -870,6 +890,20 @@ mod tests {
             assert_eq!(app.resolve.focus, 1);
             let _ = app.update(Msg::Navigate { dx: -1, dy: 0 });
             assert_eq!(app.resolve.focus, 0);
+        }
+
+        #[test]
+        fn pick_reject_keys_target_focused_frame() {
+            // P keeps the focused (previewed) frame, X rejects it — the Strip pick
+            // path that the by-position number row and a preview click also serve.
+            use isomfolio_core::models::Flag;
+            let mut app = app_with_group(4);
+            app.resolve.layout = SurfaceLayout::Strip;
+            let _ = app.update(Msg::SiftFocusFrame(2));
+            let _ = app.update(Msg::SetFlag(Flag::Pick));
+            assert!(app.resolve.keepers.contains("f2"), "P keeps the focused frame");
+            let _ = app.update(Msg::SetFlag(Flag::Reject));
+            assert!(!app.resolve.keepers.contains("f2"), "X rejects the focused frame");
         }
 
         #[test]
