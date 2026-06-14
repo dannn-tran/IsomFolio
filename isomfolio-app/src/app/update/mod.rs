@@ -188,7 +188,12 @@ impl App {
             | Msg::CompareFullResLoaded { .. }
             | Msg::CompareZoomChanged { .. }
             | Msg::CompareSetCols(_)
-            | Msg::CompareToggleSort => self.handle_loupe_msg(msg),
+            | Msg::CompareToggleSort
+            | Msg::CompareSetLayout(_)
+            | Msg::CompareToggleLayout
+            | Msg::CompareSetFocus(_)
+            | Msg::CompareRemoveFocused
+            | Msg::CompareToggleZoomLock => self.handle_loupe_msg(msg),
 
             Msg::BgTaskDismissed(id) => {
                 self.bg_tasks.retain(|t| t.id != id);

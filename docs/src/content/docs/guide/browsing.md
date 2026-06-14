@@ -55,13 +55,14 @@ Loupe pre-fetches adjacent photos in the background so navigation is instant eve
 
 Press `E` to enter **Preview** — a single-photo view that keeps the sidebar and status bar visible. Useful when you want full-resolution context without going fully full-screen.
 
-## Compare mode
+## Review mode
 
-Select **two or more photos** in the grid, then press `C`. They display **side by side**, each fit to the window — the way to decide between similar shots. Zoom into a detail (scroll, or click) and **every pane zooms and pans to the same spot together**, so you compare sharpness and expression at 100% across all of them at once; drag to pan, locked together.
+Select **two or more photos** in the grid, then press `C` (or `Space`). They open in the **review surface** — one place with two layouts you flip between with `Space`:
 
-The **sharpest** pane is marked **◉ Sharpest** in its caption strip — a *relative* comparison among the frames on screen (computed live from each pane), not an absolute "in focus" verdict, so it only appears when one frame clearly leads. Flag the keeper with `P` / the rest with `X`, then press `Esc` to return to the grid.
+- **Survey** — all frames at once, fit to the window, with **synced zoom** (zoom one and every frame tracks the same spot for a 100% comparison).
+- **One-up** — the focused frame big over a filmstrip; turn on **Lock zoom** for a blink comparison as you step between frames.
 
-For inspecting candidates one at a time instead, select them and press `Space` to open the **Loupe scoped to your selection** (see *Loupe view* above). Both are covered in detail under [Culling → Comparing similar shots](/guide/culling/).
+The **sharpest** frame is marked **◉ Sharpest** and each shows its rank (**Sharp #2 / 5**) — a *relative* comparison among the frames on screen, not an absolute "in focus" verdict. Flag the keeper with `P` and the rest with `X`, press `R` to drop an also-ran from the set, and `Esc` to return to the grid. Covered in detail under [Culling → Comparing similar shots](/guide/culling/).
 
 ## Thumbnail zoom
 

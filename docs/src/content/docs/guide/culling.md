@@ -101,19 +101,19 @@ Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selecti
 
 When you've shot several near-identical frames — a burst, or a few tries at the same setup — pick the best by reviewing them together. Sort the grid by **capture time** (the default) so a burst sits as one contiguous run, then select the candidates: click the first and **Shift+Click** the last to grab the whole run, or **Cmd+Click** individual frames.
 
-With a selection of two or more, two focused review surfaces open from the grid — **right-click the selection** and choose **Compare** or **Review in Loupe**, or use the shortcuts below:
+With a selection of two or more, the **review surface** opens over just those frames. It's **one surface with two layouts** you flip between with **`Space`** — see all at once, or one big at a time. Open it with **`C`** (Survey), or **`Space`** (One-up), or right-click the selection → **Compare** / **Review in Loupe**.
 
-### Compare — side by side
+### Two layouts, one review
 
-Press **`C`** to open the selected frames in an **adaptive grid**, each fit to the window. This is the way to judge fine differences across candidates at once:
+- **Survey — all at once.** The frames tile into a roughly square grid (each as large as possible, not squeezed into a thin row). Use the **Columns** control in the top bar (**Auto / 1 / 2 / 3**) to force a single row, a 2-up, etc. **Synced zoom:** scroll or click to zoom into a detail — the subject's eye, say — and *every* frame zooms and pans to the same spot together, so you compare sharpness and expression at 100% across all of them simultaneously.
+- **One-up — one big + filmstrip.** The focused frame fills the view over a filmstrip of the set (click any thumb to jump to it). Zoom in to pixel-check focus; turn on **⊞ Lock zoom** and the zoom holds as you step between frames — flicking back and forth becomes a *blink comparison* of the same region.
 
-- **Adaptive layout.** Frames tile into a roughly square grid so each stays as large as possible, instead of being squeezed into one thin row. Use the **Grid** control in the top bar (**Auto / 1 / 2 / 3**) to force a single row, a 2-up, or however many columns you want.
-- **Synced zoom.** Scroll (or click) to zoom into a detail — the subject's eye, say — and **every pane zooms and pans to the same spot together**, so you compare sharpness and expression at 100% across all of them simultaneously. Drag to pan; the panes stay locked together.
-- **Sharpness ranking.** Each frame shows its sharpness place (**Sharp #2 / 5**), and the clear winner is marked **◉ Sharpest** — a *relative* cue among the frames you're comparing (never an absolute "blurry" verdict). Toggle **◉ Sharpest first** to reorder the panes sharpest-to-softest. Eyes-open and expression are still your call.
-- **Flag the keepers right here.** One pane is *focused* (highlighted with a ring); use **`←`** / **`→`** to move the focus. The cull keys act on the focused frame — **`P`** picks it, **`X`** rejects it, **`U`** clears, and **`1`–`5`** rate — and its badge updates immediately, so you pick the best of the bunch without leaving Compare. With auto-advance on, the focus steps to the next frame after each flag. **Esc** returns to the grid.
+Switch any time with **`Space`** — same set, same focused frame, just a different view.
 
-### Loupe — one at a time
+### Pick the best, with sharpness guidance
 
-Press **`Space`** on a multi-selection to open the **Loupe scoped to just those frames**: a large one-up preview over a filmstrip of the selection, stepping (`←`/`→`) only through what you picked. Zoom in to pixel-check focus; with **zoom lock** on, the zoom holds as you flip between frames, so flicking back and forth is a *blink comparison* of the same region. Flag as you go. (With a single photo selected, `Space` opens the normal Loupe over the whole view.)
+- **Sharpness ranking.** Each frame shows its place (**Sharp #2 / 5**), and the clear winner is marked **◉ Sharpest** — a *relative* cue among the frames you're comparing (never an absolute "blurry" verdict). Toggle **◉ Sharpest first** to reorder sharpest-to-softest. Eyes-open and expression are still your call.
+- **Flag right here.** One frame is *focused* (ringed); **`←`** / **`→`** move the focus (or click a Survey pane / filmstrip thumb). The cull keys act on the focused frame — **`P`** picks, **`X`** rejects, **`U`** clears, **`1`–`5`** rate — its badge updates immediately, and with auto-advance on the focus steps to the next frame so you cull a burst with repeated `P`/`X`.
+- **Whittle down with `R`.** Press **`R`** to drop the focused frame from the comparison — not a reject, just removes it from the set so the survey narrows to the real contenders. Emptying the set returns you to the grid.
 
-Both surfaces leave no trace of their own — your **flags** are the durable result. Collect the keepers into an album with **`B`** (see *Gathering keepers with a target album* above) if you want them grouped.
+**`Esc`** leaves the review with your whole reviewed set still selected in the grid. The review leaves no trace of its own — your **flags** are the durable result. Collect the keepers into an album with **`B`** (see *Gathering keepers with a target album* above) if you want them grouped.

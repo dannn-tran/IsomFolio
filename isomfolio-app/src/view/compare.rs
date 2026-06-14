@@ -1,17 +1,17 @@
 use iced::{
-    widget::{button, column, container, image, row, stack, text, Space},
+    widget::{button, column, container, image, row, scrollable, stack, text, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
 use isomfolio_core::models::Flag;
 
-use crate::app::{App, Msg};
+use crate::app::{App, Msg, ReviewLayout};
 use super::styles::{
     active_chip_style, ghost_btn_style, ACCENT, BG_GRID, ERR, FG, FG_DIM, OVERLAY_HEAVY, SPACE_0_5,
     SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM,
 };
 
 /// A small segmented-control chip — `active_chip_style` when selected, ghost
-/// otherwise. Used for the column-count and sort toggles in the Compare top bar.
+/// otherwise. Used for the layout, column-count, and sort toggles in the top bar.
 fn chip<'a>(label: impl text::IntoFragment<'a>, msg: Msg, active: bool) -> Element<'a, Msg> {
     button(text(label).size(TEXT_MD))
         .padding([SPACE_0_5, SPACE_1_5])
@@ -20,54 +20,60 @@ fn chip<'a>(label: impl text::IntoFragment<'a>, msg: Msg, active: bool) -> Eleme
         .into()
 }
 
+fn tip<'a>(el: impl Into<Element<'a, Msg>>, label: &'static str) -> Element<'a, Msg> {
+    super::styles::tip(el, label, super::styles::TipPos::Bottom)
+}
+
 impl App {
     pub(crate) fn view_compare(&self) -> Element<'_, Msg> {
         let n = self.compare.files.len();
-        let cols = self.compare.grid_cols();
-        let order = self.compare.display_order();
+        let layout = self.compare.layout;
 
-        // Column-count control: Auto (√n) plus explicit 1..=min(n,4). Lets the user
-        // force a single row, a 2-up, etc. when the auto-square isn't what they want.
-        // The bare "1 2 3" are opaque on their own, so each carries a tooltip.
-        let tip = |el, label: &'static str| {
-            super::styles::tip(el, label, super::styles::TipPos::Bottom)
+        // The review surface is one place at two presentations — a layout switch,
+        // not two features. Survey = all at once (synced zoom); One-up = focused
+        // frame + filmstrip (pixel-peep / blink-compare). Space flips them in place.
+        let layout_switch = row![
+            tip(
+                chip("▦ Survey", Msg::CompareSetLayout(ReviewLayout::Survey), layout == ReviewLayout::Survey),
+                "All frames at once · synced zoom",
+            ),
+            tip(
+                chip("⛶ One-up", Msg::CompareSetLayout(ReviewLayout::OneUp), layout == ReviewLayout::OneUp),
+                "Focused frame + filmstrip · pixel-peep",
+            ),
+        ]
+        .spacing(SPACE_1)
+        .align_y(Alignment::Center);
+
+        // Layout-specific control: column count in Survey, zoom-lock in One-up.
+        let mode_control: Element<Msg> = match layout {
+            ReviewLayout::Survey => self.compare_column_control(n),
+            ReviewLayout::OneUp => tip(
+                chip("⊞ Lock zoom", Msg::CompareToggleZoomLock, self.compare.lock_zoom),
+                "Hold zoom across frames (blink-compare)",
+            ),
         };
-        let mut col_control = row![text("Columns").size(TEXT_MD).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        col_control = col_control.push(tip(
-            chip("Auto", Msg::CompareSetCols(None), self.compare.cols.is_none()),
-            "Auto — a roughly square grid",
-        ));
-        for c in 1..=n.min(4) {
-            let label: &'static str = match c {
-                1 => "1 column (single row of rows)",
-                2 => "2 columns",
-                3 => "3 columns",
-                _ => "4 columns",
-            };
-            col_control = col_control.push(tip(
-                chip(c.to_string(), Msg::CompareSetCols(Some(c)), self.compare.cols == Some(c)),
-                label,
-            ));
-        }
 
         let sort_chip = tip(
             chip("\u{25c9} Sharpest first", Msg::CompareToggleSort, self.compare.sort_sharp),
-            "Reorder panes sharpest → softest",
+            "Reorder frames sharpest → softest",
         );
+
+        let hint = match layout {
+            ReviewLayout::Survey => "←/→ focus · Space one-up · P pick · X reject · R remove · Esc",
+            ReviewLayout::OneUp => "←/→ frame · Space survey · scroll zoom · P pick · X reject · R remove · Esc",
+        };
 
         let top_bar = container(
             row![
                 super::styles::icon_btn("✕", Msg::EscapePressed),
                 text(format!("Compare · {n}")).size(TEXT_BASE).color(FG),
                 Space::new().width(Length::Fill),
-                col_control,
+                layout_switch,
+                mode_control,
                 sort_chip,
                 Space::new().width(Length::Fill),
-                text("←/→ focus · P pick · X reject · scroll zoom · Esc")
-                    .size(TEXT_MD)
-                    .color(FG_DIM),
+                text(hint).size(TEXT_MD).color(FG_DIM),
             ]
             .spacing(SPACE_2_5)
             .align_y(Alignment::Center),
@@ -79,33 +85,131 @@ impl App {
             ..Default::default()
         });
 
-        // Wrap the display order into `cols`-wide rows; each row shares the height
-        // and each cell the width, so panes stay as large and square as the count
-        // allows instead of being squeezed into one horizontal strip.
+        let body = match layout {
+            ReviewLayout::Survey => self.compare_survey_body(),
+            ReviewLayout::OneUp => self.compare_oneup_body(),
+        };
+
+        column![top_bar, body].into()
+    }
+
+    /// Column-count control: Auto (√n) plus explicit 1..=min(n,4). The bare "1 2 3"
+    /// are opaque alone, so each carries a tooltip.
+    fn compare_column_control(&self, n: usize) -> Element<'_, Msg> {
+        let mut control = row![text("Columns").size(TEXT_MD).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        control = control.push(tip(
+            chip("Auto", Msg::CompareSetCols(None), self.compare.cols.is_none()),
+            "Auto — a roughly square grid",
+        ));
+        for c in 1..=n.min(4) {
+            let label: &'static str = match c {
+                1 => "1 column",
+                2 => "2 columns",
+                3 => "3 columns",
+                _ => "4 columns",
+            };
+            control = control.push(tip(
+                chip(c.to_string(), Msg::CompareSetCols(Some(c)), self.compare.cols == Some(c)),
+                label,
+            ));
+        }
+        control.into()
+    }
+
+    /// Survey: every frame at once, wrapped into `cols`-wide rows so panes stay as
+    /// large and square as the count allows instead of one squeezed strip.
+    fn compare_survey_body(&self) -> Element<'_, Msg> {
+        let cols = self.compare.grid_cols();
+        let order = self.compare.display_order();
         let mut grid = column![].spacing(SPACE_2).width(Length::Fill).height(Length::Fill);
         for chunk in order.chunks(cols) {
             let mut r = row![].spacing(SPACE_2).width(Length::Fill).height(Length::Fill);
             for &slot in chunk {
                 r = r.push(self.compare_panel(slot));
             }
-            // Pad a short final row so its cells keep the same width as full rows
-            // above (a Fill cell would otherwise stretch to fill the gap).
+            // Pad a short final row so its cells keep the same width as full rows.
             for _ in chunk.len()..cols {
                 r = r.push(Space::new().width(Length::Fill).height(Length::Fill));
             }
             grid = grid.push(r);
         }
-
-        let body = container(grid)
+        container(grid)
             .padding([SPACE_2, SPACE_3])
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {
                 background: Some(Background::Color(BG_GRID)),
                 ..Default::default()
-            });
+            })
+            .into()
+    }
 
-        column![top_bar, body].into()
+    /// One-up: the focused frame big (shared zoom/pan, blink-compare with lock) over
+    /// a filmstrip of the whole review set.
+    fn compare_oneup_body(&self) -> Element<'_, Msg> {
+        let big = container(self.compare_panel(self.compare.focus))
+            .padding([SPACE_2, SPACE_3])
+            .width(Length::Fill)
+            .height(Length::Fill);
+        container(column![big, self.compare_filmstrip()].width(Length::Fill).height(Length::Fill))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_: &Theme| container::Style {
+                background: Some(Background::Color(BG_GRID)),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    /// Filmstrip of the review set (display order), the focused frame ringed; click a
+    /// thumb to focus it. Horizontally scrollable for large sets.
+    fn compare_filmstrip(&self) -> Element<'_, Msg> {
+        const THUMB: f32 = 64.0;
+        let mut strip = row![].spacing(SPACE_1).align_y(Alignment::Center);
+        for slot in self.compare.display_order() {
+            let Some(f) = self.compare.files.get(slot) else { continue };
+            let is_cur = slot == self.compare.focus;
+            let thumb: Element<Msg> = match self.thumbnails.get(&f.id) {
+                Some(isomfolio_core::models::ThumbnailState::Ready(p)) => {
+                    image(image::Handle::from_path(p))
+                        .content_fit(iced::ContentFit::Contain)
+                        .width(THUMB)
+                        .height(THUMB)
+                        .into()
+                }
+                _ => Space::new().width(THUMB).height(THUMB).into(),
+            };
+            let cell = container(thumb).width(THUMB).height(THUMB).style(move |_: &Theme| {
+                container::Style {
+                    border: Border {
+                        color: if is_cur { ACCENT } else { Color::TRANSPARENT },
+                        width: 2.0,
+                        radius: 3.0.into(),
+                    },
+                    ..Default::default()
+                }
+            });
+            strip = strip.push(
+                button(cell)
+                    .padding(0)
+                    .on_press(Msg::CompareSetFocus(slot))
+                    .style(|_: &Theme, _| button::Style::default()),
+            );
+        }
+        container(
+            scrollable(strip).direction(scrollable::Direction::Horizontal(
+                scrollable::Scrollbar::new().width(4).scroller_width(4),
+            )),
+        )
+        .padding([SPACE_1, SPACE_2])
+        .width(Length::Fill)
+        .style(|_: &Theme| container::Style {
+            background: Some(Background::Color(OVERLAY_HEAVY)),
+            ..Default::default()
+        })
+        .into()
     }
 
     fn compare_panel(&self, slot: usize) -> Element<'_, Msg> {

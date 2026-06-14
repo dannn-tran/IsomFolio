@@ -86,6 +86,7 @@ pub fn default_bindings() -> Vec<KeyBind> {
         KeyBind { key: Char("p"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetFlag(isomfolio_core::models::Flag::Pick),      label: "Flag Pick",      category: Culling },
         KeyBind { key: Char("x"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetFlag(isomfolio_core::models::Flag::Reject),    label: "Flag Reject",    category: Culling },
         KeyBind { key: Char("u"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetFlag(isomfolio_core::models::Flag::Unflagged), label: "Flag Unflagged", category: Culling },
+        KeyBind { key: Char("r"), mods: Mods::NONE, when_ignored: true, action: || Msg::CompareRemoveFocused, label: "Remove from Compare (whittle down)", category: Culling },
         KeyBind { key: Char("0"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(None),    label: "Clear Rating", category: Culling },
         KeyBind { key: Char("1"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(1)), label: "1 Star",       category: Culling },
         KeyBind { key: Char("2"), mods: Mods::NONE, when_ignored: true, action: || Msg::SetRating(Some(2)), label: "2 Stars",      category: Culling },

@@ -26,10 +26,10 @@ Press `?` at any time to open the in-app shortcut help panel.
 
 | Shortcut | Action |
 |---|---|
-| `Space` | Toggle Loupe — full-screen single photo, or, with 2+ selected, scoped to the selection |
+| `Space` | Toggle Loupe (single photo); with 2+ selected, open the review One-up; in the review, flip Survey ⇄ One-up |
 | `E` | Toggle Preview mode |
 | `I` | Toggle Info panel |
-| `C` | Compare selected photos side by side (2 or more) |
+| `C` | Review selected photos in Survey (all at once, 2 or more) |
 | `+` / `Cmd++` | Zoom in — larger grid thumbnails, or zoom the loupe image |
 | `-` / `Cmd+-` | Zoom out — smaller grid thumbnails, or zoom the loupe image |
 | `Z` | In the loupe: toggle 1:1 (actual pixels) / Fit |
@@ -43,6 +43,7 @@ Press `?` at any time to open the in-app shortcut help panel.
 | `P` | Flag as Pick |
 | `X` | Flag as Reject |
 | `U` | Flag as Unflagged |
+| `R` | In the review: remove the focused frame from the comparison (whittle down) |
 | `1` | Set rating: 1 star |
 | `2` | Set rating: 2 stars |
 | `3` | Set rating: 3 stars |

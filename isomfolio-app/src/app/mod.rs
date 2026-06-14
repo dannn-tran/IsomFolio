@@ -61,11 +61,6 @@ pub struct LoupeState {
     /// explanatory overlay so a permission-blocked photo isn't a silent pixelated
     /// fallback. Keyed by idx so it self-clears on navigate.
     pub load_error: Option<(usize, LoupeLoadError)>,
-    /// When non-empty, the loupe steps through *only* these file indices (a
-    /// multi-selection sent to review), not the whole view — `idx` is still an
-    /// index into `files`, but navigation moves between scope entries. Empty =
-    /// browse the whole view.
-    pub scope: Vec<usize>,
 }
 
 /// A full-resolution load failure, with enough to explain it and offer a fix.
@@ -103,7 +98,6 @@ impl Default for LoupeState {
             native: None,
             lock_zoom: false,
             load_error: None,
-            scope: Vec::new(),
         }
     }
 }
@@ -422,6 +416,17 @@ pub struct App {
 /// How long a finished task lingers in the panel before expiring.
 pub const COMPLETED_TTL: std::time::Duration = std::time::Duration::from_secs(4);
 
+/// How the review surface presents the selection under comparison. Two layouts of
+/// **one** surface (shared scope + focus cursor + cull keys), not two features:
+/// `Survey` shows every frame at once for simultaneous comparison; `OneUp` shows the
+/// focused frame big over a filmstrip for pixel-peep + blink-compare.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReviewLayout {
+    #[default]
+    Survey,
+    OneUp,
+}
+
 pub struct CompareState {
     pub files: Vec<isomfolio_core::models::AssetFile>,
     pub handles: Vec<Option<iced::widget::image::Handle>>,
@@ -441,6 +446,11 @@ pub struct CompareState {
     /// Slot of the **focused** pane — the one cull keys (`P`/`X`/`U`, ratings) act
     /// on, ringed in the view. Arrow keys step it through the display order.
     pub focus: usize,
+    /// Survey (all at once) vs OneUp (focused frame + filmstrip). `Space` flips it.
+    pub layout: ReviewLayout,
+    /// OneUp blink-compare: holds zoom+pan across focus changes so flicking between
+    /// frames pixel-checks the same region. Mirrors the loupe's `lock_zoom`.
+    pub lock_zoom: bool,
 }
 
 impl Default for CompareState {
@@ -454,6 +464,8 @@ impl Default for CompareState {
             cols: None,
             sort_sharp: false,
             focus: 0,
+            layout: ReviewLayout::Survey,
+            lock_zoom: false,
         }
     }
 }
@@ -545,6 +557,28 @@ impl CompareState {
         let moved = next != self.focus;
         self.focus = next;
         moved
+    }
+
+    /// Whittle-down: drop the focused frame from the review set (not a flag — just
+    /// removes it from the comparison). Keeps `files`/`handles`/`sharpness` parallel,
+    /// clamps focus to a neighbour. Returns `false` when the set is now empty (caller
+    /// should leave the review).
+    pub fn remove_focused(&mut self) -> bool {
+        if self.focus >= self.files.len() {
+            return !self.files.is_empty();
+        }
+        self.files.remove(self.focus);
+        if self.focus < self.handles.len() {
+            self.handles.remove(self.focus);
+        }
+        if self.focus < self.sharpness.len() {
+            self.sharpness.remove(self.focus);
+        }
+        if self.files.is_empty() {
+            return false;
+        }
+        self.focus = self.focus.min(self.files.len() - 1);
+        true
     }
 }
 

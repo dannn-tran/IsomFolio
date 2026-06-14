@@ -540,6 +540,16 @@ pub enum Msg {
     CompareSetCols(Option<usize>),
     /// Toggle sharpest-first ordering of Compare panes.
     CompareToggleSort,
+    /// Switch the review layout (Survey ⇄ OneUp).
+    CompareSetLayout(crate::app::ReviewLayout),
+    /// Flip the review layout in place (Survey ⇄ OneUp) on the focused frame.
+    CompareToggleLayout,
+    /// Focus a specific pane (filmstrip click in OneUp, etc.).
+    CompareSetFocus(usize),
+    /// Whittle-down: drop the focused frame from the review set.
+    CompareRemoveFocused,
+    /// OneUp blink-compare: hold zoom/pan across focus changes.
+    CompareToggleZoomLock,
     NoOp,
 
     SidebarResizeStart,

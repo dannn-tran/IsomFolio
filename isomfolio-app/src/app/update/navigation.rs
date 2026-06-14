@@ -36,10 +36,17 @@ impl App {
 
             Msg::Navigate { dx, dy } => {
                 if matches!(self.view_mode, ViewMode::Compare) {
-                    // Arrows move the focused pane (the cull target) through the
-                    // display order; clamp, no wrap. Nothing else to reload — every
-                    // pane is already on screen.
-                    self.compare.step_focus(dx + dy);
+                    // Arrows move the focused frame (the cull target) through the
+                    // display order; clamp, no wrap. Survey keeps the shared zoom (all
+                    // panes track one region); One-up resets to fit per frame unless
+                    // zoom-lock is on (then it holds — a blink comparison).
+                    let moved = self.compare.step_focus(dx + dy);
+                    let one_up =
+                        self.compare.layout == super::super::ReviewLayout::OneUp;
+                    if moved && one_up && !self.compare.lock_zoom {
+                        self.compare.zoom = super::super::LOUPE_ZOOM_MIN;
+                        self.compare.pan = iced::Vector::ZERO;
+                    }
                     return Task::none();
                 }
                 if matches!(self.view_mode, ViewMode::Loupe | ViewMode::Preview) {
@@ -48,19 +55,11 @@ impl App {
                         return Task::none();
                     }
                     let delta = dx + dy;
-                    // Clamp, don't wrap — stepping off either end stays put. A scoped
-                    // loupe (a multi-selection sent to review) steps between scope
-                    // entries; otherwise between all files.
-                    let scoped =
-                        matches!(self.view_mode, ViewMode::Loupe) && !self.loupe.scope.is_empty();
-                    let new_idx = if scoped {
-                        let scope = &self.loupe.scope;
-                        let pos = scope.iter().position(|&i| i == self.loupe.idx).unwrap_or(0);
-                        let npos = (pos as i32 + delta).clamp(0, scope.len() as i32 - 1) as usize;
-                        scope[npos]
-                    } else {
-                        (self.loupe.idx as i32 + delta).clamp(0, total as i32 - 1) as usize
-                    };
+                    // Clamp, don't wrap — stepping off either end stays put. (Subset
+                    // review now lives in the Compare surface; the loupe always steps
+                    // the whole view.)
+                    let new_idx =
+                        (self.loupe.idx as i32 + delta).clamp(0, total as i32 - 1) as usize;
                     if new_idx == self.loupe.idx {
                         // At the boundary: a true no-op, no needless reload/flicker.
                         return Task::none();
@@ -184,7 +183,11 @@ impl App {
                 if matches!(self.view_mode, ViewMode::Loupe) {
                     return self.exit_loupe_to_grid();
                 }
-                if matches!(self.view_mode, ViewMode::Compare | ViewMode::Settings) {
+                if matches!(self.view_mode, ViewMode::Compare) {
+                    // Leave the review restoring the whole set as the grid selection.
+                    return self.exit_compare_to_grid();
+                }
+                if matches!(self.view_mode, ViewMode::Settings) {
                     self.view_mode = ViewMode::Browse;
                     return self.restore_sidebar_scroll();
                 }

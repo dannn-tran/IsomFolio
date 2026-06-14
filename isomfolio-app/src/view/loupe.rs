@@ -105,12 +105,7 @@ impl App {
         };
 
         let filename = self.files.get(idx).map(|f| f.name.as_str()).unwrap_or("");
-        // A scoped loupe (multi-selection review) counts within the selection and
-        // says so, so the narrowed set never reads as a bug; Esc returns to all.
-        let counter = if !self.loupe.scope.is_empty() {
-            let pos = self.loupe.scope.iter().position(|&i| i == idx).unwrap_or(0);
-            format!("Reviewing {} / {} selected · Esc for all", pos + 1, self.loupe.scope.len())
-        } else if total > 0 {
+        let counter = if total > 0 {
             format!("{} / {}", idx + 1, total)
         } else {
             String::new()
@@ -395,11 +390,8 @@ impl App {
         const THUMB: f32 = 56.0;
         const WINDOW: usize = 14;
         let total = self.files.len();
-        // Scoped review shows exactly the selected frames; otherwise a window of the
-        // whole view around the current photo.
-        let indices: Vec<usize> = if !self.loupe.scope.is_empty() {
-            self.loupe.scope.clone()
-        } else {
+        // A window of the whole view around the current photo.
+        let indices: Vec<usize> = {
             let lo = current.saturating_sub(WINDOW);
             let hi = (current + WINDOW + 1).min(total);
             (lo..hi).collect()

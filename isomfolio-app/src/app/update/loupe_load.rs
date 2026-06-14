@@ -170,25 +170,66 @@ impl App {
         self.select_lead = Some(self.loupe.idx);
         self.grid_selected.clear();
         self.selection_base.clear();
-        // A scoped loupe (multi-selection review) restores its whole selection so
-        // the user lands back on the same set, not collapsed to one frame. An
-        // unscoped browse just selects the photo we exited on.
-        if self.loupe.scope.is_empty() {
-            if let Some(f) = self.files.get(self.loupe.idx) {
-                self.grid_selected.insert(f.id.clone());
-            }
-        } else {
-            for &i in &self.loupe.scope {
-                if let Some(f) = self.files.get(i) {
-                    self.grid_selected.insert(f.id.clone());
-                }
-            }
+        if let Some(f) = self.files.get(self.loupe.idx) {
+            self.grid_selected.insert(f.id.clone());
         }
         self.view_mode = ViewMode::Browse;
         self.loupe.full_res = None;
         self.loupe.prefetch.clear();
-        self.loupe.scope.clear();
         Task::batch([self.scroll_to_index(self.loupe.idx), self.restore_sidebar_scroll()])
+    }
+
+    /// Leave the review (Compare) back to the grid, restoring the whole reviewed set
+    /// as the selection — so you land back on the candidates, focused on the last one
+    /// you were on, not collapsed to a single frame.
+    pub(crate) fn exit_compare_to_grid(&mut self) -> Task<Msg> {
+        let focused_id = self.compare.focused_file_id();
+        self.grid_selected.clear();
+        self.selection_base.clear();
+        for f in &self.compare.files {
+            self.grid_selected.insert(f.id.clone());
+        }
+        // Anchor on the focused frame so a follow-up grid action starts there.
+        if let Some(idx) = focused_id
+            .as_ref()
+            .and_then(|id| self.files.iter().position(|f| &f.id == id))
+        {
+            self.anchor_idx = Some(idx);
+            self.select_lead = Some(idx);
+        }
+        self.view_mode = ViewMode::Browse;
+        let scroll = self.anchor_idx.map(|i| self.scroll_to_index(i)).unwrap_or_else(Task::none);
+        Task::batch([scroll, self.restore_sidebar_scroll()])
+    }
+
+    /// Open the review surface (Compare) over the current multi-selection in `layout`.
+    /// `C` opens Survey (all at once); `Space` opens OneUp (focused + filmstrip).
+    fn open_compare(&mut self, layout: super::super::ReviewLayout) -> Task<Msg> {
+        if self.grid_selected.len() < 2 {
+            self.status = "Select 2 or more photos to compare".to_string();
+            return Task::none();
+        }
+        // Panes follow the view's capture order, so a burst reads left→right as shot.
+        let files: Vec<_> =
+            self.files.iter().filter(|f| self.grid_selected.contains(&f.id)).cloned().collect();
+        let n = files.len();
+        // Focus the frame the grid anchor sat on, if it's in the set; else the first.
+        let focus = self
+            .anchor_idx
+            .and_then(|a| self.files.get(a))
+            .and_then(|af| files.iter().position(|f| f.id == af.id))
+            .unwrap_or(0);
+        self.compare = super::super::CompareState {
+            files,
+            handles: vec![None; n],
+            // Sharpness fills in per pane as each decodes (computed live).
+            sharpness: vec![None; n],
+            focus,
+            layout,
+            ..Default::default()
+        };
+        self.view_mode = ViewMode::Compare;
+        Task::batch((0..n).map(|slot| self.load_compare_slot(slot)).collect::<Vec<_>>())
     }
 
     /// Loupe / preview / compare: zoom intents, navigation jumps, decode results,
@@ -269,42 +310,33 @@ impl App {
                         self.view_mode = ViewMode::Loupe;
                         return Task::none();
                     }
+                    // In the review surface, Space flips the layout in place
+                    // (Survey ⇄ OneUp) on the focused frame — same surface, different
+                    // presentation, never a different screen.
+                    ViewMode::Compare => return self.update(Msg::CompareToggleLayout),
                     ViewMode::Browse => {
-                        if !self.files.is_empty() {
-                            // A multi-selection enters a *scoped* review — the loupe
-                            // steps through just those frames (filmstrip + big preview
-                            // of the candidates). A single/no selection browses all.
-                            self.loupe.scope = if self.grid_selected.len() >= 2 {
-                                self.files
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, f)| self.grid_selected.contains(&f.id))
-                                    .map(|(i, _)| i)
-                                    .collect()
-                            } else {
-                                Vec::new()
-                            };
-                            let anchor = self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
-                            let idx = if self.loupe.scope.is_empty() {
-                                anchor
-                            } else if self.loupe.scope.contains(&anchor) {
-                                anchor
-                            } else {
-                                self.loupe.scope[0]
-                            };
-                            self.loupe.idx = idx;
-                            self.loupe.reset_zoom();
-                            self.loupe.load_error = None;
-                            self.view_mode = ViewMode::Loupe;
-                            if let Some(handle) = self.loupe.prefetch.remove(&idx) {
-                                self.loupe.full_res = Some((idx, handle));
-                                return self.load_loupe_prefetch();
-                            }
-                            self.loupe.full_res = None;
-                            return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
+                        if self.files.is_empty() {
+                            return Task::none();
                         }
+                        // A multi-selection opens the review surface one-up (OneUp:
+                        // focused frame + filmstrip of the candidates). A single/no
+                        // selection browses all files in the ordinary loupe.
+                        if self.grid_selected.len() >= 2 {
+                            return self.open_compare(super::super::ReviewLayout::OneUp);
+                        }
+                        let idx = self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
+                        self.loupe.idx = idx;
+                        self.loupe.reset_zoom();
+                        self.loupe.load_error = None;
+                        self.view_mode = ViewMode::Loupe;
+                        if let Some(handle) = self.loupe.prefetch.remove(&idx) {
+                            self.loupe.full_res = Some((idx, handle));
+                            return self.load_loupe_prefetch();
+                        }
+                        self.loupe.full_res = None;
+                        return Task::batch([self.load_loupe_full_res(), self.load_loupe_prefetch()]);
                     }
-                    ViewMode::People | ViewMode::Compare | ViewMode::Settings => {}
+                    ViewMode::People | ViewMode::Settings => {}
                 }
                 Task::none()
             }
@@ -389,27 +421,7 @@ impl App {
                 Task::none()
             }
 
-            Msg::OpenCompare => {
-                if self.grid_selected.len() < 2 {
-                    self.status = "Select 2 or more photos to compare".to_string();
-                    return Task::none();
-                }
-                // Panes follow the view's capture order, so a burst reads left→right
-                // as it was shot (not hash-set order).
-                let files: Vec<_> =
-                    self.files.iter().filter(|f| self.grid_selected.contains(&f.id)).cloned().collect();
-                let n = files.len();
-                self.compare = super::super::CompareState {
-                    files,
-                    handles: vec![None; n],
-                    // Sharpness fills in per pane as each decodes (computed live).
-                    sharpness: vec![None; n],
-                    // Fresh compare opens at fit; zoom is shared across panes.
-                    ..Default::default()
-                };
-                self.view_mode = ViewMode::Compare;
-                Task::batch((0..n).map(|slot| self.load_compare_slot(slot)).collect::<Vec<_>>())
-            }
+            Msg::OpenCompare => self.open_compare(super::super::ReviewLayout::Survey),
 
             Msg::CompareFullResLoaded { slot, handle, sharpness } => {
                 if matches!(self.view_mode, ViewMode::Compare) {
@@ -443,6 +455,44 @@ impl App {
 
             Msg::CompareToggleSort => {
                 self.compare.sort_sharp = !self.compare.sort_sharp;
+                Task::none()
+            }
+
+            Msg::CompareSetLayout(layout) => {
+                self.compare.layout = layout;
+                Task::none()
+            }
+
+            Msg::CompareToggleLayout => {
+                use super::super::ReviewLayout::{OneUp, Survey};
+                self.compare.layout = match self.compare.layout {
+                    Survey => OneUp,
+                    OneUp => Survey,
+                };
+                Task::none()
+            }
+
+            Msg::CompareSetFocus(slot) => {
+                if slot < self.compare.files.len() {
+                    self.compare.focus = slot;
+                }
+                Task::none()
+            }
+
+            Msg::CompareRemoveFocused => {
+                // Whittle-down: drop the focused frame from the comparison. Compare-only
+                // (the `R` key is global). Empty set → leave the review to the grid.
+                if !matches!(self.view_mode, ViewMode::Compare) {
+                    return Task::none();
+                }
+                if !self.compare.remove_focused() {
+                    return self.exit_compare_to_grid();
+                }
+                Task::none()
+            }
+
+            Msg::CompareToggleZoomLock => {
+                self.compare.lock_zoom = !self.compare.lock_zoom;
                 Task::none()
             }
 

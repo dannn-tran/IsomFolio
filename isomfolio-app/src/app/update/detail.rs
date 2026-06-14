@@ -774,6 +774,104 @@ mod undo_redo {
             let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
             assert_eq!(a.compare.focus, 0, "then the softest");
         }
+
+        #[test]
+        fn space_on_multiselection_opens_compare_one_up() {
+            use crate::app::ReviewLayout;
+            let mut a = app_with_catalog();
+            a.view_mode = crate::app::ViewMode::Browse;
+            let files =
+                vec![file("f1", Flag::Unflagged), file("f2", Flag::Unflagged), file("f3", Flag::Unflagged)];
+            let _ = a.update(Msg::FilesLoaded(files));
+            a.grid_selected = ["f1".to_string(), "f3".to_string()].into_iter().collect();
+            a.anchor_idx = Some(2); // anchored on f3
+
+            let _ = a.update(Msg::OpenLoupe); // Space
+
+            assert_eq!(a.view_mode, crate::app::ViewMode::Compare);
+            assert_eq!(a.compare.layout, ReviewLayout::OneUp, "Space opens the review one-up");
+            assert_eq!(a.compare.files.len(), 2, "only the selected frames");
+            assert_eq!(a.compare.files[a.compare.focus].id, "f3", "focus on the grid anchor");
+        }
+
+        #[test]
+        fn c_opens_compare_in_survey() {
+            use crate::app::ReviewLayout;
+            let mut a = app_with_catalog();
+            a.view_mode = crate::app::ViewMode::Browse;
+            let files = vec![file("f1", Flag::Unflagged), file("f2", Flag::Unflagged)];
+            let _ = a.update(Msg::FilesLoaded(files));
+            a.grid_selected = ["f1".to_string(), "f2".to_string()].into_iter().collect();
+
+            let _ = a.update(Msg::OpenCompare);
+
+            assert_eq!(a.view_mode, crate::app::ViewMode::Compare);
+            assert_eq!(a.compare.layout, ReviewLayout::Survey);
+        }
+
+        #[test]
+        fn space_in_compare_flips_layout_in_place() {
+            use crate::app::ReviewLayout;
+            let mut a = app_in_compare();
+            assert_eq!(a.compare.layout, ReviewLayout::Survey);
+            let _ = a.update(Msg::OpenLoupe); // Space
+            assert_eq!(a.compare.layout, ReviewLayout::OneUp);
+            assert_eq!(a.view_mode, crate::app::ViewMode::Compare, "stays in the review");
+            let _ = a.update(Msg::OpenLoupe);
+            assert_eq!(a.compare.layout, ReviewLayout::Survey, "flips back");
+        }
+
+        #[test]
+        fn remove_focused_whittles_then_exits_when_empty() {
+            let mut a = app_in_compare();
+            a.compare.focus = 1; // f2
+            let _ = a.update(Msg::CompareRemoveFocused);
+            assert_eq!(a.compare.files.len(), 2, "f2 dropped from the set");
+            assert!(a.compare.files.iter().all(|f| f.id != "f2"));
+            assert_eq!(a.compare.focus, 1, "focus clamps to the new last");
+
+            let _ = a.update(Msg::CompareRemoveFocused); // drop f3
+            let _ = a.update(Msg::CompareRemoveFocused); // drop f1 → empty → exit
+            assert_eq!(a.view_mode, crate::app::ViewMode::Browse, "empty set leaves the review");
+        }
+
+        #[test]
+        fn remove_focused_is_noop_outside_compare() {
+            let mut a = app_in_compare();
+            a.view_mode = crate::app::ViewMode::Browse;
+            let _ = a.update(Msg::CompareRemoveFocused);
+            assert_eq!(a.compare.files.len(), 3, "no whittle-down outside the review");
+        }
+
+        #[test]
+        fn exit_compare_restores_the_whole_set_as_selection() {
+            let mut a = app_in_compare();
+            a.compare.focus = 2;
+            let _ = a.exit_compare_to_grid();
+            assert_eq!(a.view_mode, crate::app::ViewMode::Browse);
+            assert_eq!(a.grid_selected.len(), 3, "lands back on the reviewed set");
+            for id in ["f1", "f2", "f3"] {
+                assert!(a.grid_selected.contains(id));
+            }
+            assert_eq!(a.anchor_idx, Some(2), "anchored on the frame we were focused on");
+        }
+
+        #[test]
+        fn one_up_unlocked_resets_zoom_per_frame_locked_holds() {
+            let mut a = app_in_compare();
+            a.compare.layout = crate::app::ReviewLayout::OneUp;
+            a.compare.focus = 0;
+            a.compare.zoom = 3.0;
+
+            a.compare.lock_zoom = false;
+            let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(a.compare.zoom, crate::app::LOUPE_ZOOM_MIN, "unlocked: fit per frame");
+
+            a.compare.zoom = 3.0;
+            a.compare.lock_zoom = true;
+            let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(a.compare.zoom, 3.0, "locked: zoom holds for blink-compare");
+        }
     }
 
     #[test]
@@ -946,58 +1044,12 @@ mod undo_redo {
     }
 
     #[test]
-    fn scoped_loupe_steps_between_selected_only() {
-        let mut a = app_with_catalog();
-        a.view_mode = crate::app::ViewMode::Loupe;
-        let files = vec![
-            file("f1", Flag::Unflagged),
-            file("f2", Flag::Unflagged),
-            file("f3", Flag::Unflagged),
-        ];
-        let _ = a.update(Msg::FilesLoaded(files));
-        // Scope to f1 and f3 (skip f2); start on f1.
-        a.loupe.scope = vec![0, 2];
-        a.loupe.idx = 0;
-
-        let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
-        assert_eq!(a.loupe.idx, 2, "next jumps over the unselected f2 to f3");
-        let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
-        assert_eq!(a.loupe.idx, 2, "at the end of the scope it stays put (no loop)");
-        let _ = a.update(Msg::Navigate { dx: -1, dy: 0 });
-        assert_eq!(a.loupe.idx, 0, "back to f1, still within the scope");
-    }
-
-    #[test]
-    fn exit_scoped_loupe_restores_the_whole_selection() {
-        let mut a = app_with_catalog();
-        a.view_mode = crate::app::ViewMode::Loupe;
-        let files = vec![
-            file("f1", Flag::Unflagged),
-            file("f2", Flag::Unflagged),
-            file("f3", Flag::Unflagged),
-        ];
-        let _ = a.update(Msg::FilesLoaded(files));
-        a.loupe.scope = vec![0, 2];
-        a.loupe.idx = 2;
-
-        let _ = a.exit_loupe_to_grid();
-
-        assert_eq!(a.view_mode, crate::app::ViewMode::Browse);
-        assert!(a.grid_selected.contains("f1"));
-        assert!(a.grid_selected.contains("f3"));
-        assert!(!a.grid_selected.contains("f2"));
-        assert_eq!(a.grid_selected.len(), 2, "scoped selection restored, not collapsed to one");
-        assert!(a.loupe.scope.is_empty(), "scope cleared after exit");
-    }
-
-    #[test]
-    fn exit_unscoped_loupe_selects_only_current_photo() {
+    fn exit_loupe_selects_only_current_photo() {
         let mut a = app_with_catalog();
         a.view_mode = crate::app::ViewMode::Loupe;
         let files =
             vec![file("f1", Flag::Unflagged), file("f2", Flag::Unflagged), file("f3", Flag::Unflagged)];
         let _ = a.update(Msg::FilesLoaded(files));
-        a.loupe.scope = Vec::new();
         a.loupe.idx = 1;
 
         let _ = a.exit_loupe_to_grid();
