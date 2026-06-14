@@ -170,8 +170,19 @@ impl App {
         self.select_lead = Some(self.loupe.idx);
         self.grid_selected.clear();
         self.selection_base.clear();
-        if let Some(f) = self.files.get(self.loupe.idx) {
-            self.grid_selected.insert(f.id.clone());
+        // A scoped loupe (multi-selection review) restores its whole selection so
+        // the user lands back on the same set, not collapsed to one frame. An
+        // unscoped browse just selects the photo we exited on.
+        if self.loupe.scope.is_empty() {
+            if let Some(f) = self.files.get(self.loupe.idx) {
+                self.grid_selected.insert(f.id.clone());
+            }
+        } else {
+            for &i in &self.loupe.scope {
+                if let Some(f) = self.files.get(i) {
+                    self.grid_selected.insert(f.id.clone());
+                }
+            }
         }
         self.view_mode = ViewMode::Browse;
         self.loupe.full_res = None;

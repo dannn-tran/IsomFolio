@@ -900,6 +900,45 @@ mod undo_redo {
     }
 
     #[test]
+    fn exit_scoped_loupe_restores_the_whole_selection() {
+        let mut a = app_with_catalog();
+        a.view_mode = crate::app::ViewMode::Loupe;
+        let files = vec![
+            file("f1", Flag::Unflagged),
+            file("f2", Flag::Unflagged),
+            file("f3", Flag::Unflagged),
+        ];
+        let _ = a.update(Msg::FilesLoaded(files));
+        a.loupe.scope = vec![0, 2];
+        a.loupe.idx = 2;
+
+        let _ = a.exit_loupe_to_grid();
+
+        assert_eq!(a.view_mode, crate::app::ViewMode::Browse);
+        assert!(a.grid_selected.contains("f1"));
+        assert!(a.grid_selected.contains("f3"));
+        assert!(!a.grid_selected.contains("f2"));
+        assert_eq!(a.grid_selected.len(), 2, "scoped selection restored, not collapsed to one");
+        assert!(a.loupe.scope.is_empty(), "scope cleared after exit");
+    }
+
+    #[test]
+    fn exit_unscoped_loupe_selects_only_current_photo() {
+        let mut a = app_with_catalog();
+        a.view_mode = crate::app::ViewMode::Loupe;
+        let files =
+            vec![file("f1", Flag::Unflagged), file("f2", Flag::Unflagged), file("f3", Flag::Unflagged)];
+        let _ = a.update(Msg::FilesLoaded(files));
+        a.loupe.scope = Vec::new();
+        a.loupe.idx = 1;
+
+        let _ = a.exit_loupe_to_grid();
+
+        assert_eq!(a.grid_selected.len(), 1);
+        assert!(a.grid_selected.contains("f2"));
+    }
+
+    #[test]
     fn undo_reselects_the_edited_photo_in_grid() {
         let mut a = app_with_catalog();
         a.view_mode = crate::app::ViewMode::Browse;
