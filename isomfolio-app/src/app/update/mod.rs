@@ -187,7 +187,7 @@ impl App {
             | Msg::OpenCompare
             | Msg::CompareFullResLoaded { .. }
             | Msg::CompareZoomChanged { .. }
-            | Msg::CompareSetCols(_)
+            | Msg::CompareSetArrange(_)
             | Msg::CompareToggleSort
             | Msg::CompareSetLayout(_)
             | Msg::CompareToggleLayout

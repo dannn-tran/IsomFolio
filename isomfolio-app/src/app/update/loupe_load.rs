@@ -450,8 +450,8 @@ impl App {
                 Task::none()
             }
 
-            Msg::CompareSetCols(cols) => {
-                self.compare.cols = cols;
+            Msg::CompareSetArrange(grid) => {
+                self.compare.survey_grid = grid;
                 Task::none()
             }
 

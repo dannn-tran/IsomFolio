@@ -438,9 +438,10 @@ pub struct CompareState {
     /// region, so you check focus at the same spot across candidates at once.
     pub zoom: f32,
     pub pan: iced::Vector,
-    /// Column count for the pane grid. `None` = auto (roughly square, `√n`); `Some(c)`
-    /// pins it so the user can force a single row, two columns, etc.
-    pub cols: Option<usize>,
+    /// Survey arrangement: `false` = a single **horizontal row** (all in a line,
+    /// cells shrink to fit); `true` = a roughly-square **grid** (cells wrap into
+    /// rows). Either way everything fits the window — no scroll. User toggles it.
+    pub survey_grid: bool,
     /// When set, panes display sharpest-first instead of capture order.
     pub sort_sharp: bool,
     /// Slot of the **focused** pane — the one cull keys (`P`/`X`/`U`, ratings) act
@@ -461,7 +462,7 @@ impl Default for CompareState {
             sharpness: Vec::new(),
             zoom: LOUPE_ZOOM_MIN,
             pan: iced::Vector::ZERO,
-            cols: None,
+            survey_grid: false,
             sort_sharp: false,
             focus: 0,
             layout: ReviewLayout::Survey,
@@ -494,16 +495,15 @@ impl CompareState {
         (top_v > second_v * MARGIN).then_some(top_i)
     }
 
-    /// Resolved column count for the pane grid given `n` panes. `cols` pins it
-    /// (clamped to 1..=n); otherwise auto — a **single horizontal row** for a handful
-    /// of frames (the common "compare a few finalists side by side" case), falling
-    /// back to a roughly-square grid only once a row would get too squeezed (n > 5).
+    /// Resolved column count for the Survey grid given `n` panes: one row (`= n`)
+    /// when `survey_grid` is off, else a roughly-square grid (`ceil(√n)`). Both fit
+    /// the window with no scroll — row shrinks cells, grid wraps them.
     pub fn grid_cols(&self) -> usize {
         let n = self.files.len().max(1);
-        match self.cols {
-            Some(c) => c.clamp(1, n),
-            None if n <= 5 => n,
-            None => (n as f64).sqrt().ceil() as usize,
+        if self.survey_grid {
+            (n as f64).sqrt().ceil() as usize
+        } else {
+            n
         }
     }
 
@@ -1817,52 +1817,46 @@ mod layout_tests {
             }
         }
 
-        fn state(scores: Vec<Option<f64>>, cols: Option<usize>, sort: bool) -> CompareState {
+        fn state(scores: Vec<Option<f64>>, survey_grid: bool, sort: bool) -> CompareState {
             let n = scores.len();
             CompareState {
                 files: (0..n).map(file).collect(),
                 sharpness: scores,
-                cols,
+                survey_grid,
                 sort_sharp: sort,
                 ..Default::default()
             }
         }
 
         #[test]
-        fn auto_is_one_row_for_a_few_then_grids() {
-            let mk = |n: usize| state(vec![None; n], None, false).grid_cols();
-            // ≤5 frames: a single horizontal row (the common "compare finalists" case).
-            assert_eq!(mk(2), 2);
-            assert_eq!(mk(3), 3);
-            assert_eq!(mk(4), 4);
-            assert_eq!(mk(5), 5);
-            // More than that: fall back to a roughly-square grid so cells stay usable.
-            assert_eq!(mk(6), 3);
-            assert_eq!(mk(9), 3);
-        }
-
-        #[test]
-        fn pinned_cols_clamp_to_pane_count() {
-            assert_eq!(state(vec![None; 3], Some(1), false).grid_cols(), 1);
-            assert_eq!(state(vec![None; 3], Some(10), false).grid_cols(), 3, "can't exceed n");
-            assert_eq!(state(vec![None; 3], Some(0), false).grid_cols(), 1, "never zero");
+        fn row_is_a_single_line_grid_is_square() {
+            // Row (survey_grid = false): one column per frame → a single horizontal row.
+            let row = |n: usize| state(vec![None; n], false, false).grid_cols();
+            assert_eq!(row(2), 2);
+            assert_eq!(row(4), 4);
+            assert_eq!(row(8), 8, "row stays one line however many — cells shrink to fit");
+            // Grid (survey_grid = true): roughly square (ceil(√n)).
+            let grid = |n: usize| state(vec![None; n], true, false).grid_cols();
+            assert_eq!(grid(4), 2);
+            assert_eq!(grid(6), 3);
+            assert_eq!(grid(9), 3);
         }
 
         #[test]
         fn capture_order_unless_sorted() {
-            let s = state(vec![Some(50.0), Some(300.0), Some(100.0)], None, false);
+            let s = state(vec![Some(50.0), Some(300.0), Some(100.0)], false, false);
             assert_eq!(s.display_order(), vec![0, 1, 2]);
         }
 
         #[test]
         fn sort_puts_sharpest_first_unscored_last() {
-            let s = state(vec![Some(50.0), Some(300.0), None, Some(100.0)], None, true);
+            let s = state(vec![Some(50.0), Some(300.0), None, Some(100.0)], false, true);
             assert_eq!(s.display_order(), vec![1, 3, 0, 2], "300, 100, 50, then unscored");
         }
 
         #[test]
         fn rank_reflects_sharpness_position() {
-            let s = state(vec![Some(50.0), Some(300.0), Some(100.0), None], None, false);
+            let s = state(vec![Some(50.0), Some(300.0), Some(100.0), None], false, false);
             assert_eq!(s.sharpness_rank(1), Some((1, 3)), "300 is #1 of 3 scored");
             assert_eq!(s.sharpness_rank(2), Some((2, 3)));
             assert_eq!(s.sharpness_rank(0), Some((3, 3)));

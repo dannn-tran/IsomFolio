@@ -105,7 +105,7 @@ With a selection of two or more, the **review surface** opens over just those fr
 
 ### Two layouts, one review
 
-- **Survey — all at once (the default).** The frames sit side by side in a single row, big enough to judge together; for more than a handful they wrap into a grid. Use the **Columns** control in the top bar (**Auto / 1 / 2 / 3 / 4**) to force a single row, a 2-up, or a grid. **Synced zoom:** scroll or click to zoom into a detail — the subject's eye, say — and *every* frame zooms and pans to the same spot together, so you compare sharpness and expression at 100% across all of them simultaneously.
+- **Survey — all at once (the default).** The frames sit side by side. Switch between **▭ Row** (a single horizontal line) and **▦ Grid** (wrapped into rows) with the toggle in the top bar — both fit the window, no scrolling either way. **Synced zoom:** scroll or click to zoom into a detail — the subject's eye, say — and *every* frame zooms and pans to the same spot together, so you compare sharpness and expression at 100% across all of them simultaneously.
 - **One-up — one big + filmstrip.** The focused frame fills the view over a filmstrip of the set (click any thumb to jump to it). Zoom in to pixel-check focus; turn on **⊞ Lock zoom** and the zoom holds as you step between frames — flicking back and forth becomes a *blink comparison* of the same region.
 
 Switch any time with **`Space`** — same set, same focused frame, just a different view.

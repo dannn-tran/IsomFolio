@@ -45,9 +45,9 @@ impl App {
         .spacing(SPACE_1)
         .align_y(Alignment::Center);
 
-        // Layout-specific control: column count in Survey, zoom-lock in One-up.
+        // Layout-specific control: Row/Grid arrangement in Survey, zoom-lock in One-up.
         let mode_control: Element<Msg> = match layout {
-            ReviewLayout::Survey => self.compare_column_control(n),
+            ReviewLayout::Survey => self.compare_arrange_control(),
             ReviewLayout::OneUp => tip(
                 chip("⊞ Lock zoom", Msg::CompareToggleZoomLock, self.compare.lock_zoom),
                 "Hold zoom across frames (blink-compare)",
@@ -94,28 +94,23 @@ impl App {
     }
 
     /// Column-count control: Auto (√n) plus explicit 1..=min(n,4). The bare "1 2 3"
-    /// are opaque alone, so each carries a tooltip.
-    fn compare_column_control(&self, n: usize) -> Element<'_, Msg> {
-        let mut control = row![text("Columns").size(TEXT_MD).color(FG_DIM)]
-            .spacing(SPACE_1)
-            .align_y(Alignment::Center);
-        control = control.push(tip(
-            chip("Auto", Msg::CompareSetCols(None), self.compare.cols.is_none()),
-            "Auto — one row for a few, a grid for many",
-        ));
-        for c in 1..=n.min(4) {
-            let label: &'static str = match c {
-                1 => "1 column",
-                2 => "2 columns",
-                3 => "3 columns",
-                _ => "4 columns",
-            };
-            control = control.push(tip(
-                chip(c.to_string(), Msg::CompareSetCols(Some(c)), self.compare.cols == Some(c)),
-                label,
-            ));
-        }
-        control.into()
+    /// Survey arrangement toggle: a single horizontal **Row**, or a **Grid**. Both
+    /// fit the window with no scroll — Row shrinks cells, Grid wraps them into rows.
+    fn compare_arrange_control(&self) -> Element<'_, Msg> {
+        let grid = self.compare.survey_grid;
+        row![
+            tip(
+                chip("▭ Row", Msg::CompareSetArrange(false), !grid),
+                "All in one horizontal row (fit to window)",
+            ),
+            tip(
+                chip("▦ Grid", Msg::CompareSetArrange(true), grid),
+                "Wrap into a roughly square grid (fit to window)",
+            ),
+        ]
+        .spacing(SPACE_1)
+        .align_y(Alignment::Center)
+        .into()
     }
 
     /// Survey: every frame at once, wrapped into `cols`-wide rows so panes stay as
