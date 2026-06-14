@@ -436,6 +436,16 @@ impl App {
                 Task::none()
             }
 
+            Msg::CompareSetCols(cols) => {
+                self.compare.cols = cols;
+                Task::none()
+            }
+
+            Msg::CompareToggleSort => {
+                self.compare.sort_sharp = !self.compare.sort_sharp;
+                Task::none()
+            }
+
             _ => Task::none(),
         }
     }

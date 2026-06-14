@@ -105,10 +105,11 @@ With a selection of two or more, two focused review surfaces open from the grid 
 
 ### Compare — side by side
 
-Press **`C`** to open the selected frames **side by side**, each fit to the window. This is the way to judge fine differences across candidates at once:
+Press **`C`** to open the selected frames in an **adaptive grid**, each fit to the window. This is the way to judge fine differences across candidates at once:
 
+- **Adaptive layout.** Frames tile into a roughly square grid so each stays as large as possible, instead of being squeezed into one thin row. Use the **Grid** control in the top bar (**Auto / 1 / 2 / 3**) to force a single row, a 2-up, or however many columns you want.
 - **Synced zoom.** Scroll (or click) to zoom into a detail — the subject's eye, say — and **every pane zooms and pans to the same spot together**, so you compare sharpness and expression at 100% across all of them simultaneously. Drag to pan; the panes stay locked together.
-- The **sharpest** pane is marked **◉ Sharpest** — a *relative* cue among the frames you're comparing (never an absolute "blurry" verdict), to help break a tie. Eyes-open and expression are still your call.
+- **Sharpness ranking.** Each frame shows its sharpness place (**Sharp #2 / 5**), and the clear winner is marked **◉ Sharpest** — a *relative* cue among the frames you're comparing (never an absolute "blurry" verdict). Toggle **◉ Sharpest first** to reorder the panes sharpest-to-softest. Eyes-open and expression are still your call.
 - Pick with the usual cull keys — **`P`** keeps the focused pane, **`X`** rejects it — then **Esc** back to the grid.
 
 ### Loupe — one at a time

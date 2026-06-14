@@ -536,6 +536,10 @@ pub enum Msg {
     /// Synced zoom/pan for Compare — emitted by any pane's `LoupeImage`, applied to
     /// the shared `CompareState` so every pane tracks the same region.
     CompareZoomChanged { scale: f32, pan: iced::Vector },
+    /// Set the Compare pane-grid column count; `None` = auto (√n).
+    CompareSetCols(Option<usize>),
+    /// Toggle sharpest-first ordering of Compare panes.
+    CompareToggleSort,
     NoOp,
 
     SidebarResizeStart,

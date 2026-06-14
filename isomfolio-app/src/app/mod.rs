@@ -433,6 +433,11 @@ pub struct CompareState {
     /// region, so you check focus at the same spot across candidates at once.
     pub zoom: f32,
     pub pan: iced::Vector,
+    /// Column count for the pane grid. `None` = auto (roughly square, `√n`); `Some(c)`
+    /// pins it so the user can force a single row, two columns, etc.
+    pub cols: Option<usize>,
+    /// When set, panes display sharpest-first instead of capture order.
+    pub sort_sharp: bool,
 }
 
 impl Default for CompareState {
@@ -443,6 +448,8 @@ impl Default for CompareState {
             sharpness: Vec::new(),
             zoom: LOUPE_ZOOM_MIN,
             pan: iced::Vector::ZERO,
+            cols: None,
+            sort_sharp: false,
         }
     }
 }
@@ -469,6 +476,50 @@ impl CompareState {
         let (top_i, top_v) = scored[0];
         let (_, second_v) = scored[1];
         (top_v > second_v * MARGIN).then_some(top_i)
+    }
+
+    /// Resolved column count for the pane grid given `n` panes. `cols` pins it
+    /// (clamped to 1..=n); otherwise auto — roughly square (`ceil(√n)`), so 4 panes
+    /// land 2×2 and 6 land 3×2 rather than a single squeezed row.
+    pub fn grid_cols(&self) -> usize {
+        let n = self.files.len().max(1);
+        match self.cols {
+            Some(c) => c.clamp(1, n),
+            None => (n as f64).sqrt().ceil() as usize,
+        }
+    }
+
+    /// Slot indices in display order: capture order normally, sharpest-first when
+    /// `sort_sharp` is on (scored panes descending, unscored kept last in capture
+    /// order so a still-decoding pane doesn't jump around).
+    pub fn display_order(&self) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..self.files.len()).collect();
+        if self.sort_sharp {
+            order.sort_by(|&a, &b| {
+                match (self.sharpness.get(a).copied().flatten(), self.sharpness.get(b).copied().flatten()) {
+                    (Some(x), Some(y)) => y.partial_cmp(&x).unwrap_or(std::cmp::Ordering::Equal),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => a.cmp(&b),
+                }
+                .then(a.cmp(&b))
+            });
+        }
+        order
+    }
+
+    /// 1-based sharpness rank of `slot` and the count of scored panes, so each pane
+    /// can show its place in the ordering (`#2 / 5`). `None` until the pane is scored.
+    pub fn sharpness_rank(&self, slot: usize) -> Option<(usize, usize)> {
+        let mut scored: Vec<(usize, f64)> = self
+            .sharpness
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| s.map(|v| (i, v)))
+            .collect();
+        let total = scored.len();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+        scored.iter().position(|&(i, _)| i == slot).map(|p| (p + 1, total))
     }
 }
 
@@ -1678,6 +1729,80 @@ mod layout_tests {
                 cmp(vec![Some(90.0), Some(100.0), Some(300.0), None]).sharpest_slot(),
                 Some(2)
             );
+        }
+    }
+
+    mod compare_layout_and_ordering {
+        use super::*;
+        use isomfolio_core::models::Flag;
+
+        fn file(i: usize) -> AssetFile {
+            AssetFile {
+                id: format!("f{i}"),
+                path: format!("/p/f{i}.jpg"),
+                name: format!("f{i}.jpg"),
+                folder: "/p".to_string(),
+                folder_display: "/p".to_string(),
+                ext: "jpg".to_string(),
+                size_bytes: 1,
+                mtime_unix: 0,
+                created_at_unix: 0,
+                is_orphaned: false,
+                orphaned_at: None,
+                flag: Flag::Unflagged,
+                exif_date_unix: Some(0),
+                gps_lat: None,
+                gps_lon: None,
+            }
+        }
+
+        fn state(scores: Vec<Option<f64>>, cols: Option<usize>, sort: bool) -> CompareState {
+            let n = scores.len();
+            CompareState {
+                files: (0..n).map(file).collect(),
+                sharpness: scores,
+                cols,
+                sort_sharp: sort,
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn auto_grid_is_roughly_square() {
+            let mk = |n: usize| state(vec![None; n], None, false).grid_cols();
+            assert_eq!(mk(2), 2);
+            assert_eq!(mk(3), 2);
+            assert_eq!(mk(4), 2);
+            assert_eq!(mk(5), 3);
+            assert_eq!(mk(9), 3);
+        }
+
+        #[test]
+        fn pinned_cols_clamp_to_pane_count() {
+            assert_eq!(state(vec![None; 3], Some(1), false).grid_cols(), 1);
+            assert_eq!(state(vec![None; 3], Some(10), false).grid_cols(), 3, "can't exceed n");
+            assert_eq!(state(vec![None; 3], Some(0), false).grid_cols(), 1, "never zero");
+        }
+
+        #[test]
+        fn capture_order_unless_sorted() {
+            let s = state(vec![Some(50.0), Some(300.0), Some(100.0)], None, false);
+            assert_eq!(s.display_order(), vec![0, 1, 2]);
+        }
+
+        #[test]
+        fn sort_puts_sharpest_first_unscored_last() {
+            let s = state(vec![Some(50.0), Some(300.0), None, Some(100.0)], None, true);
+            assert_eq!(s.display_order(), vec![1, 3, 0, 2], "300, 100, 50, then unscored");
+        }
+
+        #[test]
+        fn rank_reflects_sharpness_position() {
+            let s = state(vec![Some(50.0), Some(300.0), Some(100.0), None], None, false);
+            assert_eq!(s.sharpness_rank(1), Some((1, 3)), "300 is #1 of 3 scored");
+            assert_eq!(s.sharpness_rank(2), Some((2, 3)));
+            assert_eq!(s.sharpness_rank(0), Some((3, 3)));
+            assert_eq!(s.sharpness_rank(3), None, "unscored pane has no rank");
         }
     }
 

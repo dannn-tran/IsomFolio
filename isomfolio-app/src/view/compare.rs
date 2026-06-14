@@ -1,29 +1,61 @@
 use iced::{
-    widget::{column, container, image, row, stack, text, Space},
+    widget::{button, column, container, image, row, stack, text, Space},
     Alignment, Background, Element, Length, Theme,
 };
 use isomfolio_core::models::Flag;
 
 use crate::app::{App, Msg};
 use super::styles::{
-    ACCENT, BG_GRID, ERR, FG, FG_DIM, OVERLAY_HEAVY, SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5,
-    SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM,
+    active_chip_style, ghost_btn_style, ACCENT, BG_GRID, ERR, FG, FG_DIM, OVERLAY_HEAVY, SPACE_0_5,
+    SPACE_1, SPACE_1_5, SPACE_2, SPACE_2_5, SPACE_3, STAR_GOLD, TEXT_BASE, TEXT_MD, TEXT_SM,
 };
+
+/// A small segmented-control chip — `active_chip_style` when selected, ghost
+/// otherwise. Used for the column-count and sort toggles in the Compare top bar.
+fn chip<'a>(label: impl text::IntoFragment<'a>, msg: Msg, active: bool) -> Element<'a, Msg> {
+    button(text(label).size(TEXT_MD))
+        .padding([SPACE_0_5, SPACE_1_5])
+        .on_press(msg)
+        .style(move |t: &Theme, s| if active { active_chip_style(t, s) } else { ghost_btn_style(t, s) })
+        .into()
+}
 
 impl App {
     pub(crate) fn view_compare(&self) -> Element<'_, Msg> {
         let n = self.compare.files.len();
-        let panels: Vec<Element<Msg>> = (0..n)
-            .map(|slot| self.compare_panel(slot))
-            .collect();
+        let cols = self.compare.grid_cols();
+        let order = self.compare.display_order();
+
+        // Column-count control: Auto (√n) plus explicit 1..=min(n,4). Lets the user
+        // force a single row, a 2-up, etc. when the auto-square isn't what they want.
+        let mut col_control = row![text("Grid").size(TEXT_MD).color(FG_DIM)]
+            .spacing(SPACE_1)
+            .align_y(Alignment::Center);
+        col_control =
+            col_control.push(chip("Auto", Msg::CompareSetCols(None), self.compare.cols.is_none()));
+        for c in 1..=n.min(4) {
+            col_control = col_control.push(chip(
+                c.to_string(),
+                Msg::CompareSetCols(Some(c)),
+                self.compare.cols == Some(c),
+            ));
+        }
+
+        let sort_chip = chip(
+            "\u{25c9} Sharpest first",
+            Msg::CompareToggleSort,
+            self.compare.sort_sharp,
+        );
 
         let top_bar = container(
             row![
                 super::styles::icon_btn("✕", Msg::EscapePressed),
-                Space::new().width(Length::Fill),
                 text(format!("Compare · {n}")).size(TEXT_BASE).color(FG),
                 Space::new().width(Length::Fill),
-                text("scroll/click zoom · drag pan · synced · Esc")
+                col_control,
+                sort_chip,
+                Space::new().width(Length::Fill),
+                text("scroll zoom · drag pan · synced · Esc")
                     .size(TEXT_MD)
                     .color(FG_DIM),
             ]
@@ -37,13 +69,25 @@ impl App {
             ..Default::default()
         });
 
-        let images_row = row(panels)
-            .spacing(SPACE_2)
-            .padding([SPACE_2, SPACE_3])
-            .width(Length::Fill)
-            .height(Length::Fill);
+        // Wrap the display order into `cols`-wide rows; each row shares the height
+        // and each cell the width, so panes stay as large and square as the count
+        // allows instead of being squeezed into one horizontal strip.
+        let mut grid = column![].spacing(SPACE_2).width(Length::Fill).height(Length::Fill);
+        for chunk in order.chunks(cols) {
+            let mut r = row![].spacing(SPACE_2).width(Length::Fill).height(Length::Fill);
+            for &slot in chunk {
+                r = r.push(self.compare_panel(slot));
+            }
+            // Pad a short final row so its cells keep the same width as full rows
+            // above (a Fill cell would otherwise stretch to fill the gap).
+            for _ in chunk.len()..cols {
+                r = r.push(Space::new().width(Length::Fill).height(Length::Fill));
+            }
+            grid = grid.push(r);
+        }
 
-        let body = container(images_row)
+        let body = container(grid)
+            .padding([SPACE_2, SPACE_3])
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_: &Theme| container::Style {
@@ -108,10 +152,17 @@ impl App {
                 meta_row = meta_row
                     .push(text("★".repeat(rating as usize)).size(TEXT_SM).color(STAR_GOLD));
             }
-            // Mark the sharper of the two frames (relative, not an absolute focus
-            // verdict). Only shows when both scores exist and differ clearly.
-            if self.compare.sharpest_slot() == Some(slot) {
-                meta_row = meta_row.push(text("\u{25c9} Sharpest").size(TEXT_SM).color(ACCENT));
+            // Sharpness ordering: every scored pane shows its place (`#2 / 5`), so the
+            // full ranking is visible at a glance; the clear winner additionally gets
+            // an accented ◉ Sharpest. Always relative among these frames — never an
+            // absolute focus verdict.
+            if let Some((rank, total)) = self.compare.sharpness_rank(slot) {
+                if self.compare.sharpest_slot() == Some(slot) {
+                    meta_row = meta_row.push(text("\u{25c9} Sharpest").size(TEXT_SM).color(ACCENT));
+                } else {
+                    meta_row = meta_row
+                        .push(text(format!("Sharp #{rank}/{total}")).size(TEXT_SM).color(FG_DIM));
+                }
             }
 
             container(
