@@ -101,7 +101,7 @@ Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selecti
 
 When you've shot several near-identical frames — a burst, or a few tries at the same setup — pick the best by reviewing them together. Sort the grid by **capture time** (the default) so a burst sits as one contiguous run, then select the candidates: click the first and **Shift+Click** the last to grab the whole run, or **Cmd+Click** individual frames.
 
-With a selection of two or more, two focused review surfaces open from the grid:
+With a selection of two or more, two focused review surfaces open from the grid — **right-click the selection** and choose **Compare** or **Review in Loupe**, or use the shortcuts below:
 
 ### Compare — side by side
 
