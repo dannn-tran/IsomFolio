@@ -101,7 +101,7 @@ impl App {
             .align_y(Alignment::Center);
         control = control.push(tip(
             chip("Auto", Msg::CompareSetCols(None), self.compare.cols.is_none()),
-            "Auto — a roughly square grid",
+            "Auto — one row for a few, a grid for many",
         ));
         for c in 1..=n.min(4) {
             let label: &'static str = match c {

@@ -776,7 +776,7 @@ mod undo_redo {
         }
 
         #[test]
-        fn space_on_multiselection_opens_compare_one_up() {
+        fn space_on_multiselection_opens_compare_survey() {
             use crate::app::ReviewLayout;
             let mut a = app_with_catalog();
             a.view_mode = crate::app::ViewMode::Browse;
@@ -789,7 +789,7 @@ mod undo_redo {
             let _ = a.update(Msg::OpenLoupe); // Space
 
             assert_eq!(a.view_mode, crate::app::ViewMode::Compare);
-            assert_eq!(a.compare.layout, ReviewLayout::OneUp, "Space opens the review one-up");
+            assert_eq!(a.compare.layout, ReviewLayout::Survey, "Space opens the side-by-side review");
             assert_eq!(a.compare.files.len(), 2, "only the selected frames");
             assert_eq!(a.compare.files[a.compare.focus].id, "f3", "focus on the grid anchor");
         }

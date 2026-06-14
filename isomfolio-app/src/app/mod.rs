@@ -495,12 +495,14 @@ impl CompareState {
     }
 
     /// Resolved column count for the pane grid given `n` panes. `cols` pins it
-    /// (clamped to 1..=n); otherwise auto — roughly square (`ceil(√n)`), so 4 panes
-    /// land 2×2 and 6 land 3×2 rather than a single squeezed row.
+    /// (clamped to 1..=n); otherwise auto — a **single horizontal row** for a handful
+    /// of frames (the common "compare a few finalists side by side" case), falling
+    /// back to a roughly-square grid only once a row would get too squeezed (n > 5).
     pub fn grid_cols(&self) -> usize {
         let n = self.files.len().max(1);
         match self.cols {
             Some(c) => c.clamp(1, n),
+            None if n <= 5 => n,
             None => (n as f64).sqrt().ceil() as usize,
         }
     }
@@ -1827,12 +1829,15 @@ mod layout_tests {
         }
 
         #[test]
-        fn auto_grid_is_roughly_square() {
+        fn auto_is_one_row_for_a_few_then_grids() {
             let mk = |n: usize| state(vec![None; n], None, false).grid_cols();
+            // ≤5 frames: a single horizontal row (the common "compare finalists" case).
             assert_eq!(mk(2), 2);
-            assert_eq!(mk(3), 2);
-            assert_eq!(mk(4), 2);
-            assert_eq!(mk(5), 3);
+            assert_eq!(mk(3), 3);
+            assert_eq!(mk(4), 4);
+            assert_eq!(mk(5), 5);
+            // More than that: fall back to a roughly-square grid so cells stay usable.
+            assert_eq!(mk(6), 3);
             assert_eq!(mk(9), 3);
         }
 

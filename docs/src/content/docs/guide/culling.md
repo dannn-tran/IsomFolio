@@ -101,11 +101,11 @@ Select multiple photos (Cmd+A to select all, or Cmd+Click for individual selecti
 
 When you've shot several near-identical frames — a burst, or a few tries at the same setup — pick the best by reviewing them together. Sort the grid by **capture time** (the default) so a burst sits as one contiguous run, then select the candidates: click the first and **Shift+Click** the last to grab the whole run, or **Cmd+Click** individual frames.
 
-With a selection of two or more, the **review surface** opens over just those frames. It's **one surface with two layouts** you flip between with **`Space`** — see all at once, or one big at a time. Open it with **`C`** (Survey), or **`Space`** (One-up), or right-click the selection → **Compare** / **Review in Loupe**.
+With a selection of two or more, the **review surface** opens over just those frames, **side by side**. Open it with **`C`**, **`Space`**, or right-click the selection → **Compare**. It's **one surface with two layouts** you flip between with **`Space`** — all at once, or one big at a time.
 
 ### Two layouts, one review
 
-- **Survey — all at once.** The frames tile into a roughly square grid (each as large as possible, not squeezed into a thin row). Use the **Columns** control in the top bar (**Auto / 1 / 2 / 3**) to force a single row, a 2-up, etc. **Synced zoom:** scroll or click to zoom into a detail — the subject's eye, say — and *every* frame zooms and pans to the same spot together, so you compare sharpness and expression at 100% across all of them simultaneously.
+- **Survey — all at once (the default).** The frames sit side by side in a single row, big enough to judge together; for more than a handful they wrap into a grid. Use the **Columns** control in the top bar (**Auto / 1 / 2 / 3 / 4**) to force a single row, a 2-up, or a grid. **Synced zoom:** scroll or click to zoom into a detail — the subject's eye, say — and *every* frame zooms and pans to the same spot together, so you compare sharpness and expression at 100% across all of them simultaneously.
 - **One-up — one big + filmstrip.** The focused frame fills the view over a filmstrip of the set (click any thumb to jump to it). Zoom in to pixel-check focus; turn on **⊞ Lock zoom** and the zoom holds as you step between frames — flicking back and forth becomes a *blink comparison* of the same region.
 
 Switch any time with **`Space`** — same set, same focused frame, just a different view.

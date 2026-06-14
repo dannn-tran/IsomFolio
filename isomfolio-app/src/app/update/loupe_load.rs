@@ -203,7 +203,8 @@ impl App {
     }
 
     /// Open the review surface (Compare) over the current multi-selection in `layout`.
-    /// `C` opens Survey (all at once); `Space` opens OneUp (focused + filmstrip).
+    /// `C`, `Space`, and the context menu all open **Survey** (side by side); One-up
+    /// is reached by the in-surface toggle (Space) once inside.
     fn open_compare(&mut self, layout: super::super::ReviewLayout) -> Task<Msg> {
         if self.grid_selected.len() < 2 {
             self.status = "Select 2 or more photos to compare".to_string();
@@ -318,11 +319,12 @@ impl App {
                         if self.files.is_empty() {
                             return Task::none();
                         }
-                        // A multi-selection opens the review surface one-up (OneUp:
-                        // focused frame + filmstrip of the candidates). A single/no
-                        // selection browses all files in the ordinary loupe.
+                        // A multi-selection opens the review surface **side by side**
+                        // (Survey) — seeing the candidates together is the point; the
+                        // One-up layout is a toggle away (Space) once inside. A
+                        // single/no selection browses all files in the ordinary loupe.
                         if self.grid_selected.len() >= 2 {
-                            return self.open_compare(super::super::ReviewLayout::OneUp);
+                            return self.open_compare(super::super::ReviewLayout::Survey);
                         }
                         let idx = self.anchor_idx.unwrap_or(0).min(self.files.len() - 1);
                         self.loupe.idx = idx;

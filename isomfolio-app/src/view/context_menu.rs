@@ -283,11 +283,9 @@ impl App {
                 if n == 1 {
                     items.push(Some(("Open in Loupe".into(), Msg::OpenLoupe, false)));
                 } else if n >= 2 {
-                    // Multi-selection review surfaces — otherwise reachable only via
-                    // the C shortcut / View menu, invisible right where you'd reach
-                    // for them.
+                    // One entry into the review surface (side by side); the One-up
+                    // layout is a toggle once inside, not a second menu item.
                     items.push(Some(("Compare".into(), Msg::OpenCompare, false)));
-                    items.push(Some(("Review in Loupe".into(), Msg::OpenLoupe, false)));
                     items.push(None);
                 }
                 items.push(Some(("Add to Album ▶".into(), Msg::ToggleAddToAlbumSubmenu, false)));
