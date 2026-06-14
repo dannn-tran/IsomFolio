@@ -542,7 +542,7 @@ impl App {
                             // are still on disk — surface the error instead.
                             let paths: Vec<String> =
                                 targets.iter().map(|(_, p)| p.clone()).collect();
-                            trash::delete_all(&paths).map_err(|e| e.to_string())?;
+                            trash_all(&paths).map_err(|e| e.to_string())?;
                             let ids: Vec<String> = targets.into_iter().map(|(id, _)| id).collect();
                             conn.lock_unwrap().delete_files(&ids).map_err(|e| e.to_string())?;
                             Ok::<usize, String>(count)
@@ -689,6 +689,27 @@ fn is_under_catalog_dir(path: &str) -> bool {
     std::path::Path::new(path)
         .components()
         .any(|c| Path::new(c.as_os_str()).extension().map_or(false, |ext| ext == CATALOG_EXT))
+}
+
+/// Move paths to the OS Trash. On macOS the `trash` crate defaults to driving
+/// **Finder via AppleScript**, which needs the "control Finder" Automation
+/// permission (TCC) and fails with `-1743` ("Not authorised to send Apple events
+/// to Finder") when it isn't granted — e.g. a `cargo run` binary the user never
+/// approved. `NsFileManager` trashes through the file-manager API instead: no Apple
+/// events, no Automation prompt — only the file access we already have. Same
+/// recoverable Trash, fewer permission walls.
+fn trash_all<P: AsRef<std::path::Path>>(paths: &[P]) -> Result<(), trash::Error> {
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        let mut ctx = trash::TrashContext::default();
+        ctx.set_delete_method(DeleteMethod::NsFileManager);
+        ctx.delete_all(paths)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        trash::delete_all(paths)
+    }
 }
 
 /// Count immediate subdirectories of `path` (ignoring nested catalogs), so the
