@@ -438,6 +438,9 @@ pub struct CompareState {
     pub cols: Option<usize>,
     /// When set, panes display sharpest-first instead of capture order.
     pub sort_sharp: bool,
+    /// Slot of the **focused** pane — the one cull keys (`P`/`X`/`U`, ratings) act
+    /// on, ringed in the view. Arrow keys step it through the display order.
+    pub focus: usize,
 }
 
 impl Default for CompareState {
@@ -450,6 +453,7 @@ impl Default for CompareState {
             pan: iced::Vector::ZERO,
             cols: None,
             sort_sharp: false,
+            focus: 0,
         }
     }
 }
@@ -520,6 +524,27 @@ impl CompareState {
         let total = scored.len();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
         scored.iter().position(|&(i, _)| i == slot).map(|p| (p + 1, total))
+    }
+
+    /// File id of the focused pane — the cull target in Compare.
+    pub fn focused_file_id(&self) -> Option<String> {
+        self.files.get(self.focus).map(|f| f.id.clone())
+    }
+
+    /// Step the focus by `delta` along the **display order** (so it follows what the
+    /// user sees), clamped — no wrap, matching navigation everywhere else. Returns
+    /// whether the focus actually moved.
+    pub fn step_focus(&mut self, delta: i32) -> bool {
+        let order = self.display_order();
+        if order.is_empty() {
+            return false;
+        }
+        let pos = order.iter().position(|&s| s == self.focus).unwrap_or(0);
+        let npos = (pos as i32 + delta).clamp(0, order.len() as i32 - 1) as usize;
+        let next = order[npos];
+        let moved = next != self.focus;
+        self.focus = next;
+        moved
     }
 }
 

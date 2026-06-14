@@ -913,13 +913,18 @@ impl App {
     /// The loupe target is *not* the grid selection — that may lag behind loupe
     /// navigation — so callers must use this rather than reading `grid_selected`.
     pub(super) fn selection_target_ids(&self) -> Vec<String> {
-        if matches!(self.view_mode, super::ViewMode::Loupe) {
-            self.files
+        match self.view_mode {
+            // Loupe / Compare act on the one frame in view (loupe) or focused
+            // (compare) — so cull keys pick *that* candidate, not the whole set.
+            super::ViewMode::Loupe => self
+                .files
                 .get(self.loupe.idx)
                 .map(|f| vec![f.id.clone()])
-                .unwrap_or_default()
-        } else {
-            self.grid_selected.iter().cloned().collect()
+                .unwrap_or_default(),
+            super::ViewMode::Compare => {
+                self.compare.focused_file_id().map(|id| vec![id]).unwrap_or_default()
+            }
+            _ => self.grid_selected.iter().cloned().collect(),
         }
     }
 }

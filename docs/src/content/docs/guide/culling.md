@@ -110,7 +110,7 @@ Press **`C`** to open the selected frames in an **adaptive grid**, each fit to t
 - **Adaptive layout.** Frames tile into a roughly square grid so each stays as large as possible, instead of being squeezed into one thin row. Use the **Grid** control in the top bar (**Auto / 1 / 2 / 3**) to force a single row, a 2-up, or however many columns you want.
 - **Synced zoom.** Scroll (or click) to zoom into a detail — the subject's eye, say — and **every pane zooms and pans to the same spot together**, so you compare sharpness and expression at 100% across all of them simultaneously. Drag to pan; the panes stay locked together.
 - **Sharpness ranking.** Each frame shows its sharpness place (**Sharp #2 / 5**), and the clear winner is marked **◉ Sharpest** — a *relative* cue among the frames you're comparing (never an absolute "blurry" verdict). Toggle **◉ Sharpest first** to reorder the panes sharpest-to-softest. Eyes-open and expression are still your call.
-- Pick with the usual cull keys — **`P`** keeps the focused pane, **`X`** rejects it — then **Esc** back to the grid.
+- **Flag the keepers right here.** One pane is *focused* (highlighted with a ring); use **`←`** / **`→`** to move the focus. The cull keys act on the focused frame — **`P`** picks it, **`X`** rejects it, **`U`** clears, and **`1`–`5`** rate — and its badge updates immediately, so you pick the best of the bunch without leaving Compare. With auto-advance on, the focus steps to the next frame after each flag. **Esc** returns to the grid.
 
 ### Loupe — one at a time
 

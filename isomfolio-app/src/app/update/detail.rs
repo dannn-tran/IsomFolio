@@ -26,7 +26,10 @@ impl App {
     /// The DB write and the navigate are batched; outside loupe (grid multi-edit)
     /// the cull stays put.
     fn advance_after_cull(&self, db_task: Task<Msg>) -> Task<Msg> {
-        if matches!(self.view_mode, super::super::ViewMode::Loupe)
+        // After flagging the in-view/focused frame, step to the next one so a
+        // burst can be culled with repeated P/X. Applies to Loupe and Compare;
+        // Navigate routes to the right cursor (loupe idx / compare focus).
+        if matches!(self.view_mode, super::super::ViewMode::Loupe | super::super::ViewMode::Compare)
             && self.app_settings.auto_advance_on_cull
         {
             Task::batch([db_task, Task::done(Msg::Navigate { dx: 1, dy: 0 })])
@@ -548,6 +551,11 @@ impl App {
             if let Some(f) = self.files.iter_mut().find(|f| &f.id == id) {
                 f.flag = *flag;
             }
+            // Compare keeps its own file snapshot; patch it too so the pane's
+            // Pick/Reject badge updates the instant you flag it.
+            if let Some(f) = self.compare.files.iter_mut().find(|f| &f.id == id) {
+                f.flag = *flag;
+            }
         }
     }
 
@@ -705,6 +713,66 @@ mod undo_redo {
             exif_date_unix: Some(0),
             gps_lat: None,
             gps_lon: None,
+        }
+    }
+
+    mod compare_culling {
+        use super::*;
+
+        fn app_in_compare() -> App {
+            let mut a = app_with_catalog();
+            let files = vec![
+                file("f1", Flag::Unflagged),
+                file("f2", Flag::Unflagged),
+                file("f3", Flag::Unflagged),
+            ];
+            a.files = files.clone();
+            a.view_mode = crate::app::ViewMode::Compare;
+            a.compare = crate::app::CompareState {
+                files,
+                handles: vec![None; 3],
+                sharpness: vec![None; 3],
+                ..Default::default()
+            };
+            a
+        }
+
+        #[test]
+        fn flag_targets_only_the_focused_pane() {
+            let mut a = app_in_compare();
+            a.compare.focus = 1;
+            a.app_settings.auto_advance_on_cull = false; // isolate the flag, no step
+            let _ = a.update(Msg::SetFlag(Flag::Pick));
+            assert_eq!(a.files[1].flag, Flag::Pick, "focused pane flagged");
+            assert_eq!(a.files[0].flag, Flag::Unflagged);
+            assert_eq!(a.files[2].flag, Flag::Unflagged);
+            assert_eq!(a.compare.files[1].flag, Flag::Pick, "compare snapshot updated for the badge");
+        }
+
+        #[test]
+        fn arrows_step_focus_clamped() {
+            let mut a = app_in_compare();
+            a.compare.focus = 0;
+            let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(a.compare.focus, 1);
+            let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(a.compare.focus, 2);
+            let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(a.compare.focus, 2, "clamps at the last pane, no wrap");
+            let _ = a.update(Msg::Navigate { dx: -1, dy: 0 });
+            assert_eq!(a.compare.focus, 1);
+        }
+
+        #[test]
+        fn focus_step_follows_sharpest_first_order() {
+            let mut a = app_in_compare();
+            a.compare.sharpness = vec![Some(50.0), Some(300.0), Some(100.0)];
+            a.compare.sort_sharp = true; // display order: f2(1), f3(2), f1(0)
+            a.compare.focus = 1; // sharpest, first in display
+            let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(a.compare.focus, 2, "next in sharpest-first order");
+            let _ = a.update(Msg::Navigate { dx: 1, dy: 0 });
+            assert_eq!(a.compare.focus, 0, "then the softest");
         }
     }
 

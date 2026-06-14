@@ -35,6 +35,13 @@ impl App {
             }
 
             Msg::Navigate { dx, dy } => {
+                if matches!(self.view_mode, ViewMode::Compare) {
+                    // Arrows move the focused pane (the cull target) through the
+                    // display order; clamp, no wrap. Nothing else to reload — every
+                    // pane is already on screen.
+                    self.compare.step_focus(dx + dy);
+                    return Task::none();
+                }
                 if matches!(self.view_mode, ViewMode::Loupe | ViewMode::Preview) {
                     let total = self.files.len();
                     if total == 0 {

@@ -1,6 +1,6 @@
 use iced::{
     widget::{button, column, container, image, row, stack, text, Space},
-    Alignment, Background, Element, Length, Theme,
+    Alignment, Background, Border, Color, Element, Length, Theme,
 };
 use isomfolio_core::models::Flag;
 
@@ -28,23 +28,33 @@ impl App {
 
         // Column-count control: Auto (√n) plus explicit 1..=min(n,4). Lets the user
         // force a single row, a 2-up, etc. when the auto-square isn't what they want.
-        let mut col_control = row![text("Grid").size(TEXT_MD).color(FG_DIM)]
+        // The bare "1 2 3" are opaque on their own, so each carries a tooltip.
+        let tip = |el, label: &'static str| {
+            super::styles::tip(el, label, super::styles::TipPos::Bottom)
+        };
+        let mut col_control = row![text("Columns").size(TEXT_MD).color(FG_DIM)]
             .spacing(SPACE_1)
             .align_y(Alignment::Center);
-        col_control =
-            col_control.push(chip("Auto", Msg::CompareSetCols(None), self.compare.cols.is_none()));
+        col_control = col_control.push(tip(
+            chip("Auto", Msg::CompareSetCols(None), self.compare.cols.is_none()),
+            "Auto — a roughly square grid",
+        ));
         for c in 1..=n.min(4) {
-            col_control = col_control.push(chip(
-                c.to_string(),
-                Msg::CompareSetCols(Some(c)),
-                self.compare.cols == Some(c),
+            let label: &'static str = match c {
+                1 => "1 column (single row of rows)",
+                2 => "2 columns",
+                3 => "3 columns",
+                _ => "4 columns",
+            };
+            col_control = col_control.push(tip(
+                chip(c.to_string(), Msg::CompareSetCols(Some(c)), self.compare.cols == Some(c)),
+                label,
             ));
         }
 
-        let sort_chip = chip(
-            "\u{25c9} Sharpest first",
-            Msg::CompareToggleSort,
-            self.compare.sort_sharp,
+        let sort_chip = tip(
+            chip("\u{25c9} Sharpest first", Msg::CompareToggleSort, self.compare.sort_sharp),
+            "Reorder panes sharpest → softest",
         );
 
         let top_bar = container(
@@ -55,7 +65,7 @@ impl App {
                 col_control,
                 sort_chip,
                 Space::new().width(Length::Fill),
-                text("scroll zoom · drag pan · synced · Esc")
+                text("←/→ focus · P pick · X reject · scroll zoom · Esc")
                     .size(TEXT_MD)
                     .color(FG_DIM),
             ]
@@ -192,6 +202,19 @@ impl App {
             Space::new().width(Length::Fill).height(Length::Fill).into()
         };
 
-        stack![img_el, overlay].width(Length::Fill).height(Length::Fill).into()
+        // Ring the focused pane so it's clear which frame P/X/U and ratings act on.
+        let focused = slot == self.compare.focus;
+        container(stack![img_el, overlay].width(Length::Fill).height(Length::Fill))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_: &Theme| container::Style {
+                border: Border {
+                    color: if focused { ACCENT } else { Color::TRANSPARENT },
+                    width: 2.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            })
+            .into()
     }
 }
