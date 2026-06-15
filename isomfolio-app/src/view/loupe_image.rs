@@ -31,6 +31,11 @@ pub struct LoupeImage<'a, Message, Handle> {
     /// Reports `(viewport_size, native_image_size)` on interaction, so the app
     /// can compute the exact "1:1" (actual-pixel) zoom factor.
     on_geometry: Box<dyn Fn(Size, Size) -> Message + 'a>,
+    /// Optional click override. When set, a non-drag left-click publishes this
+    /// message instead of toggling 1:1↔fit — used by Survey panes, where a click
+    /// *focuses* the frame (zoom stays on scroll). Scroll-zoom and drag-pan are
+    /// unaffected either way.
+    on_click: Option<Box<dyn Fn() -> Message + 'a>>,
 }
 
 impl<'a, Message, Handle> LoupeImage<'a, Message, Handle> {
@@ -47,7 +52,15 @@ impl<'a, Message, Handle> LoupeImage<'a, Message, Handle> {
             offset,
             on_change: Box::new(on_change),
             on_geometry: Box::new(on_geometry),
+            on_click: None,
         }
+    }
+
+    /// Route a non-drag left-click to `f()` (focus the frame) instead of the
+    /// default 1:1↔fit zoom-toggle.
+    pub fn on_click(mut self, f: impl Fn() -> Message + 'a) -> Self {
+        self.on_click = Some(Box::new(f));
+        self
     }
 }
 
@@ -184,7 +197,14 @@ where
                 if press.moved {
                     return; // It was a pan; nothing to do on release.
                 }
-                // A click: toggle 1:1 (anchored at the click) ↔ fit. This is the
+                // A click with an override (Survey pane): focus this frame; zoom
+                // stays on scroll. The synced zoom must not jump on a select.
+                if let Some(f) = &self.on_click {
+                    shell.publish(f());
+                    shell.capture_event();
+                    return;
+                }
+                // Otherwise toggle 1:1 (anchored at the click) ↔ fit. This is the
                 // behaviour the magnifier cursor has always advertised.
                 let anchor = Point::new(press.origin.x - bounds.x, press.origin.y - bounds.y);
                 let intent = match click_action(self.scale) {
@@ -217,8 +237,12 @@ where
         } else if !cursor.is_over(bounds) {
             mouse::Interaction::None
         } else if self.scale > ZOOM_MIN {
-            // Zoomed in: drag to pan; a click zooms back to fit.
+            // Zoomed in: drag to pan (a click focuses or zooms-to-fit).
             mouse::Interaction::Grab
+        } else if self.on_click.is_some() {
+            // Survey pane at fit: a click selects (focuses) this frame; zoom is
+            // on scroll. Signal "clickable", not "magnifier".
+            mouse::Interaction::Pointer
         } else {
             // At fit: a click (or scroll) zooms in — and now actually does.
             mouse::Interaction::ZoomIn

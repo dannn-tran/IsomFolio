@@ -214,14 +214,22 @@ impl App {
         let img_el: Element<Msg> = match handle {
             // Full-res handle → a zoomable/pannable pane driven by the *shared*
             // compare zoom/pan, so panning/zooming one pane moves them all in lockstep.
-            Some(h) => super::loupe_image::LoupeImage::new(
-                h.clone(),
-                self.compare.zoom,
-                self.compare.pan,
-                |scale, pan| Msg::CompareZoomChanged { scale, pan },
-                |_, _| Msg::NoOp,
-            )
-            .into(),
+            Some(h) => {
+                let img = super::loupe_image::LoupeImage::new(
+                    h.clone(),
+                    self.compare.zoom,
+                    self.compare.pan,
+                    |scale, pan| Msg::CompareZoomChanged { scale, pan },
+                    |_, _| Msg::NoOp,
+                );
+                // Survey: click *focuses* the frame (zoom is on scroll), so picking
+                // which frame to flag is a click — not an accidental synced zoom.
+                // One-up: keep click-to-zoom for pixel-peeking the single big frame.
+                match self.compare.layout {
+                    ReviewLayout::Survey => img.on_click(move || Msg::CompareSetFocus(slot)).into(),
+                    ReviewLayout::OneUp => img.into(),
+                }
+            }
             None => {
                 if let Some(f) = file {
                     let thumb = self.thumbnails.get(&f.id).and_then(|s| {

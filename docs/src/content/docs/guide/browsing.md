@@ -59,7 +59,7 @@ Press `E` to enter **Preview** — a single-photo view that keeps the sidebar an
 
 Select **two or more photos** in the grid, then press `C` (or `Space`). They open in the **review surface** — side by side — one place with two layouts you flip between with `Space`:
 
-- **Survey** (the default) — all frames side by side, fit to the window, switchable between a horizontal **Row** and a **Grid** (no scrolling), with **synced zoom** (zoom one and every frame tracks the same spot for a 100% comparison).
+- **Survey** (the default) — all frames side by side, fit to the window, switchable between a horizontal **Row** and a **Grid** (no scrolling). **Click a frame to focus it** (cull keys act on the focused frame); **scroll to zoom** — every frame tracks the same spot for a 100% comparison.
 - **One-up** — the focused frame big over a filmstrip; turn on **Lock zoom** for a blink comparison as you step between frames.
 
 The **sharpest** frame is marked **◉ Sharpest** and each shows its rank (**Sharp #2 / 5**) — a *relative* comparison among the frames on screen, not an absolute "in focus" verdict. Flag the keeper with `P` and the rest with `X`, press `R` to drop an also-ran from the set, and `Esc` to return to the grid. Covered in detail under [Culling → Comparing similar shots](/guide/culling/).
