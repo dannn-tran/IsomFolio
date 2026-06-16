@@ -1,4 +1,5 @@
 use iced::{
+    mouse,
     widget::{button, column, container, mouse_area, row, scrollable, text, text_input, tooltip, Space},
     Alignment, Background, Border, Color, Element, Length, Theme,
 };
@@ -63,6 +64,7 @@ fn section_header<'a>(
         .align_y(Alignment::Center)
         .width(Length::Fill),
     )
+    .interaction(mouse::Interaction::Pointer)
     .on_press(Msg::ToggleSidebarSection(section))
     .into();
 
