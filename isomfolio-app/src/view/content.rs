@@ -287,12 +287,7 @@ impl App {
                 // Fit (not crop) so the whole frame shows — culling decisions turn on
                 // composition and the edges a square crop would hide. The tile bg
                 // fills the letterbox so the gaps read as intentional.
-                // Prefer the Tier-2 decoded handle (survives loupe round-trips, refills
-                // the atlas synchronously); fall back to the path until it's warmed.
-                let handle = self
-                    .thumb_cache
-                    .get(&file.id)
-                    .unwrap_or_else(|| image::Handle::from_path(path));
+                let handle = self.thumb_handle(&file.id, path);
                 container(
                     image(handle)
                         .width(self.tile_px)
@@ -573,17 +568,11 @@ impl App {
                 })
         };
         let thumb: Element<Msg> = match self.thumbnails.get(&file.id) {
-            Some(ThumbnailState::Ready(path)) => {
-                let handle = self
-                    .thumb_cache
-                    .get(&file.id)
-                    .unwrap_or_else(|| image::Handle::from_path(path));
-                image(handle)
-                    .width(thumb_px)
-                    .height(thumb_px)
-                    .content_fit(iced::ContentFit::Cover)
-                    .into()
-            }
+            Some(ThumbnailState::Ready(path)) => image(self.thumb_handle(&file.id, path))
+                .width(thumb_px)
+                .height(thumb_px)
+                .content_fit(iced::ContentFit::Cover)
+                .into(),
             _ => placeholder().into(),
         };
 

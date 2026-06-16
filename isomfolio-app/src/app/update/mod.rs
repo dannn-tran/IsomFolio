@@ -23,11 +23,20 @@ pub(super) use super::LockUnwrap;
 
 impl App {
     pub fn update(&mut self, msg: Msg) -> Task<Msg> {
+        let task = self.dispatch(msg);
+        // Single chokepoint for Tier-2 thumbnail residency: after any state change,
+        // warm the decoded cache for whatever surface is now active (grid viewport /
+        // loupe filmstrip / compare set). Gated to a no-op when the warm set is
+        // unchanged, so individual handlers never wire warming themselves.
+        Task::batch([task, self.warm_thumbs_if_changed()])
+    }
+
+    fn dispatch(&mut self, msg: Msg) -> Task<Msg> {
         // Any context-menu leaf action closes the menu first, then runs. Single
         // chokepoint so no individual handler has to remember to dismiss it.
         if let Msg::MenuAction(inner) = msg {
             self.context_menu = None;
-            return self.update(*inner);
+            return self.dispatch(*inner);
         }
         match msg {
             // — catalog & welcome —
@@ -722,10 +731,6 @@ impl App {
                 if let Some(loupe) = loupe_resync {
                     tasks.push(loupe);
                 }
-                // Pre-warm the Tier-2 decoded cache for the landing window so even the
-                // first loupe round-trip returns instantly (a later Scrolled re-warms
-                // the precise window once the restore scroll settles).
-                tasks.push(self.warm_visible_thumbs());
                 Task::batch(tasks)
             }
 

@@ -176,11 +176,7 @@ impl App {
         self.view_mode = ViewMode::Browse;
         self.loupe.full_res = None;
         self.loupe.prefetch.clear();
-        Task::batch([
-            self.scroll_to_index(self.loupe.idx),
-            self.restore_sidebar_scroll(),
-            self.warm_visible_thumbs(),
-        ])
+        Task::batch([self.scroll_to_index(self.loupe.idx), self.restore_sidebar_scroll()])
     }
 
     /// Leave the review (Compare) back to the grid, restoring the whole reviewed set
@@ -203,7 +199,7 @@ impl App {
         }
         self.view_mode = ViewMode::Browse;
         let scroll = self.anchor_idx.map(|i| self.scroll_to_index(i)).unwrap_or_else(Task::none);
-        Task::batch([scroll, self.restore_sidebar_scroll(), self.warm_visible_thumbs()])
+        Task::batch([scroll, self.restore_sidebar_scroll()])
     }
 
     /// Open the review surface (Compare) over the current multi-selection in `layout`.

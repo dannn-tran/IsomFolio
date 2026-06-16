@@ -268,6 +268,9 @@ pub struct App {
     /// the visible window decoded across loupe/compare round-trips so the grid refills
     /// iced's atlas synchronously instead of re-decoding from disk tile by tile.
     pub thumb_cache: thumb_cache::DecodedThumbCache,
+    /// Hash of the last warmed surface+id-set, so the `update` chokepoint re-warms the
+    /// Tier-2 cache only when the active surface's resident set changes.
+    pub last_warm_key: u64,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
     /// First grid row whose thumbnails were last pushed to the front of the
@@ -809,6 +812,7 @@ impl App {
             file_labels: HashMap::new(),
             thumbnails: HashMap::new(),
             thumb_cache: thumb_cache::DecodedThumbCache::new(THUMB_CACHE_BUDGET_BYTES),
+            last_warm_key: 0,
             grid_selected: HashSet::new(),
             tile_px: 180.0,
             thumb_priority_row: usize::MAX,
@@ -1183,13 +1187,60 @@ impl App {
         ));
     }
 
-    /// Fill the Tier-2 decoded cache for the current visible window (+ margin).
-    /// Reconciles the resident set against `visible_file_ids`, then decodes the
-    /// misses (whose Tier-0 JPEG already exists) off the UI thread. Cheap when warm
-    /// (reconcile is a few hash touches and returns no misses). Drives the cache from
-    /// `FilesLoaded` (pre-warm), grid scroll, and loupe/compare → grid returns.
-    pub(crate) fn warm_visible_thumbs(&mut self) -> Task<Msg> {
-        let ids = self.visible_file_ids();
+    /// Best `image::Handle` for a thumbnail: the Tier-2 decoded handle when warm,
+    /// else a path handle the renderer decodes on demand. The single lookup every
+    /// thumbnail render site uses (grid, list, loupe filmstrip, compare) — so the
+    /// fallback is never forgotten and the cache applies uniformly.
+    pub fn thumb_handle(&self, file_id: &str, cache_path: &str) -> iced::widget::image::Handle {
+        self.thumb_cache
+            .get(file_id)
+            .unwrap_or_else(|| iced::widget::image::Handle::from_path(cache_path))
+    }
+
+    /// The thumbnail ids that should be resident for the **active surface** — the one
+    /// place the Tier-2 warm policy lives. Add a surface ⇒ add an arm; nothing else
+    /// changes. (The loupe *full-res* image is a separate system and not included.)
+    pub(crate) fn current_warm_ids(&self) -> Vec<String> {
+        match self.view_mode {
+            ViewMode::Loupe => {
+                let total = self.files.len();
+                if total == 0 {
+                    return Vec::new();
+                }
+                let cur = self.loupe.idx.min(total - 1);
+                let lo = cur.saturating_sub(LOUPE_FILMSTRIP_WINDOW);
+                let hi = (cur + LOUPE_FILMSTRIP_WINDOW + 1).min(total);
+                self.files[lo..hi].iter().map(|f| f.id.clone()).collect()
+            }
+            ViewMode::Compare => self.compare.files.iter().map(|f| f.id.clone()).collect(),
+            // Browse, Preview (Preview's strip reuses the grid).
+            _ => self.visible_file_ids(),
+        }
+    }
+
+    /// Chokepoint warming (called once from `update`): re-warm only when the active
+    /// surface's resident set actually changes, so it's a no-op on the vast majority
+    /// of updates (a hash compare + the id-set build).
+    pub(crate) fn warm_thumbs_if_changed(&mut self) -> Task<Msg> {
+        use std::hash::{Hash, Hasher};
+        let ids = self.current_warm_ids();
+        let key = {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            std::mem::discriminant(&self.view_mode).hash(&mut h);
+            ids.hash(&mut h);
+            h.finish()
+        };
+        if key == self.last_warm_key {
+            return Task::none();
+        }
+        self.last_warm_key = key;
+        self.warm_thumbs(ids)
+    }
+
+    /// Decode `ids`' thumbnails into the Tier-2 cache off the UI thread. Cheap when
+    /// already warm (`reconcile` returns no misses). Residency is decided by the
+    /// caller (`current_warm_ids`); this just fills what's missing.
+    pub(crate) fn warm_thumbs(&mut self, ids: Vec<String>) -> Task<Msg> {
         if ids.is_empty() {
             return Task::none();
         }

@@ -168,7 +168,7 @@ impl App {
             let is_cur = slot == self.compare.focus;
             let thumb: Element<Msg> = match self.thumbnails.get(&f.id) {
                 Some(isomfolio_core::models::ThumbnailState::Ready(p)) => {
-                    image(image::Handle::from_path(p))
+                    image(self.thumb_handle(&f.id, p))
                         .content_fit(iced::ContentFit::Contain)
                         .width(THUMB)
                         .height(THUMB)
@@ -234,13 +234,13 @@ impl App {
                 if let Some(f) = file {
                     let thumb = self.thumbnails.get(&f.id).and_then(|s| {
                         if let isomfolio_core::models::ThumbnailState::Ready(p) = s {
-                            Some(p.clone())
+                            Some(self.thumb_handle(&f.id, p))
                         } else {
                             None
                         }
                     });
                     match thumb {
-                        Some(path) => image(image::Handle::from_path(path))
+                        Some(handle) => image(handle)
                             .content_fit(iced::ContentFit::Contain)
                             .width(Length::Fill)
                             .height(Length::Fill)

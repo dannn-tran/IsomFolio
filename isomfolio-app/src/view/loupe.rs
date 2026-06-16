@@ -16,14 +16,16 @@ impl App {
                 .height(Length::Fill)
                 .into(),
             None => {
-                let thumb_path = self.files.get(idx).and_then(|f| {
+                let thumb = self.files.get(idx).and_then(|f| {
                     match self.thumbnails.get(&f.id) {
-                        Some(isomfolio_core::models::ThumbnailState::Ready(p)) => Some(p.clone()),
+                        Some(isomfolio_core::models::ThumbnailState::Ready(p)) => {
+                            Some(self.thumb_handle(&f.id, p))
+                        }
                         _ => None,
                     }
                 });
-                match thumb_path {
-                    Some(p) => image(image::Handle::from_path(p))
+                match thumb {
+                    Some(handle) => image(handle)
                         .content_fit(iced::ContentFit::Contain)
                         .width(Length::Fill)
                         .height(Length::Fill)
@@ -80,18 +82,15 @@ impl App {
             .into(),
             None => {
                 if let Some(file) = self.files.get(idx) {
-                    let thumb = self
-                        .thumbnails
-                        .get(&file.id)
-                        .and_then(|s| {
-                            if let isomfolio_core::models::ThumbnailState::Ready(p) = s {
-                                Some(p.clone())
-                            } else {
-                                None
-                            }
-                        });
+                    let thumb = self.thumbnails.get(&file.id).and_then(|s| {
+                        if let isomfolio_core::models::ThumbnailState::Ready(p) = s {
+                            Some(self.thumb_handle(&file.id, p))
+                        } else {
+                            None
+                        }
+                    });
                     match thumb {
-                        Some(path) => image(image::Handle::from_path(path))
+                        Some(handle) => image(handle)
                             .content_fit(iced::ContentFit::Contain)
                             .width(Length::Fill)
                             .height(Length::Fill)
@@ -388,12 +387,12 @@ impl App {
     /// (not the whole library) to keep the widget count bounded.
     fn view_loupe_filmstrip(&self, current: usize) -> Element<'_, Msg> {
         const THUMB: f32 = 56.0;
-        const WINDOW: usize = 14;
+        let window = crate::app::LOUPE_FILMSTRIP_WINDOW;
         let total = self.files.len();
         // A window of the whole view around the current photo.
         let indices: Vec<usize> = {
-            let lo = current.saturating_sub(WINDOW);
-            let hi = (current + WINDOW + 1).min(total);
+            let lo = current.saturating_sub(window);
+            let hi = (current + window + 1).min(total);
             (lo..hi).collect()
         };
 
@@ -403,7 +402,7 @@ impl App {
             let is_cur = i == current;
             let thumb: Element<Msg> = match self.thumbnails.get(&file.id) {
                 Some(isomfolio_core::models::ThumbnailState::Ready(p)) => {
-                    image(image::Handle::from_path(p))
+                    image(self.thumb_handle(&file.id, p))
                         .width(THUMB)
                         .height(THUMB)
                         .content_fit(iced::ContentFit::Cover)

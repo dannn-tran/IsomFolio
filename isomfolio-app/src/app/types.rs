@@ -52,6 +52,9 @@ pub const BUFFER_ROWS: usize = 2;
 /// holds several screenfuls of decoded RGBA; eviction is LRU. See
 /// `dev-docs/thumbnail-cache.md`.
 pub const THUMB_CACHE_BUDGET_BYTES: usize = 128 * 1024 * 1024;
+/// Neighbours each side of the current photo shown in the loupe filmstrip — also the
+/// Tier-2 warm window for the loupe surface (`current_warm_ids`).
+pub const LOUPE_FILMSTRIP_WINDOW: usize = 14;
 /// Height of the minimal content-area toolbar (sort · view mode · grid size).
 pub const TOOLBAR_HEIGHT: f32 = 40.0;
 /// One row in the compact List layout (thumbnail + columns).
