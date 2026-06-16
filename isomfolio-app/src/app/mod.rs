@@ -762,6 +762,17 @@ impl App {
             None => (String::new(), None, String::new(), true, Task::none()),
         };
 
+        // First launch ever: reveal the Filters panel so the criteria controls are
+        // discoverable, then flip the one-time flag so every later launch starts it
+        // collapsed (nav-first default). `has_active_filters()` is always false here
+        // (filters aren't restored), so first-run is the only launch-time reveal.
+        let mut app_settings = isomfolio_core::app_paths::read_settings();
+        let filters_first_run = !app_settings.seen_filters_hint;
+        if filters_first_run {
+            app_settings.seen_filters_hint = true;
+            isomfolio_core::app_paths::save_settings(&app_settings);
+        }
+
         let app = App {
             catalog,
             catalog_dir: catalog_dir_str,
@@ -866,12 +877,15 @@ impl App {
             deleted_count: 0,
             import_batches: Vec::new(),
             show_all_imports: false,
-            // Filters starts collapsed: the sidebar opens on navigation (All
-            // Photos / Folders / Albums), not a wall of criteria. The pinned
-            // footer header + `●` marker keep it one click away.
+            // Filters starts collapsed after the first launch: the sidebar opens on
+            // navigation (All Photos / Folders / Albums), not a wall of criteria. The
+            // pinned footer header + `●` marker keep it one click away. On the very
+            // first launch it stays expanded once for discoverability.
             collapsed_sections: {
                 let mut s = HashSet::new();
-                s.insert(crate::app::types::SidebarSection::Filters);
+                if !filters_first_run {
+                    s.insert(crate::app::types::SidebarSection::Filters);
+                }
                 s
             },
             purge_pending: None,
@@ -882,7 +896,7 @@ impl App {
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_resizing: false,
             settings: SettingsState::default(),
-            app_settings: isomfolio_core::app_paths::read_settings(),
+            app_settings,
             faces: FaceState::default(),
             inference: None,
             inference_manifest: None,

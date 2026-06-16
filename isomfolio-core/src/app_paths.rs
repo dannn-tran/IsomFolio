@@ -95,6 +95,11 @@ pub struct AppSettings {
     /// has been shown. Set true after the first soft-delete so it never repeats.
     #[serde(default)]
     pub seen_delete_hint: bool,
+    /// Whether the sidebar Filters panel has been auto-revealed once. On the first
+    /// launch it starts expanded so the criteria panel is discoverable; the flag
+    /// flips true so every later launch starts it collapsed (the nav-first default).
+    #[serde(default)]
+    pub seen_filters_hint: bool,
 }
 
 impl Default for AppSettings {
@@ -109,6 +114,7 @@ impl Default for AppSettings {
             face_eps: default_face_eps(),
             face_min_pts: default_face_min_pts(),
             seen_delete_hint: false,
+            seen_filters_hint: false,
         }
     }
 }
