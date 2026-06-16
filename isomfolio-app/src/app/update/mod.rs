@@ -722,6 +722,10 @@ impl App {
                 if let Some(loupe) = loupe_resync {
                     tasks.push(loupe);
                 }
+                // Pre-warm the Tier-2 decoded cache for the landing window so even the
+                // first loupe round-trip returns instantly (a later Scrolled re-warms
+                // the precise window once the restore scroll settles).
+                tasks.push(self.warm_visible_thumbs());
                 Task::batch(tasks)
             }
 
@@ -848,6 +852,13 @@ impl App {
             Msg::ThumbnailFailed { file_id } => {
                 self.thumbnails.insert(file_id, ThumbnailState::Failed(0));
                 self.thumb_settled()
+            }
+
+            Msg::ThumbDecoded(items) => {
+                for (id, handle, bytes) in items {
+                    self.thumb_cache.insert(id, handle, bytes);
+                }
+                Task::none()
             }
 
             Msg::ClearThumbnailProgress(gen) => {

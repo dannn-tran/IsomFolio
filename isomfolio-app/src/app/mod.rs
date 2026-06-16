@@ -1,6 +1,7 @@
 pub mod input_ids;
 pub mod keybinds;
 pub mod loupe;
+pub mod thumb_cache;
 mod types;
 mod update;
 
@@ -263,6 +264,10 @@ pub struct App {
     pub file_ratings: HashMap<String, i32>,
     pub file_labels: HashMap<String, String>,
     pub thumbnails: HashMap<String, ThumbnailState>,
+    /// Tier-2 decoded-RGBA thumbnail cache (see `dev-docs/thumbnail-cache.md`): keeps
+    /// the visible window decoded across loupe/compare round-trips so the grid refills
+    /// iced's atlas synchronously instead of re-decoding from disk tile by tile.
+    pub thumb_cache: thumb_cache::DecodedThumbCache,
     pub grid_selected: HashSet<String>,
     pub tile_px: f32,
     /// First grid row whose thumbnails were last pushed to the front of the
@@ -803,6 +808,7 @@ impl App {
             file_ratings: HashMap::new(),
             file_labels: HashMap::new(),
             thumbnails: HashMap::new(),
+            thumb_cache: thumb_cache::DecodedThumbCache::new(THUMB_CACHE_BUDGET_BYTES),
             grid_selected: HashSet::new(),
             tile_px: 180.0,
             thumb_priority_row: usize::MAX,
@@ -1175,6 +1181,43 @@ impl App {
                 let _ = tx_failed.try_send(ThumbnailEvent::Failed(fid));
             },
         ));
+    }
+
+    /// Fill the Tier-2 decoded cache for the current visible window (+ margin).
+    /// Reconciles the resident set against `visible_file_ids`, then decodes the
+    /// misses (whose Tier-0 JPEG already exists) off the UI thread. Cheap when warm
+    /// (reconcile is a few hash touches and returns no misses). Drives the cache from
+    /// `FilesLoaded` (pre-warm), grid scroll, and loupe/compare → grid returns.
+    pub(crate) fn warm_visible_thumbs(&mut self) -> Task<Msg> {
+        let ids = self.visible_file_ids();
+        if ids.is_empty() {
+            return Task::none();
+        }
+        let misses = self.thumb_cache.reconcile(&ids);
+        let work: Vec<(String, String)> = misses
+            .into_iter()
+            .filter_map(|id| match self.thumbnails.get(&id) {
+                Some(ThumbnailState::Ready(path)) => Some((id, path.clone())),
+                _ => None,
+            })
+            .collect();
+        if work.is_empty() {
+            return Task::none();
+        }
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    work.into_iter()
+                        .filter_map(|(id, path)| {
+                            thumb_cache::decode_thumb_rgba(&path).map(|(h, n)| (id, h, n))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_default()
+            },
+            Msg::ThumbDecoded,
+        )
     }
 
     pub(crate) fn enqueue_thumbnails(&mut self) {

@@ -48,6 +48,10 @@ pub const TILE_SIZE_MAX: f32 = 400.0;
 pub const SIDEBAR_WIDTH_MIN: f32 = 140.0;
 pub const SIDEBAR_WIDTH_MAX: f32 = 400.0;
 pub const BUFFER_ROWS: usize = 2;
+/// Byte budget for the Tier-2 decoded-thumbnail cache (`DecodedThumbCache`). ~128 MB
+/// holds several screenfuls of decoded RGBA; eviction is LRU. See
+/// `dev-docs/thumbnail-cache.md`.
+pub const THUMB_CACHE_BUDGET_BYTES: usize = 128 * 1024 * 1024;
 /// Height of the minimal content-area toolbar (sort · view mode · grid size).
 pub const TOOLBAR_HEIGHT: f32 = 40.0;
 /// One row in the compact List layout (thumbnail + columns).
@@ -629,6 +633,9 @@ pub enum Msg {
     LoupePrefetchLoaded { idx: usize, handle: iced::widget::image::Handle },
     ThumbnailCompleted { file_id: String, path: String },
     ThumbnailFailed { file_id: String },
+    /// Decoded RGBA thumbnails for the visible window (Tier-2 cache fill). Each item
+    /// is `(file_id, handle, decoded_byte_len)`. See `dev-docs/thumbnail-cache.md`.
+    ThumbDecoded(Vec<(String, iced::widget::image::Handle, usize)>),
     FileWatcherEvent(isomfolio_core::indexing::types::FileEvent),
     FlushFileEvents(u64),
     SyncXmpForSelection,
